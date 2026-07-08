@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { ApiError } from '../../services/api';
+import { getInventoryAlerts, type InventoryAlerts } from '../../services/inventory';
 import { listPlannerEvents, type PlannerEvent } from '../../services/plannerEvents';
 import { getPlannerSummary, type PlannerSummary } from '../../services/plannerSummary';
 import { listPlannerTasks, type PlannerTask } from '../../services/plannerTasks';
@@ -101,6 +102,85 @@ function BriefingCard({ summary }: { summary: PlannerSummary | null }) {
   );
 }
 
+function InventoryUrgencyCard({
+  alerts,
+  onPress,
+  variant,
+}: {
+  alerts: InventoryAlerts | null;
+  onPress: () => void;
+  variant: 'light' | 'dark';
+}) {
+  if (!alerts) return null;
+
+  const urgentCount = alerts.low_stock_count
+    + alerts.out_of_stock_count
+    + alerts.pending_restock_requests_count;
+
+  if (urgentCount === 0) return null;
+
+  const dark = variant === 'dark';
+  const firstOut = alerts.out_of_stock_items[0];
+  const firstLow = alerts.low_stock_items[0];
+
+  const headline = firstOut
+    ? `Sin stock: ${firstOut.name}`
+    : firstLow
+      ? `Stock critico: ${firstLow.name}`
+      : `${alerts.pending_restock_requests_count} reposicion pendiente`;
+
+  return (
+    <AppCard variant="warning" padding="default" highlighted style={styles.card} onPress={onPress}>
+      <View style={styles.cardHeader}>
+        <View style={styles.cardHeaderIcon}>
+          <HomePlusIcon name="archive" color={colors.warning.base} size={18} />
+        </View>
+        <AppText variant="title3" tone={dark ? 'inverse' : 'warning'}>
+          Inventario
+        </AppText>
+        <AppText variant="caption" tone="warning" weight="700">
+          Ver
+        </AppText>
+      </View>
+      <AppText variant="bodySmall" tone="secondary" weight="700">
+        {headline}
+      </AppText>
+      <AppText variant="caption" tone="tertiary">
+        {alerts.out_of_stock_count} sin stock - {alerts.low_stock_count} bajo stock - {alerts.pending_restock_requests_count} por aprobar
+      </AppText>
+    </AppCard>
+  );
+}
+
+function useHomeInventoryAlerts() {
+  const { session } = useAuth();
+  const accessToken = session?.access_token;
+  const [alerts, setAlerts] = useState<InventoryAlerts | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!accessToken) return;
+
+    setLoading(true);
+    try {
+      const response = await getInventoryAlerts(accessToken);
+      setAlerts(response.alerts);
+    } catch {
+      setAlerts(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refresh();
+    }, [refresh]),
+  );
+
+  return { alerts, loading, refresh };
+}
+
 export function useHomePlannerData() {
   const { session, authMe } = useAuth();
   const { members } = useHousehold();
@@ -179,6 +259,7 @@ export function useHomePlannerData() {
 export function HomePlannerSections({ variant = 'light' }: Props) {
   const navigation = useNavigation<any>();
   const { error, events, loading, memberNameById, summary, tasks } = useHomePlannerData();
+  const { alerts: inventoryAlerts } = useHomeInventoryAlerts();
   const dark = variant === 'dark';
   const cardVariant = dark ? 'glass' : 'default';
 
@@ -197,6 +278,11 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
   return (
     <View style={styles.container}>
       <BriefingCard summary={summary} />
+      <InventoryUrgencyCard
+        alerts={inventoryAlerts}
+        variant={variant}
+        onPress={() => navigation.navigate('Inventory')}
+      />
 
       {error ? (
         <ErrorState title="No pudimos cargar Planner" description={error} style={styles.stateCard} />

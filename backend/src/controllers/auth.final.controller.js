@@ -88,6 +88,12 @@ const login = async (req, res) => {
       throw createHttpError(500, 'Supabase no devolvio una sesion valida.', 'auth_session_missing')
     }
 
+    await createPersonForUser({
+      user: data.user,
+      session: data.session,
+      displayName: data.user.user_metadata?.display_name ?? data.user.email,
+    })
+
     const authMe = await buildMe({
       user: data.user,
       accessToken: data.session.access_token,

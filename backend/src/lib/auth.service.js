@@ -86,7 +86,8 @@ const createPersonForUser = async ({ user, session, displayName }) => {
     default_language: 'es-419',
   }
 
-  const client = supabaseAdmin ?? (session?.access_token ? createSupabaseForToken(session.access_token) : null)
+  const hasSessionClient = Boolean(session?.access_token)
+  const client = supabaseAdmin ?? (hasSessionClient ? createSupabaseForToken(session.access_token) : null)
 
   if (!client) {
     throw createHttpError(
@@ -96,9 +97,42 @@ const createPersonForUser = async ({ user, session, displayName }) => {
     )
   }
 
+  const existingPerson = await getPersonByAuthUserId(client, user.id)
+
+  if (existingPerson) {
+    return existingPerson
+  }
+
   const { data, error } = await client.from('people').insert(payload).select('*').single()
 
   if (error) {
+    if (error.code === '23505') {
+      const person = await getPersonByAuthUserId(client, user.id)
+
+      if (person) {
+        return person
+      }
+    }
+
+    if (!supabaseAdmin && hasSessionClient && error.code === '42501') {
+      const { data: rpcData, error: rpcError } = await client
+        .rpc('create_person_for_current_user', { p_display_name: payload.display_name })
+
+      if (!rpcError && rpcData) {
+        return rpcData
+      }
+
+      if (rpcError?.code === 'PGRST202') {
+        throw createHttpError(
+          500,
+          'Falta aplicar la migracion Supabase 202607080002_create_person_for_current_user_rpc.sql en la base configurada.',
+          'person_create_rpc_missing',
+        )
+      }
+
+      throw createHttpError(500, rpcError?.message ?? error.message, 'person_create_failed')
+    }
+
     throw createHttpError(500, error.message, 'person_create_failed')
   }
 

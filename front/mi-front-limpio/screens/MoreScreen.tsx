@@ -27,7 +27,7 @@ const MODULES = [
     color: colors.sage[600],
     bg: colors.sage[50],
     screen: 'Inventory' as const,
-    isDemo: true,
+    isDemo: false,
   },
 ];
 

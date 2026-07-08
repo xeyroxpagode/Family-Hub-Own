@@ -1,6 +1,52 @@
+import { Platform } from 'react-native';
 import axios from 'axios';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+const RAW_API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+
+const resolveApiBaseUrl = () => {
+  if (!RAW_API_BASE_URL) return RAW_API_BASE_URL;
+
+  if (Platform.OS !== 'web') {
+    return RAW_API_BASE_URL.replace(/\/+$/, '');
+  }
+
+  try {
+    const url = new URL(RAW_API_BASE_URL);
+    if (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+      url.hostname = 'localhost';
+    }
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return RAW_API_BASE_URL.replace(/\/+$/, '');
+  }
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
+
+const redactRequestBody = (body: unknown) => {
+  if (!body || typeof body !== 'object') {
+    return body === undefined ? undefined : '<non-object-body>';
+  }
+
+  return Object.fromEntries(
+    Object.entries(body as Record<string, unknown>).map(([key, value]) => [
+      key,
+      key.toLowerCase().includes('password') || key.toLowerCase().includes('token')
+        ? '<redacted>'
+        : value,
+    ]),
+  );
+};
+
+const logApiDebug = (event: string, data: Record<string, unknown>) => {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    try {
+      console.log(`[HomePlus API] ${event} ${JSON.stringify(data)}`);
+    } catch {
+      console.log(`[HomePlus API] ${event}`);
+    }
+  }
+};
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -229,22 +275,48 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
 
   const fullUrl = buildApiUrl(path);
 
-  const response = await fetch(fullUrl, {
+  logApiDebug('request', {
+    baseURL: API_BASE_URL,
+    endpoint: path,
     method,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      ...getBearerHeaders(accessToken),
-      ...headers,
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: redactRequestBody(body),
   });
+
+  let response: Response;
+
+  try {
+    response = await fetch(fullUrl, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...getBearerHeaders(accessToken),
+        ...headers,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (error) {
+    logApiDebug('network-error', {
+      baseURL: API_BASE_URL,
+      endpoint: path,
+      method,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
   const text = await response.text();
 
   if (!text) {
     if (!response.ok) {
       const debugMsg = `Empty response from ${method} ${path} (status ${response.status})`;
+      logApiDebug('error', {
+        baseURL: API_BASE_URL,
+        endpoint: path,
+        method,
+        status: response.status,
+        body: null,
+      });
       throw new ApiError(
         'No pudimos conectar correctamente con el servidor. Intentá de nuevo.',
         response.status,
@@ -263,6 +335,13 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
     const contentType = response.headers.get('content-type') || 'unknown';
     const bodyPreview = text.slice(0, 200).replace(/\s+/g, ' ');
     const debugMsg = `Invalid JSON from ${method} ${path} (status ${response.status}, content-type: ${contentType}, body: ${bodyPreview})`;
+    logApiDebug('invalid-json', {
+      baseURL: API_BASE_URL,
+      endpoint: path,
+      method,
+      status: response.status,
+      body: bodyPreview,
+    });
     
     let userMessage = 'No pudimos conectar correctamente con el servidor. Intentá de nuevo.';
     if (response.status === 401) {
@@ -277,6 +356,13 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
   }
 
   if (!response.ok) {
+    logApiDebug('error', {
+      baseURL: API_BASE_URL,
+      endpoint: path,
+      method,
+      status: response.status,
+      body: payload,
+    });
     throw new ApiError(
       getResponseMessage(payload, 'No pudimos completar la solicitud.'),
       response.status,

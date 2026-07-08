@@ -19,6 +19,7 @@ const invitationsRoutes = require('./src/routes/invitations');
 const usersRoutes = require('./src/routes/users');
 const peopleRoutes = require('./src/routes/people');
 const plannerRoutes = require('./src/routes/planner');
+const inventoryRoutes = require('./src/routes/inventory');
 
 const app = express();
 
@@ -76,6 +77,7 @@ app.use('/api/users', usersRoutes);
 app.use('/users', usersRoutes);
 app.use('/api/people', peopleRoutes);
 app.use('/api/planner', plannerRoutes);
+app.use('/api/inventory', inventoryRoutes);
 // Ruta de prueba
 app.get('/', (req, res) => {
     res.send('¡El servidor de FamilyHub está funcionando correctamente!');
@@ -138,5 +140,5 @@ app.use((err, req, res, next) => {
 // 9. Encender servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor listo en http://localhost:3000`);
+    console.log(`🚀 Servidor listo en http://localhost:${PORT}`);
 });

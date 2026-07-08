@@ -14,6 +14,8 @@ import { ForgotPasswordScreen } from '../screens/ForgotPassword';
 import { UpdatePasswordScreen } from '../screens/UpdatePassword';
 import { HomeTabNavigator } from './HomeTabNavigator';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { InventarioScreen } from '../screens/inventory/InventarioScreen';
+import { FeedFamiliarScreen } from '../screens/feed/FeedFamiliarScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const PrivateStack = createNativeStackNavigator<PrivateStackParamList>();
@@ -206,6 +208,8 @@ const PrivateNavigator = () => {
       <PrivateStack.Screen name="HouseholdSelectionFallback" component={HouseholdSelectionFallbackScreen} />
       <PrivateStack.Screen name="AccessSuspendedFallback" component={AccessSuspendedFallbackScreen} />
       <PrivateStack.Screen name="ProfileScreen" component={ProfileScreen} />
+      <PrivateStack.Screen name="Inventory" component={InventarioScreen} />
+      <PrivateStack.Screen name="FeedFamiliar" component={FeedFamiliarScreen} />
     </PrivateStack.Navigator>
   );
 };
