@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
-import { Animated, Text, TouchableOpacity, View } from 'react-native';
-import { plannerStyles as S } from './plannerShared';
+import { Alert, Animated, Image, Text, TouchableOpacity, View } from 'react-native';
+import { plannerStyles as S, getTypeDotColor, getTypeLabel, formatDate, formatTime } from './plannerShared';
 import { colors } from '../../constants/theme';
 
 type CalendarDayCellProps = {
@@ -182,12 +182,29 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
   }
 
   const isCompleted = item.status === 'completed' || item.status === 'verified';
-  const isPending = item.status === 'pending' || item.status === 'awaiting_verification';
+  const isPending = item.status === 'pending';
+  const isAwaiting = item.status === 'awaiting_verification';
   const isHighPriority = item.priority === 'high';
   const isCriticalPriority = item.priority === 'critical';
 
-  const priorityLabel = item.priority === 'high' ? 'Alta' : item.priority === 'critical' ? 'Crítica' : item.priority === 'medium' ? 'Normal' : 'Baja';
-  const statusLabel = item.status === 'completed' ? 'Completada' : item.status === 'verified' ? 'Verificada' : item.status === 'awaiting_verification' ? 'Por verificar' : 'Pendiente';
+  const typeLabel = getTypeLabel(item.template_key, item.category);
+  const typeDotColor = getTypeDotColor(item.template_key);
+  const priorityLabel = item.priority === 'high' ? 'Alta' : item.priority === 'critical' ? 'Urgente' : item.priority === 'medium' ? 'Normal' : 'Baja';
+  const statusLabel = item.status === 'awaiting_verification' ? 'Por verificar' : item.status === 'completed' ? 'Completada' : item.status === 'verified' ? 'Verificada' : 'Pendiente';
+  const ownerLabel = item.assigned_member?.display_name || null;
+
+  const openMenu = () => {
+    const actions: Array<{ text: string; style?: 'default' | 'destructive' | 'cancel'; onPress?: () => void }> = [];
+    if (isPending) {
+      actions.push({ text: 'Completar', onPress: () => onCompleteTask(item.id) });
+    }
+    if (isAwaiting) {
+      actions.push({ text: 'Verificar', onPress: () => onCompleteTask(item.id) });
+    }
+    actions.push({ text: 'Editar', onPress: () => onEditTask(item.id) });
+    actions.push({ text: 'Cancelar', style: 'cancel' as const });
+    Alert.alert('Opciones de tarea', item.title, actions);
+  };
 
   return (
     <View
@@ -198,50 +215,25 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
         isCriticalPriority ? S.calendarAgendaCardTaskCritical : {},
       ]}
     >
-      <View style={S.calendarAgendaHeader}>
-        <View style={{ flex: 1 }}>
-          <Text style={S.calendarAgendaTitle}>{item.title}</Text>
-          <Text style={S.calendarAgendaMeta}>
-            {item.due_time ? formatTimeShort(item.due_time) : ''} · {priorityLabel} · {statusLabel}
-          </Text>
-        </View>
-        <View
-          style={[
-            S.calendarAgendaBadge,
-            isCompleted
-              ? S.calendarAgendaBadgeTaskCompleted
-              : S.calendarAgendaBadgeTask,
-          ]}
-        >
-          <Text
-            style={[
-              S.calendarAgendaBadgeText,
-              isCompleted
-                ? S.calendarAgendaBadgeTextCompleted
-                : S.calendarAgendaBadgeTextTask,
-            ]}
-          >
-            Tarea
-          </Text>
-        </View>
-      </View>
-      <View style={S.calendarAgendaActions}>
-        {isPending ? (
-          <TouchableOpacity
-            style={[S.secondaryBtn, { minHeight: 36, paddingVertical: 6 }, isSaving && { opacity: 0.6 }]}
-            onPress={() => onCompleteTask(item.id)}
-            disabled={isSaving}
-          >
-            <Text style={S.secondaryText}>Completar</Text>
+      <TouchableOpacity onPress={() => onEditTask(item.id)} onLongPress={openMenu} disabled={isSaving}>
+        <View style={S.calendarAgendaHeader}>
+          <View style={[S.taskTypeDot, { width: 28, height: 28, borderRadius: 14, marginRight: 0, backgroundColor: typeDotColor }]}>
+            <Text style={[S.taskTypeDotIcon, { fontSize: 14 }]}>📝</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={S.calendarAgendaTitle}>{item.title}</Text>
+            <Text style={S.calendarAgendaMeta}>
+              {item.due_time ? formatTime(item.due_time) : ''} · {formatDate(item.due_date)} · {typeLabel}
+            </Text>
+            {ownerLabel ? (
+              <Text style={[S.calendarAgendaMeta, { marginTop: 2 }]}>{ownerLabel}</Text>
+            ) : null}
+          </View>
+          <TouchableOpacity onPress={openMenu} style={[S.taskOverflowBtn, { width: 28, height: 28, borderRadius: 14 }]} disabled={isSaving}>
+            <Text style={[S.taskOverflowBtnText, { fontSize: 16 }]}>⋮</Text>
           </TouchableOpacity>
-        ) : null}
-        <TouchableOpacity
-          style={[S.secondaryBtn, { minHeight: 36, paddingVertical: 6 }]}
-          onPress={() => onEditTask(item.id)}
-        >
-          <Text style={S.secondaryText}>Editar</Text>
-        </TouchableOpacity>
-      </View>
+        </View>
+      </TouchableOpacity>
     </View>
   );
 };

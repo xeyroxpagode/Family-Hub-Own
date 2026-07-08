@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { ErrorState } from '../../components/ui';
+import { HomePlusIcon } from '../../constants/icons';
 import { ApiError } from '../../services/api';
 import { getPlannerCalendar, type PlannerCalendarEventItem, type PlannerCalendarItem, type PlannerCalendarView } from '../../services/plannerCalendar';
 import { cancelPlannerEvent } from '../../services/plannerEvents';
@@ -17,12 +18,12 @@ import {
   plannerStyles as S,
 } from './plannerShared';
 import { AgendaItemCard, CalendarDayCell, WeekDayCell } from './PlannerCalendarComponents';
-import { spacing } from '../../constants/theme';
+import { colors, spacing } from '../../constants/theme';
 
 type Props = {
   refreshKey?: number;
   onChanged?: () => void;
-  onCreateEvent?: () => void;
+  onCreateEvent?: (initialDate: string) => void;
   onEditEvent?: (
     eventId: string,
     context?: {
@@ -173,20 +174,7 @@ const selectedDateItems = useMemo(
   return (
     <View style={{ flex: 1 }}>
       <View style={[S.headerRow, { marginBottom: 16 }]}>
-        <View>
-          <Text style={S.sectionTitle}>Calendario familiar</Text>
-          <Text style={S.subtitle}>
-            {view === 'day' ? 'Ves un día a la vez' : view === 'week' ? 'Ves la semana completa' : 'Ves todo el mes'}
-          </Text>
-        </View>
-        <View style={{ flexDirection: 'row', gap: spacing[2] }}>
-          <TouchableOpacity style={S.secondaryBtn} onPress={handleCreateTask}>
-            <Text style={S.secondaryText}>Crear tarea</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={S.primaryBtn} onPress={onCreateEvent}>
-            <Text style={S.btnText}>Nuevo</Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={S.sectionTitle}>Calendario</Text>
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }} contentContainerStyle={{ paddingRight: spacing[4] }}>
@@ -204,32 +192,36 @@ const selectedDateItems = useMemo(
         })}
       </ScrollView>
 
-      <View style={[S.row, { marginBottom: 14 }]}>
+      <View style={[S.row, { marginBottom: 14, justifyContent: 'center', alignItems: 'center', gap: spacing[2] }]}>
         <TouchableOpacity
-          style={[S.secondaryBtn, { flex: 1, minHeight: 40, paddingVertical: 8 }]}
+          style={S.calendarNavArrow}
           onPress={() => setSelectedDate((prev) => moveDate(prev, view, -1))}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={S.secondaryText}>Anterior</Text>
+          <HomePlusIcon name="chevron-back" size={18} color={colors.text.primary} />
         </TouchableOpacity>
+
         <TouchableOpacity
-          style={[S.primaryBtn, { flex: 1, minHeight: 40, paddingVertical: 8, marginLeft: spacing[2] }]}
+          style={S.calendarNavToday}
           onPress={() => setSelectedDate(new Date())}
         >
-          <Text style={S.btnText}>Hoy</Text>
+          <Text style={S.calendarNavTodayText}>Hoy</Text>
         </TouchableOpacity>
+
         <TouchableOpacity
-          style={[S.secondaryBtn, { flex: 1, minHeight: 40, paddingVertical: 8, marginLeft: spacing[2] }]}
+          style={S.calendarNavArrow}
           onPress={() => setSelectedDate((prev) => moveDate(prev, view, 1))}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={S.secondaryText}>Siguiente</Text>
+          <HomePlusIcon name="chevron-forward" size={18} color={colors.text.primary} />
         </TouchableOpacity>
       </View>
 
-      <Text style={[S.label, { marginBottom: 10, textTransform: 'none', fontSize: 13 }]}>
+      <Text style={[S.label, { marginBottom: 12, textTransform: 'none', fontSize: 13, textAlign: 'center' }]}>
         {view === 'month'
-          ? `Este mes de ${selectedDate.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}`
+          ? selectedDate.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })
           : view === 'week'
-          ? `Esta semana del ${formatDate(dateToYMD(weekDays[0].date))} al ${formatDate(dateToYMD(weekDays[6].date))}`
+          ? `${formatDate(dateToYMD(weekDays[0].date))} al ${formatDate(dateToYMD(weekDays[6].date))}`
           : selectedDateKey === today
           ? `Hoy, ${formatDate(dateToYMD(selectedDate))}`
           : selectedDateKey === dateToYMD(addDays(new Date(), 1))
@@ -318,7 +310,7 @@ const selectedDateItems = useMemo(
               : 'Los eventos y tareas con fecha van a aparecer en el calendario.'}
           </Text>
           <View style={{ flexDirection: 'row', gap: spacing[2] }}>
-            <TouchableOpacity style={[S.primaryBtn, { marginTop: 8 }]} onPress={onCreateEvent}>
+            <TouchableOpacity style={[S.primaryBtn, { marginTop: 8 }]} onPress={() => onCreateEvent?.(selectedDateKey)}>
               <Text style={S.btnText}>Crear evento</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[S.secondaryBtn, { marginTop: 8 }]} onPress={handleCreateTask}>
@@ -337,7 +329,7 @@ const selectedDateItems = useMemo(
             No hay tareas ni eventos para esta fecha.
           </Text>
           <View style={{ flexDirection: 'row', gap: spacing[2] }}>
-            <TouchableOpacity style={[S.primaryBtn, { marginTop: 8 }]} onPress={onCreateEvent}>
+            <TouchableOpacity style={[S.primaryBtn, { marginTop: 8 }]} onPress={() => onCreateEvent?.(selectedDateKey)}>
               <Text style={S.btnText}>Crear evento</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[S.secondaryBtn, { marginTop: 8 }]} onPress={handleCreateTask}>

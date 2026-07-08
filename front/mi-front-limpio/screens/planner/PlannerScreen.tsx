@@ -26,6 +26,7 @@ type PlannerSheet =
       occurrenceStartsAt?: string;
       occurrenceEndsAt?: string;
       isGeneratedRecurringOccurrence?: boolean;
+      initialDate?: string;
     };
 
 export function PlannerScreen() {
@@ -226,7 +227,7 @@ export function PlannerScreen() {
           <PlannerCalendarScreen
             refreshKey={refreshKey}
             onChanged={changed}
-            onCreateEvent={() => setSheet({ type: 'event', mode: 'create' })}
+            onCreateEvent={(initialDate) => setSheet({ type: 'event', mode: 'create', initialDate })}
             onEditEvent={(eventId, context) =>
               setSheet(
                 context?.isGeneratedRecurringOccurrence
@@ -363,6 +364,7 @@ export function PlannerScreen() {
               <EventForm
                 mode={sheet.mode}
                 eventId={sheet.id}
+                initialDate={sheet.initialDate}
                 embedded
                 onClose={() => setSheet(null)}
                 onSaved={completeSheetMutation}

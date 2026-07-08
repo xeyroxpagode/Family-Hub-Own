@@ -17,6 +17,48 @@ export const statusLabels: Record<PlannerTaskStatus, string> = {
   cancelled: 'Cancelada',
 };
 
+export const typeLabels: Record<string, string> = {
+  cleaning: 'Limpieza',
+  shopping: 'Compras',
+  pets: 'Mascotas',
+  medication: 'Medicación',
+  studies: 'Estudios',
+  payments: 'Pagos',
+};
+
+export const typeIcons: Record<string, string> = {
+  cleaning: 'sparkles',
+  shopping: 'cart',
+  pets: 'paw',
+  medication: 'medical',
+  studies: 'school',
+  payments: 'card',
+};
+
+export const getTypeLabel = (templateKey?: string | null, category?: string | null): string => {
+  if (templateKey && typeLabels[templateKey]) return typeLabels[templateKey];
+  if (category) return category;
+  return 'General';
+};
+
+export const getTypeIcon = (templateKey?: string | null): string | undefined => {
+  if (templateKey && typeIcons[templateKey]) return typeIcons[templateKey];
+  return undefined;
+};
+
+export const getTypeDotColor = (templateKey?: string | null) => {
+  const map: Record<string, string> = {
+    cleaning: '#94B097',
+    shopping: '#DFBC72',
+    pets: '#D4944A',
+    medication: '#C46B6B',
+    studies: '#7A8B9B',
+    payments: '#E28A5F',
+  };
+  if (templateKey && map[templateKey]) return map[templateKey];
+  return '#B0C8B3';
+};
+
 export const recurrenceLabels = {
   none: 'No repetir',
   daily: 'Diaria',
@@ -562,6 +604,30 @@ export const plannerStyles = StyleSheet.create({
   taskFormChipPriorityHighTextActive: {
     color: colors.text.inverse,
   },
+  calendarNavArrow: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface.soft,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+  },
+  calendarNavToday: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.terracotta[500],
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 38,
+  },
+  calendarNavTodayText: {
+    color: colors.text.inverse,
+    fontSize: 13,
+    fontWeight: '800',
+  },
   calendarViewChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -882,5 +948,169 @@ export const plannerStyles = StyleSheet.create({
     color: colors.text.primary,
     fontWeight: '700',
     fontSize: 15,
+  },
+  taskTypeDot: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing[2],
+  },
+  taskTypeDotIcon: {
+    fontSize: 16,
+    color: colors.text.inverse,
+  },
+  taskTypeDotGeneral: {
+    backgroundColor: colors.sage[400],
+  },
+  taskOverflowBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface.soft,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+  },
+  taskOverflowBtnText: {
+    color: colors.text.tertiary,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  taskCardBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  taskCardContent: {
+    flex: 1,
+    marginLeft: spacing[2],
+  },
+  taskCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  taskCardTitle: {
+    color: colors.text.primary,
+    fontSize: 17,
+    fontWeight: '700',
+    flex: 1,
+  },
+  taskDateLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+    marginTop: 4,
+    flexWrap: 'wrap' as const,
+  },
+  taskDateText: {
+    color: colors.text.tertiary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  taskDateToday: {
+    color: colors.terracotta[500],
+    fontWeight: '700',
+  },
+  taskDateOverdue: {
+    color: colors.warning.text,
+    fontWeight: '700',
+  },
+  taskOwnerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+    marginTop: 6,
+  },
+  taskOwnerAvatarSm: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taskOwnerAvatarText: {
+    color: colors.text.inverse,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  taskOwnerLabel: {
+    color: colors.text.secondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  taskOwnerUnassigned: {
+    color: colors.text.tertiary,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  taskPriorityBadge: {
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: colors.warning.soft,
+    borderWidth: 1,
+    borderColor: colors.warning.base,
+  },
+  taskPriorityBadgeCritical: {
+    backgroundColor: colors.danger.soft,
+    borderColor: colors.danger.base,
+  },
+  taskPriorityBadgeText: {
+    color: colors.warning.text,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  taskPriorityBadgeTextCritical: {
+    color: colors.danger.text,
+  },
+  taskReviewLabel: {
+    color: colors.sage[600],
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  taskTypeLabelInline: {
+    color: colors.text.tertiary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  taskSectionHeader: {
+    marginTop: spacing[3],
+    marginBottom: spacing[2],
+    paddingHorizontal: spacing[1],
+  },
+  taskSectionHeaderText: {
+    color: colors.text.secondary,
+    fontSize: 13,
+    fontWeight: '800',
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+  },
+  taskTypeFilterChip: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minHeight: 28,
+    backgroundColor: colors.surface.soft,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6,
+  },
+  taskTypeFilterChipActive: {
+    backgroundColor: colors.terracotta[500],
+    borderColor: colors.terracotta[500],
+  },
+  taskTypeFilterChipText: {
+    color: colors.text.secondary,
+    fontWeight: '600',
+    fontSize: 11,
+  },
+  taskTypeFilterChipTextActive: {
+    color: colors.text.inverse,
   },
 });

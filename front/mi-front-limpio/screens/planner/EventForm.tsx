@@ -25,7 +25,7 @@ import {
 } from '../../services/plannerEvents';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
-import { buildLocalIso, dateToYMD, plannerStyles as S, recurrenceLabels } from './plannerShared';
+import { buildLocalIso, dateToYMD, addDays, plannerStyles as S, recurrenceLabels } from './plannerShared';
 import { colors } from '../../constants/theme';
 
 type EventFormProps = {
@@ -37,6 +37,7 @@ type EventFormProps = {
   occurrenceStartsAt?: string;
   occurrenceEndsAt?: string;
   isGeneratedRecurringOccurrence?: boolean;
+  initialDate?: string;
   onClose?: () => void;
   onSaved?: (message: string) => void;
 };
@@ -74,6 +75,16 @@ const splitIso = (value?: string | null) => {
   };
 };
 
+const getDateLabel = (value: string): string => {
+  if (!value || !DATE_REGEX.test(value)) return '';
+  const today = dateToYMD(new Date());
+  const tomorrow = dateToYMD(addDays(new Date(), 1));
+  if (value === today) return 'Hoy';
+  if (value === tomorrow) return 'Mañana';
+  const date = new Date(value + 'T00:00:00');
+  return date.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: 'short' });
+};
+
 export function EventForm({
   mode,
   embedded = false,
@@ -83,6 +94,7 @@ export function EventForm({
   occurrenceStartsAt,
   occurrenceEndsAt,
   isGeneratedRecurringOccurrence,
+  initialDate,
   onClose,
   onSaved,
 }: EventFormProps) {
@@ -100,7 +112,12 @@ export function EventForm({
   const [title, setTitle] = useState('');
   const [titleTouched, setTitleTouched] = useState(false);
   const [description, setDescription] = useState('');
-  const [date, setDate] = useState(dateToYMD(new Date()));
+  const [date, setDate] = useState(() => {
+    if (mode === 'create' && initialDate && DATE_REGEX.test(initialDate)) {
+      return initialDate;
+    }
+    return dateToYMD(new Date());
+  });
   const [dateTouched, setDateTouched] = useState(false);
   const [startTime, setStartTime] = useState('09:00');
   const [startTimeTouched, setStartTimeTouched] = useState(false);
@@ -474,7 +491,7 @@ if (isGeneratedRecurringOccurrence) {
             {validateDate(date) && dateTouched ? (
               <Text style={S.formErrorInline}>{validateDate(date)}</Text>
             ) : (
-              <Text style={S.formHelperText}>Usá el formato AAAA-MM-DD.</Text>
+              <Text style={S.formHelperText}>{getDateLabel(date) || 'Usá el formato AAAA-MM-DD.'}</Text>
             )}
           </View>
 
