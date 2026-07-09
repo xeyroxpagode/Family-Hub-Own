@@ -474,12 +474,69 @@ const assertRestockApprover = (context) => {
   }
 }
 
+const findActiveInventoryTask = async (context, inventoryItemId) => {
+  const { data, error } = await context.client
+    .from('planner_tasks')
+    .select('*')
+    .eq('household_id', context.householdId)
+    .eq('origin_module', 'inventory')
+    .eq('origin_entity_type', 'inventory_item')
+    .eq('origin_entity_id', inventoryItemId)
+    .in('origin_reason', ['low_stock', 'out_of_stock'])
+    .in('status', ['pending', 'awaiting_verification'])
+    .maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+
+  return data
+}
+
 const approveRestockRequest = async (context, requestId, body = {}) => {
   assertRestockApprover(context)
   const restockRequest = await getRestockRequestOrThrow(context, requestId)
 
   if (restockRequest.status !== 'pending') {
     throw createHttpError(409, 'La solicitud ya no esta pendiente.', 'restock_request_not_pending')
+  }
+
+  const inventoryItemId = restockRequest.inventory_item_id || restockRequest.item?.id
+
+  const existingTask = await findActiveInventoryTask(context, inventoryItemId)
+
+  if (existingTask) {
+    const assignedMember = body.assigned_to_member_id
+      ? await context.client
+        .from('household_members')
+        .select('person_id')
+        .eq('id', body.assigned_to_member_id)
+        .eq('household_id', context.householdId)
+        .maybeSingle()
+      : { data: null, error: null }
+
+    if (assignedMember.error) {
+      throwSupabaseError(assignedMember.error)
+    }
+
+    const { data, error } = await context.client
+      .from('inventory_restock_requests')
+      .update({
+        status: 'approved',
+        approved_by_person_id: context.personId,
+        assigned_to_person_id: assignedMember.data?.person_id ?? null,
+        planner_task_id: existingTask.id,
+      })
+      .eq('id', restockRequest.id)
+      .eq('household_id', context.householdId)
+      .select('*, item:inventory_items(id, name, emoji, quantity, low_stock_threshold, deleted_at)')
+      .maybeSingle()
+
+    if (error) {
+      throwSupabaseError(error)
+    }
+
+    return { request: data, task: existingTask, reused_existing_task: true }
   }
 
   const taskPayload = {
@@ -490,6 +547,10 @@ const approveRestockRequest = async (context, requestId, body = {}) => {
     category: 'Compras',
     assigned_to_member_id: body.assigned_to_member_id || undefined,
     requires_verification: Boolean(body.requires_verification),
+    origin_module: 'inventory',
+    origin_entity_type: 'inventory_item',
+    origin_entity_id: inventoryItemId,
+    origin_reason: restockRequest.item?.quantity <= 0 ? 'out_of_stock' : 'low_stock',
   }
 
   const { task } = await plannerTasksService.createTask(context, taskPayload)

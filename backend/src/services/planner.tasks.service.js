@@ -5,6 +5,14 @@ const {
   TASK_TEMPLATE_KEYS,
 } = require('../constants/planner.constants')
 
+const ALLOWED_ORIGIN_MODULES = Object.freeze([
+  'inventory',
+  'assets',
+  'finance',
+  'geni',
+  'automation',
+])
+
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
 const throwSupabaseError = (error) => {
@@ -96,6 +104,60 @@ const validateNullableTime = (value, fieldName) => {
   }
 
   return value
+}
+
+const validateOriginModule = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return null
+  }
+
+  if (!ALLOWED_ORIGIN_MODULES.includes(value)) {
+    throw createHttpError(400, 'origin_module invalido.', 'validation_error')
+  }
+
+  return value
+}
+
+const validateOriginEntityType = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return null
+  }
+
+  const normalized = String(value).trim()
+
+  if (normalized.length === 0) {
+    throw createHttpError(400, 'origin_entity_type no puede estar vacio.', 'validation_error')
+  }
+
+  return normalized
+}
+
+const validateOriginEntityId = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return null
+  }
+
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+  if (!uuidPattern.test(String(value))) {
+    throw createHttpError(400, 'origin_entity_id debe ser un uuid valido.', 'validation_error')
+  }
+
+  return String(value)
+}
+
+const validateOriginReason = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return null
+  }
+
+  const normalized = String(value).trim()
+
+  if (normalized.length === 0) {
+    throw createHttpError(400, 'origin_reason no puede estar vacio.', 'validation_error')
+  }
+
+  return normalized
 }
 
 const validateAssignment = async (client, householdId, assignedToMemberId) => {
@@ -285,6 +347,15 @@ const createTask = async (context, body) => {
     requires_verification: Boolean(body?.requires_verification),
     created_by_person_id: context.personId,
     assigned_to_member_id: assignedToMemberId,
+  }
+
+  const originModule = validateOriginModule(body?.origin_module)
+
+  if (originModule) {
+    payload.origin_module = originModule
+    payload.origin_entity_type = validateOriginEntityType(body?.origin_entity_type)
+    payload.origin_entity_id = validateOriginEntityId(body?.origin_entity_id)
+    payload.origin_reason = validateOriginReason(body?.origin_reason)
   }
 
   const { data, error } = await context.client
