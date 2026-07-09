@@ -98,6 +98,15 @@ function TaskCard({
     return null;
   };
 
+  const getOriginLabel = () => {
+    if (task.origin_module !== 'inventory') return null;
+    if (task.origin_reason === 'low_stock') return 'Inventario · Stock bajo';
+    if (task.origin_reason === 'out_of_stock') return 'Inventario · Sin stock';
+    return 'Inventario';
+  };
+
+  const originLabel = getOriginLabel();
+
   const getPriorityBorderColor = (priority: PlannerTaskPriority) => {
     switch (priority) {
       case 'low': return colors.sage[400];
@@ -210,6 +219,11 @@ function TaskCard({
             </View>
             
             <View style={S.taskDateLine}>
+              {originLabel ? (
+                <View style={S.taskOriginBadge}>
+                  <Text style={S.taskOriginBadgeText}>{originLabel}</Text>
+                </View>
+              ) : null}
               <Text style={[S.taskDateText, isOverdue && S.taskDateOverdue, task.due_date === today && S.taskDateToday]}>
                 {formatDate(task.due_date)} {formatTime(task.due_time)}
                 {task.due_date === today && ' · Para hoy'}

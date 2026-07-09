@@ -48,6 +48,10 @@ export type PlannerTask = {
   assigned_member?: PlannerTaskMember | null;
   completed_member?: PlannerTaskMember | null;
   verified_member?: PlannerTaskMember | null;
+  origin_module?: string | null;
+  origin_entity_type?: string | null;
+  origin_entity_id?: string | null;
+  origin_reason?: string | null;
 };
 
 export type CreatePlannerTaskPayload = {
