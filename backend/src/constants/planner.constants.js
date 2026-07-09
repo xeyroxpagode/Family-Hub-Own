@@ -42,9 +42,47 @@ const TASK_STATUS_ORDER = {
   cancelled: 4,
 }
 
+const GOAL_STATUSES = [
+  'active',
+  'completed',
+  'failed',
+]
+
+const GOAL_STATUS_TRANSITIONS = {
+  active: ['completed', 'failed'],
+  completed: [],
+  failed: [],
+}
+
+const GOAL_VISIBILITY_VALUES = [
+  'household',
+  'personal',
+]
+
+const GOAL_CATEGORIES = [
+  'home',
+  'family',
+  'finance',
+  'health',
+  'education',
+  'other',
+]
+
+const GOAL_TARGET_TYPES = [
+  'count',
+  'percentage',
+  'amount',
+  'boolean',
+]
+
 module.exports = {
   EVENT_RECURRENCES,
   EVENT_STATUSES,
+  GOAL_CATEGORIES,
+  GOAL_STATUS_TRANSITIONS,
+  GOAL_STATUSES,
+  GOAL_TARGET_TYPES,
+  GOAL_VISIBILITY_VALUES,
   TASK_PRIORITIES,
   TASK_STATUSES,
   TASK_STATUS_ORDER,
