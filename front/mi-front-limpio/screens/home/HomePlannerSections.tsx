@@ -4,6 +4,8 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { ApiError } from '../../services/api';
 import { getInventoryAlerts, type InventoryAlerts } from '../../services/inventory';
 import { listPlannerEvents, type PlannerEvent } from '../../services/plannerEvents';
+import { listGoals, type PlannerGoal } from '../../services/plannerGoals';
+import { getGoalProgressText, hasRealGoalProgress } from '../planner/plannerShared';
 import { getPlannerSummary, type PlannerSummary } from '../../services/plannerSummary';
 import { listPlannerTasks, type PlannerTask } from '../../services/plannerTasks';
 import { useAuth } from '../../context/AuthContext';
@@ -70,37 +72,6 @@ const sortHomeTasks = (tasks: PlannerTask[], myMembershipId: string, limit = 5) 
     })
     .slice(0, limit);
 };
-
-function BriefingCard({ summary }: { summary: PlannerSummary | null }) {
-  if (!summary) return null;
-
-  let text = '';
-  if (summary.awaiting_verification_count > 0) {
-    text = `Hay ${summary.awaiting_verification_count} tarea${summary.awaiting_verification_count !== 1 ? 's' : ''} esperando verificación. Conviene empezar por eso.`;
-  } else if (summary.overdue_tasks_count > 0) {
-    text = `Hay ${summary.overdue_tasks_count} tarea${summary.overdue_tasks_count !== 1 ? 's' : ''} vencida${summary.overdue_tasks_count !== 1 ? 's' : ''} que necesitan atención.`;
-  } else if (summary.today_tasks_count > 0) {
-    text = `Hoy quedan ${summary.today_tasks_count} tarea${summary.today_tasks_count !== 1 ? 's' : ''} activa${summary.today_tasks_count !== 1 ? 's' : ''}.`;
-  } else if (summary.upcoming_events_count > 0) {
-    text = `Hay ${summary.upcoming_events_count} evento${summary.upcoming_events_count !== 1 ? 's' : ''} próximo${summary.upcoming_events_count !== 1 ? 's' : ''} para coordinar.`;
-  } else {
-    text = 'Tu hogar está tranquilo por ahora.';
-  }
-
-  return (
-    <AppCard variant="warning" padding="default" style={styles.briefingCard}>
-      <View style={styles.briefingHeader}>
-        <HomePlusIcon name={APP_ICONS.home.geni} color={colors.warning.base} size={18} />
-        <AppText variant="micro" tone="warning" weight="700" style={styles.cardLabelSmall}>Geni · resumen del hogar</AppText>
-      </View>
-      <AppText variant="bodySmall" tone="secondary" style={styles.briefingText}>{text}</AppText>
-      <AppText variant="caption" tone="tertiary" style={styles.demoLabel}>Basado en tus tareas y eventos</AppText>
-      <TouchableOpacity style={styles.briefingCta} accessibilityRole="button">
-        <AppText variant="caption" tone="warning" weight="700">Chatear con Geni</AppText>
-      </TouchableOpacity>
-    </AppCard>
-  );
-}
 
 function InventoryUrgencyCard({
   alerts,
@@ -189,6 +160,7 @@ export function useHomePlannerData() {
   const [summary, setSummary] = useState<PlannerSummary | null>(null);
   const [tasks, setTasks] = useState<PlannerTask[]>([]);
   const [events, setEvents] = useState<PlannerEvent[]>([]);
+  const [goals, setGoals] = useState<PlannerGoal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -213,7 +185,7 @@ export function useHomePlannerData() {
 
     try {
       const now = new Date();
-      const [nextSummary, tasksResponse, eventsResponse] = await Promise.all([
+      const [nextSummary, tasksResponse, eventsResponse, goalsResponse] = await Promise.all([
         getPlannerSummary(accessToken),
         listPlannerTasks(accessToken, { include_cancelled: false, limit: 100 }),
         listPlannerEvents(accessToken, {
@@ -221,11 +193,13 @@ export function useHomePlannerData() {
           to: addDays(now, 14).toISOString(),
           include_recurring: true,
         }),
+        listGoals(accessToken, { status: 'active', limit: 20 }),
       ]);
 
       setSummary(nextSummary);
       setTasks(sortHomeTasks(tasksResponse.tasks, myMembershipId, 3));
       setEvents((eventsResponse.events.length > 0 ? eventsResponse.events : nextSummary.upcoming_events).slice(0, 3));
+      setGoals(goalsResponse.goals ?? []);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No pudimos cargar datos del Planner.');
     } finally {
@@ -248,6 +222,7 @@ export function useHomePlannerData() {
   return {
     error,
     events,
+    goals,
     loading,
     memberNameById,
     refresh,
@@ -258,7 +233,7 @@ export function useHomePlannerData() {
 
 export function HomePlannerSections({ variant = 'light' }: Props) {
   const navigation = useNavigation<any>();
-  const { error, events, loading, memberNameById, summary, tasks } = useHomePlannerData();
+  const { error, events, goals, loading, memberNameById, summary, tasks } = useHomePlannerData();
   const { alerts: inventoryAlerts } = useHomeInventoryAlerts();
   const dark = variant === 'dark';
   const cardVariant = dark ? 'glass' : 'default';
@@ -277,7 +252,6 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
 
   return (
     <View style={styles.container}>
-      <BriefingCard summary={summary} />
       <InventoryUrgencyCard
         alerts={inventoryAlerts}
         variant={variant}
@@ -307,6 +281,76 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
             </AppText>
           ) : null}
         </AppCard>
+      ) : null}
+
+      {!loading && goals.length > 0 ? (
+        (() => {
+          const today = new Date();
+          const atRisk = goals.filter((g) => {
+            if (!g.ends_at || g.status !== 'active') return false;
+            if (!hasRealGoalProgress(g)) return false;
+            const end = new Date(g.ends_at);
+            const diff = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            return diff <= 7 && (g.progress_percentage ?? 0) < 40;
+          });
+          const highlight = atRisk.length > 0 ? atRisk[0] : goals.sort((a, b) => {
+            const pa = hasRealGoalProgress(a) ? (a.progress_percentage ?? 0) : 100;
+            const pb = hasRealGoalProgress(b) ? (b.progress_percentage ?? 0) : 100;
+            if (a.ends_at && b.ends_at) {
+              const diffA = Math.ceil((new Date(a.ends_at).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              const diffB = Math.ceil((new Date(b.ends_at).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              if (diffA <= 14 && diffB <= 14 && pa < 60 && pb < 60) return pa - pb;
+            }
+            return (a.ends_at ?? '9999') < (b.ends_at ?? '9999') ? -1 : 1;
+          })[0];
+
+          if (!highlight) return null;
+
+          const hasProgress = hasRealGoalProgress(highlight);
+          const progressPct = hasProgress ? Math.round(highlight.progress_percentage!) : 0;
+          const isAtRisk = atRisk.length > 0;
+          const progressText = getGoalProgressText(highlight);
+          const iconColor = isAtRisk ? colors.warning.base : colors.sage[500];
+          const titleTone = isAtRisk ? 'warning' : 'success';
+
+          return (
+            <AppCard variant={isAtRisk ? 'warning' : 'success'} padding="default" style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardHeaderIcon}>
+                  <HomePlusIcon name="flag" color={iconColor} size={18} />
+                </View>
+                <AppText variant="title3" tone={dark ? 'inverse' : titleTone}>
+                  {isAtRisk ? 'Meta en riesgo' : 'Meta destacada'}
+                </AppText>
+                <TouchableOpacity
+                  onPress={() =>
+                    navigation.navigate('PlannerTab', {
+                      screen: 'GoalDetail',
+                      params: { goalId: highlight.id },
+                    })
+                  }
+                  accessibilityRole="button"
+                >
+                  <AppText variant="caption" tone="warning" weight="700">
+                    Ver
+                  </AppText>
+                </TouchableOpacity>
+              </View>
+              <AppText variant="bodySmall" tone={dark ? 'inverse' : 'secondary'} weight="700">
+                {highlight.title}
+              </AppText>
+              {hasProgress ? (
+                <AppText variant="caption" tone={dark ? 'tertiary' : 'tertiary'}>
+                  Progreso: {progressPct}%{isAtRisk && highlight.ends_at ? ' · Limite: ' + formatDate(highlight.ends_at) : ''}
+                </AppText>
+              ) : progressText ? (
+                <AppText variant="caption" tone={dark ? 'tertiary' : 'tertiary'}>
+                  {progressText}
+                </AppText>
+              ) : null}
+            </AppCard>
+          );
+        })()
       ) : null}
 
       <AppCard variant={cardVariant} padding="default" style={styles.card}>
@@ -473,4 +517,12 @@ const styles = StyleSheet.create({
     paddingTop: spacing[2],
   },
   skeletonBlock: { paddingVertical: spacing[2] },
+  goalAtRisk: {
+    backgroundColor: colors.warning.soft,
+    borderColor: colors.warning.base,
+  },
+  goalHighlight: {
+    backgroundColor: colors.sage[50],
+    borderColor: colors.sage[100],
+  },
 });

@@ -4,12 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { AppCard, AppText, ErrorState, Skeleton } from '../../components/ui';
 import { APP_ICONS, HomePlusIcon } from '../../constants/icons';
-import { colors, radius } from '../../constants/theme';
+import { colors } from '../../constants/theme';
 import { ApiError } from '../../services/api';
 import { getPlannerSummary, type PlannerSummary } from '../../services/plannerSummary';
 import { useAuth } from '../../context/AuthContext';
 import { EventForm } from './EventForm';
 import { PlannerCalendarScreen } from './PlannerCalendarScreen';
+import { PlannerGoalsScreen } from './PlannerGoalsScreen';
 import { PlannerTasksScreen } from './PlannerTasksScreen';
 import { TaskForm } from './TaskForm';
 import { plannerStyles as S } from './plannerShared';
@@ -254,77 +255,14 @@ export function PlannerScreen() {
         ) : null}
 
         {activeTab === 'goals' ? (
-          <View style={{ marginTop: 8 }}>
-            <View style={[S.headerRow, { marginBottom: 4 }]}>
-              <AppText variant="title3">Metas familiares</AppText>
-              <View style={[S.badge, { backgroundColor: colors.sand[100] }]}>
-                <AppText variant="micro" weight="700" tone="tertiary">Próximamente</AppText>
-              </View>
-            </View>
-            <AppText variant="bodySmall" tone="secondary" style={{ marginBottom: 16 }}>
-              Pequeños avances para organizar mejor la semana.
-            </AppText>
-
-            <View style={[S.card, { marginBottom: 12 }]}>
-              <View style={[S.headerRow, { marginBottom: 8 }]}>
-                <View style={{ flex: 1 }}>
-                  <AppText variant="body" weight="700">Semana organizada</AppText>
-                  <AppText variant="bodySmall" tone="secondary" style={{ marginTop: 4 }}>
-                    Completen tareas y eventos para mantener el hogar al día.
-                  </AppText>
-                </View>
-                <HomePlusIcon name="checkmark-circle" size={24} color="#5F7F63" />
-              </View>
-              <View style={{ backgroundColor: colors.border.subtle, borderRadius: radius.pill, height: 8, overflow: 'hidden' }}>
-                <View style={{ width: '60%', height: '100%', backgroundColor: colors.sage[500] }} />
-              </View>
-              <AppText variant="micro" tone="tertiary" style={{ marginTop: 8 }}>Próximamente</AppText>
-            </View>
-
-            <View style={[S.card, { marginBottom: 12 }]}>
-              <View style={[S.headerRow, { marginBottom: 8 }]}>
-                <View style={{ flex: 1 }}>
-                  <AppText variant="body" weight="700">Carga equilibrada</AppText>
-                  <AppText variant="bodySmall" tone="secondary" style={{ marginTop: 4 }}>
-                    Revisá que las responsabilidades estén repartidas.
-                  </AppText>
-                </View>
-                <View style={[S.badge, { alignSelf: 'center' }]}>
-                  <AppText variant="micro" weight="700">Próximamente</AppText>
-                </View>
-              </View>
-              <AppText variant="bodySmall" tone="tertiary">
-                Distribución de tareas entre miembros del hogar.
-              </AppText>
-            </View>
-
-            <View style={[S.card, { marginBottom: 12 }]}>
-              <View style={[S.headerRow, { marginBottom: 8 }]}>
-                <View style={{ flex: 1 }}>
-                  <AppText variant="body" weight="700">Rutinas del hogar</AppText>
-                  <AppText variant="bodySmall" tone="secondary" style={{ marginTop: 4 }}>
-                    Pronto vas a poder crear hábitos familiares recurrentes.
-                  </AppText>
-                </View>
-                <View style={[S.badge, { backgroundColor: colors.sand[100], alignSelf: 'center' }]}>
-                  <AppText variant="micro" weight="700" tone="tertiary">Próximamente</AppText>
-                </View>
-              </View>
-              <AppText variant="bodySmall" tone="tertiary">
-                Hábitos semanales y mensuales para mantener el orden.
-              </AppText>
-            </View>
-
-            <View style={[S.card, { borderColor: colors.terracotta[300], backgroundColor: colors.terracotta[50] }]}>
-              <View style={[S.headerRow, { marginBottom: 8 }]}>
-                <HomePlusIcon name="sparkles" size={20} color="#8F5735" />
-                <AppText variant="body" weight="700" tone="primary">Más funciones en camino</AppText>
-              </View>
-              <AppText variant="bodySmall" tone="secondary">
-                Estamos trabajando en nuevas formas de ayudar a tu familia a organizarse mejor.
-              </AppText>
-            </View>
-          </View>
+          <PlannerGoalsScreen
+            refreshKey={refreshKey}
+            onChanged={changed}
+            onShowToast={(msg) => {
+              setToast(msg);
+              setTimeout(() => setToast(null), 2200);
+            }}
+          />
         ) : null}
       </ScrollView>
 

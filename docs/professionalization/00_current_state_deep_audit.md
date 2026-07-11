@@ -4,6 +4,15 @@
 **Alcance:** backend/, front/mi-front-limpio/, supabase/, docs/  
 **Objetivo:** Auditoría técnica del estado actual del repo antes de la profesionalización.
 
+> **Nota de actualización 10/07/2026:** El estado de Planner Goals descrito en este documento (mock con barra 60%) quedó desactualizado. A la fecha de esta nota:
+> - Existe DB real de goals/milestones (`planner_goals`, `planner_goal_milestones`, `planner_tasks.goal_id`) con RLS y migraciones `202607080004_planner_goals.sql`, `202607080005_fix_planner_goals_insert_rls.sql`, `202607100001_add_progress_mode_to_goals.sql`.
+> - Existe API real `/api/planner/goals` con CRUD, complete/fail, milestones y validacion de `progress_mode`.
+> - `progress_mode` (`steps | tasks | numeric | boolean | none`) es el campo primario de UX; `target_type` queda como detalle para numeric/boolean.
+> - El frontend `GoalForm` usa progress_mode y labels humanos (Phase 2 completada).
+> - La UX visible NO es final: GoalDetail sigue siendo CRUD, PlannerGoalsScreen es visualmente pesado y las cards pueden mostrar 0% falso cuando `progress_percentage` es null.
+> - Cualquier mención a "Goals mock / placeholder / POST_MVP" en este documento debe leerse como "historico al 27/06"; el estado real actual está en `docs/implementation/planner_goals_final.md` secciones 16 bis a 16 quater.
+> - El siguiente paso para Goals es rediseño UX, no mas features.
+
 ---
 
 ## 1. Executive Summary

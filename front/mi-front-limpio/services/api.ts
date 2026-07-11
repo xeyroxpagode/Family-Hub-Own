@@ -23,6 +23,10 @@ const resolveApiBaseUrl = () => {
 
 const API_BASE_URL = resolveApiBaseUrl();
 
+if (typeof __DEV__ !== 'undefined' && __DEV__) {
+  console.log('[HomePlus API] baseURL:', API_BASE_URL);
+}
+
 const redactRequestBody = (body: unknown) => {
   if (!body || typeof body !== 'object') {
     return body === undefined ? undefined : '<non-object-body>';

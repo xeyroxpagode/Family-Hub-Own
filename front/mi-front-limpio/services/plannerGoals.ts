@@ -18,6 +18,13 @@ export type PlannerGoalTargetType =
   | 'amount'
   | 'boolean';
 
+export type PlannerGoalProgressMode =
+  | 'steps'
+  | 'tasks'
+  | 'numeric'
+  | 'boolean'
+  | 'none';
+
 export type PlannerGoal = {
   id: string;
   household_id: string;
@@ -26,6 +33,7 @@ export type PlannerGoal = {
   status: PlannerGoalStatus;
   visibility: PlannerGoalVisibility;
   category: PlannerGoalCategory;
+  progress_mode: PlannerGoalProgressMode;
   target_type: PlannerGoalTargetType | null;
   target_value: number | null;
   current_value: number;
@@ -55,15 +63,16 @@ export type PlannerGoalMilestone = {
 
 export type CreatePlannerGoalInput = {
   title: string;
-  description?: string;
+  description?: string | null;
   visibility?: PlannerGoalVisibility;
   category?: PlannerGoalCategory;
+  progress_mode?: PlannerGoalProgressMode;
   target_type?: PlannerGoalTargetType | null;
   target_value?: number | null;
   current_value?: number;
-  unit?: string;
-  starts_at?: string;
-  ends_at?: string;
+  unit?: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
 };
 
 export type UpdatePlannerGoalInput = Partial<CreatePlannerGoalInput>;

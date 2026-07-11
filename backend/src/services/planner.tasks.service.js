@@ -16,6 +16,15 @@ const ALLOWED_ORIGIN_MODULES = Object.freeze([
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
 const throwSupabaseError = (error) => {
+  const isRlsViolation =
+    error.code === '42501' ||
+    error.code === 'PGRST301' ||
+    (typeof error.message === 'string' && error.message.toLowerCase().includes('row-level security'))
+
+  if (isRlsViolation) {
+    throw createHttpError(403, 'No tenes permiso para realizar esta accion sobre tareas.', 'rls_violation')
+  }
+
   const httpError = createHttpError(500, error.message, error.code ?? 'internal_error')
   httpError.details = error.details
   httpError.hint = error.hint
@@ -158,6 +167,36 @@ const validateOriginReason = (value) => {
   }
 
   return normalized
+}
+
+const validateGoalId = async (client, householdId, goalId) => {
+  if (goalId === undefined || goalId === null || goalId === '') {
+    return null
+  }
+
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+  if (!uuidPattern.test(String(goalId))) {
+    throw createHttpError(400, 'goal_id debe ser un uuid valido.', 'validation_error')
+  }
+
+  const { data, error } = await client
+    .from('planner_goals')
+    .select('id')
+    .eq('id', goalId)
+    .eq('household_id', householdId)
+    .is('deleted_at', null)
+    .maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+
+  if (!data) {
+    throw createHttpError(400, 'goal_id no encontrado o no pertenece al household.', 'validation_error')
+  }
+
+  return goalId
 }
 
 const validateAssignment = async (client, householdId, assignedToMemberId) => {
@@ -335,6 +374,12 @@ const createTask = async (context, body) => {
     body?.assigned_to_member_id,
   )
 
+  const goalId = await validateGoalId(
+    context.client,
+    context.householdId,
+    body?.goal_id,
+  )
+
   const payload = {
     household_id: context.householdId,
     title,
@@ -347,6 +392,7 @@ const createTask = async (context, body) => {
     requires_verification: Boolean(body?.requires_verification),
     created_by_person_id: context.personId,
     assigned_to_member_id: assignedToMemberId,
+    goal_id: goalId,
   }
 
   const originModule = validateOriginModule(body?.origin_module)
@@ -422,6 +468,14 @@ const buildTaskPatch = async (context, body) => {
 
   if (hasOwn(body, 'requires_verification')) {
     patch.requires_verification = Boolean(body.requires_verification)
+  }
+
+  if (hasOwn(body, 'goal_id')) {
+    patch.goal_id = await validateGoalId(
+      context.client,
+      context.householdId,
+      body.goal_id,
+    )
   }
 
   return patch

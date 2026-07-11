@@ -10,6 +10,7 @@ import {
   type PlannerTask,
   type PlannerTaskPriority,
 } from '../../services/plannerTasks';
+import { listGoals, type PlannerGoal } from '../../services/plannerGoals';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
@@ -59,6 +60,7 @@ type TaskCardProps = {
   task: PlannerTask;
   filter: FilterKey;
   memberNameById: Map<string, string>;
+  goalTitleById: Map<string, string>;
   today: string;
   savingId: string | null;
   onEditTask: (taskId: string) => void;
@@ -71,6 +73,7 @@ function TaskCard({
   task,
   filter,
   memberNameById,
+  goalTitleById,
   today,
   savingId,
   onEditTask,
@@ -224,6 +227,13 @@ function TaskCard({
                   <Text style={S.taskOriginBadgeText}>{originLabel}</Text>
                 </View>
               ) : null}
+              {task.goal_id && goalTitleById.has(task.goal_id) ? (
+                <View style={S.goalTaskLinkBadge}>
+                  <Text style={S.goalTaskLinkBadgeText}>
+                    {goalTitleById.get(task.goal_id)}
+                  </Text>
+                </View>
+              ) : null}
               <Text style={[S.taskDateText, isOverdue && S.taskDateOverdue, task.due_date === today && S.taskDateToday]}>
                 {formatDate(task.due_date)} {formatTime(task.due_time)}
                 {task.due_date === today && ' · Para hoy'}
@@ -327,6 +337,23 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
     members.forEach((member) => map.set(member.id, member.user?.nombre || 'Miembro'));
     return map;
   }, [members]);
+
+  const [goalTitles, setGoalTitles] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    if (!accessToken) return;
+    const loadGoalTitles = async () => {
+      try {
+        const { goals } = await listGoals(accessToken, {});
+        const map = new Map<string, string>();
+        (goals ?? []).forEach((g) => map.set(g.id, g.title));
+        setGoalTitles(map);
+      } catch {
+        setGoalTitles(new Map());
+      }
+    };
+    void loadGoalTitles();
+  }, [accessToken, refreshKey, plannerChangedAt]);
 
   const myMembershipId = useMemo(() => {
     const householdId = authMe?.active_household?.id;
@@ -591,6 +618,7 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
         task={task}
         filter={filter}
         memberNameById={memberNameById}
+        goalTitleById={goalTitles}
         today={today}
         savingId={savingId}
         onEditTask={onEditTask!}

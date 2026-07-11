@@ -38,6 +38,9 @@ export type PlannerStackParamList = {
   EditTask: { taskId: string };
   CreateEvent: undefined;
   EditEvent: { eventId: string };
+  CreateGoal: undefined;
+  EditGoal: { goalId: string };
+  GoalDetail: { goalId: string };
 };
 
 export type RootStackParamList = AuthStackParamList & PrivateStackParamList;

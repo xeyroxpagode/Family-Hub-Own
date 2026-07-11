@@ -18,6 +18,9 @@ import { CreateTaskScreen } from '../screens/planner/CreateTaskScreen';
 import { EditTaskScreen } from '../screens/planner/EditTaskScreen';
 import { CreateEventScreen } from '../screens/planner/CreateEventScreen';
 import { EditEventScreen } from '../screens/planner/EditEventScreen';
+import { CreateGoalScreen } from '../screens/planner/CreateGoalScreen';
+import { EditGoalScreen } from '../screens/planner/EditGoalScreen';
+import { GoalDetailScreen } from '../screens/planner/GoalDetailScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { APP_ICONS, HomePlusIcon } from '../constants/icons';
 import { AppTopBar, HouseholdSwitcherSheet, QuickActionSheet, CenterTabButton } from '../components/ui';
@@ -115,6 +118,9 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="EditTask" component={EditTaskScreen} />
       <PlannerStack.Screen name="CreateEvent" component={CreateEventScreen} />
       <PlannerStack.Screen name="EditEvent" component={EditEventScreen} />
+      <PlannerStack.Screen name="CreateGoal" component={CreateGoalScreen} />
+      <PlannerStack.Screen name="EditGoal" component={EditGoalScreen} />
+      <PlannerStack.Screen name="GoalDetail" component={GoalDetailScreen} />
     </PlannerStack.Navigator>
   );
 }

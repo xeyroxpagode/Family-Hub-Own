@@ -141,7 +141,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setAuthMeLoading(false);
   }, []);
 
-  const loadAuthMe = useCallback(async (accessToken: string): Promise<AuthMe | null> => {
+const loadAuthMe = useCallback(async (accessToken: string): Promise<AuthMe | null> => {
     const requestId = authMeRequestIdRef.current + 1;
     authMeRequestIdRef.current = requestId;
 
@@ -151,7 +151,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
 
     try {
+      if (__DEV__) console.log('[Auth] loadAuthMe: calling GET /api/auth/me...');
       const nextAuthMe = await getAuthMe(accessToken);
+      if (__DEV__) console.log('[Auth] loadAuthMe: OK, navigation.next:', nextAuthMe.navigation?.next);
 
       if (isMountedRef.current && authMeRequestIdRef.current === requestId) {
         setAuthMe(nextAuthMe);
@@ -162,6 +164,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const message = error instanceof ApiError
         ? error.message
         : 'No pudimos cargar tu sesion de HomePlus.';
+
+      if (__DEV__) console.log('[Auth] loadAuthMe: failed:', error instanceof Error ? error.message : String(error));
 
       if (isMountedRef.current && authMeRequestIdRef.current === requestId) {
         setAuthMe(null);
@@ -176,7 +180,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
-  const persistBackendSession = useCallback(
+const persistBackendSession = useCallback(
     async (backendSession: AuthSession): Promise<AuthActionResult> => {
       if (!backendSession.access_token || !backendSession.refresh_token) {
         return {
@@ -184,22 +188,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         };
       }
 
-      const { data, error } = await supabase.auth.setSession({
-        access_token: backendSession.access_token,
-        refresh_token: backendSession.refresh_token,
-      });
+      try {
+        const { data, error } = await supabase.auth.setSession({
+          access_token: backendSession.access_token,
+          refresh_token: backendSession.refresh_token,
+        });
 
-      if (error) {
+        if (error) {
+          if (__DEV__) console.log('[Auth] setSession error:', error.message, 'code:', (error as any)?.code);
+          return {
+            error: getAuthErrorMessage(
+              error,
+              'No pudimos guardar tu sesion en este dispositivo. Intenta nuevamente.',
+            ),
+          };
+        }
+
+        if (__DEV__) console.log('[Auth] setSession OK, user:', data.session?.user?.id);
+        applySession(data.session);
+        return { error: null };
+      } catch (caught) {
+        if (__DEV__) console.log('[Auth] setSession network error:', caught instanceof Error ? caught.message : String(caught));
         return {
-          error: getAuthErrorMessage(
-            error,
-            'No pudimos guardar tu sesion en este dispositivo. Intenta nuevamente.',
-          ),
+          error: 'No pudimos conectar para guardar tu sesion. Revisa la conexion e intenta nuevamente.',
         };
       }
-
-      applySession(data.session);
-      return { error: null };
     },
     [applySession],
   );
@@ -404,10 +417,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
 const signIn = useCallback(async ({ email, password }: SignInParams): Promise<AuthActionResult> => {
     try {
+      if (__DEV__) console.log('[Auth] signIn: calling authLogin...');
       const response = await authLogin({
         email: normalizeEmail(email),
         password,
       });
+      if (__DEV__) console.log('[Auth] signIn: authLogin OK, has session:', Boolean(response.session));
 
       const persistResult = await persistBackendSession(response.session);
 
@@ -415,6 +430,7 @@ const signIn = useCallback(async ({ email, password }: SignInParams): Promise<Au
         return persistResult;
       }
 
+      if (__DEV__) console.log('[Auth] signIn: setSession OK, loading authMe...');
       await loadAuthMe(response.session.access_token);
       return { error: null };
     } catch (error) {
@@ -586,14 +602,16 @@ const signIn = useCallback(async ({ email, password }: SignInParams): Promise<Au
     }
   }, [refreshSession]);
 
-  const signUp = useCallback(
+const signUp = useCallback(
     async ({ email, password, nombre }: SignUpParams): Promise<SignUpResult> => {
       try {
+        if (__DEV__) console.log('[Auth] signUp: calling authRegister...');
         const response = await authRegister({
           email: normalizeEmail(email),
           password,
           display_name: nombre.trim(),
         });
+        if (__DEV__) console.log('[Auth] signUp: authRegister OK, has session:', Boolean(response.session));
 
         if (!response.session) {
           clearAuthMe();
@@ -612,6 +630,7 @@ const signIn = useCallback(async ({ email, password }: SignInParams): Promise<Au
           };
         }
 
+        if (__DEV__) console.log('[Auth] signUp: setSession OK, loading authMe...');
         await loadAuthMe(response.session.access_token);
         return {
           error: null,

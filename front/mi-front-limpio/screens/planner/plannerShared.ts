@@ -1,5 +1,7 @@
 import { StyleSheet } from 'react-native';
 import type { PlannerTaskPriority, PlannerTaskStatus } from '../../services/plannerTasks';
+import type { PlannerGoal, PlannerGoalCategory, PlannerGoalStatus, PlannerGoalVisibility, PlannerGoalTargetType, PlannerGoalProgressMode } from '../../services/plannerGoals';
+import type { HomePlusIconName } from '../../constants/icons';
 import { colors, radius, shadows, spacing } from '../../constants/theme';
 
 export const priorityLabels: Record<PlannerTaskPriority, string> = {
@@ -44,6 +46,95 @@ export const getTypeLabel = (templateKey?: string | null, category?: string | nu
 export const getTypeIcon = (templateKey?: string | null): string | undefined => {
   if (templateKey && typeIcons[templateKey]) return typeIcons[templateKey];
   return undefined;
+};
+
+export const goalStatusLabels: Record<PlannerGoalStatus, string> = {
+  active: 'Activa',
+  completed: 'Lograda',
+  failed: 'Fallida',
+};
+
+export const goalVisibilityLabels: Record<PlannerGoalVisibility, string> = {
+  household: 'Familiar',
+  personal: 'Personal',
+};
+
+export const goalCategoryLabels: Record<PlannerGoalCategory, string> = {
+  home: 'Hogar',
+  family: 'Familia',
+  finance: 'Finanzas',
+  health: 'Salud',
+  education: 'Educacion',
+  other: 'Otro',
+};
+
+export const goalCategoryIcons: Record<PlannerGoalCategory, HomePlusIconName> = {
+  home: 'home',
+  family: 'people',
+  finance: 'wallet',
+  health: 'heart',
+  education: 'school',
+  other: 'ellipse',
+};
+
+export const goalCategoryColors: Record<PlannerGoalCategory, string> = {
+  home: colors.sage[500],
+  family: colors.terracotta[500],
+  finance: colors.sand[500],
+  health: colors.danger.base,
+  education: colors.info.base,
+  other: colors.text.tertiary,
+};
+
+export const goalTargetTypeLabels: Record<PlannerGoalTargetType, string> = {
+  count: 'Unidades',
+  percentage: 'Porcentaje',
+  amount: 'Monetario',
+  boolean: 'Cumplido / No',
+};
+
+export const goalProgressModeLabels: Record<PlannerGoalProgressMode, string> = {
+  steps: 'Por pasos',
+  tasks: 'Por tareas',
+  numeric: 'Con numero',
+  boolean: 'Si / No',
+  none: 'Sin progreso',
+};
+
+export const hasRealGoalProgress = (goal: PlannerGoal): boolean =>
+  goal.progress_percentage !== null && goal.progress_percentage !== undefined;
+
+export const shouldShowGoalProgressBar = (goal: PlannerGoal): boolean => {
+  const mode = goal.progress_mode;
+  if (mode === 'boolean' || mode === 'none') return false;
+  if (goal.status === 'completed' || goal.status === 'failed') return false;
+  return hasRealGoalProgress(goal);
+};
+
+export const getGoalProgressText = (
+  goal: PlannerGoal,
+  opts?: { milestoneCount?: number; taskCount?: number },
+): string | null => {
+  if (hasRealGoalProgress(goal)) return null;
+  const mode = goal.progress_mode;
+  if (goal.status === 'completed') return 'Meta lograda';
+  if (goal.status === 'failed') return 'Cerrada sin lograr';
+  switch (mode) {
+    case 'steps':
+      return (opts?.milestoneCount ?? 0) === 0 ? 'Sin pasos todavia' : null;
+    case 'tasks':
+      return (opts?.taskCount ?? 0) === 0 ? 'Sin tareas vinculadas' : null;
+    case 'numeric':
+      return goal.target_value === null || goal.target_value === 0
+        ? 'Falta definir el objetivo'
+        : null;
+    case 'boolean':
+      return 'Pendiente';
+    case 'none':
+      return 'Sin una medida fija';
+    default:
+      return null;
+  }
 };
 
 export const getTypeDotColor = (templateKey?: string | null) => {
@@ -1125,5 +1216,260 @@ export const plannerStyles = StyleSheet.create({
   },
   taskTypeFilterChipTextActive: {
     color: colors.text.inverse,
+  },
+  goalCard: {
+    backgroundColor: colors.surface.card,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    padding: spacing[4],
+    marginBottom: spacing[3],
+    ...shadows.card,
+  },
+  goalCardProgressBar: {
+    height: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.border.subtle,
+    overflow: 'hidden',
+    marginTop: spacing[3],
+  },
+  goalCardProgressFill: {
+    height: '100%',
+    borderRadius: radius.pill,
+    backgroundColor: colors.sage[500],
+  },
+  goalCardProgressFillLow: {
+    backgroundColor: colors.warning.base,
+  },
+  goalCardProgressFillComplete: {
+    backgroundColor: colors.success.base,
+  },
+  goalCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing[2],
+  },
+  goalCardTitle: {
+    color: colors.text.primary,
+    fontSize: 17,
+    fontWeight: '700',
+    flex: 1,
+  },
+  goalCardMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    marginTop: spacing[2],
+    flexWrap: 'wrap' as const,
+  },
+  goalCategoryChip: {
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  goalCategoryChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.text.inverse,
+  },
+  goalProgressLabel: {
+    color: colors.text.tertiary,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: spacing[2],
+  },
+  goalProgressPercent: {
+    color: colors.text.secondary,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  goalDetailCard: {
+    backgroundColor: colors.surface.card,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    padding: spacing[5],
+    marginBottom: spacing[4],
+    ...shadows.card,
+  },
+  goalDetailProgressWrapper: {
+    marginTop: spacing[4],
+  },
+  goalDetailProgressLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing[2],
+  },
+  goalDetailProgressBar: {
+    height: 12,
+    borderRadius: radius.pill,
+    backgroundColor: colors.border.subtle,
+    overflow: 'hidden',
+  },
+  goalDetailProgressFill: {
+    height: '100%',
+    borderRadius: radius.pill,
+    backgroundColor: colors.sage[500],
+  },
+  goalDetailProgressFillLow: {
+    backgroundColor: colors.warning.base,
+  },
+  goalDetailProgressFillComplete: {
+    backgroundColor: colors.success.base,
+  },
+  goalMilestoneCard: {
+    backgroundColor: colors.surface.card,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    padding: spacing[3],
+    marginBottom: spacing[2],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+    ...shadows.card,
+  },
+  goalMilestoneAchieved: {
+    backgroundColor: colors.sage[50],
+    borderColor: colors.sage[100],
+  },
+  goalMilestoneContent: {
+    flex: 1,
+  },
+  goalMilestoneTitle: {
+    color: colors.text.primary,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  goalMilestoneTitleAchieved: {
+    textDecorationLine: 'line-through' as const,
+    color: colors.text.secondary,
+  },
+  goalDetailActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    marginTop: spacing[4],
+    flexWrap: 'wrap' as const,
+  },
+  goalDetailPrimaryAction: {
+    flex: 1,
+    minWidth: 130,
+    borderRadius: radius.lg,
+    minHeight: 44,
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[4],
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.terracotta[500],
+  },
+  goalDetailDangerAction: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.danger.base,
+    minHeight: 44,
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[4],
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.danger.soft,
+  },
+  goalStatusBadgeActive: {
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1],
+    backgroundColor: colors.terracotta[50],
+  },
+  goalStatusBadgeCompleted: {
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1],
+    backgroundColor: colors.success.soft,
+  },
+  goalStatusBadgeFailed: {
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1],
+    backgroundColor: colors.danger.soft,
+  },
+  goalTaskLinkBadge: {
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: colors.sage[50],
+    borderWidth: 1,
+    borderColor: colors.sage[100],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  goalTaskLinkBadgeText: {
+    color: colors.sage[600],
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  goalFormTypeChip: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    minHeight: 36,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: colors.surface.soft,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  goalFormTypeChipActive: {
+    backgroundColor: colors.terracotta[500],
+    borderColor: colors.terracotta[500],
+  },
+  goalFormTypeChipText: {
+    color: colors.text.secondary,
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  goalFormTypeChipTextActive: {
+    color: colors.text.inverse,
+  },
+  goalAtRiskCard: {
+    backgroundColor: colors.warning.soft,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.warning.base,
+    padding: spacing[4],
+    marginBottom: spacing[3],
+  },
+  goalHighlightCard: {
+    backgroundColor: colors.sage[50],
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.sage[100],
+    padding: spacing[4],
+    marginBottom: spacing[3],
+  },
+  addMilestoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    marginTop: spacing[3],
+    marginBottom: spacing[2],
+  },
+  addMilestoneInput: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    backgroundColor: colors.surface.card,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    color: colors.text.primary,
+    fontSize: 15,
   },
 });

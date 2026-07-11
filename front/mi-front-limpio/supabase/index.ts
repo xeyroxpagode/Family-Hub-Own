@@ -23,6 +23,10 @@ if (!supabaseAnonKey) {
   );
 }
 
+if (typeof __DEV__ !== 'undefined' && __DEV__) {
+  console.log('[Supabase] init: URL:', supabaseUrl, '(anonKey omitted)');
+}
+
 const isNative = Platform.OS !== 'web';
 
 // Singleton persistente entre recargas de Metro HMR.

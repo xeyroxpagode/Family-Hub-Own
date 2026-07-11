@@ -52,6 +52,7 @@ export type PlannerTask = {
   origin_entity_type?: string | null;
   origin_entity_id?: string | null;
   origin_reason?: string | null;
+  goal_id?: string | null;
 };
 
 export type CreatePlannerTaskPayload = {
@@ -64,6 +65,7 @@ export type CreatePlannerTaskPayload = {
   due_time?: string;
   assigned_to_member_id?: string;
   requires_verification?: boolean;
+  goal_id?: string | null;
 };
 
 export type UpdatePlannerTaskPayload = Partial<CreatePlannerTaskPayload>;

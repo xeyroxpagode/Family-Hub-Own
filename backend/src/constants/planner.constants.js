@@ -75,6 +75,22 @@ const GOAL_TARGET_TYPES = [
   'boolean',
 ]
 
+const GOAL_PROGRESS_MODES = [
+  'steps',
+  'tasks',
+  'numeric',
+  'boolean',
+  'none',
+]
+
+const GOAL_PROGRESS_MODE_TARGET_TYPE_MAP = {
+  steps: null,
+  tasks: null,
+  numeric: ['count', 'amount', 'percentage'],
+  boolean: ['boolean'],
+  none: null,
+}
+
 module.exports = {
   EVENT_RECURRENCES,
   EVENT_STATUSES,
@@ -83,6 +99,8 @@ module.exports = {
   GOAL_STATUSES,
   GOAL_TARGET_TYPES,
   GOAL_VISIBILITY_VALUES,
+  GOAL_PROGRESS_MODES,
+  GOAL_PROGRESS_MODE_TARGET_TYPE_MAP,
   TASK_PRIORITIES,
   TASK_STATUSES,
   TASK_STATUS_ORDER,

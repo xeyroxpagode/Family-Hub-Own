@@ -12,6 +12,13 @@ const sendPlannerError = (res, error) => {
       hint: error.hint,
       stack: error.stack,
     })
+  } else if (statusCode === 403) {
+    console.error('[planner.goals] RLS/permission error:', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    })
   }
 
   return res.status(statusCode).json({

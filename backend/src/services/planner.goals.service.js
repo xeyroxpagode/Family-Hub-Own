@@ -5,11 +5,22 @@ const {
   GOAL_VISIBILITY_VALUES,
   GOAL_CATEGORIES,
   GOAL_TARGET_TYPES,
+  GOAL_PROGRESS_MODES,
+  GOAL_PROGRESS_MODE_TARGET_TYPE_MAP,
 } = require('../constants/planner.constants')
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
 const throwSupabaseError = (error) => {
+  const isRlsViolation =
+    error.code === '42501' ||
+    error.code === 'PGRST301' ||
+    (typeof error.message === 'string' && error.message.toLowerCase().includes('row-level security'))
+
+  if (isRlsViolation) {
+    throw createHttpError(403, 'No tenes permiso para realizar esta accion sobre metas.', 'rls_violation')
+  }
+
   const httpError = createHttpError(500, error.message, error.code ?? 'internal_error')
   httpError.details = error.details
   httpError.hint = error.hint
@@ -29,28 +40,134 @@ const parseLimit = (value) => {
 
 const isTrueQuery = (value) => value === true || value === 'true' || value === '1'
 
-const calculateProgress = (goal) => {
-  if (goal.status === 'completed') {
-    return 100
+const validateProgressMode = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return 'steps'
   }
-  if (goal.target_type === 'boolean') {
-    return goal.current_value >= 1 ? 100 : 0
+  if (!GOAL_PROGRESS_MODES.includes(value)) {
+    throw createHttpError(400, 'progress_mode invalido.', 'invalid_progress_mode')
   }
-  if (goal.target_value === null || goal.target_value === undefined) {
+  return value
+}
+
+const validateProgressModeTargetTypeCompatibility = (progressMode, targetType) => {
+  const allowed = GOAL_PROGRESS_MODE_TARGET_TYPE_MAP[progressMode]
+  if (!allowed) {
+    if (targetType !== null && targetType !== undefined) {
+      throw createHttpError(
+        400,
+        `progress_mode '${progressMode}' no permite target_type. target_type debe ser null.`,
+        'incompatible_progress_mode_target_type',
+      )
+    }
+    return
+  }
+  if (targetType === null || targetType === undefined) {
+    throw createHttpError(
+      400,
+      `progress_mode '${progressMode}' requiere target_type.`,
+      'incompatible_progress_mode_target_type',
+    )
+  }
+  if (!allowed.includes(targetType)) {
+    throw createHttpError(
+      400,
+      `target_type '${targetType}' no es compatible con progress_mode '${progressMode}'.`,
+      'incompatible_progress_mode_target_type',
+    )
+  }
+}
+
+const calculateProgressFromTasks = async (client, householdId, goalId) => {
+  const { data: tasks, error } = await client
+    .from('planner_tasks')
+    .select('status')
+    .eq('household_id', householdId)
+    .eq('goal_id', goalId)
+    .is('deleted_at', null)
+    .neq('status', 'cancelled')
+
+  if (error) {
+    console.error('[calculateProgressFromTasks]', error)
     return null
   }
-  const target = Number(goal.target_value)
-  const current = Number(goal.current_value)
-  if (target <= 0) {
-    return current > 0 ? 100 : 0
+
+  const computableTasks = tasks ?? []
+  const total = computableTasks.length
+
+  if (total === 0) {
+    return null
   }
-  const percentage = Math.min(Math.max(Math.round((current / target) * 100), 0), 100)
+
+  const completed = computableTasks.filter(
+    (t) => t.status === 'completed' || t.status === 'verified'
+  ).length
+
+  const percentage = Math.round((completed / total) * 100)
   return percentage
 }
 
-const attachProgress = (goal) => ({
+const calculateProgress = async (context, goal) => {
+  if (goal.status === 'completed') {
+    return 100
+  }
+
+  const mode = goal.progress_mode ?? 'steps'
+
+  if (mode === 'boolean') {
+    if (goal.target_type === 'boolean') {
+      return goal.current_value >= 1 ? 100 : 0
+    }
+    return goal.status === 'completed' ? 100 : 0
+  }
+
+  if (mode === 'numeric') {
+    if (goal.target_value === null || goal.target_value === undefined) {
+      return null
+    }
+    const target = Number(goal.target_value)
+    const current = Number(goal.current_value)
+    if (target <= 0) {
+      return current > 0 ? 100 : 0
+    }
+    const percentage = Math.min(Math.max(Math.round((current / target) * 100), 0), 100)
+    return percentage
+  }
+
+  if (mode === 'steps') {
+    const { data: milestones, error } = await context.client
+      .from('planner_goal_milestones')
+      .select('achieved')
+      .eq('goal_id', goal.id)
+      .is('deleted_at', null)
+
+    if (error) {
+      return null
+    }
+
+    const total = milestones?.length ?? 0
+    if (total === 0) {
+      return null
+    }
+
+    const achieved = milestones.filter((m) => m.achieved).length
+    return Math.round((achieved / total) * 100)
+  }
+
+  if (mode === 'tasks') {
+    return await calculateProgressFromTasks(context.client, context.householdId, goal.id)
+  }
+
+  if (mode === 'none') {
+    return null
+  }
+
+  return null
+}
+
+const attachProgress = async (context, goal) => ({
   ...goal,
-  progress_percentage: calculateProgress(goal),
+  progress_percentage: await calculateProgress(context, goal),
 })
 
 const getGoalOrThrow = async (client, householdId, goalId) => {
@@ -172,7 +289,7 @@ const listGoals = async (context, query) => {
   }
 
   const sliced = (data ?? []).slice(0, limit)
-  const withProgress = sliced.map(attachProgress)
+  const withProgress = await Promise.all(sliced.map((goal) => attachProgress(context, goal)))
 
   return { goals: withProgress }
 }
@@ -202,6 +319,9 @@ const createGoal = async (context, body) => {
   }
 
   const visibility = validateVisibility(body?.visibility)
+  const progressMode = validateProgressMode(body?.progress_mode)
+  const targetType = validateTargetType(body?.target_type)
+  validateProgressModeTargetTypeCompatibility(progressMode, targetType)
 
   const payload = {
     household_id: context.householdId,
@@ -209,9 +329,10 @@ const createGoal = async (context, body) => {
     description: hasOwn(body, 'description') ? normalizeString(body.description) || null : null,
     visibility,
     category: validateCategory(body?.category),
-    target_type: validateTargetType(body?.target_type),
+    progress_mode: progressMode,
+    target_type: targetType,
     target_value: validateNonNegativeNumeric(body?.target_value, 'target_value', true),
-    current_value: validateNonNegativeNumeric(body?.current_value, 'current_value', false),
+    current_value: hasOwn(body, 'current_value') ? validateNonNegativeNumeric(body.current_value, 'current_value', false) : 0,
     unit: hasOwn(body, 'unit') ? normalizeString(body.unit) || null : null,
     starts_at: validateNullableDate(body?.starts_at, 'starts_at'),
     ends_at: validateNullableDate(body?.ends_at, 'ends_at'),
@@ -232,7 +353,7 @@ const createGoal = async (context, body) => {
   return { goal: attachProgress(data) }
 }
 
-const buildGoalPatch = async (context, body) => {
+const buildGoalPatch = async (context, body, existingGoal) => {
   const patch = {}
 
   if (hasOwn(body, 'title')) {
@@ -253,6 +374,10 @@ const buildGoalPatch = async (context, body) => {
 
   if (hasOwn(body, 'category')) {
     patch.category = validateCategory(body.category)
+  }
+
+  if (hasOwn(body, 'progress_mode')) {
+    patch.progress_mode = validateProgressMode(body.progress_mode)
   }
 
   if (hasOwn(body, 'target_type')) {
@@ -286,16 +411,25 @@ const buildGoalPatch = async (context, body) => {
     throw createHttpError(400, 'status no se modifica con PATCH. Usa POST /goals/:id/complete o POST /goals/:id/fail.', 'validation_error')
   }
 
+  if (Object.keys(patch).length > 0) {
+    const resolvedMode = hasOwn(patch, 'progress_mode')
+      ? patch.progress_mode
+      : (existingGoal.progress_mode ?? 'steps')
+    const resolvedTargetType = hasOwn(patch, 'target_type')
+      ? patch.target_type
+      : existingGoal.target_type
+    validateProgressModeTargetTypeCompatibility(resolvedMode, resolvedTargetType)
+  }
+
   return patch
 }
 
 const updateGoal = async (context, goalId, body) => {
-  await getGoalOrThrow(context.client, context.householdId, goalId)
-  const patch = await buildGoalPatch(context, body ?? {})
+  const existing = await getGoalOrThrow(context.client, context.householdId, goalId)
+  const patch = await buildGoalPatch(context, body ?? {}, existing)
 
   if (Object.keys(patch).length === 0) {
-    const goal = await getGoalOrThrow(context.client, context.householdId, goalId)
-    return { goal: attachProgress(goal) }
+    return { goal: attachProgress(existing) }
   }
 
   const { data, error } = await context.client

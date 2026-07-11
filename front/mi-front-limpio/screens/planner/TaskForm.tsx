@@ -26,6 +26,10 @@ import {
   type PlannerTaskPriority,
   type PlannerTaskTemplateKey,
 } from '../../services/plannerTasks';
+import {
+  listGoals,
+  type PlannerGoal,
+} from '../../services/plannerGoals';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
@@ -170,6 +174,8 @@ export function TaskForm({
   const [noteExpanded, setNoteExpanded] = useState(false);
   const [legacyMissingDate, setLegacyMissingDate] = useState(false);
   const [inputFocus, setInputFocus] = useState<string | null>(null);
+  const [goalId, setGoalId] = useState<string | null>(null);
+  const [goals, setGoals] = useState<PlannerGoal[]>([]);
 
   const activeMembers = useMemo(() => members, [members]);
   const dateOptions = useMemo(() => getDateOptions(), []);
@@ -232,6 +238,7 @@ export function TaskForm({
         setRequiresVerification(task.requires_verification);
         setShowMore(Boolean(task.due_time || task.description || hasLegacyCategory || !hadDueDate));
         setNoteExpanded(Boolean(task.description));
+        setGoalId(task.goal_id ?? null);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'No pudimos cargar la tarea.');
       } finally {
@@ -247,6 +254,19 @@ export function TaskForm({
       void loadTask();
     }
   }, [accessToken, mode, taskId, authLoading]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    const loadGoals = async () => {
+      try {
+        const { goals: data } = await listGoals(accessToken, { status: 'active', limit: 50 });
+        setGoals(data ?? []);
+      } catch {
+        setGoals([]);
+      }
+    };
+    void loadGoals();
+  }, [accessToken]);
 
   const selectTipo = (id: TaskTypeId) => {
     const option = TIPO_BY_ID[id];
@@ -350,6 +370,7 @@ export function TaskForm({
       due_time: dueTime.trim() || undefined,
       assigned_to_member_id: assignedMemberId || undefined,
       requires_verification: requiresVerification,
+      goal_id: goalId ?? null,
     };
 
     if (tipoOption?.templateKey) {
@@ -573,6 +594,42 @@ export function TaskForm({
                 })}
             </ScrollView>
           </View>
+
+          {goals.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Meta vinculada (opcional)</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeScroller}>
+                <TouchableOpacity style={styles.avatarOption} onPress={() => setGoalId(null)}>
+                  <View style={[styles.emptyAvatar, !goalId && styles.avatarSelected]}>
+                    <HomePlusIcon name="remove" size={22} color={!goalId ? colors.terracotta[700] : colors.text.secondary} />
+                  </View>
+                  <Text style={[styles.avatarLabel, !goalId && styles.avatarLabelActive]} numberOfLines={1}>
+                    Sin meta
+                  </Text>
+                </TouchableOpacity>
+                {goals.map((goal) => {
+                  const active = goalId === goal.id;
+                  return (
+                    <TouchableOpacity key={goal.id} style={styles.avatarOption} onPress={() => setGoalId(goal.id)}>
+                      <View style={[styles.avatarWrap, active && styles.avatarSelected]}>
+                        <HomePlusIcon
+                          name="flag"
+                          size={22}
+                          color={active ? colors.terracotta[700] : colors.text.secondary}
+                        />
+                      </View>
+                      <Text
+                        style={[styles.avatarLabel, active && styles.avatarLabelActive]}
+                        numberOfLines={2}
+                      >
+                        {goal.title.length > 18 ? goal.title.slice(0, 17) + '\u2026' : goal.title}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
 
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Para cuándo</Text>
