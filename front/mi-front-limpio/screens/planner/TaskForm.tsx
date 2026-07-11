@@ -151,6 +151,10 @@ export function TaskForm({
   const { markPlannerChanged } = useAppRefresh();
   const accessToken = session?.access_token;
   const taskId = taskIdProp ?? route.params?.taskId as string | undefined;
+  const routeGoalId = (route.params?.goalId as string) || undefined;
+  const routeGoalTitle = (route.params?.goalTitle as string) || '';
+  const routeFromGoal = Boolean(route.params?.fromGoal);
+  const routeReturnToGoalId = (route.params?.returnToGoalId as string) || undefined;
 
   const [loading, setLoading] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
@@ -174,8 +178,9 @@ export function TaskForm({
   const [noteExpanded, setNoteExpanded] = useState(false);
   const [legacyMissingDate, setLegacyMissingDate] = useState(false);
   const [inputFocus, setInputFocus] = useState<string | null>(null);
-  const [goalId, setGoalId] = useState<string | null>(null);
+  const [goalId, setGoalId] = useState<string | null>(routeGoalId ?? null);
   const [goals, setGoals] = useState<PlannerGoal[]>([]);
+  const isGoalPreassigned = routeGoalId !== undefined;
 
   const activeMembers = useMemo(() => members, [members]);
   const dateOptions = useMemo(() => getDateOptions(), []);
@@ -257,6 +262,7 @@ export function TaskForm({
 
   useEffect(() => {
     if (!accessToken) return;
+    if (isGoalPreassigned) return;
     const loadGoals = async () => {
       try {
         const { goals: data } = await listGoals(accessToken, { status: 'active', limit: 50 });
@@ -266,7 +272,7 @@ export function TaskForm({
       }
     };
     void loadGoals();
-  }, [accessToken]);
+  }, [accessToken, isGoalPreassigned]);
 
   const selectTipo = (id: TaskTypeId) => {
     const option = TIPO_BY_ID[id];
@@ -403,7 +409,11 @@ export function TaskForm({
       }
 
       if (!onSaved) {
-        navigation.navigate('PlannerHome', { refreshKey: Date.now() });
+        if (routeFromGoal && routeReturnToGoalId) {
+          navigation.navigate('GoalDetail', { goalId: routeReturnToGoalId });
+        } else {
+          navigation.navigate('PlannerHome', { refreshKey: Date.now() });
+        }
       }
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'No pudimos guardar la tarea. Probá de nuevo.';
@@ -437,6 +447,13 @@ export function TaskForm({
               </TouchableOpacity>
             ) : null}
           </View>
+
+          {routeGoalTitle ? (
+            <View style={styles.goalContextRow}>
+              <HomePlusIcon name="flag" size={14} color={colors.terracotta[500]} />
+              <Text style={styles.goalContextText}>Para: {routeGoalTitle}</Text>
+            </View>
+          ) : null}
 
           {error ? (
             <View style={S.errorBox}>
@@ -595,7 +612,7 @@ export function TaskForm({
             </ScrollView>
           </View>
 
-          {goals.length > 0 ? (
+          {!isGoalPreassigned && goals.length > 0 ? (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Meta vinculada (opcional)</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeScroller}>
@@ -1173,5 +1190,23 @@ const styles = StyleSheet.create({
     color: colors.text.inverse,
     fontSize: 15,
     fontWeight: '900',
+  },
+  goalContextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: colors.terracotta[50],
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.terracotta[100],
+  },
+  goalContextText: {
+    color: colors.terracotta[700],
+    fontSize: 13,
+    fontWeight: '700',
+    flex: 1,
   },
 });

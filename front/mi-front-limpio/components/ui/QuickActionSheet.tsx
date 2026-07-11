@@ -1,65 +1,34 @@
 import React, { useCallback } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import { useAuth } from '../../context/AuthContext';
-import { useHousehold } from '../../context/HouseholdContext';
 import { AppText } from './AppText';
 import { AppButton } from './AppButton';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, radius, spacing, shadows, typography } from '../../constants/theme';
+import { colors, radius, spacing, shadows } from '../../constants/theme';
 
 export type QuickActionSheetProps = {
   visible: boolean;
   onRequestClose: () => void;
+  onNavigate: (screen: 'CreateTask' | 'CreateEvent' | 'CreateGoal', params?: any) => void;
 };
 
-export function QuickActionSheet({ visible, onRequestClose }: QuickActionSheetProps) {
-  const navigation = useNavigation<any>();
-  const { authMe } = useAuth();
-  const { currentRole, isCoordinator } = useHousehold();
+export function QuickActionSheet({ visible, onRequestClose, onNavigate }: QuickActionSheetProps) {
   const insets = useSafeAreaInsets();
 
   const openCreateTask = useCallback(() => {
-    onRequestClose();
-    setTimeout(() => {
-      navigation.navigate('PlannerTab', {
-        screen: 'PlannerHome',
-        params: {
-          initialTab: 'tasks',
-          initialSheet: 'task',
-          sheetKey: Date.now(),
-          refreshKey: Date.now(),
-        },
-      });
-    }, 250);
-  }, [navigation, onRequestClose]);
+    if (__DEV__) console.log('[QuickActions] pressed: Crear tarea');
+    onNavigate('CreateTask');
+  }, [onNavigate]);
 
   const openCreateEvent = useCallback(() => {
-    onRequestClose();
-    setTimeout(() => {
-      navigation.navigate('PlannerTab', {
-        screen: 'PlannerHome',
-        params: {
-          initialTab: 'calendar',
-          initialSheet: 'event',
-          sheetKey: Date.now(),
-          refreshKey: Date.now(),
-        },
-      });
-    }, 250);
-  }, [navigation, onRequestClose]);
+    if (__DEV__) console.log('[QuickActions] pressed: Crear evento');
+    onNavigate('CreateEvent');
+  }, [onNavigate]);
 
-  const openInvitePeople = useCallback(() => {
-    onRequestClose();
-    const householdId = authMe?.active_household?.id;
-    if (householdId) {
-      navigation.navigate('P03InvitarPersonas', { householdId });
-    }
-  }, [navigation, authMe?.active_household?.id, onRequestClose]);
-
-  const canInvite = isCoordinator || currentRole === 'adulto';
-  const visibleActionCount = (canInvite ? 1 : 0) + 2; // Nueva tarea + Nuevo evento siempre visibles
+  const openCreateGoal = useCallback(() => {
+    if (__DEV__) console.log('[QuickActions] pressed: Crear meta');
+    onNavigate('CreateGoal');
+  }, [onNavigate]);
 
   return (
     <Modal
@@ -145,38 +114,28 @@ export function QuickActionSheet({ visible, onRequestClose }: QuickActionSheetPr
               <HomePlusIcon name="chevron-forward" size={20} color={colors.text.tertiary} />
             </Pressable>
 
-            {canInvite ? (
-              <Pressable
-                onPress={openInvitePeople}
-                style={({ pressed }) => [
-                  styles.actionRow,
-                  { opacity: pressed ? 0.86 : 1 },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Invitar persona"
-              >
-                <View style={[styles.actionIcon, { backgroundColor: colors.info.soft }]}>
-                  <HomePlusIcon name="person-add-outline" size={22} color={colors.info.text} />
-                </View>
-                <View style={styles.actionInfo}>
-                  <AppText variant="body" weight="700">
-                    Invitar persona
-                  </AppText>
-                  <AppText variant="caption" tone="secondary">
-                    Sumá alguien nuevo al hogar
-                  </AppText>
-                </View>
-                <HomePlusIcon name="chevron-forward" size={20} color={colors.text.tertiary} />
-              </Pressable>
-            ) : null}
-
-            {visibleActionCount === 0 ? (
-              <View style={[styles.actionRow, { padding: spacing[3], backgroundColor: 'transparent', borderWidth: 0, justifyContent: 'center' }]}>
-                <AppText variant="caption" tone="tertiary">
-                  No hay acciones rápidas disponibles por ahora.
+            <Pressable
+              onPress={openCreateGoal}
+              style={({ pressed }) => [
+                styles.actionRow,
+                { opacity: pressed ? 0.86 : 1 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Crear meta"
+            >
+              <View style={[styles.actionIcon, { backgroundColor: colors.info.soft }]}>
+                <HomePlusIcon name="flag" size={22} color={colors.info.text} />
+              </View>
+              <View style={styles.actionInfo}>
+                <AppText variant="body" weight="700">
+                  Nueva meta
+                </AppText>
+                <AppText variant="caption" tone="secondary">
+                  Creá una meta para tu hogar
                 </AppText>
               </View>
-            ) : null}
+              <HomePlusIcon name="chevron-forward" size={20} color={colors.text.tertiary} />
+            </Pressable>
           </ScrollView>
         </View>
       </Pressable>
@@ -194,7 +153,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface.card,
     borderTopLeftRadius: radius.xxl,
     borderTopRightRadius: radius.xxl,
-    maxHeight: '70%',
+    height: '70%',
     ...shadows.sheet,
   },
   handle: {

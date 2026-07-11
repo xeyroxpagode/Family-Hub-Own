@@ -40,6 +40,28 @@ const parseLimit = (value) => {
 
 const isTrueQuery = (value) => value === true || value === 'true' || value === '1'
 
+const calculateProgressFromMilestones = async (client, goalId) => {
+  const { data: milestones, error } = await client
+    .from('planner_goal_milestones')
+    .select('achieved')
+    .eq('goal_id', goalId)
+    .is('deleted_at', null)
+
+  if (error) {
+    console.error('[calculateProgressFromMilestones]', error)
+    return { percentage: null, total: 0, completed: 0 }
+  }
+
+  const total = milestones?.length ?? 0
+  if (total === 0) {
+    return { percentage: null, total: 0, completed: 0 }
+  }
+
+  const achieved = milestones.filter((m) => m.achieved).length
+  const percentage = Math.round((achieved / total) * 100)
+  return { percentage, total, completed: achieved }
+}
+
 const validateProgressMode = (value) => {
   if (value === undefined || value === null || value === '') {
     return 'steps'
@@ -84,19 +106,18 @@ const calculateProgressFromTasks = async (client, householdId, goalId) => {
     .select('status')
     .eq('household_id', householdId)
     .eq('goal_id', goalId)
-    .is('deleted_at', null)
     .neq('status', 'cancelled')
 
   if (error) {
     console.error('[calculateProgressFromTasks]', error)
-    return null
+    return { percentage: null, total: 0, completed: 0, pending: 0 }
   }
 
   const computableTasks = tasks ?? []
   const total = computableTasks.length
 
   if (total === 0) {
-    return null
+    return { percentage: null, total: 0, completed: 0, pending: 0 }
   }
 
   const completed = computableTasks.filter(
@@ -104,7 +125,7 @@ const calculateProgressFromTasks = async (client, householdId, goalId) => {
   ).length
 
   const percentage = Math.round((completed / total) * 100)
-  return percentage
+  return { percentage, total, completed, pending: total - completed }
 }
 
 const calculateProgress = async (context, goal) => {
@@ -135,27 +156,13 @@ const calculateProgress = async (context, goal) => {
   }
 
   if (mode === 'steps') {
-    const { data: milestones, error } = await context.client
-      .from('planner_goal_milestones')
-      .select('achieved')
-      .eq('goal_id', goal.id)
-      .is('deleted_at', null)
-
-    if (error) {
-      return null
-    }
-
-    const total = milestones?.length ?? 0
-    if (total === 0) {
-      return null
-    }
-
-    const achieved = milestones.filter((m) => m.achieved).length
-    return Math.round((achieved / total) * 100)
+    const result = await calculateProgressFromMilestones(context.client, goal.id)
+    return result.percentage
   }
 
   if (mode === 'tasks') {
-    return await calculateProgressFromTasks(context.client, context.householdId, goal.id)
+    const result = await calculateProgressFromTasks(context.client, context.householdId, goal.id)
+    return result.percentage
   }
 
   if (mode === 'none') {
@@ -165,10 +172,37 @@ const calculateProgress = async (context, goal) => {
   return null
 }
 
-const attachProgress = async (context, goal) => ({
-  ...goal,
-  progress_percentage: await calculateProgress(context, goal),
-})
+const attachProgress = async (context, goal) => {
+  if (goal.status === 'completed') {
+    return { ...goal, progress_percentage: 100 }
+  }
+
+  const mode = goal.progress_mode ?? 'steps'
+
+  if (mode === 'tasks') {
+    const result = await calculateProgressFromTasks(context.client, context.householdId, goal.id)
+    return {
+      ...goal,
+      progress_percentage: result.percentage,
+      tasks_total: result.total,
+      tasks_completed: result.completed,
+      tasks_pending: result.pending,
+    }
+  }
+
+  if (mode === 'steps') {
+    const result = await calculateProgressFromMilestones(context.client, goal.id)
+    return {
+      ...goal,
+      progress_percentage: result.percentage,
+      milestones_total: result.total,
+      milestones_completed: result.completed,
+    }
+  }
+
+  const percentage = await calculateProgress(context, goal)
+  return { ...goal, progress_percentage: percentage }
+}
 
 const getGoalOrThrow = async (client, householdId, goalId) => {
   const { data, error } = await client
@@ -309,7 +343,7 @@ const getGoalById = async (context, goalId) => {
     throwSupabaseError(milestonesError)
   }
 
-  return { goal: attachProgress(goal), milestones: milestones ?? [] }
+  return { goal: await attachProgress(context, goal), milestones: milestones ?? [] }
 }
 
 const createGoal = async (context, body) => {
@@ -350,7 +384,7 @@ const createGoal = async (context, body) => {
     throwSupabaseError(error)
   }
 
-  return { goal: attachProgress(data) }
+  return { goal: await attachProgress(context, data) }
 }
 
 const buildGoalPatch = async (context, body, existingGoal) => {
@@ -429,7 +463,7 @@ const updateGoal = async (context, goalId, body) => {
   const patch = await buildGoalPatch(context, body ?? {}, existing)
 
   if (Object.keys(patch).length === 0) {
-    return { goal: attachProgress(existing) }
+    return { goal: await attachProgress(context, existing) }
   }
 
   const { data, error } = await context.client
@@ -448,7 +482,7 @@ const updateGoal = async (context, goalId, body) => {
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
 
-  return { goal: attachProgress(data) }
+  return { goal: await attachProgress(context, data) }
 }
 
 const deleteGoal = async (context, goalId) => {
@@ -470,7 +504,7 @@ const deleteGoal = async (context, goalId) => {
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
 
-  return { goal: attachProgress(data) }
+  return { goal: await attachProgress(context, data) }
 }
 
 const validateGoalTransition = (fromStatus, toStatus) => {
@@ -486,7 +520,7 @@ const validateGoalTransition = (fromStatus, toStatus) => {
 const completeGoal = async (context, goalId) => {
   const goal = await getGoalOrThrow(context.client, context.householdId, goalId)
   if (goal.status === 'completed') {
-    return { goal: attachProgress(goal) }
+    return { goal: { ...goal, progress_percentage: 100 } }
   }
 
   validateGoalTransition(goal.status, 'completed')
@@ -510,13 +544,13 @@ const completeGoal = async (context, goalId) => {
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
 
-  return { goal: attachProgress(data) }
+  return { goal: { ...data, progress_percentage: 100 } }
 }
 
 const failGoal = async (context, goalId) => {
   const goal = await getGoalOrThrow(context.client, context.householdId, goalId)
   if (goal.status === 'failed') {
-    return { goal: attachProgress(goal) }
+    return { goal: await attachProgress(context, goal) }
   }
 
   validateGoalTransition(goal.status, 'failed')
@@ -540,7 +574,7 @@ const failGoal = async (context, goalId) => {
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
 
-  return { goal: attachProgress(data) }
+  return { goal: await attachProgress(context, data) }
 }
 
 const getGoalForMilestone = async (client, householdId, goalId) => {

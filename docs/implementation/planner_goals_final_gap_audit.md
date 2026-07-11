@@ -1,3 +1,26 @@
+> **Update — Planner Total Progress Audit — 2026-07-10**
+>
+> Esta auditoría (gap audit, Phase 0) se creó cuando `calculateProgress` para steps y tasks devolvía `null` (TODO). **Eso ya NO es cierto.** Verificación al 2026-07-10 contra el código real del branch:
+>
+> - `backend/src/services/planner.goals.service.js:81-108` — `calculateProgressFromTasks` IMPLEMENTADO: consulta status de `planner_tasks` where `goal_id && deleted_at null && status neq cancelled`; total = computableTasks.length; **0 → null**; completed = filter `status === 'completed' || 'verified'` (pending y awaiting NO cuentan); cancelled/deleted excluidos; percentage = round(completed/total*100); **no auto-completa goal al 100%**.
+> - `planner.goals.service.js:137-155` — `calculateProgress` para `steps` IMPLEMENTADO: milestones achieved/total; **0 hitos → null**; no auto-completa.
+> - En consecuencia, las tablas de abajo que marcan "MISSING" en:
+>   - Phase 4 ("Progreso steps derivado de hitos") — **RESUELTO**.
+>   - Phase 5 ("Progreso tasks derivado de completadas/total") — **RESUELTO**.
+>   - Phase 1 ("Eliminar progreso falso (null ≠ 0)") — **RESUELTO** en `plannerShared.ts:104-112` `hasRealGoalProgress` + `shouldShowGoalProgressBar`, usado por PlannerGoalsScreen, GoalDetailScreen y HomePlannerSections.
+>   - Phase 3 ("Post-create `justCreated` state" y "Quick Action global 'Crear meta'") — siguen **MISSING** (no hay prompt post-create y QuickActionSheet.tsx no incluye "Crear meta"; ver `planner_total_progress_audit.md` §6).
+>   - Phase 10 ("No 0% falso" en Home) — **RESUELTO** (`HomePlannerSections.tsx:309` usa `hasRealGoalProgress`).
+>   - Phase 14 ("Geni real (no simular)" CONFLICT) — **RESUELTO** (Geni removido de Home; `planner.summary.service.js:60` usa `briefing_text` template, sin Geni).
+>   - Phase 5 ("Crear tarea desde GoalDetail ya vinculada" MISSING) — **RESUELTO**: `GoalDetailScreen.tsx:462-479` botón "Crear tarea" navega a `CreateTask` con `{ goalId, goalTitle, fromGoal: true, returnToGoalId }`; `TaskForm.tsx:154-181` recibe y persiste `goal_id`; post-save vuelve a `GoalDetail` (`TaskForm.tsx:411-413`).
+>   - Phase 5 ("Query eficiente de tasks por goal_id" MISSING) — **RESUELTO parcialmente**: backend `planner.tasks.service.js:328-349` filtra `?goal_id` en la query SQL (eficiente); frontend `GoalDetailScreen.tsx:82-88` llama `listPlannerTasks(accessToken, { goal_id: goalId, limit: 100 })`. Ya no trae 100 y filtra en cliente.
+>   - Phase 5 ("Prellenado goal_id/milestone_id + retorno GoalDetail" MISSING) — **RESUELTO para goal_id** (no para milestone_id, que requiere `goal_milestone_id` en planner_tasks — sigue MISSING porque la columna no existe en DB).
+>
+> **T1 — Goals Tasks Core: CERRADO con evidencia.**
+>
+> El resto del contenido histórico de este archivo (Phase 0 spec-gap por phase, migraciones requeridas Phase 2, 11 tablas nuevas, component modular, etc.) sigue siendo válido como roadmap de largo plazo (T2 templates, P1 polish, P2/P3 futuro). Ver `planner_total_progress_audit.md` para el estado total de Planner (Tareas + Calendar + Goals + Quick Actions + Home + Backend + DB).
+
+---
+
 # Planner Goals FINAL Spec — Gap Audit (Phase 0)
 
 **Branch:** `integrate/inventario-planner-20260708-1634`

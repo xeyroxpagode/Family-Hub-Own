@@ -34,7 +34,13 @@ export type PlannerStackParamList = {
     initialSheet?: 'task' | 'event';
     sheetKey?: number;
   } | undefined;
-  CreateTask: undefined;
+  CreateTask: {
+    taskId?: string;
+    goalId?: string;
+    goalTitle?: string;
+    fromGoal?: boolean;
+    returnToGoalId?: string;
+  } | undefined;
   EditTask: { taskId: string };
   CreateEvent: undefined;
   EditEvent: { eventId: string };

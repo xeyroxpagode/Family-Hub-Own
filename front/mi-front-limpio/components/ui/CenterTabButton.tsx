@@ -36,6 +36,7 @@ export function CenterTabButton({ onPress }: CenterTabButtonProps) {
   return (
     <View style={styles.container}>
       <Pressable
+        onPress={onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         style={({ pressed }) => [

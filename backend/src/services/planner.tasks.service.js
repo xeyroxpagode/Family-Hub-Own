@@ -325,6 +325,30 @@ const listTasks = async (context, query) => {
     request = request.neq('status', 'cancelled')
   }
 
+  if (query.goal_id) {
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidPattern.test(String(query.goal_id))) {
+      throw createHttpError(400, 'goal_id debe ser un uuid valido.', 'validation_error')
+    }
+
+    const { data: goalExists, error: goalErr } = await context.client
+      .from('planner_goals')
+      .select('id')
+      .eq('id', query.goal_id)
+      .eq('household_id', context.householdId)
+      .is('deleted_at', null)
+      .maybeSingle()
+
+    if (goalErr) {
+      throwSupabaseError(goalErr)
+    }
+    if (!goalExists) {
+      throw createHttpError(404, 'Meta no encontrada o sin acceso.', 'goal_not_found')
+    }
+
+    request = request.eq('goal_id', query.goal_id)
+  }
+
   if (query.assigned_to_member_id) {
     request = request.eq('assigned_to_member_id', query.assigned_to_member_id)
   }

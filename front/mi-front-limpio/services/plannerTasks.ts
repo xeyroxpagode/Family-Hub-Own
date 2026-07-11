@@ -78,6 +78,7 @@ export type PlannerTaskFilters = {
   template_key?: PlannerTaskTemplateKey;
   include_cancelled?: boolean;
   limit?: number;
+  goal_id?: string;
 };
 
 type PlannerTaskResponse = {

@@ -47,6 +47,11 @@ export type PlannerGoal = {
   failed_at: string | null;
   deleted_at: string | null;
   progress_percentage: number | null;
+  tasks_total?: number | null;
+  tasks_completed?: number | null;
+  tasks_pending?: number | null;
+  milestones_total?: number | null;
+  milestones_completed?: number | null;
 };
 
 export type PlannerGoalMilestone = {

@@ -42,6 +42,9 @@ const listTasks = async (req, res) => {
 
 const createTask = async (req, res) => {
   try {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[planner.tasks] POST /tasks body keys:', Object.keys(req.body ?? {}))
+    }
     const context = await getPlannerContext(req)
     const payload = await tasksService.createTask(context, req.body ?? {})
 

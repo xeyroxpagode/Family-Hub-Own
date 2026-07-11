@@ -164,6 +164,18 @@ export function HomeTabNavigator() {
   const tabBarHeight = isAdultoMayor ? 84 : 72;
   const bottomPadding = Math.max(insets.bottom, spacing[3]);
 
+  const quickActionNavigate = useCallback((
+    screen: keyof PlannerStackParamList,
+    params?: PlannerStackParamList[keyof PlannerStackParamList]
+  ) => {
+    // Nested navigation from PrivateStack -> HomeTabs -> PlannerTab -> PlannerStack screen
+    navigation.navigate('HomeTabs', { 
+      screen: 'PlannerTab', 
+      params: { screen, params } 
+    });
+    setShowQuickActions(false);
+  }, [navigation]);
+
   return (
     <View style={styles.container}>
       <AppTopBar
@@ -223,7 +235,6 @@ export function HomeTabNavigator() {
           options={{
             tabBarButton: () => <CenterTabButton onPress={handleQuickActionPress} />,
           }}
-          listeners={{ tabPress: (e) => e.preventDefault() }}
         />
 
         <Tab.Screen
@@ -264,6 +275,7 @@ export function HomeTabNavigator() {
       <QuickActionSheet
         visible={showQuickActions}
         onRequestClose={() => setShowQuickActions(false)}
+        onNavigate={quickActionNavigate}
       />
     </View>
   );

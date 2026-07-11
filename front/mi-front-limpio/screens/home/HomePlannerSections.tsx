@@ -309,7 +309,10 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
           const hasProgress = hasRealGoalProgress(highlight);
           const progressPct = hasProgress ? Math.round(highlight.progress_percentage!) : 0;
           const isAtRisk = atRisk.length > 0;
-          const progressText = getGoalProgressText(highlight);
+          const progressText = getGoalProgressText(highlight, {
+            taskCount: highlight.tasks_total ?? 0,
+            milestoneCount: highlight.milestones_total ?? 0,
+          });
           const iconColor = isAtRisk ? colors.warning.base : colors.sage[500];
           const titleTone = isAtRisk ? 'warning' : 'success';
 

@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native';
 import { ApiError } from '../../services/api';
 import {
   completeGoal,
@@ -67,6 +67,8 @@ export function GoalDetailScreen() {
   const [editingProgress, setEditingProgress] = useState(false);
   const [progressValue, setProgressValue] = useState('');
 
+  const isFocused = useIsFocused();
+
   const load = useCallback(async (silent = false) => {
     if (!accessToken || !goalId) return;
     if (!silent) setLoading(true);
@@ -77,10 +79,14 @@ export function GoalDetailScreen() {
       setMilestones(ms ?? []);
       setProgressValue(String(g.current_value));
 
-      try {
-        const { tasks } = await listPlannerTasks(accessToken, { limit: 100 });
-        setLinkedTasks((tasks ?? []).filter((t: any) => t.goal_id === goalId));
-      } catch {
+      if (g.progress_mode === 'tasks') {
+        try {
+          const { tasks } = await listPlannerTasks(accessToken, { goal_id: goalId, limit: 100 });
+          setLinkedTasks(tasks ?? []);
+        } catch {
+          setLinkedTasks([]);
+        }
+      } else {
         setLinkedTasks([]);
       }
     } catch (err) {
@@ -91,8 +97,10 @@ export function GoalDetailScreen() {
   }, [accessToken, goalId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (isFocused) {
+      void load();
+    }
+  }, [isFocused, load]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -255,7 +263,7 @@ export function GoalDetailScreen() {
   const isActive = goal?.status === 'active';
   const progressMode = goal?.progress_mode ?? 'steps';
   const showBar = goal ? shouldShowGoalProgressBar(goal) : false;
-  const showProgressSection = progressMode === 'numeric' || showBar;
+  const showProgressSection = progressMode === 'numeric' && isActive;
   const showNumericInput = progressMode === 'numeric' && isActive;
   const progressText = goal ? getGoalProgressText(goal, { milestoneCount: milestones.length, taskCount: linkedTasks.length }) : null;
 
@@ -450,23 +458,28 @@ export function GoalDetailScreen() {
         </View>
 
         {goal.status === 'active' ? (
-          <View style={{ marginTop: spacing[4] }}>
-            {progressMode === 'boolean' ? (
-              <TouchableOpacity
-                style={S.goalDetailPrimaryAction}
-                onPress={handleComplete}
-                disabled={isSaving}
-              >
-                {isSaving ? (
-                  <ActivityIndicator color={colors.text.inverse} size="small" />
-                ) : (
+          <>
+            {progressMode === 'tasks' ? (
+              <View style={{ marginTop: spacing[4] }}>
+                <TouchableOpacity
+                  style={S.goalDetailPrimaryAction}
+                  onPress={() => {
+                    navigation.navigate('CreateTask', {
+                      goalId: goal.id,
+                      goalTitle: goal.title,
+                      fromGoal: true,
+                      returnToGoalId: goal.id,
+                    });
+                  }}
+                >
+                  <HomePlusIcon name="add" size={18} color={colors.text.inverse} />
                   <AppText variant="bodySmall" tone="inverse" weight="800">
-                    Marcar como lograda
+                    Crear tarea
                   </AppText>
-                )}
-              </TouchableOpacity>
-            ) : (
-              <View style={S.goalDetailActions}>
+                </TouchableOpacity>
+              </View>
+            ) : progressMode === 'boolean' ? (
+              <View style={{ marginTop: spacing[4] }}>
                 <TouchableOpacity
                   style={S.goalDetailPrimaryAction}
                   onPress={handleComplete}
@@ -476,150 +489,186 @@ export function GoalDetailScreen() {
                     <ActivityIndicator color={colors.text.inverse} size="small" />
                   ) : (
                     <AppText variant="bodySmall" tone="inverse" weight="800">
-                      Marcar lograda
+                      Marcar como lograda
                     </AppText>
                   )}
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[S.goalDetailDangerAction, { flex: 0, minWidth: 144 }]}
-                  onPress={handleFail}
-                  disabled={isSaving}
-                >
-                  <AppText variant="bodySmall" tone="danger" weight="700">
-                    Cerrar sin lograr
-                  </AppText>
-                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ marginTop: spacing[4] }}>
+                <View style={S.goalDetailActions}>
+                  <TouchableOpacity
+                    style={S.goalDetailPrimaryAction}
+                    onPress={handleComplete}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? (
+                      <ActivityIndicator color={colors.text.inverse} size="small" />
+                    ) : (
+                      <AppText variant="bodySmall" tone="inverse" weight="800">
+                        Marcar lograda
+                      </AppText>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[S.goalDetailDangerAction, { flex: 0, minWidth: 144 }]}
+                    onPress={handleFail}
+                    disabled={isSaving}
+                  >
+                    <AppText variant="bodySmall" tone="danger" weight="700">
+                      Cerrar sin lograr
+                    </AppText>
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
-          </View>
+          </>
         ) : null}
 
-        <View style={{ marginTop: spacing[4] }}>
-          <View style={[S.headerRow, { marginBottom: spacing[3] }]}>
-            <AppText variant="title3">Hitos</AppText>
-          </View>
-
-          {goal.status === 'active' ? (
-            <View style={S.addMilestoneRow}>
-              <TextInput
-                style={[S.addMilestoneInput, { flex: 1 }]}
-                value={newMilestone}
-                onChangeText={setNewMilestone}
-                placeholder="Nuevo hito..."
-                placeholderTextColor={colors.text.muted}
-                onSubmitEditing={() => {
-                  if (newMilestone.trim()) void handleAddMilestone();
-                }}
-                returnKeyType="done"
-              />
-              <TouchableOpacity
-                style={[S.primaryBtn, (!newMilestone.trim() || addingMilestone) && { opacity: 0.58 }]}
-                onPress={() => void handleAddMilestone()}
-                disabled={!newMilestone.trim() || addingMilestone}
-              >
-                {addingMilestone ? (
-                  <ActivityIndicator color={colors.text.inverse} size="small" />
-                ) : (
-                  <HomePlusIcon name="add" size={18} color={colors.text.inverse} />
-                )}
-              </TouchableOpacity>
-            </View>
-          ) : null}
-
-          {milestones.length === 0 ? (
-            <EmptyState
-              title="Todavia no hay pasos"
-              description="Empeza con un resultado pequeno que acerque esta meta."
-              illustration={<HomePlusIcon name="flag" size={28} color={colors.terracotta[400]} />}
-            />
-          ) : (
-            milestones
-              .sort((a, b) => a.sort_order - b.sort_order)
-              .map((ms) => {
-                const achieved = ms.achieved;
-                return (
-                  <View key={ms.id} style={[S.goalMilestoneCard, achieved && S.goalMilestoneAchieved]}>
-                    {goal.status === 'active' && savingId !== ms.id ? (
-                      <TouchableOpacity
-                        style={[
-                          S.checkbox,
-                          ms.achieved && S.checkboxChecked,
-                        ]}
-                        onPress={() => handleToggleMilestone(ms)}
-                      >
-                        {achieved ? (
-                          <HomePlusIcon name="checkmark" size={16} color={colors.text.inverse} />
-                        ) : null}
-                      </TouchableOpacity>
-                    ) : savingId === ms.id ? (
-                      <ActivityIndicator size="small" color={colors.terracotta[500]} style={{ width: 26 }} />
-                    ) : null}
-
-                    <View style={S.goalMilestoneContent}>
-                      <AppText
-                        variant="bodySmall"
-                        weight="600"
-                        style={achieved ? S.goalMilestoneTitleAchieved : S.goalMilestoneTitle}
-                      >
-                        {ms.title}
-                      </AppText>
-                      {ms.achieved && ms.achieved_at ? (
-                        <AppText variant="caption" tone="tertiary">
-                          Logrado el {new Date(ms.achieved_at).toLocaleDateString('es-AR')}
-                        </AppText>
-                      ) : null}
-                    </View>
-
-                    {goal.status === 'active' ? (
-                      <TouchableOpacity onPress={() => handleDeleteMilestone(ms)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                        <HomePlusIcon name="trash" size={16} color={colors.text.tertiary} />
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                );
-              })
-          )}
-        </View>
-
-        {linkedTasks.length > 0 ? (
+        {progressMode === 'tasks' ? (
           <View style={{ marginTop: spacing[4] }}>
             <View style={[S.headerRow, { marginBottom: spacing[3] }]}>
-              <AppText variant="title3">Tareas vinculadas</AppText>
-              <AppText variant="micro" tone="tertiary">{linkedTasks.length}</AppText>
+              <AppText variant="title3">Tareas</AppText>
+              {linkedTasks.length > 0 ? (
+                <AppText variant="micro" tone="tertiary">{linkedTasks.length}</AppText>
+              ) : null}
             </View>
-            {linkedTasks.slice(0, 6).map((task) => (
-              <TouchableOpacity
-                key={task.id}
-                style={[S.goalMilestoneCard, { marginBottom: spacing[2] }]}
-                onPress={() => {
-                  navigation.navigate('PlannerHome', {
-                    initialTab: 'tasks',
-                    initialSheet: 'task',
-                    sheetKey: Date.now(),
-                  });
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <AppText variant="bodySmall" weight="600">
-                    {task.title}
-                  </AppText>
-                  <AppText variant="caption" tone="tertiary">
-                    {task.status === 'completed' || task.status === 'verified'
-                      ? 'Completada'
-                      : task.status === 'awaiting_verification'
-                      ? 'Por verificar'
-                      : 'Pendiente'}
-                    {task.due_date ? ` · ${formatDate(task.due_date)}` : ''}
-                  </AppText>
-                </View>
-                <HomePlusIcon name="chevron-forward" size={16} color={colors.text.tertiary} />
-              </TouchableOpacity>
-            ))}
+
+            {linkedTasks.length === 0 ? (
+              <View>
+                <EmptyState
+                  title="Todavia no hay tareas"
+                  description="Crea una tarea para empezar a avanzar esta meta."
+                  illustration={<HomePlusIcon name="checkmark-circle" size={28} color={colors.terracotta[400]} />}
+                />
+              </View>
+            ) : (
+              linkedTasks.map((task) => (
+                  <TouchableOpacity
+                    key={task.id}
+                    style={[S.goalMilestoneCard, { marginBottom: spacing[2] }]}
+                    onPress={() => {
+                      navigation.navigate('PlannerHome', {
+                        initialTab: 'tasks',
+                        initialSheet: 'task',
+                        sheetKey: Date.now(),
+                      });
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <AppText variant="bodySmall" weight="600">
+                        {task.title}
+                      </AppText>
+                      <AppText variant="caption" tone="tertiary">
+                        {task.status === 'completed' || task.status === 'verified'
+                          ? 'Completada'
+                          : task.status === 'awaiting_verification'
+                          ? 'Por verificar'
+                          : 'Pendiente'}
+                        {task.due_date ? ` · ${formatDate(task.due_date)}` : ''}
+                      </AppText>
+                    </View>
+                    <HomePlusIcon name="chevron-forward" size={16} color={colors.text.tertiary} />
+                  </TouchableOpacity>
+                )))}
           </View>
-        ) : progressMode === 'tasks' && isActive ? (
+        ) : (
           <View style={{ marginTop: spacing[4] }}>
-            <AppText variant="bodySmall" tone="tertiary" weight="600">
-              Todavia no hay tareas
+            <View style={[S.headerRow, { marginBottom: spacing[3] }]}>
+              <AppText variant="title3">Hitos</AppText>
+            </View>
+
+            {goal.status === 'active' ? (
+              <View style={S.addMilestoneRow}>
+                <TextInput
+                  style={[S.addMilestoneInput, { flex: 1 }]}
+                  value={newMilestone}
+                  onChangeText={setNewMilestone}
+                  placeholder="Nuevo hito..."
+                  placeholderTextColor={colors.text.muted}
+                  onSubmitEditing={() => {
+                    if (newMilestone.trim()) void handleAddMilestone();
+                  }}
+                  returnKeyType="done"
+                />
+                <TouchableOpacity
+                  style={[S.primaryBtn, (!newMilestone.trim() || addingMilestone) && { opacity: 0.58 }]}
+                  onPress={() => void handleAddMilestone()}
+                  disabled={!newMilestone.trim() || addingMilestone}
+                >
+                  {addingMilestone ? (
+                    <ActivityIndicator color={colors.text.inverse} size="small" />
+                  ) : (
+                    <HomePlusIcon name="add" size={18} color={colors.text.inverse} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {milestones.length === 0 ? (
+              <EmptyState
+                title="Todavia no hay pasos"
+                description="Empeza con un resultado pequeno que acerque esta meta."
+                illustration={<HomePlusIcon name="flag" size={28} color={colors.terracotta[400]} />}
+              />
+            ) : (
+              milestones
+                .sort((a, b) => a.sort_order - b.sort_order)
+                .map((ms) => {
+                  const achieved = ms.achieved;
+                  return (
+                    <View key={ms.id} style={[S.goalMilestoneCard, achieved && S.goalMilestoneAchieved]}>
+                      {goal.status === 'active' && savingId !== ms.id ? (
+                        <TouchableOpacity
+                          style={[
+                            S.checkbox,
+                            ms.achieved && S.checkboxChecked,
+                          ]}
+                          onPress={() => handleToggleMilestone(ms)}
+                        >
+                          {achieved ? (
+                            <HomePlusIcon name="checkmark" size={16} color={colors.text.inverse} />
+                          ) : null}
+                        </TouchableOpacity>
+                      ) : savingId === ms.id ? (
+                        <ActivityIndicator size="small" color={colors.terracotta[500]} style={{ width: 26 }} />
+                      ) : null}
+
+                      <View style={S.goalMilestoneContent}>
+                        <AppText
+                          variant="bodySmall"
+                          weight="600"
+                          style={achieved ? S.goalMilestoneTitleAchieved : S.goalMilestoneTitle}
+                        >
+                          {ms.title}
+                        </AppText>
+                        {ms.achieved && ms.achieved_at ? (
+                          <AppText variant="caption" tone="tertiary">
+                            Logrado el {new Date(ms.achieved_at).toLocaleDateString('es-AR')}
+                          </AppText>
+                        ) : null}
+                      </View>
+
+                      {goal.status === 'active' ? (
+                        <TouchableOpacity onPress={() => handleDeleteMilestone(ms)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <HomePlusIcon name="trash" size={16} color={colors.text.tertiary} />
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  );
+                })
+            )}
+          </View>
+        )}
+
+        {progressMode === 'tasks' && hasRealProgress && linkedTasks.length > 0 ? (
+          <View style={{ marginTop: spacing[3] }}>
+            <AppText variant="caption" tone="secondary" weight="600">
+              {linkedTasks.filter(
+                (t) => t.status === 'completed' || t.status === 'verified'
+              ).length} de {linkedTasks.filter(
+                (t) => t.status !== 'cancelled'
+              ).length} tareas terminadas
             </AppText>
           </View>
         ) : null}

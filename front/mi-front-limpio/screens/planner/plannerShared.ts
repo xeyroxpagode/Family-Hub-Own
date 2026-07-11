@@ -115,15 +115,46 @@ export const getGoalProgressText = (
   goal: PlannerGoal,
   opts?: { milestoneCount?: number; taskCount?: number },
 ): string | null => {
-  if (hasRealGoalProgress(goal)) return null;
+  if (hasRealGoalProgress(goal)) {
+    const mode = goal.progress_mode;
+    if (mode === 'tasks' && goal.tasks_total !== undefined && goal.tasks_total !== null && goal.tasks_total > 0) {
+      const completed = goal.tasks_completed ?? 0;
+      const total = goal.tasks_total;
+      return `${completed} de ${total} tareas terminadas`;
+    }
+    if (mode === 'steps' && goal.milestones_total !== undefined && goal.milestones_total !== null && goal.milestones_total > 0) {
+      const completed = goal.milestones_completed ?? 0;
+      const total = goal.milestones_total;
+      return `${completed} de ${total} pasos logrados`;
+    }
+    if (mode === 'tasks') {
+      const knownTaskTotal = goal.tasks_total ?? opts?.taskCount;
+      if (knownTaskTotal === undefined || knownTaskTotal === null) return null;
+      if (knownTaskTotal === 0) return 'Sin tareas vinculadas';
+      return `${goal.tasks_completed ?? 0} de ${knownTaskTotal} tareas terminadas`;
+    }
+    if (mode === 'steps') {
+      const knownMilestoneTotal = goal.milestones_total ?? opts?.milestoneCount;
+      if (knownMilestoneTotal === undefined || knownMilestoneTotal === null) return null;
+      if (knownMilestoneTotal === 0) return 'Sin pasos todavía';
+      return `${goal.milestones_completed ?? 0} de ${knownMilestoneTotal} pasos logrados`;
+    }
+    return null;
+  }
   const mode = goal.progress_mode;
   if (goal.status === 'completed') return 'Meta lograda';
   if (goal.status === 'failed') return 'Cerrada sin lograr';
   switch (mode) {
-    case 'steps':
-      return (opts?.milestoneCount ?? 0) === 0 ? 'Sin pasos todavia' : null;
-    case 'tasks':
-      return (opts?.taskCount ?? 0) === 0 ? 'Sin tareas vinculadas' : null;
+    case 'steps': {
+      const knownMilestoneTotal = opts?.milestoneCount ?? goal.milestones_total;
+      if (knownMilestoneTotal === undefined || knownMilestoneTotal === null) return null;
+      return knownMilestoneTotal === 0 ? 'Sin pasos todavía' : null;
+    }
+    case 'tasks': {
+      const knownTaskTotal = opts?.taskCount ?? goal.tasks_total;
+      if (knownTaskTotal === undefined || knownTaskTotal === null) return null;
+      return knownTaskTotal === 0 ? 'Sin tareas vinculadas' : null;
+    }
     case 'numeric':
       return goal.target_value === null || goal.target_value === 0
         ? 'Falta definir el objetivo'

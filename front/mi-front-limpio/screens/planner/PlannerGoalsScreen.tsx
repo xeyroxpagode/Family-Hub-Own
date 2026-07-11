@@ -80,7 +80,10 @@ function GoalCard({
   const isFailed = goal.status === 'failed';
   const showBar = shouldShowGoalProgressBar(goal);
   const showNumeric = hasRealGoalProgress(goal) && goal.progress_mode === 'numeric';
-  const progressText = getGoalProgressText(goal);
+  const progressText = getGoalProgressText(goal, {
+    taskCount: goal.tasks_total ?? 0,
+    milestoneCount: goal.milestones_total ?? 0,
+  });
 
   const progressColor = isCompleted
     ? colors.success.base
