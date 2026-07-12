@@ -155,6 +155,7 @@ export function TaskForm({
   const routeGoalTitle = (route.params?.goalTitle as string) || '';
   const routeFromGoal = Boolean(route.params?.fromGoal);
   const routeReturnToGoalId = (route.params?.returnToGoalId as string) || undefined;
+  const routeReturnTo = (route.params?.returnTo as string) || undefined;
 
   const [loading, setLoading] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
@@ -316,7 +317,25 @@ export function TaskForm({
       return;
     }
 
-    navigation.goBack();
+    // Deterministic close: do not fall through to Home if the nested
+    // stack would otherwise become empty.
+    if (routeFromGoal && routeReturnToGoalId) {
+      navigation.navigate('GoalDetail', { goalId: routeReturnToGoalId });
+      return;
+    }
+
+    if (routeReturnTo === 'PlannerHome') {
+      const refreshKey = Date.now();
+      navigation.navigate('PlannerHome', { refreshKey, initialTab: 'tasks' });
+      return;
+    }
+
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'tasks' });
   };
 
   const handlePressOutside = () => {
@@ -412,7 +431,7 @@ export function TaskForm({
         if (routeFromGoal && routeReturnToGoalId) {
           navigation.navigate('GoalDetail', { goalId: routeReturnToGoalId });
         } else {
-          navigation.navigate('PlannerHome', { refreshKey: Date.now() });
+          navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'tasks' });
         }
       }
     } catch (err) {

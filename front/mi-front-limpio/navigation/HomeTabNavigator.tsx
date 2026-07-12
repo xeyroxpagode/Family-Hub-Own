@@ -112,7 +112,7 @@ function HomeScreen() {
 
 function PlannerStackScreen() {
   return (
-    <PlannerStack.Navigator screenOptions={{ headerShown: false }}>
+    <PlannerStack.Navigator initialRouteName="PlannerHome" screenOptions={{ headerShown: false }}>
       <PlannerStack.Screen name="PlannerHome" component={PlannerScreen} />
       <PlannerStack.Screen name="CreateTask" component={CreateTaskScreen} />
       <PlannerStack.Screen name="EditTask" component={EditTaskScreen} />
@@ -168,10 +168,15 @@ export function HomeTabNavigator() {
     screen: keyof PlannerStackParamList,
     params?: PlannerStackParamList[keyof PlannerStackParamList]
   ) => {
-    // Nested navigation from PrivateStack -> HomeTabs -> PlannerTab -> PlannerStack screen
-    navigation.navigate('HomeTabs', { 
-      screen: 'PlannerTab', 
-      params: { screen, params } 
+    // Nested navigation from PrivateStack -> HomeTabs -> PlannerTab -> PlannerStack screen.
+    // For CreateTask triggered from Quick Actions, mark returnTo so TaskForm close
+    // navigates back to PlannerHome instead of falling through to Home.
+    const targetParams = screen === 'CreateTask'
+      ? { ...(params as any), returnTo: 'PlannerHome' as const }
+      : params
+    navigation.navigate('HomeTabs', {
+      screen: 'PlannerTab',
+      params: { screen, params: targetParams }
     });
     setShowQuickActions(false);
   }, [navigation]);
@@ -240,6 +245,20 @@ export function HomeTabNavigator() {
         <Tab.Screen
           name="PlannerTab"
           component={PlannerStackScreen}
+          listeners={{
+            tabPress: (e) => {
+              // Tapping Planner tab should always land on PlannerHome / Tasks,
+              // even if the nested PlannerStack still has CreateTask/EditTask on top.
+              e.preventDefault();
+              navigation.navigate('HomeTabs', {
+                screen: 'PlannerTab',
+                params: {
+                  screen: 'PlannerHome',
+                  params: { refreshKey: Date.now() },
+                },
+              });
+            },
+          }}
           options={{
             tabBarIcon: ({ focused }) => (
               <TabIcon

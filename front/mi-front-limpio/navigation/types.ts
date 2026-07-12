@@ -40,6 +40,7 @@ export type PlannerStackParamList = {
     goalTitle?: string;
     fromGoal?: boolean;
     returnToGoalId?: string;
+    returnTo?: 'PlannerHome';
   } | undefined;
   EditTask: { taskId: string };
   CreateEvent: undefined;
