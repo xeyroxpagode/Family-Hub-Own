@@ -38,9 +38,12 @@ export type PlannerTask = {
   due_time?: string | null;
   requires_verification: boolean;
   created_by_person_id: string;
+  created_by_member_id?: string | null;
   assigned_to_member_id?: string | null;
   completed_by_person_id?: string | null;
+  completed_by_member_id?: string | null;
   verified_by_person_id?: string | null;
+  verified_by_member_id?: string | null;
   completed_at?: string | null;
   verified_at?: string | null;
   created_at: string;

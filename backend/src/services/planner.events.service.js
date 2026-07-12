@@ -152,6 +152,7 @@ const createEvent = async (context, body) => {
     location_name: hasOwn(body, 'location_name') ? normalizeString(body.location_name) || null : null,
     recurrence: validateRecurrence(body?.recurrence),
     status: 'scheduled',
+    created_by_member_id: context.membershipId,
     created_by_person_id: context.personId,
   }
 
@@ -302,6 +303,7 @@ const createOccurrenceOverride = async (context, eventId, payload) => {
     location_name: baseEvent.location_name,
     recurrence: 'none',
     status: 'scheduled',
+    created_by_member_id: context.membershipId,
     created_by_person_id: context.personId,
   }
 

@@ -16,6 +16,7 @@ export type PlannerEvent = {
   location_name?: string | null;
   recurrence: PlannerEventRecurrence;
   created_by_person_id: string;
+  created_by_member_id?: string | null;
   created_at: string;
   updated_at: string;
 };

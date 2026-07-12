@@ -225,28 +225,43 @@ const validateAssignment = async (client, householdId, assignedToMemberId) => {
 
 const hydrateMembers = async (client, tasks) => {
   const assignedMemberIds = [...new Set(tasks.map((task) => task.assigned_to_member_id).filter(Boolean))]
+  const completedMemberIds = [...new Set(tasks.map((task) => task.completed_by_member_id).filter(Boolean))]
+  const verifiedMemberIds = [...new Set(tasks.map((task) => task.verified_by_member_id).filter(Boolean))]
   const completedPersonIds = [...new Set(tasks.map((task) => task.completed_by_person_id).filter(Boolean))]
+    .filter((pid) => !tasks.some((t) => t.completed_by_member_id && t.completed_by_person_id === pid && completedMemberIds.includes(t.completed_by_member_id)))
   const verifiedPersonIds = [...new Set(tasks.map((task) => task.verified_by_person_id).filter(Boolean))]
+    .filter((pid) => !tasks.some((t) => t.verified_by_member_id && t.verified_by_person_id === pid && verifiedMemberIds.includes(t.verified_by_member_id)))
 
-  if (assignedMemberIds.length === 0 && completedPersonIds.length === 0 && verifiedPersonIds.length === 0) {
+  const hasAnyIds =
+    assignedMemberIds.length > 0 ||
+    completedMemberIds.length > 0 ||
+    verifiedMemberIds.length > 0 ||
+    completedPersonIds.length > 0 ||
+    verifiedPersonIds.length > 0
+
+  if (!hasAnyIds) {
+    return tasks
+  }
+
+  const allMemberIdFilters = []
+  if (assignedMemberIds.length > 0) allMemberIdFilters.push(`id.in.(${assignedMemberIds.join(',')})`)
+  if (completedMemberIds.length > 0) allMemberIdFilters.push(`id.in.(${completedMemberIds.join(',')})`)
+  if (verifiedMemberIds.length > 0) allMemberIdFilters.push(`id.in.(${verifiedMemberIds.join(',')})`)
+
+  const allPersonIdFilters = []
+  if (completedPersonIds.length > 0) allPersonIdFilters.push(`person_id.in.(${completedPersonIds.join(',')})`)
+  if (verifiedPersonIds.length > 0) allPersonIdFilters.push(`person_id.in.(${verifiedPersonIds.join(',')})`)
+
+  const orFilter = [...allMemberIdFilters, ...allPersonIdFilters].join(',')
+
+  if (!orFilter) {
     return tasks
   }
 
   const { data, error } = await client
     .from('household_members')
     .select('id, person_id, role, people(id, display_name, avatar_url)')
-    .or(
-      assignedMemberIds.length > 0
-        ? `id.in.(${assignedMemberIds.join(',')})` +
-            (completedPersonIds.length > 0 ? `,person_id.in.(${completedPersonIds.join(',')})` : '') +
-            (verifiedPersonIds.length > 0 ? `,person_id.in.(${verifiedPersonIds.join(',')})` : '')
-        : completedPersonIds.length > 0
-          ? `person_id.in.(${completedPersonIds.join(',')})` +
-              (verifiedPersonIds.length > 0 ? `,person_id.in.(${verifiedPersonIds.join(',')})` : '')
-          : verifiedPersonIds.length > 0
-            ? `person_id.in.(${verifiedPersonIds.join(',')})`
-            : '',
-    )
+    .or(orFilter)
 
   if (error) {
     return tasks
@@ -281,11 +296,15 @@ const hydrateMembers = async (client, tasks) => {
       hydrated.assigned_member = membersByMembershipId.get(task.assigned_to_member_id)
     }
 
-    if (task.completed_by_person_id && peopleByPersonId.has(task.completed_by_person_id)) {
+    if (task.completed_by_member_id && membersByMembershipId.has(task.completed_by_member_id)) {
+      hydrated.completed_member = membersByMembershipId.get(task.completed_by_member_id)
+    } else if (task.completed_by_person_id && peopleByPersonId.has(task.completed_by_person_id)) {
       hydrated.completed_member = peopleByPersonId.get(task.completed_by_person_id)
     }
 
-    if (task.verified_by_person_id && peopleByPersonId.has(task.verified_by_person_id)) {
+    if (task.verified_by_member_id && membersByMembershipId.has(task.verified_by_member_id)) {
+      hydrated.verified_member = membersByMembershipId.get(task.verified_by_member_id)
+    } else if (task.verified_by_person_id && peopleByPersonId.has(task.verified_by_person_id)) {
       hydrated.verified_member = peopleByPersonId.get(task.verified_by_person_id)
     }
 
@@ -414,6 +433,7 @@ const createTask = async (context, body) => {
     due_date: validateNullableDate(body?.due_date, 'due_date'),
     due_time: validateNullableTime(body?.due_time, 'due_time'),
     requires_verification: Boolean(body?.requires_verification),
+    created_by_member_id: context.membershipId,
     created_by_person_id: context.personId,
     assigned_to_member_id: assignedToMemberId,
     goal_id: goalId,
@@ -563,6 +583,7 @@ const completeTask = async (context, taskId) => {
     .from('planner_tasks')
     .update({
       status: nextStatus,
+      completed_by_member_id: context.membershipId,
       completed_by_person_id: context.personId,
       completed_at: new Date().toISOString(),
     })
@@ -590,7 +611,14 @@ const verifyTask = async (context, taskId) => {
     throw createHttpError(409, 'La task no esta awaiting_verification.', 'task_not_awaiting_verification')
   }
 
-  if (task.completed_by_person_id === context.personId) {
+  const completedByMemberId = task.completed_by_member_id ?? null
+  const completedByPersonId = task.completed_by_person_id ?? null
+
+  if (completedByMemberId !== null) {
+    if (completedByMemberId === context.membershipId) {
+      throw createHttpError(409, 'La misma persona no puede verificar su completion.', 'cannot_verify_own_completion')
+    }
+  } else if (completedByPersonId !== null && completedByPersonId === context.personId) {
     throw createHttpError(409, 'La misma persona no puede verificar su completion.', 'cannot_verify_own_completion')
   }
 
@@ -598,6 +626,7 @@ const verifyTask = async (context, taskId) => {
     .from('planner_tasks')
     .update({
       status: 'verified',
+      verified_by_member_id: context.membershipId,
       verified_by_person_id: context.personId,
       verified_at: new Date().toISOString(),
     })
