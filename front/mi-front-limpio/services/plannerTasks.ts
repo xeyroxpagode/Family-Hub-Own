@@ -48,6 +48,7 @@ export type PlannerTask = {
   verified_at?: string | null;
   created_at: string;
   updated_at: string;
+  version: number;
   assigned_member?: PlannerTaskMember | null;
   completed_member?: PlannerTaskMember | null;
   verified_member?: PlannerTaskMember | null;
@@ -71,7 +72,9 @@ export type CreatePlannerTaskPayload = {
   goal_id?: string | null;
 };
 
-export type UpdatePlannerTaskPayload = Partial<CreatePlannerTaskPayload>;
+export type UpdatePlannerTaskPayload = Partial<CreatePlannerTaskPayload> & {
+  expected_version?: number;
+};
 
 export type PlannerTaskFilters = {
   status?: PlannerTaskStatus;
@@ -126,20 +129,23 @@ export const updatePlannerTask = (
     body: payload,
   });
 
-export const cancelPlannerTask = (accessToken: string, taskId: string) =>
+export const cancelPlannerTask = (accessToken: string, taskId: string, expectedVersion?: number) =>
   requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}`, {
     method: 'DELETE',
     accessToken,
+    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
   });
 
-export const completePlannerTask = (accessToken: string, taskId: string) =>
+export const completePlannerTask = (accessToken: string, taskId: string, expectedVersion?: number) =>
   requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/complete`, {
     method: 'POST',
     accessToken,
+    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
   });
 
-export const verifyPlannerTask = (accessToken: string, taskId: string) =>
+export const verifyPlannerTask = (accessToken: string, taskId: string, expectedVersion?: number) =>
   requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/verify`, {
     method: 'POST',
     accessToken,
+    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
   });

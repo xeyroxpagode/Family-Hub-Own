@@ -503,11 +503,11 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
     try {
       let resultTask: PlannerTask | undefined;
       if (action === 'complete') {
-        const response = await completePlannerTask(accessToken, task.id);
+        const response = await completePlannerTask(accessToken, task.id, task.version);
         resultTask = response.task;
       }
       if (action === 'verify') {
-        const response = await verifyPlannerTask(accessToken, task.id);
+        const response = await verifyPlannerTask(accessToken, task.id, task.version);
         resultTask = response.task;
       }
       if (resultTask) {
@@ -524,7 +524,13 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
       }
     } catch (err) {
       setTasks(previousTasks);
-      Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos actualizar la tarea.');
+      const message = err instanceof ApiError ? err.message : 'No pudimos actualizar la tarea.';
+      if (err instanceof ApiError && err.code === 'version_conflict') {
+        Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
+        await loadTasks();
+      } else {
+        Alert.alert('Planner', message);
+      }
     } finally {
       setSavingId(null);
     }
@@ -547,18 +553,24 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
       {
         text: 'Cancelar tarea',
         style: 'destructive',
-        onPress: async () => {
-          await lightHaptic();
-          setSavingId(task.id);
-          try {
-            await cancelPlannerTask(accessToken, task.id);
-            markPlannerChanged();
-            await loadTasks();
-            onChanged?.();
-            onShowToast?.('Tarea cancelada');
-          } catch (err) {
-            Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos cancelar la tarea.');
-          } finally {
+onPress: async () => {
+            await lightHaptic();
+            setSavingId(task.id);
+try {
+              await cancelPlannerTask(accessToken, task.id, task.version);
+              markPlannerChanged();
+              await loadTasks();
+              onChanged?.();
+              onShowToast?.('Tarea cancelada');
+            } catch (err) {
+              const message = err instanceof ApiError ? err.message : 'No pudimos cancelar la tarea.';
+              if (err instanceof ApiError && err.code === 'version_conflict') {
+                Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                await loadTasks();
+              } else {
+                Alert.alert('Planner', message);
+              }
+            } finally {
             setSavingId(null);
           }
         },

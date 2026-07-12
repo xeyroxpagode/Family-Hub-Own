@@ -245,20 +245,6 @@ export function HomeTabNavigator() {
         <Tab.Screen
           name="PlannerTab"
           component={PlannerStackScreen}
-          listeners={{
-            tabPress: (e) => {
-              // Tapping Planner tab should always land on PlannerHome / Tasks,
-              // even if the nested PlannerStack still has CreateTask/EditTask on top.
-              e.preventDefault();
-              navigation.navigate('HomeTabs', {
-                screen: 'PlannerTab',
-                params: {
-                  screen: 'PlannerHome',
-                  params: { refreshKey: Date.now() },
-                },
-              });
-            },
-          }}
           options={{
             tabBarIcon: ({ focused }) => (
               <TabIcon

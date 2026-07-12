@@ -1,5 +1,6 @@
 const { getPlannerContext } = require('../services/planner.context.service')
 const tasksService = require('../services/planner.tasks.service')
+const { parseExpectedVersion } = require('../lib/versionHelpers')
 
 const sendPlannerError = (res, error) => {
   const statusCode = error.statusCode ?? 500
@@ -57,7 +58,8 @@ const createTask = async (req, res) => {
 const updateTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await tasksService.updateTask(context, req.params.id, req.body ?? {})
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await tasksService.updateTask(context, req.params.id, req.body ?? {}, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {
@@ -68,7 +70,8 @@ const updateTask = async (req, res) => {
 const cancelTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await tasksService.cancelTask(context, req.params.id)
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await tasksService.cancelTask(context, req.params.id, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {
@@ -79,7 +82,8 @@ const cancelTask = async (req, res) => {
 const completeTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await tasksService.completeTask(context, req.params.id)
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await tasksService.completeTask(context, req.params.id, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {
@@ -90,7 +94,8 @@ const completeTask = async (req, res) => {
 const verifyTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await tasksService.verifyTask(context, req.params.id)
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await tasksService.verifyTask(context, req.params.id, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {

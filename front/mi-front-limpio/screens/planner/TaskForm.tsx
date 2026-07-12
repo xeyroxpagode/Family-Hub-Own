@@ -181,6 +181,7 @@ export function TaskForm({
   const [inputFocus, setInputFocus] = useState<string | null>(null);
   const [goalId, setGoalId] = useState<string | null>(routeGoalId ?? null);
   const [goals, setGoals] = useState<PlannerGoal[]>([]);
+  const [entityVersion, setEntityVersion] = useState<number>(1);
   const isGoalPreassigned = routeGoalId !== undefined;
 
   const activeMembers = useMemo(() => members, [members]);
@@ -245,6 +246,7 @@ export function TaskForm({
         setShowMore(Boolean(task.due_time || task.description || hasLegacyCategory || !hadDueDate));
         setNoteExpanded(Boolean(task.description));
         setGoalId(task.goal_id ?? null);
+        setEntityVersion(task.version ?? 1);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'No pudimos cargar la tarea.');
       } finally {
@@ -317,10 +319,12 @@ export function TaskForm({
       return;
     }
 
-    // Deterministic close: do not fall through to Home if the nested
-    // stack would otherwise become empty.
     if (routeFromGoal && routeReturnToGoalId) {
-      navigation.navigate('GoalDetail', { goalId: routeReturnToGoalId });
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+        return;
+      }
+      navigation.replace('GoalDetail', { goalId: routeReturnToGoalId });
       return;
     }
 
@@ -404,11 +408,15 @@ export function TaskForm({
       payload.template_key = null;
     }
 
+    if (mode === 'edit') {
+      (payload as CreatePlannerTaskPayload & { expected_version?: number }).expected_version = entityVersion;
+    }
+
     setSaving(true);
 
     try {
       if (mode === 'edit' && taskId) {
-        await updatePlannerTask(accessToken, taskId, payload);
+        await updatePlannerTask(accessToken, taskId, payload as CreatePlannerTaskPayload & { expected_version: number });
         markPlannerChanged();
         const successMsg = 'Tarea actualizada.';
         if (onSaved) {
@@ -429,12 +437,26 @@ export function TaskForm({
 
       if (!onSaved) {
         if (routeFromGoal && routeReturnToGoalId) {
-          navigation.navigate('GoalDetail', { goalId: routeReturnToGoalId });
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.replace('GoalDetail', { goalId: routeReturnToGoalId });
+          }
         } else {
           navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'tasks' });
         }
       }
     } catch (err) {
+      if (err instanceof ApiError && err.code === 'version_conflict') {
+        Alert.alert(
+          'Conflicto',
+          'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.',
+        );
+        if (!onSaved) {
+          navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'tasks' });
+        }
+        return;
+      }
       const message = err instanceof ApiError ? err.message : 'No pudimos guardar la tarea. Probá de nuevo.';
       setError(message);
       Alert.alert('Planner', message);

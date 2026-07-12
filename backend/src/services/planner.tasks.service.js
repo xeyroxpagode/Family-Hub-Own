@@ -1,4 +1,5 @@
 const { createHttpError } = require('../lib/httpErrors')
+const { assertExpectedVersion } = require('../lib/versionHelpers')
 const {
   TASK_PRIORITIES,
   TASK_STATUS_ORDER,
@@ -525,53 +526,82 @@ const buildTaskPatch = async (context, body) => {
   return patch
 }
 
-const updateTask = async (context, taskId, body) => {
-  await getTaskOrThrow(context.client, context.householdId, taskId)
+const updateTask = async (context, taskId, body, expectedVersion) => {
+  const task = await getTaskOrThrow(context.client, context.householdId, taskId)
+  assertExpectedVersion(task.version, expectedVersion)
   const patch = await buildTaskPatch(context, body ?? {})
 
   if (Object.keys(patch).length === 0) {
     return { task: await getTaskOrThrow(context.client, context.householdId, taskId) }
   }
 
-  const { data, error } = await context.client
+  let query = context.client
     .from('planner_tasks')
     .update(patch)
     .eq('id', taskId)
     .eq('household_id', context.householdId)
-    .select('*')
-    .maybeSingle()
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query = query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
   }
 
   if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(
+        409,
+        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
+        'version_conflict',
+      )
+    }
     throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
   }
 
   return { task: data }
 }
 
-const cancelTask = async (context, taskId) => {
-  await getTaskOrThrow(context.client, context.householdId, taskId)
+const cancelTask = async (context, taskId, expectedVersion) => {
+  const task = await getTaskOrThrow(context.client, context.householdId, taskId)
+  assertExpectedVersion(task.version, expectedVersion)
 
-  const { data, error } = await context.client
+  let query = context.client
     .from('planner_tasks')
     .update({ status: 'cancelled' })
     .eq('id', taskId)
     .eq('household_id', context.householdId)
-    .select('*')
-    .maybeSingle()
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query = query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
   }
 
+  if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(
+        409,
+        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
+        'version_conflict',
+      )
+    }
+    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+  }
+
   return { task: data }
 }
 
-const completeTask = async (context, taskId) => {
+const completeTask = async (context, taskId, expectedVersion) => {
   const task = await getTaskOrThrow(context.client, context.householdId, taskId)
+  assertExpectedVersion(task.version, expectedVersion)
 
   if (['completed', 'awaiting_verification', 'verified', 'cancelled'].includes(task.status)) {
     return { task }
@@ -579,7 +609,7 @@ const completeTask = async (context, taskId) => {
 
   const nextStatus = task.requires_verification ? 'awaiting_verification' : 'completed'
 
-  const { data, error } = await context.client
+  let query = context.client
     .from('planner_tasks')
     .update({
       status: nextStatus,
@@ -589,14 +619,25 @@ const completeTask = async (context, taskId) => {
     })
     .eq('id', taskId)
     .eq('household_id', context.householdId)
-    .select('*')
-    .maybeSingle()
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query = query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
   }
 
   if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(
+        409,
+        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
+        'version_conflict',
+      )
+    }
     throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
   }
 
@@ -604,8 +645,9 @@ const completeTask = async (context, taskId) => {
   return { task: hydrated[0] }
 }
 
-const verifyTask = async (context, taskId) => {
+const verifyTask = async (context, taskId, expectedVersion) => {
   const task = await getTaskOrThrow(context.client, context.householdId, taskId)
+  assertExpectedVersion(task.version, expectedVersion)
 
   if (task.status !== 'awaiting_verification') {
     throw createHttpError(409, 'La task no esta awaiting_verification.', 'task_not_awaiting_verification')
@@ -622,7 +664,7 @@ const verifyTask = async (context, taskId) => {
     throw createHttpError(409, 'La misma persona no puede verificar su completion.', 'cannot_verify_own_completion')
   }
 
-  const { data, error } = await context.client
+  let query = context.client
     .from('planner_tasks')
     .update({
       status: 'verified',
@@ -632,14 +674,25 @@ const verifyTask = async (context, taskId) => {
     })
     .eq('id', taskId)
     .eq('household_id', context.householdId)
-    .select('*')
-    .maybeSingle()
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query = query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
   }
 
   if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(
+        409,
+        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
+        'version_conflict',
+      )
+    }
     throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
   }
 
