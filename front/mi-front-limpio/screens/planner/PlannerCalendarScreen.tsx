@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { ErrorState } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
@@ -6,6 +6,7 @@ import { ApiError } from '../../services/api';
 import { getPlannerCalendar, type PlannerCalendarEventItem, type PlannerCalendarItem, type PlannerCalendarView } from '../../services/plannerCalendar';
 import { cancelPlannerEvent } from '../../services/plannerEvents';
 import { completePlannerTask } from '../../services/plannerTasks';
+import { createIdempotencyKey } from '../../services/idempotency';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
@@ -66,6 +67,9 @@ export function PlannerCalendarScreen({ refreshKey, onChanged, onCreateEvent, on
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const eventCancelKeyRef = useRef(createIdempotencyKey('planner.events.cancel'));
+  const taskCompleteKeyRef = useRef(createIdempotencyKey('planner.tasks.complete'));
 
   const loadCalendar = useCallback(async (silent = false) => {
     if (!accessToken || authLoading) return;
@@ -381,11 +385,12 @@ onCancelEvent={(eventId, version) => {
                         onPress: async () => {
                           setSavingId(eventId);
                           try {
-                            await cancelPlannerEvent(accessToken, eventId, version);
+                            await cancelPlannerEvent(accessToken, eventId, version, { idempotencyKey: eventCancelKeyRef.current });
                             markPlannerChanged();
                             await loadCalendar(true);
                             onChanged?.();
                             onShowToast?.('Evento cancelado');
+                            eventCancelKeyRef.current = createIdempotencyKey('planner.events.cancel');
                           } catch (err) {
                             if (err instanceof ApiError && err.code === 'version_conflict') {
                               Alert.alert('Planner', 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.');
@@ -401,25 +406,32 @@ onCancelEvent={(eventId, version) => {
                     ]);
                   }}
                  onEditTask={(taskId) => onEditTask?.(taskId)}
-                 onCompleteTask={async (taskId) => {
-                   if (!accessToken) {
-                     Alert.alert('Planner', 'No hay sesión activa para completar la tarea.');
-                     return;
-                   }
-                   setSavingId(taskId);
-                   try {
-                     const response = await completePlannerTask(accessToken, taskId);
-                     const task = response.task;
-                     markPlannerChanged();
-                     await loadCalendar(true);
-                     onChanged?.();
-                     onShowToast?.(task.requires_verification ? 'Tarea enviada a revisión' : 'Tarea completada');
-                   } catch (err) {
-                     Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos completar la tarea.');
-                   } finally {
-                     setSavingId(null);
-                   }
-                 }}
+onCompleteTask={async (taskId) => {
+                    if (!accessToken) {
+                      Alert.alert('Planner', 'No hay sesión activa para completar la tarea.');
+                      return;
+                    }
+                    // We need the task version - fetch from items
+                    const taskItem = selectedDateItems.find(item => item.type === 'task' && item.id === taskId);
+                    if (!taskItem) {
+                      Alert.alert('Planner', 'No se encontró la tarea.');
+                      return;
+                    }
+                    setSavingId(taskId);
+                    try {
+                      const response = await completePlannerTask(accessToken, taskId, taskItem.version, { idempotencyKey: taskCompleteKeyRef.current });
+                      const task = response.task;
+                      markPlannerChanged();
+                      await loadCalendar(true);
+                      onChanged?.();
+                      onShowToast?.(task.requires_verification ? 'Tarea enviada a revisión' : 'Tarea completada');
+                      taskCompleteKeyRef.current = createIdempotencyKey('planner.tasks.complete');
+                    } catch (err) {
+                      Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos completar la tarea.');
+                    } finally {
+                      setSavingId(null);
+                    }
+                  }}
                />
             );
           })}

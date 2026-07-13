@@ -59,6 +59,7 @@ const createTask = async (req, res) => {
       operation,
       params: {},
       body: req.body ?? {},
+      expectedVersion: null,
     })
 
     const result = await withIdempotency(
@@ -76,10 +77,24 @@ const createTask = async (req, res) => {
 const updateTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.tasks.update'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await tasksService.updateTask(context, req.params.id, req.body ?? {}, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'PATCH',
+      operation,
+      params: { id: req.params.id },
+      body: req.body ?? {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => tasksService.updateTask(context, req.params.id, req.body ?? {}, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -88,10 +103,24 @@ const updateTask = async (req, res) => {
 const cancelTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.tasks.cancel'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await tasksService.cancelTask(context, req.params.id, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'DELETE',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => tasksService.cancelTask(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -100,10 +129,24 @@ const cancelTask = async (req, res) => {
 const completeTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.tasks.complete'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await tasksService.completeTask(context, req.params.id, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => tasksService.completeTask(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -112,10 +155,24 @@ const completeTask = async (req, res) => {
 const verifyTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.tasks.verify'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await tasksService.verifyTask(context, req.params.id, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => tasksService.verifyTask(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }

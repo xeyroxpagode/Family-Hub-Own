@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { ApiError } from '../../services/api';
@@ -11,6 +11,7 @@ import {
   type PlannerGoalStatus,
   type PlannerGoalVisibility,
 } from '../../services/plannerGoals';
+import { createIdempotencyKey } from '../../services/idempotency';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
 import { AppText, EmptyState, ErrorState } from '../../components/ui';
@@ -197,6 +198,8 @@ export function PlannerGoalsScreen({ refreshKey, onChanged, onShowToast }: Props
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [savingId, setSavingId] = useState<string | null>(null);
 
+  const goalDeleteKeyRef = useRef(createIdempotencyKey('planner.goals.delete'));
+
   const buildFilters = useCallback((): PlannerGoalFilters => {
     const f: PlannerGoalFilters = {};
     if (statusFilter !== 'all') f.status = statusFilter;
@@ -245,10 +248,11 @@ export function PlannerGoalsScreen({ refreshKey, onChanged, onShowToast }: Props
             if (!accessToken) return;
             setSavingId(goal.id);
             try {
-              await deleteGoal(accessToken, goal.id, goal.version);
+              await deleteGoal(accessToken, goal.id, goal.version, { idempotencyKey: goalDeleteKeyRef.current });
               onShowToast?.('Meta eliminada.');
               onChanged?.();
               setGoals((prev) => prev.filter((g) => g.id !== goal.id));
+              goalDeleteKeyRef.current = createIdempotencyKey('planner.goals.delete');
             } catch (err) {
               if (err instanceof ApiError && err.code === 'version_conflict') {
                 Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');

@@ -69,6 +69,11 @@ export function GoalDetailScreen() {
   const [progressValue, setProgressValue] = useState('');
 
   const milestoneCreateKeyRef = useRef(createIdempotencyKey('planner.goals.milestones.create'));
+  const goalCompleteKeyRef = useRef(createIdempotencyKey('planner.goals.complete'));
+  const goalFailKeyRef = useRef(createIdempotencyKey('planner.goals.fail'));
+  const goalDeleteKeyRef = useRef(createIdempotencyKey('planner.goals.delete'));
+  const milestoneUpdateKeyRef = useRef(createIdempotencyKey('planner.goals.milestones.update'));
+  const milestoneDeleteKeyRef = useRef(createIdempotencyKey('planner.goals.milestones.delete'));
 
   const isFocused = useIsFocused();
 
@@ -120,9 +125,10 @@ export function GoalDetailScreen() {
         onPress: async () => {
           setSavingId(goalId);
           try {
-            const { goal: updated } = await completeGoal(accessToken, goalId, goal.version);
+            const { goal: updated } = await completeGoal(accessToken, goalId, goal.version, { idempotencyKey: goalCompleteKeyRef.current });
             setGoal(updated);
             markPlannerChanged();
+            goalCompleteKeyRef.current = createIdempotencyKey('planner.goals.complete');
           } catch (err) {
             if (err instanceof ApiError && err.code === 'version_conflict') {
               Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
@@ -148,9 +154,10 @@ export function GoalDetailScreen() {
         onPress: async () => {
           setSavingId(goalId);
           try {
-            const { goal: updated } = await failGoal(accessToken, goalId, goal.version);
+            const { goal: updated } = await failGoal(accessToken, goalId, goal.version, { idempotencyKey: goalFailKeyRef.current });
             setGoal(updated);
             markPlannerChanged();
+            goalFailKeyRef.current = createIdempotencyKey('planner.goals.fail');
           } catch (err) {
             if (err instanceof ApiError && err.code === 'version_conflict') {
               Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
@@ -176,8 +183,9 @@ export function GoalDetailScreen() {
         onPress: async () => {
           setSavingId(goalId);
           try {
-            await deleteGoal(accessToken, goalId, goal.version);
+            await deleteGoal(accessToken, goalId, goal.version, { idempotencyKey: goalDeleteKeyRef.current });
             markPlannerChanged();
+            goalDeleteKeyRef.current = createIdempotencyKey('planner.goals.delete');
             navigation.goBack();
           } catch (err) {
             if (err instanceof ApiError && err.code === 'version_conflict') {
@@ -245,9 +253,10 @@ export function GoalDetailScreen() {
       const { milestone } = await updateGoalMilestone(accessToken, goalId, ms.id, {
         achieved: !ms.achieved,
         expected_version: ms.version,
-      });
+      }, { idempotencyKey: milestoneUpdateKeyRef.current });
       setMilestones((prev) => prev.map((m) => (m.id === ms.id ? milestone : m)));
       markPlannerChanged();
+      milestoneUpdateKeyRef.current = createIdempotencyKey('planner.goals.milestones.update');
     } catch (err) {
       if (err instanceof ApiError && err.code === 'version_conflict') {
         Alert.alert('Planner', 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.');
@@ -270,9 +279,10 @@ export function GoalDetailScreen() {
         onPress: async () => {
           setSavingId(ms.id);
           try {
-            await deleteGoalMilestone(accessToken, goalId, ms.id, ms.version);
+            await deleteGoalMilestone(accessToken, goalId, ms.id, ms.version, { idempotencyKey: milestoneDeleteKeyRef.current });
             setMilestones((prev) => prev.filter((m) => m.id !== ms.id));
             markPlannerChanged();
+            milestoneDeleteKeyRef.current = createIdempotencyKey('planner.goals.milestones.delete');
           } catch (err) {
             if (err instanceof ApiError && err.code === 'version_conflict') {
               Alert.alert('Planner', 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.');

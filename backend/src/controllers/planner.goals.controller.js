@@ -74,6 +74,7 @@ const createGoal = async (req, res) => {
       operation,
       params: {},
       body: req.body ?? {},
+      expectedVersion: null,
     })
 
     const result = await withIdempotency(
@@ -91,10 +92,24 @@ const createGoal = async (req, res) => {
 const updateGoal = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.goals.update'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await goalsService.updateGoal(context, req.params.id, req.body ?? {}, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'PATCH',
+      operation,
+      params: { id: req.params.id },
+      body: req.body ?? {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => goalsService.updateGoal(context, req.params.id, req.body ?? {}, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -103,10 +118,24 @@ const updateGoal = async (req, res) => {
 const deleteGoal = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.goals.delete'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await goalsService.deleteGoal(context, req.params.id, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'DELETE',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => goalsService.deleteGoal(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -115,10 +144,24 @@ const deleteGoal = async (req, res) => {
 const completeGoal = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.goals.complete'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await goalsService.completeGoal(context, req.params.id, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => goalsService.completeGoal(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -127,10 +170,24 @@ const completeGoal = async (req, res) => {
 const failGoal = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.goals.fail'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await goalsService.failGoal(context, req.params.id, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => goalsService.failGoal(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -157,6 +214,7 @@ const createMilestone = async (req, res) => {
       operation,
       params: { goalId: req.params?.goalId ?? '' },
       body: req.body ?? {},
+      expectedVersion: null,
     })
 
     const result = await withIdempotency(
@@ -174,10 +232,24 @@ const createMilestone = async (req, res) => {
 const updateMilestone = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.goals.milestones.update'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await goalsService.updateMilestone(context, req.params.goalId, req.params.milestoneId, req.body ?? {}, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'PATCH',
+      operation,
+      params: { goalId: req.params.goalId, milestoneId: req.params.milestoneId },
+      body: req.body ?? {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => goalsService.updateMilestone(context, req.params.goalId, req.params.milestoneId, req.body ?? {}, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -186,10 +258,24 @@ const updateMilestone = async (req, res) => {
 const deleteMilestone = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.goals.milestones.delete'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await goalsService.deleteMilestone(context, req.params.goalId, req.params.milestoneId, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'DELETE',
+      operation,
+      params: { goalId: req.params.goalId, milestoneId: req.params.milestoneId },
+      body: {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => goalsService.deleteMilestone(context, req.params.goalId, req.params.milestoneId, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }

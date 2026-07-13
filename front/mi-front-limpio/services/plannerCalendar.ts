@@ -34,6 +34,7 @@ export type PlannerCalendarTaskItem = {
   category?: string | null;
   assigned_to_member_id?: string | null;
   requires_verification: boolean;
+  version: number;
 };
 
 export type PlannerCalendarItem = PlannerCalendarEventItem | PlannerCalendarTaskItem;

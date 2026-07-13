@@ -175,33 +175,70 @@ export const updateGoal = (
   accessToken: string,
   goalId: string,
   payload: UpdatePlannerGoalInput,
-) =>
-  requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}`, {
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.update')
+  return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}`, {
     method: 'PATCH',
     accessToken,
     body: payload,
+    headers: { 'Idempotency-Key': key },
   });
+};
 
-export const deleteGoal = (accessToken: string, goalId: string, expectedVersion?: number) =>
-  requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}`, {
+export const deleteGoal = (
+  accessToken: string,
+  goalId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.delete')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}`, {
     method: 'DELETE',
     accessToken,
-    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
+    headers,
   });
+};
 
-export const completeGoal = (accessToken: string, goalId: string, expectedVersion?: number) =>
-  requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/complete`, {
+export const completeGoal = (
+  accessToken: string,
+  goalId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.complete')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/complete`, {
     method: 'POST',
     accessToken,
-    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
+    headers,
   });
+};
 
-export const failGoal = (accessToken: string, goalId: string, expectedVersion?: number) =>
-  requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/fail`, {
+export const failGoal = (
+  accessToken: string,
+  goalId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.fail')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/fail`, {
     method: 'POST',
     accessToken,
-    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
+    headers,
   });
+};
 
 export const listGoalMilestones = (accessToken: string, goalId: string) =>
   requestJson<PlannerGoalMilestonesResponse>(
@@ -232,27 +269,38 @@ export const updateGoalMilestone = (
   goalId: string,
   milestoneId: string,
   payload: UpdateMilestoneInput,
-) =>
-  requestJson<PlannerGoalMilestoneResponse>(
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.milestones.update')
+  return requestJson<PlannerGoalMilestoneResponse>(
     `/api/planner/goals/${goalId}/milestones/${milestoneId}`,
     {
       method: 'PATCH',
       accessToken,
       body: payload,
+      headers: { 'Idempotency-Key': key },
     },
   );
+};
 
 export const deleteGoalMilestone = (
   accessToken: string,
   goalId: string,
   milestoneId: string,
   expectedVersion?: number,
-) =>
-  requestJson<PlannerGoalMilestoneResponse>(
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.milestones.delete')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerGoalMilestoneResponse>(
     `/api/planner/goals/${goalId}/milestones/${milestoneId}`,
     {
       method: 'DELETE',
       accessToken,
-      headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
+      headers,
     },
   );
+};

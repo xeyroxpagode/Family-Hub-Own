@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { ErrorState } from '../../components/ui';
 import { ApiError } from '../../services/api';
@@ -11,6 +11,7 @@ import {
   type PlannerTaskPriority,
 } from '../../services/plannerTasks';
 import { listGoals, type PlannerGoal } from '../../services/plannerGoals';
+import { createIdempotencyKey } from '../../services/idempotency';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
@@ -302,6 +303,10 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterKey>('open');
 
+  const taskCompleteKeyRef = useRef(createIdempotencyKey('planner.tasks.complete'));
+  const taskVerifyKeyRef = useRef(createIdempotencyKey('planner.tasks.verify'));
+  const taskCancelKeyRef = useRef(createIdempotencyKey('planner.tasks.cancel'));
+
   const loadTasks = useCallback(async () => {
     if (!accessToken || authLoading) return;
 
@@ -503,12 +508,14 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
     try {
       let resultTask: PlannerTask | undefined;
       if (action === 'complete') {
-        const response = await completePlannerTask(accessToken, task.id, task.version);
+        const response = await completePlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskCompleteKeyRef.current });
         resultTask = response.task;
+        taskCompleteKeyRef.current = createIdempotencyKey('planner.tasks.complete');
       }
       if (action === 'verify') {
-        const response = await verifyPlannerTask(accessToken, task.id, task.version);
+        const response = await verifyPlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskVerifyKeyRef.current });
         resultTask = response.task;
+        taskVerifyKeyRef.current = createIdempotencyKey('planner.tasks.verify');
       }
       if (resultTask) {
         setTasks((current) => current.map((item) => (item.id === task.id ? resultTask! : item)));
@@ -546,31 +553,32 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
     await runMutation(task, 'verify');
   };
 
-  const confirmCancel = (task: PlannerTask) => {
+const confirmCancel = (task: PlannerTask) => {
     if (!accessToken) return;
     Alert.alert('¿Cancelar esta tarea?', 'No se va a borrar definitivamente, pero dejará de aparecer como pendiente.', [
       { text: 'Volver', style: 'cancel' },
       {
         text: 'Cancelar tarea',
         style: 'destructive',
-onPress: async () => {
-            await lightHaptic();
-            setSavingId(task.id);
-try {
-              await cancelPlannerTask(accessToken, task.id, task.version);
-              markPlannerChanged();
+        onPress: async () => {
+          await lightHaptic();
+          setSavingId(task.id);
+          try {
+            await cancelPlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskCancelKeyRef.current });
+            markPlannerChanged();
+            await loadTasks();
+            onChanged?.();
+            onShowToast?.('Tarea cancelada');
+            taskCancelKeyRef.current = createIdempotencyKey('planner.tasks.cancel');
+          } catch (err) {
+            const message = err instanceof ApiError ? err.message : 'No pudimos cancelar la tarea.';
+            if (err instanceof ApiError && err.code === 'version_conflict') {
+              Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
               await loadTasks();
-              onChanged?.();
-              onShowToast?.('Tarea cancelada');
-            } catch (err) {
-              const message = err instanceof ApiError ? err.message : 'No pudimos cancelar la tarea.';
-              if (err instanceof ApiError && err.code === 'version_conflict') {
-                Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
-                await loadTasks();
-              } else {
-                Alert.alert('Planner', message);
-              }
-            } finally {
+            } else {
+              Alert.alert('Planner', message);
+            }
+          } finally {
             setSavingId(null);
           }
         },

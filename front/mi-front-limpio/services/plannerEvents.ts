@@ -87,23 +87,34 @@ export const updatePlannerEvent = (
   accessToken: string,
   eventId: string,
   payload: UpdatePlannerEventPayload,
-) =>
-  requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}`, {
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.update')
+  return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}`, {
     method: 'PATCH',
     accessToken,
     body: payload,
+    headers: { 'Idempotency-Key': key },
   });
+};
 
 export const cancelPlannerEvent = (
   accessToken: string,
   eventId: string,
   expectedVersion?: number,
-) =>
-  requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}`, {
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.cancel')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}`, {
     method: 'DELETE',
     accessToken,
-    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
+    headers,
   });
+};
 
 export type CreateOccurrenceOverridePayload = {
   original_occurrence_start_at: string;

@@ -144,13 +144,44 @@ const withIdempotency = async (context, options, mutationFn) => {
     )
   }
 
-  // Reserved -> run mutationFn. Only persist 2xx in A+B phase.
-  const body = await mutationFn()
+  // Reserved -> run mutationFn.
+  let body
+  let responseStatus
+  try {
+    body = await mutationFn()
+    responseStatus = options.successStatus
+  } catch (error) {
+    // Handle version_conflict (409) - store and replay this error response.
+    if (error?.statusCode === 409 && error?.code === 'version_conflict') {
+      responseStatus = 409
+      body = { error: error.message, code: 'version_conflict' }
+      try {
+        await callCompleteRpc(context, options, responseStatus, body)
+      } catch (storeError) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('[idempotency] complete_planner_idempotency_key failed (version_conflict)', {
+            operation: options.operation,
+            message: storeError?.message,
+            code: storeError?.code,
+          })
+        }
+      }
+      throw error
+    }
 
-  const successStatus = options.successStatus
-  if (successStatus >= 200 && successStatus < 300) {
+    // Other 4xx: do NOT store, rethrow normally.
+    if (error?.statusCode >= 400 && error?.statusCode < 500) {
+      throw error
+    }
+
+    // 5xx: do NOT store, rethrow normally.
+    throw error
+  }
+
+  // Successful 2xx: store response.
+  if (responseStatus >= 200 && responseStatus < 300) {
     try {
-      await callCompleteRpc(context, options, successStatus, body)
+      await callCompleteRpc(context, options, responseStatus, body)
     } catch (storeError) {
       if (process.env.NODE_ENV !== 'production') {
         console.error('[idempotency] complete_planner_idempotency_key failed', {
@@ -163,7 +194,7 @@ const withIdempotency = async (context, options, mutationFn) => {
     }
   }
 
-  return { status: successStatus, body }
+  return { status: responseStatus, body }
 }
 
 module.exports = {

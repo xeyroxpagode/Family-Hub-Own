@@ -132,6 +132,8 @@ export function EventForm({
   const [entityVersion, setEntityVersion] = useState<number | null>(null);
 
   const eventCreateKeyRef = useRef(createIdempotencyKey('planner.events.create'));
+  const eventUpdateKeyRef = useRef(createIdempotencyKey('planner.events.update'));
+  const eventCancelKeyRef = useRef(createIdempotencyKey('planner.events.cancel'));
   const occurrenceOverrideKeyRef = useRef(createIdempotencyKey('planner.events.occurrences.override.create'));
 
   const isFormReadyForSubmit = React.useMemo(() => {
@@ -311,13 +313,14 @@ if (isGeneratedRecurringOccurrence) {
             }
           }
 
-        await updatePlannerEvent(accessToken, targetEventId, payload);
+        await updatePlannerEvent(accessToken, targetEventId, payload, { idempotencyKey: eventUpdateKeyRef.current });
         markPlannerChanged();
         if (onSaved) {
           onSaved('Evento actualizado.');
         } else {
           Alert.alert('Planner', 'Evento actualizado.');
         }
+        eventUpdateKeyRef.current = createIdempotencyKey('planner.events.update');
       } else {
         await createPlannerEvent(accessToken, payload, { idempotencyKey: eventCreateKeyRef.current });
         markPlannerChanged();
@@ -357,31 +360,32 @@ if (isGeneratedRecurringOccurrence) {
       {
         text: 'Cancelar evento',
         style: 'destructive',
-        onPress: async () => {
-          setSaving(true);
-          try {
-            await cancelPlannerEvent(accessToken, eventId, entityVersion ?? undefined);
-            markPlannerChanged();
-            if (onSaved) {
-              onSaved('Evento cancelado.');
-            } else {
-              Alert.alert('Planner', 'Evento cancelado.');
-              const tab = routeReturnTo === 'PlannerHome'
-                ? (routeInitialTab ?? 'calendar')
-                : 'calendar';
-              const refreshKey = Date.now();
-              if (navigation.canGoBack()) {
-                navigation.goBack();
+onPress: async () => {
+            setSaving(true);
+            try {
+              await cancelPlannerEvent(accessToken, eventId, entityVersion ?? undefined, { idempotencyKey: eventCancelKeyRef.current });
+              markPlannerChanged();
+              if (onSaved) {
+                onSaved('Evento cancelado.');
               } else {
-                navigation.navigate('PlannerHome', { refreshKey, initialTab: tab });
+                Alert.alert('Planner', 'Evento cancelado.');
+                const tab = routeReturnTo === 'PlannerHome'
+                  ? (routeInitialTab ?? 'calendar')
+                  : 'calendar';
+                const refreshKey = Date.now();
+                if (navigation.canGoBack()) {
+                  navigation.goBack();
+                } else {
+                  navigation.navigate('PlannerHome', { refreshKey, initialTab: tab });
+                }
               }
+              eventCancelKeyRef.current = createIdempotencyKey('planner.events.cancel');
+            } catch (err) {
+              Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos cancelar el evento.');
+            } finally {
+              setSaving(false);
             }
-          } catch (err) {
-            Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos cancelar el evento.');
-          } finally {
-            setSaving(false);
-          }
-        },
+          },
       },
     ]);
   };

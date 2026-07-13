@@ -198,6 +198,7 @@ export function TaskForm({
   }, [authMe?.active_household?.id, authMe?.memberships]);
 
   const taskCreateKeyRef = useRef(createIdempotencyKey('planner.tasks.create'));
+  const taskUpdateKeyRef = useRef(createIdempotencyKey('planner.tasks.update'));
 
   const isFormReadyForSubmit = useMemo(() => {
     if (authLoading || loading || saving) return false;
@@ -421,7 +422,7 @@ export function TaskForm({
 
     try {
       if (mode === 'edit' && taskId) {
-        await updatePlannerTask(accessToken, taskId, payload as CreatePlannerTaskPayload & { expected_version: number });
+        await updatePlannerTask(accessToken, taskId, payload as CreatePlannerTaskPayload & { expected_version: number }, { idempotencyKey: taskUpdateKeyRef.current });
         markPlannerChanged();
         const successMsg = 'Tarea actualizada.';
         if (onSaved) {
@@ -429,6 +430,7 @@ export function TaskForm({
         } else {
           Alert.alert('Planner', successMsg);
         }
+        taskUpdateKeyRef.current = createIdempotencyKey('planner.tasks.update');
       } else {
         await createPlannerTask(accessToken, payload, { idempotencyKey: taskCreateKeyRef.current });
         markPlannerChanged();

@@ -165,6 +165,7 @@ export function GoalForm({
   const [entityVersion, setEntityVersion] = useState<number | null>(null);
 
   const goalCreateKeyRef = useRef(createIdempotencyKey('planner.goals.create'));
+  const goalUpdateKeyRef = useRef(createIdempotencyKey('planner.goals.update'));
 
   const isFormReady = useMemo(() => {
     if (authLoading || loading || saving) return false;
@@ -446,13 +447,14 @@ export function GoalForm({
           navigation.navigate('GoalDetail', { goalId: goal.id });
         }
       } else if (goalId) {
-        await updateGoal(accessToken, goalId, payloadWithVersion);
+        await updateGoal(accessToken, goalId, payloadWithVersion, { idempotencyKey: goalUpdateKeyRef.current });
         markPlannerChanged();
         if (onSaved) {
           onSaved('Meta actualizada.');
         } else {
           navigation.goBack();
         }
+        goalUpdateKeyRef.current = createIdempotencyKey('planner.goals.update');
       }
     } catch (err) {
       setError(toFriendlyGoalError(err));

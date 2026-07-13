@@ -56,6 +56,7 @@ const createEvent = async (req, res) => {
       operation,
       params: {},
       body: req.body ?? {},
+      expectedVersion: null,
     })
 
     const result = await withIdempotency(
@@ -73,10 +74,24 @@ const createEvent = async (req, res) => {
 const updateEvent = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.events.update'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await eventsService.updateEvent(context, req.params.id, req.body ?? {}, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'PATCH',
+      operation,
+      params: { id: req.params.id },
+      body: req.body ?? {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => eventsService.updateEvent(context, req.params.id, req.body ?? {}, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -85,10 +100,24 @@ const updateEvent = async (req, res) => {
 const cancelEvent = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
+    const operation = 'planner.events.cancel'
     const expectedVersion = parseExpectedVersion(req)
-    const payload = await eventsService.cancelEvent(context, req.params.id, expectedVersion)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'DELETE',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
 
-    return res.status(200).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => eventsService.cancelEvent(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -104,6 +133,7 @@ const createOccurrenceOverride = async (req, res) => {
       operation,
       params: { id: req.params?.id ?? '' },
       body: req.body ?? {},
+      expectedVersion: null,
     })
 
     const result = await withIdempotency(

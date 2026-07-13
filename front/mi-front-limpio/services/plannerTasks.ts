@@ -130,30 +130,71 @@ export const updatePlannerTask = (
   accessToken: string,
   taskId: string,
   payload: UpdatePlannerTaskPayload,
-) =>
-  requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}`, {
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.update')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (payload.expected_version !== undefined) {
+    headers['If-Match'] = String(payload.expected_version)
+  }
+  return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}`, {
     method: 'PATCH',
     accessToken,
     body: payload,
+    headers,
   });
+};
 
-export const cancelPlannerTask = (accessToken: string, taskId: string, expectedVersion?: number) =>
-  requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}`, {
+export const cancelPlannerTask = (
+  accessToken: string,
+  taskId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.cancel')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}`, {
     method: 'DELETE',
     accessToken,
-    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
+    headers,
   });
+};
 
-export const completePlannerTask = (accessToken: string, taskId: string, expectedVersion?: number) =>
-  requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/complete`, {
+export const completePlannerTask = (
+  accessToken: string,
+  taskId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.complete')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/complete`, {
     method: 'POST',
     accessToken,
-    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
+    headers,
   });
+};
 
-export const verifyPlannerTask = (accessToken: string, taskId: string, expectedVersion?: number) =>
-  requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/verify`, {
+export const verifyPlannerTask = (
+  accessToken: string,
+  taskId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.verify')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/verify`, {
     method: 'POST',
     accessToken,
-    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
+    headers,
   });
+};
