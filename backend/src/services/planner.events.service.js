@@ -71,6 +71,26 @@ const getEventOrThrow = async (client, householdId, eventId) => {
     .select('*')
     .eq('id', eventId)
     .eq('household_id', householdId)
+    .is('trashed_at', null)
+    .maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+
+  if (!data) {
+    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
+  }
+
+  return data
+}
+
+const getEventForTrashOperation = async (client, householdId, eventId) => {
+  const { data, error } = await client
+    .from('planner_events')
+    .select('*')
+    .eq('id', eventId)
+    .eq('household_id', householdId)
     .maybeSingle()
 
   if (error) {
@@ -105,6 +125,7 @@ const listEvents = async (context, query) => {
     .from('planner_events')
     .select('*')
     .eq('household_id', context.householdId)
+    .is('trashed_at', null)
     .lte('starts_at', to.toISOString())
 
   if (query.status) {
@@ -285,6 +306,80 @@ const cancelEvent = async (context, eventId, expectedVersion) => {
   return { event: data }
 }
 
+const trashEvent = async (context, eventId, expectedVersion) => {
+  const current = await getEventForTrashOperation(context.client, context.householdId, eventId)
+  assertExpectedVersion(current.version, expectedVersion)
+
+  if (current.trashed_at !== null) {
+    return { event: await getEventForTrashOperation(context.client, context.householdId, eventId) }
+  }
+
+  const query = context.client
+    .from('planner_events')
+    .update({
+      trashed_at: new Date().toISOString(),
+      trashed_by_member_id: context.membershipId,
+    })
+    .eq('id', eventId)
+    .eq('household_id', context.householdId)
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+
+  if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
+    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
+  }
+
+  return { event: data }
+}
+
+const restoreEvent = async (context, eventId, expectedVersion) => {
+  const current = await getEventForTrashOperation(context.client, context.householdId, eventId)
+  assertExpectedVersion(current.version, expectedVersion)
+
+  if (current.trashed_at === null) {
+    return { event: current }
+  }
+
+  const query = context.client
+    .from('planner_events')
+    .update({
+      trashed_at: null,
+      trashed_by_member_id: null,
+    })
+    .eq('id', eventId)
+    .eq('household_id', context.householdId)
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+
+  if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
+    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
+  }
+
+  return { event: data }
+}
+
 const createOccurrenceOverride = async (context, eventId, payload) => {
   const baseEvent = await getEventOrThrow(context.client, context.householdId, eventId)
 
@@ -348,5 +443,7 @@ module.exports = {
   eventOverlapsRange,
   getEventOrThrow,
   listEvents,
+  restoreEvent,
+  trashEvent,
   updateEvent,
 }

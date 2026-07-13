@@ -192,6 +192,7 @@ const validateGoalId = async (client, householdId, goalId) => {
     .eq('id', goalId)
     .eq('household_id', householdId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
     .maybeSingle()
 
   if (error) {
@@ -324,6 +325,26 @@ const getTaskOrThrow = async (client, householdId, taskId) => {
     .select('*')
     .eq('id', taskId)
     .eq('household_id', householdId)
+    .is('trashed_at', null)
+    .maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+
+  if (!data) {
+    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+  }
+
+  return data
+}
+
+const getTaskForTrashOperation = async (client, householdId, taskId) => {
+  const { data, error } = await client
+    .from('planner_tasks')
+    .select('*')
+    .eq('id', taskId)
+    .eq('household_id', householdId)
     .maybeSingle()
 
   if (error) {
@@ -343,6 +364,7 @@ const listTasks = async (context, query) => {
     .from('planner_tasks')
     .select('*')
     .eq('household_id', context.householdId)
+    .is('trashed_at', null)
 
   if (query.status) {
     request = request.eq('status', query.status)
@@ -362,6 +384,7 @@ const listTasks = async (context, query) => {
       .eq('id', query.goal_id)
       .eq('household_id', context.householdId)
       .is('deleted_at', null)
+      .is('trashed_at', null)
       .maybeSingle()
 
     if (goalErr) {
@@ -705,12 +728,96 @@ const verifyTask = async (context, taskId, expectedVersion) => {
   return { task: hydrated[0] }
 }
 
+const trashTask = async (context, taskId, expectedVersion) => {
+  const task = await getTaskForTrashOperation(context.client, context.householdId, taskId)
+  assertExpectedVersion(task.version, expectedVersion)
+
+  if (task.trashed_at !== null) {
+    return { task: await getTaskForTrashOperation(context.client, context.householdId, taskId) }
+  }
+
+  let query = context.client
+    .from('planner_tasks')
+    .update({
+      trashed_at: new Date().toISOString(),
+      trashed_by_member_id: context.membershipId,
+    })
+    .eq('id', taskId)
+    .eq('household_id', context.householdId)
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query = query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+
+  if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(
+        409,
+        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
+        'version_conflict',
+      )
+    }
+    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+  }
+
+  return { task: data }
+}
+
+const restoreTask = async (context, taskId, expectedVersion) => {
+  const task = await getTaskForTrashOperation(context.client, context.householdId, taskId)
+  assertExpectedVersion(task.version, expectedVersion)
+
+  if (task.trashed_at === null) {
+    return { task }
+  }
+
+  let query = context.client
+    .from('planner_tasks')
+    .update({
+      trashed_at: null,
+      trashed_by_member_id: null,
+    })
+    .eq('id', taskId)
+    .eq('household_id', context.householdId)
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query = query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+
+  if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(
+        409,
+        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
+        'version_conflict',
+      )
+    }
+    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+  }
+
+  return { task: data }
+}
+
 module.exports = {
   cancelTask,
   completeTask,
   createTask,
   getTaskOrThrow,
   listTasks,
+  restoreTask,
+  trashTask,
   updateTask,
   verifyTask,
 }

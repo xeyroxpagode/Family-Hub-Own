@@ -47,6 +47,7 @@ const calculateProgressFromMilestones = async (client, goalId) => {
     .select('achieved')
     .eq('goal_id', goalId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
 
   if (error) {
     console.error('[calculateProgressFromMilestones]', error)
@@ -108,6 +109,7 @@ const calculateProgressFromTasks = async (client, householdId, goalId) => {
     .eq('household_id', householdId)
     .eq('goal_id', goalId)
     .neq('status', 'cancelled')
+    .is('trashed_at', null)
 
   if (error) {
     console.error('[calculateProgressFromTasks]', error)
@@ -220,6 +222,7 @@ const getGoalOrThrow = async (client, householdId, goalId) => {
     .eq('id', goalId)
     .eq('household_id', householdId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
     .maybeSingle()
 
   if (error) {
@@ -227,6 +230,40 @@ const getGoalOrThrow = async (client, householdId, goalId) => {
   }
   if (!data) {
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
+  }
+  return data
+}
+
+const getGoalForTrashOperation = async (client, householdId, goalId) => {
+  const { data, error } = await client
+    .from('planner_goals')
+    .select('*')
+    .eq('id', goalId)
+    .eq('household_id', householdId)
+    .maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+  if (!data) {
+    throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
+  }
+  return data
+}
+
+const getMilestoneForTrashOperation = async (client, goalId, milestoneId) => {
+  const { data, error } = await client
+    .from('planner_goal_milestones')
+    .select('*')
+    .eq('id', milestoneId)
+    .eq('goal_id', goalId)
+    .maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+  if (!data) {
+    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
   }
   return data
 }
@@ -299,6 +336,7 @@ const listGoals = async (context, query) => {
     .select('*')
     .eq('household_id', context.householdId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
 
   if (query.status) {
     request = request.eq('status', query.status)
@@ -345,6 +383,7 @@ const getGoalById = async (context, goalId) => {
     .select('*')
     .eq('goal_id', goalId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true })
 
@@ -482,6 +521,7 @@ const updateGoal = async (context, goalId, body, expectedVersion) => {
     .eq('id', goalId)
     .eq('household_id', context.householdId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
 
   if (expectedVersion !== null && expectedVersion !== undefined) {
     query.eq('version', expectedVersion)
@@ -502,16 +542,114 @@ const updateGoal = async (context, goalId, body, expectedVersion) => {
   return { goal: await attachProgress(context, data) }
 }
 
+const trashMilestone = async (context, goalId, milestoneId, expectedVersion) => {
+  await getGoalForMilestone(context.client, context.householdId, goalId)
+
+  const { data: result, error: rpcError } = await context.client.rpc(
+    'trash_milestone_rpc',
+    {
+      p_goal_id: goalId,
+      p_milestone_id: milestoneId,
+      p_expected_version: expectedVersion ?? null,
+      p_member_id: context.membershipId,
+    }
+  )
+
+  if (rpcError) {
+    if (rpcError.code === '42501') {
+      throw createHttpError(403, 'No tenes permiso para realizar esta accion sobre metas.', 'rls_violation')
+    }
+    if (rpcError.code === '40007') {
+      throw createHttpError(409, 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
+    throwSupabaseError(rpcError)
+  }
+
+  if (!result || result.success === false) {
+    if (result?.error === 'milestone_not_found') {
+      throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+    }
+    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+  }
+
+  const { data: milestone, error: fetchError } = await context.client
+    .from('planner_goal_milestones')
+    .select('*')
+    .eq('id', milestoneId)
+    .eq('goal_id', goalId)
+    .maybeSingle()
+
+  if (fetchError) {
+    throwSupabaseError(fetchError)
+  }
+
+  return { milestone }
+}
+
+const restoreMilestone = async (context, goalId, milestoneId, expectedVersion) => {
+  await getGoalForMilestone(context.client, context.householdId, goalId)
+
+  const { data: result, error: rpcError } = await context.client.rpc(
+    'restore_milestone_rpc',
+    {
+      p_goal_id: goalId,
+      p_milestone_id: milestoneId,
+      p_expected_version: expectedVersion ?? null,
+      p_member_id: context.membershipId,
+    }
+  )
+
+  if (rpcError) {
+    if (rpcError.code === '42501') {
+      throw createHttpError(403, 'No tenes permiso para realizar esta accion sobre metas.', 'rls_violation')
+    }
+    if (rpcError.code === '40007') {
+      throw createHttpError(409, 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
+    throwSupabaseError(rpcError)
+  }
+
+  if (!result || result.success === false) {
+    if (result?.error === 'milestone_not_found') {
+      throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+    }
+    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+  }
+
+  const { data: milestone, error: fetchError } = await context.client
+    .from('planner_goal_milestones')
+    .select('*')
+    .eq('id', milestoneId)
+    .eq('goal_id', goalId)
+    .maybeSingle()
+
+  if (fetchError) {
+    throwSupabaseError(fetchError)
+  }
+
+  return { milestone }
+}
+
 const deleteGoal = async (context, goalId, expectedVersion) => {
-  const existing = await getGoalOrThrow(context.client, context.householdId, goalId)
+  return trashGoal(context, goalId, expectedVersion)
+}
+
+const trashGoal = async (context, goalId, expectedVersion) => {
+  const existing = await getGoalForTrashOperation(context.client, context.householdId, goalId)
   assertExpectedVersion(existing.version, expectedVersion)
+
+  if (existing.trashed_at !== null) {
+    return { goal: await attachProgress(context, existing) }
+  }
 
   const query = context.client
     .from('planner_goals')
-    .update({ deleted_at: new Date().toISOString() })
+    .update({
+      trashed_at: new Date().toISOString(),
+      trashed_by_member_id: context.membershipId,
+    })
     .eq('id', goalId)
     .eq('household_id', context.householdId)
-    .is('deleted_at', null)
 
   if (expectedVersion !== null && expectedVersion !== undefined) {
     query.eq('version', expectedVersion)
@@ -530,6 +668,60 @@ const deleteGoal = async (context, goalId, expectedVersion) => {
   }
 
   return { goal: await attachProgress(context, data) }
+}
+
+const restoreGoal = async (context, goalId, expectedVersion) => {
+  const { data: result, error: rpcError } = await context.client.rpc(
+    'restore_goal_rpc',
+    {
+      p_goal_id: goalId,
+      p_expected_version: expectedVersion ?? null,
+      p_member_id: context.membershipId,
+    }
+  )
+
+  if (rpcError) {
+    if (rpcError.code === '42501') {
+      throw createHttpError(403, 'No tenes permiso para realizar esta accion sobre metas.', 'rls_violation')
+    }
+    if (rpcError.code === '40007') {
+      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
+    throwSupabaseError(rpcError)
+  }
+
+  if (!result || result.success === false) {
+    if (result?.error === 'goal_not_found') {
+      throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
+    }
+    throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
+  }
+
+  if (result.already_restored) {
+    const { data: goal, error: fetchError } = await context.client
+      .from('planner_goals')
+      .select('*')
+      .eq('id', goalId)
+      .eq('household_id', context.householdId)
+      .maybeSingle()
+    if (fetchError) {
+      throwSupabaseError(fetchError)
+    }
+    return { goal: await attachProgress(context, goal) }
+  }
+
+  const { data: goal, error: fetchError } = await context.client
+    .from('planner_goals')
+    .select('*')
+    .eq('id', goalId)
+    .eq('household_id', context.householdId)
+    .maybeSingle()
+
+  if (fetchError) {
+    throwSupabaseError(fetchError)
+  }
+
+  return { goal: await attachProgress(context, goal) }
 }
 
 const validateGoalTransition = (fromStatus, toStatus) => {
@@ -561,6 +753,7 @@ const completeGoal = async (context, goalId, expectedVersion) => {
     .eq('id', goalId)
     .eq('household_id', context.householdId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
 
   if (expectedVersion !== null && expectedVersion !== undefined) {
     query.eq('version', expectedVersion)
@@ -607,6 +800,7 @@ const closeGoal = async (context, goalId, expectedVersion, closedReason) => {
     .eq('id', goalId)
     .eq('household_id', context.householdId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
 
   if (expectedVersion !== null && expectedVersion !== undefined) {
     query.eq('version', expectedVersion)
@@ -646,6 +840,7 @@ const reopenGoal = async (context, goalId, expectedVersion) => {
     .eq('id', goalId)
     .eq('household_id', context.householdId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
 
   if (expectedVersion !== null && expectedVersion !== undefined) {
     query.eq('version', expectedVersion)
@@ -673,6 +868,7 @@ const getGoalForMilestone = async (client, householdId, goalId) => {
     .eq('id', goalId)
     .eq('household_id', householdId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
     .maybeSingle()
 
   if (error) {
@@ -692,6 +888,7 @@ const listMilestones = async (context, goalId) => {
     .select('*')
     .eq('goal_id', goalId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true })
 
@@ -748,6 +945,7 @@ const updateMilestone = async (context, goalId, milestoneId, body, expectedVersi
     .eq('id', milestoneId)
     .eq('goal_id', goalId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
     .maybeSingle()
 
   if (fetchError) {
@@ -800,6 +998,7 @@ const updateMilestone = async (context, goalId, milestoneId, body, expectedVersi
     .eq('id', milestoneId)
     .eq('goal_id', goalId)
     .is('deleted_at', null)
+    .is('trashed_at', null)
 
   if (expectedVersion !== null && expectedVersion !== undefined) {
     query.eq('version', expectedVersion)
@@ -821,47 +1020,7 @@ const updateMilestone = async (context, goalId, milestoneId, body, expectedVersi
 }
 
 const deleteMilestone = async (context, goalId, milestoneId, expectedVersion) => {
-  await getGoalForMilestone(context.client, context.householdId, goalId)
-
-  const { data: result, error: rpcError } = await context.client.rpc(
-    'soft_delete_goal_milestone_rpc',
-    {
-      p_goal_id: goalId,
-      p_milestone_id: milestoneId,
-      p_expected_version: expectedVersion ?? null,
-    }
-  )
-
-  if (rpcError) {
-    if (rpcError.code === '42501') {
-      throw createHttpError(403, 'No tenes permiso para realizar esta accion sobre metas.', 'rls_violation')
-    }
-    if (rpcError.code === '40007') {
-      throw createHttpError(409, 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
-    throwSupabaseError(rpcError)
-  }
-
-  if (!result || result.success === false) {
-    if (result?.error === 'milestone_not_found') {
-      throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
-    }
-    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
-  }
-
-  const { data: deletedMilestone, error: fetchError } = await context.client
-    .from('planner_goal_milestones')
-    .select('*')
-    .eq('id', milestoneId)
-    .eq('goal_id', goalId)
-    .is('deleted_at', null)
-    .maybeSingle()
-
-  if (fetchError) {
-    throwSupabaseError(fetchError)
-  }
-
-  return { milestone: deletedMilestone }
+  return trashMilestone(context, goalId, milestoneId, expectedVersion)
 }
 
 module.exports = {
@@ -877,6 +1036,10 @@ module.exports = {
   listGoals,
   listMilestones,
   reopenGoal,
+  restoreGoal,
+  restoreMilestone,
+  trashGoal,
+  trashMilestone,
   updateGoal,
   updateMilestone,
 }

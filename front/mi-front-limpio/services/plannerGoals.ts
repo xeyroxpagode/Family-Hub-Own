@@ -49,6 +49,8 @@ export type PlannerGoal = {
   closed_reason: string | null;
   failed_at: string | null;
   deleted_at: string | null;
+  trashed_at: string | null;
+  trashed_by_member_id: string | null;
   progress_percentage: number | null;
   tasks_total?: number | null;
   tasks_completed?: number | null;
@@ -68,6 +70,8 @@ export type PlannerGoalMilestone = {
   sort_order: number;
   created_at: string;
   deleted_at: string | null;
+  trashed_at: string | null;
+  trashed_by_member_id: string | null;
   version: number;
 };
 
@@ -206,6 +210,42 @@ export const deleteGoal = (
   });
 };
 
+export const trashGoal = (
+  accessToken: string,
+  goalId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.trash')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/trash`, {
+    method: 'POST',
+    accessToken,
+    headers,
+  });
+};
+
+export const restoreGoal = (
+  accessToken: string,
+  goalId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.restore')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/restore`, {
+    method: 'POST',
+    accessToken,
+    headers,
+  });
+};
+
 export const completeGoal = (
   accessToken: string,
   goalId: string,
@@ -339,6 +379,50 @@ export const deleteGoalMilestone = (
     `/api/planner/goals/${goalId}/milestones/${milestoneId}`,
     {
       method: 'DELETE',
+      accessToken,
+      headers,
+    },
+  );
+};
+
+export const trashGoalMilestone = (
+  accessToken: string,
+  goalId: string,
+  milestoneId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.milestones.trash')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerGoalMilestoneResponse>(
+    `/api/planner/goals/${goalId}/milestones/${milestoneId}/trash`,
+    {
+      method: 'POST',
+      accessToken,
+      headers,
+    },
+  );
+};
+
+export const restoreGoalMilestone = (
+  accessToken: string,
+  goalId: string,
+  milestoneId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.milestones.restore')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerGoalMilestoneResponse>(
+    `/api/planner/goals/${goalId}/milestones/${milestoneId}/restore`,
+    {
+      method: 'POST',
       accessToken,
       headers,
     },

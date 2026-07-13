@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, RefreshControl, ScrollView, TouchableOpacity,
 import { useNavigation } from '@react-navigation/native';
 import { ApiError } from '../../services/api';
 import {
-  deleteGoal,
+  trashGoal,
   listGoals,
   type PlannerGoal,
   type PlannerGoalCategory,
@@ -198,7 +198,7 @@ export function PlannerGoalsScreen({ refreshKey, onChanged, onShowToast }: Props
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const goalDeleteKeyRef = useRef(createIdempotencyKey('planner.goals.delete'));
+  const goalDeleteKeyRef = useRef(createIdempotencyKey('planner.goals.trash'));
 
   const buildFilters = useCallback((): PlannerGoalFilters => {
     const f: PlannerGoalFilters = {};
@@ -237,28 +237,28 @@ export function PlannerGoalsScreen({ refreshKey, onChanged, onShowToast }: Props
 
   const handleDelete = (goal: PlannerGoal) => {
     Alert.alert(
-      'Eliminar meta',
-      `Seguro que queres eliminar "${goal.title}"? No se puede deshacer.`,
+      'Mover a papelera',
+      `Mover "${goal.title}" a papelera? La vas a poder restaurar más adelante.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
-          text: 'Eliminar',
+          text: 'Mover a papelera',
           style: 'destructive',
           onPress: async () => {
             if (!accessToken) return;
             setSavingId(goal.id);
             try {
-              await deleteGoal(accessToken, goal.id, goal.version, { idempotencyKey: goalDeleteKeyRef.current });
-              onShowToast?.('Meta eliminada.');
+              await trashGoal(accessToken, goal.id, goal.version, { idempotencyKey: goalDeleteKeyRef.current });
+              onShowToast?.('Meta movida a papelera.');
               onChanged?.();
               setGoals((prev) => prev.filter((g) => g.id !== goal.id));
-              goalDeleteKeyRef.current = createIdempotencyKey('planner.goals.delete');
+              goalDeleteKeyRef.current = createIdempotencyKey('planner.goals.trash');
             } catch (err) {
               if (err instanceof ApiError && err.code === 'version_conflict') {
                 Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
                 void load(true);
               } else {
-                Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo eliminar.');
+                Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo mover a papelera.');
               }
             } finally {
               setSavingId(null);
@@ -289,7 +289,7 @@ export function PlannerGoalsScreen({ refreshKey, onChanged, onShowToast }: Props
         <View style={{ flex: 1 }}>
           <AppText variant="title3">Metas</AppText>
           <AppText variant="bodySmall" tone="secondary">
-            Objetivos para mantener el hogar en marcha.
+            Metas para mantener el hogar en marcha.
           </AppText>
         </View>
         <TouchableOpacity
@@ -398,7 +398,7 @@ export function PlannerGoalsScreen({ refreshKey, onChanged, onShowToast }: Props
         ) : orderedGoals.length === 0 ? (
           <EmptyState
             title="Sin metas todavia"
-            description="Crea tu primer objetivo para empezar a organizar el hogar."
+            description="Crea tu primera meta para empezar a organizar el hogar."
             illustration={
               <HomePlusIcon name="flag" size={36} color={colors.terracotta[500]} />
             }

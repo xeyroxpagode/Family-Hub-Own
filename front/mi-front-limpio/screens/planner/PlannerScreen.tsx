@@ -44,6 +44,7 @@ export function PlannerScreen() {
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<PlannerSheet | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [showOverflow, setShowOverflow] = useState(false);
 
   const loadSummary = useCallback(async (silent = false) => {
     if (!accessToken) return;
@@ -123,8 +124,35 @@ export function PlannerScreen() {
     setTimeout(() => setToast(null), 2200);
   };
 
+  const openTrash = () => {
+    navigation.navigate('PlannerTrash');
+    setShowOverflow(false);
+  };
+
   return (
     <SafeAreaView style={S.safe} edges={['top']}>
+      <Modal
+        visible={showOverflow}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowOverflow(false)}
+      >
+        <Pressable
+          style={S.overflowBackdrop}
+          onPress={() => setShowOverflow(false)}
+        >
+          <Pressable style={S.overflowPanel} onPress={(e) => e.stopPropagation()}>
+            <TouchableOpacity
+              style={S.overflowItem}
+              onPress={openTrash}
+            >
+              <HomePlusIcon name={APP_ICONS.planner.notes ?? 'trash-outline'} size={20} color={colors.text.primary} />
+              <AppText variant="body" weight="600" style={{ marginLeft: 12, flex: 1 }}>Papelera</AppText>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <ScrollView
         style={S.scroll}
         contentContainerStyle={S.content}
@@ -137,6 +165,13 @@ export function PlannerScreen() {
               Organizá tareas, eventos y el ritmo de tu casa en un solo lugar.
             </AppText>
           </View>
+          <TouchableOpacity
+            style={S.overflowBtn}
+            onPress={() => setShowOverflow(true)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.secondary} />
+          </TouchableOpacity>
         </View>
 
         <View style={S.topbarTabsContainer}>
@@ -224,7 +259,7 @@ export function PlannerScreen() {
           />
         ) : null}
 
-{activeTab === 'calendar' ? (
+        {activeTab === 'calendar' ? (
           <PlannerCalendarScreen
             refreshKey={refreshKey}
             onChanged={changed}

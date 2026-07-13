@@ -47,6 +47,7 @@ export const APP_ICONS = {
     goals: 'flag',
     notes: 'document-text',
     overview: 'bar-chart',
+    trash: 'trash',
   },
   more: {
     settings: 'settings',

@@ -124,8 +124,10 @@ type AgendaItemCardProps = {
   onShowToast?: (message: string) => void;
   onEditEvent: (item: any) => void;
   onCancelEvent: (eventId: string, version?: number) => void;
+  onTrashEvent: (eventId: string, version?: number) => void;
   onEditTask: (taskId: string) => void;
   onCompleteTask: (taskId: string) => void;
+  onTrashTask: (item: any) => void;
 };
 
 const formatTimeShort = (value?: string | null) => {
@@ -142,8 +144,10 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
   onShowToast,
   onEditEvent,
   onCancelEvent,
+  onTrashEvent,
   onEditTask,
   onCompleteTask,
+  onTrashTask,
 }) => {
   if (item.type === 'event') {
     return (
@@ -176,6 +180,13 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
           >
             <Text style={S.dangerText}>Cancelar</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[S.dangerBtn, { minHeight: 36, paddingVertical: 6 }, isSaving && { opacity: 0.6 }]}
+            onPress={() => onTrashEvent(item.id, item.version)}
+            disabled={isSaving}
+          >
+            <Text style={S.dangerText}>Papelera</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -201,6 +212,11 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
       actions.push({ text: 'Verificar', onPress: () => onCompleteTask(item.id) });
     }
     actions.push({ text: 'Editar', onPress: () => onEditTask(item.id) });
+    actions.push({
+      text: 'Mover a la papelera',
+      style: 'destructive' as const,
+      onPress: () => onTrashTask(item),
+    });
     actions.push({ text: 'Cancelar', style: 'cancel' as const });
     Alert.alert('Opciones de tarea', item.title, actions);
   };

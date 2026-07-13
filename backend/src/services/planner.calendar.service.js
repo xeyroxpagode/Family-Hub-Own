@@ -200,6 +200,7 @@ const getCalendar = async (context, query) => {
     .select('*')
     .eq('household_id', context.householdId)
     .eq('status', 'scheduled')
+    .is('trashed_at', null)
     .lte('starts_at', range.to.toISOString())
     .limit(500)
 
@@ -208,6 +209,7 @@ const getCalendar = async (context, query) => {
     .select('*')
     .eq('household_id', context.householdId)
     .neq('status', 'cancelled')
+    .is('trashed_at', null)
     .gte('due_date', fromDate)
     .lte('due_date', toDate)
     .limit(500)

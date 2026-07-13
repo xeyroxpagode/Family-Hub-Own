@@ -48,6 +48,7 @@ export type PlannerStackParamList = {
   CreateGoal: undefined;
   EditGoal: { goalId: string };
   GoalDetail: { goalId: string };
+  PlannerTrash: undefined;
 };
 
 export type RootStackParamList = AuthStackParamList & PrivateStackParamList;

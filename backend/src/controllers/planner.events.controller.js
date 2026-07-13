@@ -123,6 +123,58 @@ const cancelEvent = async (req, res) => {
   }
 }
 
+const trashEvent = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req)
+    const operation = 'planner.events.trash'
+    const expectedVersion = parseExpectedVersion(req)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
+
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => eventsService.trashEvent(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
+  } catch (error) {
+    return sendPlannerError(res, error)
+  }
+}
+
+const restoreEvent = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req)
+    const operation = 'planner.events.restore'
+    const expectedVersion = parseExpectedVersion(req)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
+
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => eventsService.restoreEvent(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
+  } catch (error) {
+    return sendPlannerError(res, error)
+  }
+}
+
 const createOccurrenceOverride = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
@@ -153,5 +205,7 @@ module.exports = {
   createEvent,
   createOccurrenceOverride,
   listEvents,
+  restoreEvent,
+  trashEvent,
   updateEvent,
 }

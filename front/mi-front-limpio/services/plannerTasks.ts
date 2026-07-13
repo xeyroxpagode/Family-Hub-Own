@@ -58,6 +58,8 @@ export type PlannerTask = {
   origin_entity_id?: string | null;
   origin_reason?: string | null;
   goal_id?: string | null;
+  trashed_at?: string | null;
+  trashed_by_member_id?: string | null;
 };
 
 export type CreatePlannerTaskPayload = {
@@ -193,6 +195,42 @@ export const verifyPlannerTask = (
     headers['If-Match'] = String(expectedVersion)
   }
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/verify`, {
+    method: 'POST',
+    accessToken,
+    headers,
+  });
+};
+
+export const trashPlannerTask = (
+  accessToken: string,
+  taskId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.trash')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/trash`, {
+    method: 'POST',
+    accessToken,
+    headers,
+  });
+};
+
+export const restorePlannerTask = (
+  accessToken: string,
+  taskId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.restore')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/restore`, {
     method: 'POST',
     accessToken,
     headers,

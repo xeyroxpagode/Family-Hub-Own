@@ -118,11 +118,11 @@ const updateGoal = async (req, res) => {
 const deleteGoal = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const operation = 'planner.goals.delete'
+    const operation = 'planner.goals.trash'
     const expectedVersion = parseExpectedVersion(req)
     const idempotencyKey = parseIdempotencyKey(req)
     const requestHash = hashIdempotencyRequest({
-      method: 'DELETE',
+      method: 'POST',
       operation,
       params: { id: req.params.id },
       body: {},
@@ -132,7 +132,33 @@ const deleteGoal = async (req, res) => {
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => goalsService.deleteGoal(context, req.params.id, expectedVersion),
+      () => goalsService.trashGoal(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
+  } catch (error) {
+    return sendPlannerError(res, error)
+  }
+}
+
+const restoreGoal = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req)
+    const operation = 'planner.goals.restore'
+    const expectedVersion = parseExpectedVersion(req)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
+
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => goalsService.restoreGoal(context, req.params.id, expectedVersion),
     )
 
     return res.status(result.status).json(result.body)
@@ -312,11 +338,11 @@ const updateMilestone = async (req, res) => {
 const deleteMilestone = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const operation = 'planner.goals.milestones.delete'
+    const operation = 'planner.goals.milestones.trash'
     const expectedVersion = parseExpectedVersion(req)
     const idempotencyKey = parseIdempotencyKey(req)
     const requestHash = hashIdempotencyRequest({
-      method: 'DELETE',
+      method: 'POST',
       operation,
       params: { goalId: req.params.goalId, milestoneId: req.params.milestoneId },
       body: {},
@@ -327,6 +353,58 @@ const deleteMilestone = async (req, res) => {
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
       () => goalsService.deleteMilestone(context, req.params.goalId, req.params.milestoneId, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
+  } catch (error) {
+    return sendPlannerError(res, error)
+  }
+}
+
+const trashMilestone = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req)
+    const operation = 'planner.goals.milestones.trash'
+    const expectedVersion = parseExpectedVersion(req)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { goalId: req.params.goalId, milestoneId: req.params.milestoneId },
+      body: {},
+      expectedVersion,
+    })
+
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => goalsService.trashMilestone(context, req.params.goalId, req.params.milestoneId, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
+  } catch (error) {
+    return sendPlannerError(res, error)
+  }
+}
+
+const restoreMilestone = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req)
+    const operation = 'planner.goals.milestones.restore'
+    const expectedVersion = parseExpectedVersion(req)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { goalId: req.params.goalId, milestoneId: req.params.milestoneId },
+      body: {},
+      expectedVersion,
+    })
+
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => goalsService.restoreMilestone(context, req.params.goalId, req.params.milestoneId, expectedVersion),
     )
 
     return res.status(result.status).json(result.body)
@@ -347,6 +425,10 @@ module.exports = {
   listGoals,
   listMilestones,
   reopenGoal,
+  restoreGoal,
+  restoreMilestone,
+  trashGoal: deleteGoal,
+  trashMilestone,
   updateGoal,
   updateMilestone,
 }

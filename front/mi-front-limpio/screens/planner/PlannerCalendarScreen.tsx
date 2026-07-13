@@ -4,8 +4,8 @@ import { ErrorState } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
 import { ApiError } from '../../services/api';
 import { getPlannerCalendar, type PlannerCalendarEventItem, type PlannerCalendarItem, type PlannerCalendarView } from '../../services/plannerCalendar';
-import { cancelPlannerEvent } from '../../services/plannerEvents';
-import { completePlannerTask } from '../../services/plannerTasks';
+import { cancelPlannerEvent, trashPlannerEvent } from '../../services/plannerEvents';
+import { completePlannerTask, trashPlannerTask } from '../../services/plannerTasks';
 import { createIdempotencyKey } from '../../services/idempotency';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
@@ -69,7 +69,9 @@ export function PlannerCalendarScreen({ refreshKey, onChanged, onCreateEvent, on
   const [error, setError] = useState<string | null>(null);
 
   const eventCancelKeyRef = useRef(createIdempotencyKey('planner.events.cancel'));
+  const eventTrashKeyRef = useRef(createIdempotencyKey('planner.events.trash'));
   const taskCompleteKeyRef = useRef(createIdempotencyKey('planner.tasks.complete'));
+  const taskTrashKeyRef = useRef(createIdempotencyKey('planner.tasks.trash'));
 
   const loadCalendar = useCallback(async (silent = false) => {
     if (!accessToken || authLoading) return;
@@ -431,6 +433,74 @@ onCompleteTask={async (taskId) => {
                     } finally {
                       setSavingId(null);
                     }
+                }}
+                  onTrashEvent={(eventId, version) => {
+                    if (!accessToken) return;
+                    Alert.alert(
+                      'Mover a la papelera',
+                      'Mover este evento a la papelera? Lo vas a poder restaurar más adelante.',
+                      [
+                        { text: 'Cancelar', style: 'cancel' },
+                        {
+                          text: 'Mover a la papelera',
+                          style: 'destructive',
+                          onPress: async () => {
+                            setSavingId(eventId);
+                            try {
+                              await trashPlannerEvent(accessToken, eventId, version, { idempotencyKey: eventTrashKeyRef.current });
+                              markPlannerChanged();
+                              await loadCalendar(true);
+                              onChanged?.();
+                              onShowToast?.('Evento movido a la papelera.');
+                              eventTrashKeyRef.current = createIdempotencyKey('planner.events.trash');
+                            } catch (err) {
+                              if (err instanceof ApiError && err.code === 'version_conflict') {
+                                Alert.alert('Planner', 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                                await loadCalendar(true);
+                              } else {
+                                Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo mover a la papelera.');
+                              }
+                            } finally {
+                              setSavingId(null);
+                            }
+                          },
+                        },
+                      ],
+                    );
+                  }}
+                  onTrashTask={(taskItem) => {
+                    if (!accessToken) return;
+                    Alert.alert(
+                      'Mover a la papelera',
+                      `Mover "${taskItem.title}" a la papelera? La vas a poder restaurar más adelante.`,
+                      [
+                        { text: 'Cancelar', style: 'cancel' },
+                        {
+                          text: 'Mover a la papelera',
+                          style: 'destructive',
+                          onPress: async () => {
+                            setSavingId(taskItem.id);
+                            try {
+                              await trashPlannerTask(accessToken, taskItem.id, taskItem.version, { idempotencyKey: taskTrashKeyRef.current });
+                              markPlannerChanged();
+                              await loadCalendar(true);
+                              onChanged?.();
+                              onShowToast?.('Tarea movida a la papelera.');
+                              taskTrashKeyRef.current = createIdempotencyKey('planner.tasks.trash');
+                            } catch (err) {
+                              if (err instanceof ApiError && err.code === 'version_conflict') {
+                                Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                                await loadCalendar(true);
+                              } else {
+                                Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo mover a la papelera.');
+                              }
+                            } finally {
+                              setSavingId(null);
+                            }
+                          },
+                        },
+                      ],
+                    );
                   }}
                />
             );

@@ -14,13 +14,13 @@ import { ApiError } from '../../services/api';
 import {
   completeGoal,
   closeGoal,
-  deleteGoal,
+  trashGoal,
   failGoal,
   getGoalById,
   listGoalMilestones,
   createGoalMilestone,
   updateGoalMilestone,
-  deleteGoalMilestone,
+  trashGoalMilestone,
   updateGoal,
   reopenGoal,
   type PlannerGoal,
@@ -74,9 +74,9 @@ export function GoalDetailScreen() {
 const goalCompleteKeyRef = useRef(createIdempotencyKey('planner.goals.complete'));
   const goalCloseKeyRef = useRef(createIdempotencyKey('planner.goals.close'));
   const goalReopenKeyRef = useRef(createIdempotencyKey('planner.goals.reopen'));
-  const goalDeleteKeyRef = useRef(createIdempotencyKey('planner.goals.delete'));
+  const goalDeleteKeyRef = useRef(createIdempotencyKey('planner.goals.trash'));
   const milestoneUpdateKeyRef = useRef(createIdempotencyKey('planner.goals.milestones.update'));
-  const milestoneDeleteKeyRef = useRef(createIdempotencyKey('planner.goals.milestones.delete'));
+  const milestoneDeleteKeyRef = useRef(createIdempotencyKey('planner.goals.milestones.trash'));
 
   const isFocused = useIsFocused();
 
@@ -213,31 +213,35 @@ const goalCompleteKeyRef = useRef(createIdempotencyKey('planner.goals.complete')
 
   const handleDelete = () => {
     if (!accessToken || !goal) return;
-    Alert.alert('Eliminar meta', 'Esto es permanente. Las tareas vinculadas no se borran.', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Eliminar',
-        style: 'destructive',
-        onPress: async () => {
-          setSavingId(goalId);
-          try {
-            await deleteGoal(accessToken, goalId, goal.version, { idempotencyKey: goalDeleteKeyRef.current });
-            markPlannerChanged();
-            goalDeleteKeyRef.current = createIdempotencyKey('planner.goals.delete');
-            navigation.goBack();
-          } catch (err) {
-            if (err instanceof ApiError && err.code === 'version_conflict') {
-              Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
-              await load();
-            } else {
-              Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo eliminar.');
+    Alert.alert(
+      '¿Mover la meta a la papelera?',
+      'La meta y sus hitos se ocultarán de tus listas. Las vas a poder restaurar más adelante.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Mover a la papelera',
+          style: 'destructive',
+          onPress: async () => {
+            setSavingId(goalId);
+            try {
+              await trashGoal(accessToken, goalId, goal.version, { idempotencyKey: goalDeleteKeyRef.current });
+              markPlannerChanged();
+              goalDeleteKeyRef.current = createIdempotencyKey('planner.goals.trash');
+              navigation.goBack();
+            } catch (err) {
+              if (err instanceof ApiError && err.code === 'version_conflict') {
+                Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                await load();
+              } else {
+                Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo mover a la papelera.');
+              }
+            } finally {
+              setSavingId(null);
             }
-          } finally {
-            setSavingId(null);
-          }
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const handleUpdateProgress = async () => {
@@ -309,31 +313,35 @@ const goalCompleteKeyRef = useRef(createIdempotencyKey('planner.goals.complete')
 
   const handleDeleteMilestone = (ms: PlannerGoalMilestone) => {
     if (!accessToken) return;
-    Alert.alert('Eliminar hito', `Borrar "${ms.title}"?`, [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Eliminar',
-        style: 'destructive',
-        onPress: async () => {
-          setSavingId(ms.id);
-          try {
-            await deleteGoalMilestone(accessToken, goalId, ms.id, ms.version, { idempotencyKey: milestoneDeleteKeyRef.current });
-            setMilestones((prev) => prev.filter((m) => m.id !== ms.id));
-            markPlannerChanged();
-            milestoneDeleteKeyRef.current = createIdempotencyKey('planner.goals.milestones.delete');
-          } catch (err) {
-            if (err instanceof ApiError && err.code === 'version_conflict') {
-              Alert.alert('Planner', 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.');
-              await load();
-            } else {
-              Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo eliminar.');
+    Alert.alert(
+      '¿Mover el hito a la papelera?',
+      `Mover "${ms.title}" a la papelera? Lo vas a poder restaurar más adelante.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Mover a la papelera',
+          style: 'destructive',
+          onPress: async () => {
+            setSavingId(ms.id);
+            try {
+              await trashGoalMilestone(accessToken, goalId, ms.id, ms.version, { idempotencyKey: milestoneDeleteKeyRef.current });
+              setMilestones((prev) => prev.filter((m) => m.id !== ms.id));
+              markPlannerChanged();
+              milestoneDeleteKeyRef.current = createIdempotencyKey('planner.goals.milestones.trash');
+            } catch (err) {
+              if (err instanceof ApiError && err.code === 'version_conflict') {
+                Alert.alert('Planner', 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                await load();
+              } else {
+                Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo mover a la papelera.');
+              }
+            } finally {
+              setSavingId(null);
             }
-          } finally {
-            setSavingId(null);
-          }
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const isSaving = savingId === goalId;
@@ -793,7 +801,7 @@ const goalCompleteKeyRef = useRef(createIdempotencyKey('planner.goals.complete')
         <View style={{ marginTop: spacing[5] }}>
           <TouchableOpacity style={S.dangerBtn} onPress={handleDelete} disabled={isSaving}>
             <AppText variant="bodySmall" tone="danger" weight="800">
-              Eliminar meta
+              Mover a la papelera
             </AppText>
           </TouchableOpacity>
         </View>

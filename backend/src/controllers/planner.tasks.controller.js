@@ -178,11 +178,65 @@ const verifyTask = async (req, res) => {
   }
 }
 
+const trashTask = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req)
+    const operation = 'planner.tasks.trash'
+    const expectedVersion = parseExpectedVersion(req)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
+
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => tasksService.trashTask(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
+  } catch (error) {
+    return sendPlannerError(res, error)
+  }
+}
+
+const restoreTask = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req)
+    const operation = 'planner.tasks.restore'
+    const expectedVersion = parseExpectedVersion(req)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: {},
+      expectedVersion,
+    })
+
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => tasksService.restoreTask(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
+  } catch (error) {
+    return sendPlannerError(res, error)
+  }
+}
+
 module.exports = {
   cancelTask,
   completeTask,
   createTask,
   listTasks,
+  restoreTask,
+  trashTask,
   updateTask,
   verifyTask,
 }

@@ -6,6 +6,8 @@ import {
   cancelPlannerTask,
   completePlannerTask,
   listPlannerTasks,
+  restorePlannerTask,
+  trashPlannerTask,
   verifyPlannerTask,
   type PlannerTask,
   type PlannerTaskPriority,
@@ -69,6 +71,7 @@ type TaskCardProps = {
   onComplete: (task: PlannerTask) => void;
   onVerify: (task: PlannerTask) => void;
   onCancel: (task: PlannerTask) => void;
+  onTrash: (task: PlannerTask) => void;
 };
 
 function TaskCard({
@@ -82,6 +85,7 @@ function TaskCard({
   onComplete,
   onVerify,
   onCancel,
+  onTrash,
 }: TaskCardProps) {
   const isSaving = savingId === task.id;
   const isCompleted = ['completed', 'verified'].includes(task.status);
@@ -184,6 +188,12 @@ function TaskCard({
     actions.push({
       text: 'Editar',
       onPress: () => onEditTask(task.id),
+    });
+
+    actions.push({
+      text: 'Mover a la papelera',
+      style: 'destructive' as const,
+      onPress: () => onTrash(task),
     });
 
     if (task.status !== 'cancelled') {
@@ -306,6 +316,7 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
   const taskCompleteKeyRef = useRef(createIdempotencyKey('planner.tasks.complete'));
   const taskVerifyKeyRef = useRef(createIdempotencyKey('planner.tasks.verify'));
   const taskCancelKeyRef = useRef(createIdempotencyKey('planner.tasks.cancel'));
+  const taskTrashKeyRef = useRef(createIdempotencyKey('planner.tasks.trash'));
 
   const loadTasks = useCallback(async () => {
     if (!accessToken || authLoading) return;
@@ -583,6 +594,42 @@ const confirmCancel = (task: PlannerTask) => {
     ]);
   };
 
+const confirmTrash = (task: PlannerTask) => {
+    if (!accessToken) return;
+    Alert.alert(
+      'Mover a la papelera',
+      `Mover "${task.title}" a la papelera? La vas a poder restaurar más adelante.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Mover a la papelera',
+          style: 'destructive',
+          onPress: async () => {
+            await lightHaptic();
+            setSavingId(task.id);
+            try {
+              await trashPlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskTrashKeyRef.current });
+              markPlannerChanged();
+              await loadTasks();
+              onChanged?.();
+              onShowToast?.('Tarea movida a la papelera.');
+              taskTrashKeyRef.current = createIdempotencyKey('planner.tasks.trash');
+            } catch (err) {
+              if (err instanceof ApiError && err.code === 'version_conflict') {
+                Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                await loadTasks();
+              } else {
+                Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo mover a la papelera.');
+              }
+            } finally {
+              setSavingId(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   // Stats
   const stats = useMemo(() => {
     return {
@@ -641,6 +688,7 @@ const confirmCancel = (task: PlannerTask) => {
         onComplete={confirmComplete}
         onVerify={confirmVerify}
         onCancel={confirmCancel}
+        onTrash={confirmTrash}
       />
     ))}</>
   );

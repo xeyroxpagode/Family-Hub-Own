@@ -21,6 +21,8 @@ export type PlannerEvent = {
   created_at: string;
   updated_at: string;
   version: number;
+  trashed_at?: string | null;
+  trashed_by_member_id?: string | null;
 };
 
 export type CreatePlannerEventPayload = {
@@ -111,6 +113,42 @@ export const cancelPlannerEvent = (
   }
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}`, {
     method: 'DELETE',
+    accessToken,
+    headers,
+  });
+};
+
+export const trashPlannerEvent = (
+  accessToken: string,
+  eventId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.trash')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/trash`, {
+    method: 'POST',
+    accessToken,
+    headers,
+  });
+};
+
+export const restorePlannerEvent = (
+  accessToken: string,
+  eventId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.restore')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/restore`, {
+    method: 'POST',
     accessToken,
     headers,
   });

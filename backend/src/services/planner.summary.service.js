@@ -18,6 +18,7 @@ const getSummary = async (context) => {
     .select('*')
     .eq('household_id', context.householdId)
     .neq('status', 'cancelled')
+    .is('trashed_at', null)
     .limit(500)
 
   const eventsQuery = context.client
@@ -25,6 +26,7 @@ const getSummary = async (context) => {
     .select('*')
     .eq('household_id', context.householdId)
     .eq('status', 'scheduled')
+    .is('trashed_at', null)
     .gte('starts_at', now.toISOString())
     .lte('starts_at', nextWeek.toISOString())
     .order('starts_at', { ascending: true })
