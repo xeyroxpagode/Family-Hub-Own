@@ -32,6 +32,23 @@ const throwSupabaseError = (error) => {
   throw httpError
 }
 
+const normalizePriority = (priority) => {
+  if (priority === undefined || priority === null || priority === '') {
+    return 'normal'
+  }
+  if (priority === 'medium') return 'normal'
+  if (priority === 'critical') return 'high'
+  return priority
+}
+
+const validatePriority = (priority) => {
+  const normalized = normalizePriority(priority)
+  if (!TASK_PRIORITIES.includes(normalized)) {
+    throw createHttpError(400, 'Prioridad invalida.', 'invalid_task_priority')
+  }
+  return normalized
+}
+
 const isValidDateOnly = (value) =>
   typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))
 
@@ -67,18 +84,6 @@ const sortTasks = (tasks) =>
 
     return new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
   })
-
-const validatePriority = (priority) => {
-  if (priority === undefined || priority === null || priority === '') {
-    return 'medium'
-  }
-
-  if (!TASK_PRIORITIES.includes(priority)) {
-    throw createHttpError(400, 'Prioridad invalida.', 'invalid_priority')
-  }
-
-  return priority
-}
 
 const validateTemplateKey = (templateKey) => {
   if (templateKey === undefined || templateKey === null || templateKey === '') {

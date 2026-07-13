@@ -40,8 +40,22 @@ const MOCK_CHALLENGE = {
   ],
 };
 
-const XP_BY_PRIORITY: Record<Task['priority'], number> = { alta: 80, media: 50, baja: 30 };
-const STARS_BY_PRIORITY: Record<Task['priority'], number> = { alta: 3, media: 2, baja: 1 };
+const XP_BY_PRIORITY: Record<string, number> = {
+  alta: 80,
+  media: 50,
+  baja: 30,
+  high: 80,
+  normal: 50,
+  low: 30,
+};
+const STARS_BY_PRIORITY: Record<string, number> = {
+  alta: 3,
+  media: 2,
+  baja: 1,
+  high: 3,
+  normal: 2,
+  low: 1,
+};
 const CATEGORY_EMOJI: Record<string, string> = {
   trabajo: '💼', escuela: '📚', familia: '🏠', personal: '🎯',
   salud: '💊', deporte: '⚽', otro: '⭐',

@@ -542,7 +542,7 @@ const approveRestockRequest = async (context, requestId, body = {}) => {
   const taskPayload = {
     title: normalizeString(body.title) || restockRequest.suggested_title,
     description: normalizeString(body.description) || restockRequest.suggested_description || 'Stock bajo detectado desde Inventario.',
-    priority: body.priority || (restockRequest.item?.quantity <= 0 ? 'high' : 'medium'),
+    priority: body.priority || (restockRequest.item?.quantity <= 0 ? 'high' : 'normal'),
     template_key: 'shopping',
     category: 'Compras',
     assigned_to_member_id: body.assigned_to_member_id || undefined,

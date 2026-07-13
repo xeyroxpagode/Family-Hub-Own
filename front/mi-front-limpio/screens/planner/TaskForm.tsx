@@ -34,7 +34,7 @@ import { createIdempotencyKey } from '../../services/idempotency';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
-import { addDays, dateToYMD, plannerStyles as S, priorityLabels } from './plannerShared';
+import { addDays, dateToYMD, plannerStyles as S, priorityLabels, priorityLabelsWithLegacy } from './plannerShared';
 import { colors } from '../../constants/theme';
 import { HomePlusIcon, type HomePlusIconName } from '../../constants/icons';
 
@@ -91,7 +91,7 @@ const SUGGESTED_TASKS: Record<Exclude<TaskTypeId, 'other'>, string[]> = {
   studies: ['Hacer tarea escolar', 'Preparar mochila', 'Revisar material'],
 };
 
-const priorityOptions: PlannerTaskPriority[] = ['low', 'medium', 'high', 'critical'];
+const priorityOptions: PlannerTaskPriority[] = ['low', 'normal', 'high'];
 
 const getMemberName = (member: ReturnType<typeof useHousehold>['members'][number]) =>
   member.user?.nombre || 'Miembro';
@@ -166,7 +166,7 @@ export function TaskForm({
   const [title, setTitle] = useState('');
   const [titleTouched, setTitleTouched] = useState(false);
   const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<PlannerTaskPriority>('medium');
+  const [priority, setPriority] = useState<PlannerTaskPriority>('normal');
   const [category, setCategory] = useState('General');
   const [dueDate, setDueDate] = useState(() => {
     if (mode === 'create' && initialDueDate && isValidDate(initialDueDate)) {
@@ -746,14 +746,10 @@ export function TaskForm({
                 return (
                   <TouchableOpacity
                     key={item}
-                    style={[
-                      styles.priorityOption,
-                      item === 'critical' && styles.priorityCritical,
-                      active && styles.priorityOptionActive,
-                    ]}
+                    style={[styles.priorityOption, active && styles.priorityOptionActive]}
                     onPress={() => setPriority(item)}
                   >
-                    <View style={[styles.priorityDot, item === 'critical' && styles.priorityDotCritical, active && styles.priorityDotActive]} />
+                    <View style={[styles.priorityDot, active && styles.priorityDotActive]} />
                     <Text style={[styles.priorityText, active && styles.priorityTextActive]} numberOfLines={1}>
                       {priorityLabels[item]}
                     </Text>
@@ -1150,9 +1146,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     gap: 4,
   },
-  priorityCritical: {
-    borderColor: colors.danger.base,
-  },
   priorityOptionActive: {
     backgroundColor: colors.sand[50],
     borderColor: colors.sand[500],
@@ -1162,9 +1155,6 @@ const styles = StyleSheet.create({
     height: 7,
     borderRadius: 4,
     backgroundColor: colors.sage[500],
-  },
-  priorityDotCritical: {
-    backgroundColor: colors.danger.base,
   },
   priorityDotActive: {
     backgroundColor: colors.terracotta[600],

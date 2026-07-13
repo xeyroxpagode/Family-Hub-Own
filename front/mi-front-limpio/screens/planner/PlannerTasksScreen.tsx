@@ -23,6 +23,7 @@ import {
   getTypeLabel,
   plannerStyles as S,
   priorityLabels,
+  priorityLabelsWithLegacy,
 } from './plannerShared';
 import { lightHaptic } from '../../utils/haptics';
 import { colors, spacing } from '../../constants/theme';
@@ -115,7 +116,6 @@ function TaskCard({
     switch (priority) {
       case 'low': return colors.sage[400];
       case 'high': return colors.warning.base;
-      case 'critical': return colors.danger.base;
       default: return colors.sand[400];
     }
   };
@@ -153,8 +153,8 @@ function TaskCard({
   const typeDotColor = getTypeDotColor(task.template_key);
   const typeIcon = task.template_key === 'cleaning' ? 'sparkles' : task.template_key === 'shopping' ? 'cart' : task.template_key === 'pets' ? 'paw' : task.template_key === 'medication' ? 'medical' : task.template_key === 'studies' ? 'school' : task.template_key === 'payments' ? 'card' : undefined;
 
-  const showPriorityText = task.priority === 'high' || task.priority === 'critical';
-  const priorityLabel = priorityLabels[task.priority];
+  const showPriorityText = task.priority === 'high';
+  const priorityLabel = priorityLabelsWithLegacy[task.priority];
 
   const handlePress = () => {
     onEditTask(task.id);
@@ -242,8 +242,8 @@ function TaskCard({
               </Text>
               
               {showPriorityText && (
-                <View style={[S.taskPriorityBadge, task.priority === 'critical' && S.taskPriorityBadgeCritical]}>
-                  <Text style={[S.taskPriorityBadgeText, task.priority === 'critical' && S.taskPriorityBadgeTextCritical]}>
+                <View style={S.taskPriorityBadge}>
+                  <Text style={S.taskPriorityBadgeText}>
                     {priorityLabel}
                   </Text>
                 </View>
@@ -374,7 +374,7 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
   const isAttention = useCallback((task: PlannerTask) => {
     if (task.status === 'awaiting_verification') return true;
     if (task.status === 'pending' && Boolean(task.due_date) && task.due_date! < today) return true;
-    if (task.priority === 'high' || task.priority === 'critical') return true;
+    if (task.priority === 'high') return true;
     return false;
   }, [today]);
 
@@ -407,8 +407,7 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
       if (
         (task.status === 'pending' && Boolean(task.due_date) && task.due_date! < today) ||
         task.status === 'awaiting_verification' ||
-        task.priority === 'high' ||
-        task.priority === 'critical'
+        task.priority === 'high'
       ) {
         counts.attention++;
       }
@@ -427,8 +426,7 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
         return (
           (task.status === 'pending' && Boolean(task.due_date) && task.due_date! < today) ||
           task.status === 'awaiting_verification' ||
-          task.priority === 'high' ||
-          task.priority === 'critical'
+          task.priority === 'high'
         );
       }
       return isOpen(task);
@@ -437,15 +435,14 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
     const isAttentionFn = (task: PlannerTask) => {
       if (task.status === 'awaiting_verification') return true;
       if (task.status === 'pending' && Boolean(task.due_date) && task.due_date! < today) return true;
-      if (task.priority === 'high' || task.priority === 'critical') return true;
+      if (task.priority === 'high') return true;
       return false;
     };
 
     const priorityOrder: Record<PlannerTaskPriority, number> = {
-      critical: 0,
-      high: 1,
-      medium: 2,
-      low: 3,
+      high: 0,
+      normal: 1,
+      low: 2,
     };
 
     filtered.sort((a, b) => {
@@ -594,8 +591,7 @@ const confirmCancel = (task: PlannerTask) => {
       attention: tasks.filter((t) =>
         (t.status === 'pending' && Boolean(t.due_date) && t.due_date! < today) ||
         t.status === 'awaiting_verification' ||
-        t.priority === 'high' ||
-        t.priority === 'critical'
+        t.priority === 'high'
       ).length,
       review: tasks.filter((t) => t.status === 'awaiting_verification').length,
     };

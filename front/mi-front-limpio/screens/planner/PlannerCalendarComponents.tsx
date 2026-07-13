@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Alert, Animated, Image, Text, TouchableOpacity, View } from 'react-native';
-import { plannerStyles as S, getTypeDotColor, getTypeLabel, formatDate, formatTime } from './plannerShared';
+import { plannerStyles as S, getTypeDotColor, getTypeLabel, formatDate, formatTime, priorityLabelsWithLegacy } from './plannerShared';
 import { colors } from '../../constants/theme';
 
 type CalendarDayCellProps = {
@@ -185,11 +185,10 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
   const isPending = item.status === 'pending';
   const isAwaiting = item.status === 'awaiting_verification';
   const isHighPriority = item.priority === 'high';
-  const isCriticalPriority = item.priority === 'critical';
 
   const typeLabel = getTypeLabel(item.template_key, item.category);
   const typeDotColor = getTypeDotColor(item.template_key);
-  const priorityLabel = item.priority === 'high' ? 'Alta' : item.priority === 'critical' ? 'Urgente' : item.priority === 'medium' ? 'Normal' : 'Baja';
+  const priorityLabel = priorityLabelsWithLegacy[item.priority] ?? 'Normal';
   const statusLabel = item.status === 'awaiting_verification' ? 'Por verificar' : item.status === 'completed' ? 'Completada' : item.status === 'verified' ? 'Verificada' : 'Pendiente';
   const ownerLabel = item.assigned_member?.display_name || null;
 
@@ -212,7 +211,6 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
         S.calendarAgendaCard,
         S.calendarAgendaCardTask,
         isHighPriority ? S.calendarAgendaCardTaskHigh : {},
-        isCriticalPriority ? S.calendarAgendaCardTaskCritical : {},
       ]}
     >
       <TouchableOpacity onPress={() => onEditTask(item.id)} onLongPress={openMenu} disabled={isSaving}>

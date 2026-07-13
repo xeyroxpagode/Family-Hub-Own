@@ -1,14 +1,23 @@
 import { StyleSheet } from 'react-native';
-import type { PlannerTaskPriority, PlannerTaskStatus } from '../../services/plannerTasks';
+import type { PlannerTaskStatus } from '../../services/plannerTasks';
 import type { PlannerGoal, PlannerGoalCategory, PlannerGoalStatus, PlannerGoalVisibility, PlannerGoalTargetType, PlannerGoalProgressMode } from '../../services/plannerGoals';
 import type { HomePlusIconName } from '../../constants/icons';
 import { colors, radius, shadows, spacing } from '../../constants/theme';
 
+export type PlannerTaskPriority = 'low' | 'normal' | 'high';
+
 export const priorityLabels: Record<PlannerTaskPriority, string> = {
   low: 'Baja',
-  medium: 'Normal',
+  normal: 'Normal',
   high: 'Alta',
-  critical: 'Urgente',
+};
+
+export const priorityLabelsWithLegacy: Record<string, string> = {
+  low: 'Baja',
+  normal: 'Normal',
+  high: 'Alta',
+  medium: 'Normal',
+  critical: 'Alta',
 };
 
 export const statusLabels: Record<PlannerTaskStatus, string> = {
@@ -533,7 +542,6 @@ export const plannerStyles = StyleSheet.create({
   taskCardBorderLow: { borderLeftWidth: 4, borderLeftColor: colors.sage[400] },
   taskCardBorderNormal: { borderLeftWidth: 4, borderLeftColor: colors.sand[400] },
   taskCardBorderHigh: { borderLeftWidth: 4, borderLeftColor: colors.warning.base },
-  taskCardBorderCritical: { borderLeftWidth: 4, borderLeftColor: colors.danger.base },
   taskBadgePending: { backgroundColor: colors.sand[50] },
   taskBadgePendingText: { color: colors.text.secondary },
   taskBadgeAwaiting: { backgroundColor: colors.sage[50] },
@@ -861,10 +869,6 @@ export const plannerStyles = StyleSheet.create({
   calendarAgendaCardTaskHigh: {
     borderLeftWidth: 4,
     borderLeftColor: colors.warning.base,
-  },
-  calendarAgendaCardTaskCritical: {
-    borderLeftWidth: 4,
-    borderLeftColor: colors.danger.base,
   },
   calendarAgendaHeader: {
     flexDirection: 'row',

@@ -8,7 +8,7 @@ export type PlannerTaskStatus =
   | 'verified'
   | 'cancelled';
 
-export type PlannerTaskPriority = 'low' | 'medium' | 'high' | 'critical';
+export type PlannerTaskPriority = 'low' | 'normal' | 'high';
 
 export type PlannerTaskTemplateKey =
   | 'cleaning'

@@ -8,9 +8,8 @@ const TASK_STATUSES = [
 
 const TASK_PRIORITIES = [
   'low',
-  'medium',
+  'normal',
   'high',
-  'critical',
 ]
 
 const TASK_TEMPLATE_KEYS = [
