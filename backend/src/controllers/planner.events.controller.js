@@ -103,18 +103,19 @@ const cancelEvent = async (req, res) => {
     const operation = 'planner.events.cancel'
     const expectedVersion = parseExpectedVersion(req)
     const idempotencyKey = parseIdempotencyKey(req)
+    const body = req.body ?? {}
     const requestHash = hashIdempotencyRequest({
       method: 'DELETE',
       operation,
       params: { id: req.params.id },
-      body: {},
+      body,
       expectedVersion,
     })
 
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => eventsService.cancelEvent(context, req.params.id, expectedVersion),
+      () => eventsService.cancelEvent(context, req.params.id, expectedVersion, body),
     )
 
     return res.status(result.status).json(result.body)
@@ -175,6 +176,32 @@ const restoreEvent = async (req, res) => {
   }
 }
 
+const reactivateEvent = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req)
+    const operation = 'planner.events.reactivate'
+    const expectedVersion = parseExpectedVersion(req)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: req.body ?? {},
+      expectedVersion,
+    })
+
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => eventsService.reactivateEvent(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
+  } catch (error) {
+    return sendPlannerError(res, error)
+  }
+}
+
 const createOccurrenceOverride = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
@@ -205,6 +232,7 @@ module.exports = {
   createEvent,
   createOccurrenceOverride,
   listEvents,
+  reactivateEvent,
   restoreEvent,
   trashEvent,
   updateEvent,

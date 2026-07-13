@@ -6,6 +6,7 @@ import {
   cancelPlannerTask,
   completePlannerTask,
   listPlannerTasks,
+  reactivatePlannerTask,
   restorePlannerTask,
   trashPlannerTask,
   verifyPlannerTask,
@@ -38,13 +39,14 @@ type Props = {
   onShowToast?: (message: string) => void;
 };
 
-type FilterKey = 'today' | 'open' | 'mine' | 'attention';
+type FilterKey = 'today' | 'open' | 'mine' | 'attention' | 'cancelled';
 
 const filters: Array<{ key: FilterKey; label: string }> = [
   { key: 'today', label: 'Hoy' },
   { key: 'open', label: 'Pendientes' },
   { key: 'mine', label: 'Mías' },
   { key: 'attention', label: 'Atención' },
+  { key: 'cancelled', label: 'Canceladas' },
 ];
 
 type TypeFilter = 'all' | 'General' | 'Limpieza' | 'Compras' | 'Mascotas' | 'Pagos' | 'Medicación' | 'Estudios';
@@ -72,6 +74,7 @@ type TaskCardProps = {
   onVerify: (task: PlannerTask) => void;
   onCancel: (task: PlannerTask) => void;
   onTrash: (task: PlannerTask) => void;
+  onReactivate: (task: PlannerTask) => void;
 };
 
 function TaskCard({
@@ -86,12 +89,14 @@ function TaskCard({
   onVerify,
   onCancel,
   onTrash,
+  onReactivate,
 }: TaskCardProps) {
   const isSaving = savingId === task.id;
   const isCompleted = ['completed', 'verified'].includes(task.status);
   const isOverdue = task.status === 'pending' && Boolean(task.due_date) && task.due_date! < today;
   const isPending = task.status === 'pending';
   const isAwaiting = task.status === 'awaiting_verification';
+  const isCancelled = task.status === 'cancelled';
 
   const getOwnerLabel = () => {
     if (task.assigned_to_member_id) {
@@ -171,24 +176,37 @@ function TaskCard({
   const openActionMenu = () => {
     const actions: Array<{ text: string; style?: 'default' | 'destructive' | 'cancel'; onPress?: () => void }> = [];
 
-    if (isPending) {
+    if (isCancelled) {
       actions.push({
-        text: 'Completar',
-        onPress: () => onComplete(task),
+        text: 'Reactivar tarea',
+        onPress: () => onReactivate(task),
+      });
+    } else {
+      if (isPending) {
+        actions.push({
+          text: 'Completar',
+          onPress: () => onComplete(task),
+        });
+      }
+
+      if (isAwaiting) {
+        actions.push({
+          text: 'Verificar',
+          onPress: () => onVerify(task),
+        });
+      }
+
+      actions.push({
+        text: 'Editar',
+        onPress: () => onEditTask(task.id),
+      });
+
+      actions.push({
+        text: 'Cancelar tarea',
+        style: 'destructive' as const,
+        onPress: () => onCancel(task),
       });
     }
-
-    if (isAwaiting) {
-      actions.push({
-        text: 'Verificar',
-        onPress: () => onVerify(task),
-      });
-    }
-
-    actions.push({
-      text: 'Editar',
-      onPress: () => onEditTask(task.id),
-    });
 
     actions.push({
       text: 'Mover a la papelera',
@@ -196,16 +214,8 @@ function TaskCard({
       onPress: () => onTrash(task),
     });
 
-    if (task.status !== 'cancelled') {
-      actions.push({
-        text: 'Cancelar',
-        style: 'destructive' as const,
-        onPress: () => onCancel(task),
-      });
-    }
-
     actions.push({
-      text: 'Cancelar',
+      text: 'Cerrar',
       style: 'cancel' as const,
     });
 
@@ -294,6 +304,36 @@ function TaskCard({
             {isAwaiting && (
               <Text style={S.taskReviewLabel}>Por revisar</Text>
             )}
+
+            {(isPending || isCancelled) ? (
+              <View style={S.taskActionsRow}>
+                {isPending ? (
+                  <TouchableOpacity
+                    style={[S.taskPrimaryAction, isSaving && { opacity: 0.6 }]}
+                    onPress={() => onComplete(task)}
+                    disabled={isSaving}
+                  >
+                    <Text style={S.taskPrimaryActionText}>Completar</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {isCancelled ? (
+                  <TouchableOpacity
+                    style={[S.taskPrimaryAction, isSaving && { opacity: 0.6 }]}
+                    onPress={() => onReactivate(task)}
+                    disabled={isSaving}
+                  >
+                    <Text style={S.taskPrimaryActionText}>Reactivar tarea</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity
+                  style={[S.taskSecondaryAction, isSaving && { opacity: 0.6 }]}
+                  onPress={openActionMenu}
+                  disabled={isSaving}
+                >
+                  <Text style={S.taskSecondaryActionText}>Más</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
         </View>
       </TouchableOpacity>
@@ -317,6 +357,7 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
   const taskVerifyKeyRef = useRef(createIdempotencyKey('planner.tasks.verify'));
   const taskCancelKeyRef = useRef(createIdempotencyKey('planner.tasks.cancel'));
   const taskTrashKeyRef = useRef(createIdempotencyKey('planner.tasks.trash'));
+  const taskReactivateKeyRef = useRef(createIdempotencyKey('planner.tasks.reactivate'));
 
   const loadTasks = useCallback(async () => {
     if (!accessToken || authLoading) return;
@@ -409,6 +450,7 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
       open: 0,
       mine: 0,
       attention: 0,
+      cancelled: 0,
     };
 
     tasks.forEach((task) => {
@@ -422,6 +464,7 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
       ) {
         counts.attention++;
       }
+      if (task.status === 'cancelled') counts.cancelled++;
     });
 
     return counts;
@@ -429,6 +472,7 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
 
   const visibleTasks = useMemo(() => {
     let filtered = tasks.filter((task) => {
+      if (filter === 'cancelled') return task.status === 'cancelled' && matchesType(task);
       if (!matchesType(task)) return false;
 
       if (filter === 'today') return task.status !== 'cancelled' && task.due_date === today;
@@ -563,44 +607,87 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
 
 const confirmCancel = (task: PlannerTask) => {
     if (!accessToken) return;
-    Alert.alert('¿Cancelar esta tarea?', 'No se va a borrar definitivamente, pero dejará de aparecer como pendiente.', [
-      { text: 'Volver', style: 'cancel' },
-      {
-        text: 'Cancelar tarea',
-        style: 'destructive',
-        onPress: async () => {
-          await lightHaptic();
-          setSavingId(task.id);
-          try {
-            await cancelPlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskCancelKeyRef.current });
-            markPlannerChanged();
-            await loadTasks();
-            onChanged?.();
-            onShowToast?.('Tarea cancelada');
-            taskCancelKeyRef.current = createIdempotencyKey('planner.tasks.cancel');
-          } catch (err) {
-            const message = err instanceof ApiError ? err.message : 'No pudimos cancelar la tarea.';
-            if (err instanceof ApiError && err.code === 'version_conflict') {
-              Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
+    Alert.alert(
+      '¿Cancelar esta tarea?',
+      'La tarea dejará de aparecer en tus tareas activas. Podrás verla y reactivarla desde Canceladas.',
+      [
+        { text: 'Conservar', style: 'cancel' },
+        {
+          text: 'Cancelar tarea',
+          style: 'destructive',
+          onPress: async () => {
+            await lightHaptic();
+            setSavingId(task.id);
+            try {
+              await cancelPlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskCancelKeyRef.current });
+              markPlannerChanged();
               await loadTasks();
-            } else {
-              Alert.alert('Planner', message);
+              onChanged?.();
+              onShowToast?.('Tarea cancelada.');
+              taskCancelKeyRef.current = createIdempotencyKey('planner.tasks.cancel');
+            } catch (err) {
+              const message = err instanceof ApiError ? err.message : 'No pudimos cancelar la tarea.';
+              if (err instanceof ApiError && err.code === 'version_conflict') {
+                Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                await loadTasks();
+              } else {
+                Alert.alert('Planner', message);
+              }
+            } finally {
+              setSavingId(null);
             }
-          } finally {
-            setSavingId(null);
-          }
+          },
         },
-      },
-    ]);
+      ],
+    );
+  };
+
+const confirmReactivate = (task: PlannerTask) => {
+    if (!accessToken) return;
+    Alert.alert(
+      '¿Reactivar esta tarea?',
+      'La tarea volverá a aparecer en tus tareas activas.',
+      [
+        { text: 'Conservar', style: 'cancel' },
+        {
+          text: 'Reactivar',
+          onPress: async () => {
+            await lightHaptic();
+            setSavingId(task.id);
+            try {
+              const response = await reactivatePlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskReactivateKeyRef.current });
+              const reactivated = response.task;
+              setTasks((current) => current.map((item) => (item.id === task.id ? reactivated : item)));
+              markPlannerChanged();
+              onChanged?.();
+              onShowToast?.('Tarea reactivada.');
+              taskReactivateKeyRef.current = createIdempotencyKey('planner.tasks.reactivate');
+              await loadTasks();
+            } catch (err) {
+              if (err instanceof ApiError && err.code === 'version_conflict') {
+                Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                await loadTasks();
+              } else if (err instanceof ApiError && err.code === 'task_in_trash') {
+                Alert.alert('Planner', 'La tarea está en la papelera. Restáurala desde allí.');
+              } else {
+                Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos reactivar la tarea.');
+              }
+            } finally {
+              setSavingId(null);
+            }
+          },
+        },
+      ],
+    );
   };
 
 const confirmTrash = (task: PlannerTask) => {
     if (!accessToken) return;
     Alert.alert(
-      'Mover a la papelera',
-      `Mover "${task.title}" a la papelera? La vas a poder restaurar más adelante.`,
+      '¿Mover la tarea a la papelera?',
+      'La tarea dejará de aparecer en Planner. Podrás restaurarla desde Papelera.',
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Conservar', style: 'cancel' },
         {
           text: 'Mover a la papelera',
           style: 'destructive',
@@ -654,6 +741,8 @@ const confirmTrash = (task: PlannerTask) => {
         return { title: 'No tenés tareas asignadas', text: 'Las tareas que te asignen van a aparecer acá.' };
       case 'attention':
         return { title: 'Nada urgente por ahora', text: 'Las tareas vencidas, urgentes o por revisar van a aparecer acá.' };
+      case 'cancelled':
+        return { title: 'No hay tareas canceladas', text: 'Las tareas que cancelen van a aparecer acá.' };
       default:
         return { title: 'No hay tareas pendientes', text: 'Cuando creen tareas para el hogar, van a aparecer acá.' };
     }
@@ -689,6 +778,7 @@ const confirmTrash = (task: PlannerTask) => {
         onVerify={confirmVerify}
         onCancel={confirmCancel}
         onTrash={confirmTrash}
+        onReactivate={confirmReactivate}
       />
     ))}</>
   );

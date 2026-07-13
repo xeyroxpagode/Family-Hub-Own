@@ -276,13 +276,69 @@ const updateEvent = async (context, eventId, body, expectedVersion) => {
   return { event: data }
 }
 
-const cancelEvent = async (context, eventId, expectedVersion) => {
+const cancelEvent = async (context, eventId, expectedVersion, body = {}) => {
   const current = await getEventOrThrow(context.client, context.householdId, eventId)
   assertExpectedVersion(current.version, expectedVersion)
 
+  const previousStatus = current.status
+
   const query = context.client
     .from('planner_events')
-    .update({ status: 'cancelled' })
+    .update({
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+      cancelled_by_member_id: context.membershipId,
+      cancelled_reason: body?.reason ?? null,
+      cancelled_from_status: previousStatus,
+    })
+    .eq('id', eventId)
+    .eq('household_id', context.householdId)
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+
+  if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
+    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
+  }
+
+  return { event: data }
+}
+
+const reactivateEvent = async (context, eventId, expectedVersion) => {
+  const current = await getEventForTrashOperation(context.client, context.householdId, eventId)
+  assertExpectedVersion(current.version, expectedVersion)
+
+  if (current.trashed_at !== null) {
+    throw createHttpError(409, 'El evento está en la papelera. Restáuralo desde allí.', 'event_in_trash')
+  }
+
+  if (current.status !== 'cancelled') {
+    return { event: current }
+  }
+
+  const nextStatus = current.cancelled_from_status && current.cancelled_from_status !== 'cancelled'
+    ? current.cancelled_from_status
+    : 'scheduled'
+
+  const query = context.client
+    .from('planner_events')
+    .update({
+      status: nextStatus,
+      cancelled_at: null,
+      cancelled_by_member_id: null,
+      cancelled_reason: null,
+      cancelled_from_status: null,
+    })
     .eq('id', eventId)
     .eq('household_id', context.householdId)
 
@@ -443,6 +499,7 @@ module.exports = {
   eventOverlapsRange,
   getEventOrThrow,
   listEvents,
+  reactivateEvent,
   restoreEvent,
   trashEvent,
   updateEvent,

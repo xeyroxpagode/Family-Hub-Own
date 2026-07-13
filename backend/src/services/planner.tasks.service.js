@@ -593,13 +593,25 @@ const updateTask = async (context, taskId, body, expectedVersion) => {
   return { task: data }
 }
 
-const cancelTask = async (context, taskId, expectedVersion) => {
+const cancelTask = async (context, taskId, expectedVersion, body = {}) => {
   const task = await getTaskOrThrow(context.client, context.householdId, taskId)
   assertExpectedVersion(task.version, expectedVersion)
 
+  if (task.status === 'cancelled') {
+    return { task }
+  }
+
+  const previousStatus = task.status
+
   let query = context.client
     .from('planner_tasks')
-    .update({ status: 'cancelled' })
+    .update({
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+      cancelled_by_member_id: context.membershipId,
+      cancelled_reason: body?.reason ?? null,
+      cancelled_from_status: previousStatus,
+    })
     .eq('id', taskId)
     .eq('household_id', context.householdId)
 
@@ -625,6 +637,59 @@ const cancelTask = async (context, taskId, expectedVersion) => {
   }
 
   return { task: data }
+}
+
+const reactivateTask = async (context, taskId, expectedVersion) => {
+  const task = await getTaskForTrashOperation(context.client, context.householdId, taskId)
+  assertExpectedVersion(task.version, expectedVersion)
+
+  if (task.trashed_at !== null) {
+    throw createHttpError(409, 'La tarea está en la papelera. Restáurala desde allí.', 'task_in_trash')
+  }
+
+  if (task.status !== 'cancelled') {
+    return { task }
+  }
+
+  const nextStatus = task.cancelled_from_status && task.cancelled_from_status !== 'cancelled'
+    ? task.cancelled_from_status
+    : 'pending'
+
+  let query = context.client
+    .from('planner_tasks')
+    .update({
+      status: nextStatus,
+      cancelled_at: null,
+      cancelled_by_member_id: null,
+      cancelled_reason: null,
+      cancelled_from_status: null,
+    })
+    .eq('id', taskId)
+    .eq('household_id', context.householdId)
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query = query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+
+  if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(
+        409,
+        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
+        'version_conflict',
+      )
+    }
+    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+  }
+
+  const hydrated = await hydrateMembers(context.client, [data])
+  return { task: hydrated[0] }
 }
 
 const completeTask = async (context, taskId, expectedVersion) => {
@@ -816,6 +881,7 @@ module.exports = {
   createTask,
   getTaskOrThrow,
   listTasks,
+  reactivateTask,
   restoreTask,
   trashTask,
   updateTask,

@@ -60,6 +60,10 @@ export type PlannerTask = {
   goal_id?: string | null;
   trashed_at?: string | null;
   trashed_by_member_id?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by_member_id?: string | null;
+  cancelled_reason?: string | null;
+  cancelled_from_status?: string | null;
 };
 
 export type CreatePlannerTaskPayload = {
@@ -213,6 +217,24 @@ export const trashPlannerTask = (
     headers['If-Match'] = String(expectedVersion)
   }
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/trash`, {
+    method: 'POST',
+    accessToken,
+    headers,
+  });
+};
+
+export const reactivatePlannerTask = (
+  accessToken: string,
+  taskId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.reactivate')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/reactivate`, {
     method: 'POST',
     accessToken,
     headers,

@@ -106,18 +106,19 @@ const cancelTask = async (req, res) => {
     const operation = 'planner.tasks.cancel'
     const expectedVersion = parseExpectedVersion(req)
     const idempotencyKey = parseIdempotencyKey(req)
+    const body = req.body ?? {}
     const requestHash = hashIdempotencyRequest({
       method: 'DELETE',
       operation,
       params: { id: req.params.id },
-      body: {},
+      body,
       expectedVersion,
     })
 
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => tasksService.cancelTask(context, req.params.id, expectedVersion),
+      () => tasksService.cancelTask(context, req.params.id, expectedVersion, body),
     )
 
     return res.status(result.status).json(result.body)
@@ -230,11 +231,39 @@ const restoreTask = async (req, res) => {
   }
 }
 
+const reactivateTask = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req)
+    const operation = 'planner.tasks.reactivate'
+    const expectedVersion = parseExpectedVersion(req)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const body = req.body ?? {}
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body,
+      expectedVersion,
+    })
+
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => tasksService.reactivateTask(context, req.params.id, expectedVersion),
+    )
+
+    return res.status(result.status).json(result.body)
+  } catch (error) {
+    return sendPlannerError(res, error)
+  }
+}
+
 module.exports = {
   cancelTask,
   completeTask,
   createTask,
   listTasks,
+  reactivateTask,
   restoreTask,
   trashTask,
   updateTask,

@@ -870,6 +870,14 @@ export const plannerStyles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: colors.warning.base,
   },
+  calendarAgendaCardEventCancelled: {
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.soft,
+  },
+  calendarAgendaCardTaskCancelled: {
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.soft,
+  },
   calendarAgendaHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -910,6 +918,11 @@ export const plannerStyles = StyleSheet.create({
   calendarAgendaBadgeTaskCompleted: {
     backgroundColor: colors.success.soft,
   },
+  calendarAgendaBadgeCancelled: {
+    backgroundColor: colors.surface.soft,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+  },
   calendarAgendaBadgeText: {
     fontSize: 11,
     fontWeight: '800',
@@ -917,6 +930,9 @@ export const plannerStyles = StyleSheet.create({
   },
   calendarAgendaBadgeTextEvent: {
     color: colors.terracotta[700],
+  },
+  calendarAgendaBadgeTextCancelled: {
+    color: colors.text.tertiary,
   },
   calendarAgendaBadgeTextTask: {
     color: colors.sage[700],

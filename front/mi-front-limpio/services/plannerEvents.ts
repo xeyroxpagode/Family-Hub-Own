@@ -23,6 +23,10 @@ export type PlannerEvent = {
   version: number;
   trashed_at?: string | null;
   trashed_by_member_id?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by_member_id?: string | null;
+  cancelled_reason?: string | null;
+  cancelled_from_status?: string | null;
 };
 
 export type CreatePlannerEventPayload = {
@@ -45,6 +49,7 @@ export type PlannerEventFilters = {
   status?: PlannerEventStatus;
   include_recurring?: boolean;
   include_cancelled?: boolean;
+  limit?: number;
 };
 
 type PlannerEventResponse = {
@@ -130,6 +135,24 @@ export const trashPlannerEvent = (
     headers['If-Match'] = String(expectedVersion)
   }
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/trash`, {
+    method: 'POST',
+    accessToken,
+    headers,
+  });
+};
+
+export const reactivatePlannerEvent = (
+  accessToken: string,
+  eventId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.reactivate')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/reactivate`, {
     method: 'POST',
     accessToken,
     headers,

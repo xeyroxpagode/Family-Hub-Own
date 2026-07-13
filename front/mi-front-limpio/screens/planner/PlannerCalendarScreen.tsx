@@ -4,8 +4,8 @@ import { ErrorState } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
 import { ApiError } from '../../services/api';
 import { getPlannerCalendar, type PlannerCalendarEventItem, type PlannerCalendarItem, type PlannerCalendarView } from '../../services/plannerCalendar';
-import { cancelPlannerEvent, trashPlannerEvent } from '../../services/plannerEvents';
-import { completePlannerTask, trashPlannerTask } from '../../services/plannerTasks';
+import { cancelPlannerEvent, listPlannerEvents, reactivatePlannerEvent, trashPlannerEvent, type PlannerEvent } from '../../services/plannerEvents';
+import { cancelPlannerTask, completePlannerTask, reactivatePlannerTask, trashPlannerTask } from '../../services/plannerTasks';
 import { createIdempotencyKey } from '../../services/idempotency';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
@@ -40,6 +40,13 @@ type Props = {
   onShowToast?: (message: string) => void;
 };
 
+type StatusFilter = 'scheduled' | 'cancelled';
+
+const statusFilterLabels: Record<StatusFilter, string> = {
+  scheduled: 'Programados',
+  cancelled: 'Cancelados',
+};
+
 const viewLabels: Record<PlannerCalendarView, string> = {
   day: 'Día',
   week: 'Semana',
@@ -63,15 +70,38 @@ export function PlannerCalendarScreen({ refreshKey, onChanged, onCreateEvent, on
 
   const [view, setView] = useState<PlannerCalendarView>('month');
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('scheduled');
   const [items, setItems] = useState<PlannerCalendarItem[]>([]);
+  const [cancelledEvents, setCancelledEvents] = useState<PlannerEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const eventCancelKeyRef = useRef(createIdempotencyKey('planner.events.cancel'));
   const eventTrashKeyRef = useRef(createIdempotencyKey('planner.events.trash'));
+  const eventReactivateKeyRef = useRef(createIdempotencyKey('planner.events.reactivate'));
+  const taskCancelKeyRef = useRef(createIdempotencyKey('planner.tasks.cancel'));
+  const taskReactivateKeyRef = useRef(createIdempotencyKey('planner.tasks.reactivate'));
   const taskCompleteKeyRef = useRef(createIdempotencyKey('planner.tasks.complete'));
   const taskTrashKeyRef = useRef(createIdempotencyKey('planner.tasks.trash'));
+
+  const loadCancelledEvents = useCallback(async (silent = false) => {
+    if (!accessToken || authLoading) return;
+
+    if (!silent) {
+      setLoading(true);
+    }
+    setError(null);
+
+    try {
+      const response = await listPlannerEvents(accessToken, { include_cancelled: true, limit: 500 });
+      setCancelledEvents(response.events.filter((e) => e.status === 'cancelled'));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'No pudimos cargar los eventos cancelados.');
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [accessToken, authLoading]);
 
   const loadCalendar = useCallback(async (silent = false) => {
     if (!accessToken || authLoading) return;
@@ -99,23 +129,39 @@ export function PlannerCalendarScreen({ refreshKey, onChanged, onCreateEvent, on
       setLoading(false);
       return;
     }
-    void loadCalendar();
+    if (statusFilter === 'scheduled') {
+      void loadCalendar();
+    } else {
+      void loadCancelledEvents();
+    }
   }, [accessToken, authLoading]);
 
   useEffect(() => {
     if (!authLoading || !accessToken) return;
-    void loadCalendar(true);
-  }, [view, dateToYMD(selectedDate)]);
+    if (statusFilter === 'scheduled') {
+      void loadCalendar(true);
+    } else {
+      void loadCancelledEvents(true);
+    }
+  }, [view, dateToYMD(selectedDate), statusFilter]);
 
   useEffect(() => {
     if (!loading && refreshKey != null) {
-      void loadCalendar(true);
+      if (statusFilter === 'scheduled') {
+        void loadCalendar(true);
+      } else {
+        void loadCancelledEvents(true);
+      }
     }
   }, [refreshKey]);
 
   useEffect(() => {
     if (!loading && plannerChangedAt > 0) {
-      void loadCalendar(true);
+      if (statusFilter === 'scheduled') {
+        void loadCalendar(true);
+      } else {
+        void loadCancelledEvents(true);
+      }
     }
   }, [plannerChangedAt]);
 
@@ -162,6 +208,31 @@ const selectedDateItems = useMemo(
     onCreateTask?.(selectedDateKey);
   };
 
+  const handleReactivateEvent = async (eventId: string, version?: number) => {
+    if (!accessToken) return;
+    try {
+      setSavingId(eventId);
+      const response = await reactivatePlannerEvent(accessToken, eventId, version, { idempotencyKey: eventReactivateKeyRef.current });
+      const reactivated = response.event;
+      setCancelledEvents((prev) => prev.filter((e) => e.id !== eventId));
+      markPlannerChanged();
+      onChanged?.();
+      onShowToast?.('Evento reactivado.');
+      eventReactivateKeyRef.current = createIdempotencyKey('planner.events.reactivate');
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'version_conflict') {
+        Alert.alert('Conflicto', 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.');
+        await loadCancelledEvents(true);
+      } else if (err instanceof ApiError && err.code === 'event_in_trash') {
+        Alert.alert('Planner', 'El evento está en la papelera. Restáuralo desde allí.');
+      } else {
+        Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos reactivar el evento.');
+      }
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   const handleEditEvent = (item: PlannerCalendarEventItem) => {
     const context =
       item.is_recurring_occurrence && !item.is_override
@@ -198,6 +269,24 @@ const selectedDateItems = useMemo(
         })}
       </ScrollView>
 
+      {/* Status filter chips */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }} contentContainerStyle={{ paddingRight: spacing[4] }}>
+        {(['scheduled', 'cancelled'] as StatusFilter[]).map((filterKey) => {
+          const active = statusFilter === filterKey;
+          return (
+            <TouchableOpacity
+              key={filterKey}
+              style={[S.calendarViewChip, active && S.calendarViewChipActive]}
+              onPress={() => setStatusFilter(filterKey)}
+            >
+              <Text style={[S.calendarViewChipText, active && S.calendarViewChipTextActive]}>{statusFilterLabels[filterKey]}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {statusFilter === 'scheduled' ? (
+        <>
       <View style={[S.row, { marginBottom: 14, justifyContent: 'center', alignItems: 'center', gap: spacing[2] }]}>
         <TouchableOpacity
           style={S.calendarNavArrow}
@@ -379,8 +468,8 @@ const selectedDateItems = useMemo(
                  }}
 onCancelEvent={(eventId, version) => {
                     if (!accessToken) return;
-                    Alert.alert('¿Cancelar este evento?', 'Dejará de aparecer como próximo evento.', [
-                      { text: 'Volver', style: 'cancel' },
+                    Alert.alert('¿Cancelar este evento?', 'El evento dejará de aparecer en el calendario principal. Podrás verlo y reactivarlo desde Cancelados.', [
+                      { text: 'Conservar', style: 'cancel' },
                       {
                         text: 'Cancelar evento',
                         style: 'destructive',
@@ -391,7 +480,7 @@ onCancelEvent={(eventId, version) => {
                             markPlannerChanged();
                             await loadCalendar(true);
                             onChanged?.();
-                            onShowToast?.('Evento cancelado');
+                            onShowToast?.('Evento cancelado.');
                             eventCancelKeyRef.current = createIdempotencyKey('planner.events.cancel');
                           } catch (err) {
                             if (err instanceof ApiError && err.code === 'version_conflict') {
@@ -407,7 +496,8 @@ onCancelEvent={(eventId, version) => {
                       },
                     ]);
                   }}
-                 onEditTask={(taskId) => onEditTask?.(taskId)}
+                  onReactivateEvent={() => {}}
+                  onEditTask={(taskId) => onEditTask?.(taskId)}
 onCompleteTask={async (taskId) => {
                     if (!accessToken) {
                       Alert.alert('Planner', 'No hay sesión activa para completar la tarea.');
@@ -434,6 +524,75 @@ onCompleteTask={async (taskId) => {
                       setSavingId(null);
                     }
                 }}
+                  onReactivateTask={(taskId, version) => {
+                    if (!accessToken) return;
+                    Alert.alert(
+                      '¿Reactivar esta tarea?',
+                      'La tarea volverá a aparecer en tus tareas activas.',
+                      [
+                        { text: 'Conservar', style: 'cancel' },
+                        {
+                          text: 'Reactivar',
+                          onPress: async () => {
+                            setSavingId(taskId);
+                            try {
+                              const response = await reactivatePlannerTask(accessToken, taskId, version, { idempotencyKey: taskReactivateKeyRef.current });
+                              markPlannerChanged();
+                              onChanged?.();
+                              onShowToast?.('Tarea reactivada.');
+                              taskReactivateKeyRef.current = createIdempotencyKey('planner.tasks.reactivate');
+                              await loadCalendar(true);
+                            } catch (err) {
+                              if (err instanceof ApiError && err.code === 'version_conflict') {
+                                Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                                await loadCalendar(true);
+                              } else if (err instanceof ApiError && err.code === 'task_in_trash') {
+                                Alert.alert('Planner', 'La tarea está en la papelera. Restáurala desde allí.');
+                              } else {
+                                Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos reactivar la tarea.');
+                              }
+                            } finally {
+                              setSavingId(null);
+                            }
+                          },
+                        },
+                      ],
+                    );
+                  }}
+                  onCancelTask={(taskId, version) => {
+                    if (!accessToken) return;
+                    Alert.alert(
+                      '¿Cancelar esta tarea?',
+                      'La tarea dejará de aparecer en tus tareas activas. Podrás verla y reactivarla desde Canceladas.',
+                      [
+                        { text: 'Conservar', style: 'cancel' },
+                        {
+                          text: 'Cancelar tarea',
+                          style: 'destructive',
+                          onPress: async () => {
+                            setSavingId(taskId);
+                            try {
+                              await cancelPlannerTask(accessToken, taskId, version, { idempotencyKey: taskCancelKeyRef.current });
+                              markPlannerChanged();
+                              await loadCalendar(true);
+                              onChanged?.();
+                              onShowToast?.('Tarea cancelada.');
+                              taskCancelKeyRef.current = createIdempotencyKey('planner.tasks.cancel');
+                            } catch (err) {
+                              if (err instanceof ApiError && err.code === 'version_conflict') {
+                                Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                                await loadCalendar(true);
+                              } else {
+                                Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos cancelar la tarea.');
+                              }
+                            } finally {
+                              setSavingId(null);
+                            }
+                          },
+                        },
+                      ],
+                    );
+                  }}
                   onTrashEvent={(eventId, version) => {
                     if (!accessToken) return;
                     Alert.alert(
@@ -507,6 +666,117 @@ onCompleteTask={async (taskId) => {
           })}
         </View>
       ) : null}
+      </>  // close scheduled fragment
+    ) : (
+      // Cancelled events view
+      <View>
+        {!loading && !error && cancelledEvents.length === 0 ? (
+          <View style={S.calendarEmptyState}>
+            <Text style={S.calendarEmptyTitle}>No hay eventos cancelados</Text>
+            <Text style={S.calendarEmptyText}>
+              Los eventos que canceles van a aparecer acá.
+            </Text>
+          </View>
+        ) : null}
+        {!loading && !error && cancelledEvents.length > 0 ? (
+          <View>
+            <Text style={[S.label, { marginTop: 8, textTransform: 'none', fontSize: 13 }]}>
+              Eventos cancelados
+            </Text>
+            {cancelledEvents.map((item) => {
+              const uniqueKey = item.id;
+              const isSaving = savingId === item.id;
+
+              return (
+                <AgendaItemCard
+                  key={uniqueKey}
+                  item={item}
+                  isSaving={isSaving}
+                  onShowToast={onShowToast}
+                  onEditEvent={() => {}}
+                  onCancelEvent={() => {}}
+                  onReactivateEvent={(eventId, version) => {
+                    if (!accessToken) return;
+                    Alert.alert(
+                      '¿Reactivar este evento?',
+                      'El evento volverá a aparecer en el calendario.',
+                      [
+                        { text: 'Conservar', style: 'cancel' },
+                        {
+                          text: 'Reactivar',
+                          onPress: async () => {
+                            setSavingId(eventId);
+                            try {
+                              const response = await reactivatePlannerEvent(accessToken, eventId, version, { idempotencyKey: eventReactivateKeyRef.current });
+                              const reactivated = response.event;
+                              setCancelledEvents((prev) => prev.filter((e) => e.id !== eventId));
+                              markPlannerChanged();
+                              onChanged?.();
+                              onShowToast?.('Evento reactivado.');
+                              eventReactivateKeyRef.current = createIdempotencyKey('planner.events.reactivate');
+                            } catch (err) {
+                              if (err instanceof ApiError && err.code === 'version_conflict') {
+                                Alert.alert('Conflicto', 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                                await loadCancelledEvents(true);
+                              } else if (err instanceof ApiError && err.code === 'event_in_trash') {
+                                Alert.alert('Planner', 'El evento está en la papelera. Restáuralo desde allí.');
+                              } else {
+                                Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos reactivar el evento.');
+                              }
+                            } finally {
+                              setSavingId(null);
+                            }
+                          },
+                        },
+                      ],
+                    );
+                  }}
+                  onTrashEvent={(eventId, version) => {
+                    if (!accessToken) return;
+                    Alert.alert(
+                      'Mover a la papelera',
+                      'Mover este evento a la papelera? Lo vas a poder restaurar más adelante.',
+                      [
+                        { text: 'Cancelar', style: 'cancel' },
+                        {
+                          text: 'Mover a la papelera',
+                          style: 'destructive',
+                          onPress: async () => {
+                            setSavingId(eventId);
+                            try {
+                              await trashPlannerEvent(accessToken, eventId, version, { idempotencyKey: eventTrashKeyRef.current });
+                              markPlannerChanged();
+                              await loadCancelledEvents(true);
+                              onChanged?.();
+                              onShowToast?.('Evento movido a la papelera.');
+                              eventTrashKeyRef.current = createIdempotencyKey('planner.events.trash');
+                            } catch (err) {
+                              if (err instanceof ApiError && err.code === 'version_conflict') {
+                                Alert.alert('Planner', 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                                await loadCancelledEvents(true);
+                              } else {
+                                Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo mover a la papelera.');
+                              }
+                            } finally {
+                              setSavingId(null);
+                            }
+                          },
+                        },
+                      ],
+                    );
+                  }}
+                  onEditTask={() => {}}
+                  onCompleteTask={() => {}}
+                  onReactivateTask={() => {}}
+                  onCancelTask={() => {}}
+                  onTrashTask={() => {}}
+                />
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+    )}
     </View>
   );
 }

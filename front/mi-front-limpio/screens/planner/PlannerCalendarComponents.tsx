@@ -124,9 +124,12 @@ type AgendaItemCardProps = {
   onShowToast?: (message: string) => void;
   onEditEvent: (item: any) => void;
   onCancelEvent: (eventId: string, version?: number) => void;
+  onReactivateEvent: (eventId: string, version?: number) => void;
   onTrashEvent: (eventId: string, version?: number) => void;
   onEditTask: (taskId: string) => void;
   onCompleteTask: (taskId: string) => void;
+  onCancelTask: (taskId: string, version?: number) => void;
+  onReactivateTask: (taskId: string, version?: number) => void;
   onTrashTask: (item: any) => void;
 };
 
@@ -144,14 +147,19 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
   onShowToast,
   onEditEvent,
   onCancelEvent,
+  onReactivateEvent,
   onTrashEvent,
   onEditTask,
   onCompleteTask,
+  onCancelTask,
+  onReactivateTask,
   onTrashTask,
 }) => {
   if (item.type === 'event') {
+    const isEventCancelled = item.status === 'cancelled';
+
     return (
-      <View style={[S.calendarAgendaCard, S.calendarAgendaCardEvent]}>
+      <View style={[S.calendarAgendaCard, S.calendarAgendaCardEvent, isEventCancelled && S.calendarAgendaCardEventCancelled]}>
         <View style={S.calendarAgendaHeader}>
           <View style={{ flex: 1 }}>
             <Text style={S.calendarAgendaTitle}>{item.title}</Text>
@@ -162,31 +170,55 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
               <Text style={S.calendarAgendaLocation}>{item.location_name}</Text>
             ) : null}
           </View>
-          <View style={[S.calendarAgendaBadge, S.calendarAgendaBadgeEvent]}>
-            <Text style={[S.calendarAgendaBadgeText, S.calendarAgendaBadgeTextEvent]}>Evento</Text>
+          <View style={[S.calendarAgendaBadge, isEventCancelled ? S.calendarAgendaBadgeCancelled : S.calendarAgendaBadgeEvent]}>
+            <Text style={[S.calendarAgendaBadgeText, isEventCancelled ? S.calendarAgendaBadgeTextCancelled : S.calendarAgendaBadgeTextEvent]}>
+              {isEventCancelled ? 'Cancelado' : 'Evento'}
+            </Text>
           </View>
         </View>
         <View style={S.calendarAgendaActions}>
-          <TouchableOpacity
-            style={[S.secondaryBtn, { minHeight: 36, paddingVertical: 6 }]}
-            onPress={() => onEditEvent(item)}
-          >
-            <Text style={S.secondaryText}>Editar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[S.dangerBtn, { minHeight: 36, paddingVertical: 6 }, isSaving && { opacity: 0.6 }]}
-            onPress={() => onCancelEvent(item.id, item.version)}
-            disabled={isSaving}
-          >
-            <Text style={S.dangerText}>Cancelar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[S.dangerBtn, { minHeight: 36, paddingVertical: 6 }, isSaving && { opacity: 0.6 }]}
-            onPress={() => onTrashEvent(item.id, item.version)}
-            disabled={isSaving}
-          >
-            <Text style={S.dangerText}>Papelera</Text>
-          </TouchableOpacity>
+          {!isEventCancelled ? (
+            <>
+              <TouchableOpacity
+                style={[S.secondaryBtn, { minHeight: 36, paddingVertical: 6 }]}
+                onPress={() => onEditEvent(item)}
+                disabled={isSaving}
+              >
+                <Text style={S.secondaryText}>Editar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.dangerBtn, { minHeight: 36, paddingVertical: 6 }, isSaving && { opacity: 0.6 }]}
+                onPress={() => onCancelEvent(item.id, item.version)}
+                disabled={isSaving}
+              >
+                <Text style={S.dangerText}>Cancelar evento</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.dangerBtn, { minHeight: 36, paddingVertical: 6 }, isSaving && { opacity: 0.6 }]}
+                onPress={() => onTrashEvent(item.id, item.version)}
+                disabled={isSaving}
+              >
+                <Text style={S.dangerText}>Papelera</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[S.taskPrimaryAction, { minHeight: 36, paddingVertical: 6 }, isSaving && { opacity: 0.6 }]}
+                onPress={() => onReactivateEvent(item.id, item.version)}
+                disabled={isSaving}
+              >
+                <Text style={S.taskPrimaryActionText}>Reactivar evento</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.dangerBtn, { minHeight: 36, paddingVertical: 6 }, isSaving && { opacity: 0.6 }]}
+                onPress={() => onTrashEvent(item.id, item.version)}
+                disabled={isSaving}
+              >
+                <Text style={S.dangerText}>Papelera</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </View>
     );
@@ -195,29 +227,50 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
   const isCompleted = item.status === 'completed' || item.status === 'verified';
   const isPending = item.status === 'pending';
   const isAwaiting = item.status === 'awaiting_verification';
+  const isCancelled = item.status === 'cancelled';
   const isHighPriority = item.priority === 'high';
 
   const typeLabel = getTypeLabel(item.template_key, item.category);
   const typeDotColor = getTypeDotColor(item.template_key);
   const priorityLabel = priorityLabelsWithLegacy[item.priority] ?? 'Normal';
-  const statusLabel = item.status === 'awaiting_verification' ? 'Por verificar' : item.status === 'completed' ? 'Completada' : item.status === 'verified' ? 'Verificada' : 'Pendiente';
+  const statusLabel = isCancelled
+    ? 'Cancelada'
+    : item.status === 'awaiting_verification' ? 'Por verificar'
+    : item.status === 'completed' ? 'Completada'
+    : item.status === 'verified' ? 'Verificada'
+    : 'Pendiente';
   const ownerLabel = item.assigned_member?.display_name || null;
 
   const openMenu = () => {
     const actions: Array<{ text: string; style?: 'default' | 'destructive' | 'cancel'; onPress?: () => void }> = [];
-    if (isPending) {
-      actions.push({ text: 'Completar', onPress: () => onCompleteTask(item.id) });
+
+    if (isCancelled) {
+      actions.push({
+        text: 'Reactivar tarea',
+        onPress: () => onReactivateTask(item.id, item.version),
+      });
+    } else {
+      if (isPending) {
+        actions.push({ text: 'Completar', onPress: () => onCompleteTask(item.id) });
+      }
+      if (isAwaiting) {
+        actions.push({ text: 'Verificar', onPress: () => onCompleteTask(item.id) });
+      }
+      actions.push({ text: 'Editar', onPress: () => onEditTask(item.id) });
+      actions.push({
+        text: 'Cancelar tarea',
+        style: 'destructive' as const,
+        onPress: () => onCancelTask(item.id, item.version),
+      });
     }
-    if (isAwaiting) {
-      actions.push({ text: 'Verificar', onPress: () => onCompleteTask(item.id) });
-    }
-    actions.push({ text: 'Editar', onPress: () => onEditTask(item.id) });
+
     actions.push({
       text: 'Mover a la papelera',
       style: 'destructive' as const,
       onPress: () => onTrashTask(item),
     });
-    actions.push({ text: 'Cancelar', style: 'cancel' as const });
+
+    actions.push({ text: 'Cerrar', style: 'cancel' as const });
     Alert.alert('Opciones de tarea', item.title, actions);
   };
 
@@ -227,6 +280,7 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
         S.calendarAgendaCard,
         S.calendarAgendaCardTask,
         isHighPriority ? S.calendarAgendaCardTaskHigh : {},
+        isCancelled ? S.calendarAgendaCardTaskCancelled : {},
       ]}
     >
       <TouchableOpacity onPress={() => onEditTask(item.id)} onLongPress={openMenu} disabled={isSaving}>
@@ -242,6 +296,7 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
             {ownerLabel ? (
               <Text style={[S.calendarAgendaMeta, { marginTop: 2 }]}>{ownerLabel}</Text>
             ) : null}
+            <Text style={[S.calendarAgendaMeta, { marginTop: 2 }]}>{statusLabel}</Text>
           </View>
           <TouchableOpacity onPress={openMenu} style={[S.taskOverflowBtn, { width: 28, height: 28, borderRadius: 14 }]} disabled={isSaving}>
             <Text style={[S.taskOverflowBtnText, { fontSize: 16 }]}>⋮</Text>
