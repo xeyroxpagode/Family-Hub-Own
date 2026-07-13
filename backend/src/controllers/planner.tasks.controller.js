@@ -1,6 +1,11 @@
 const { getPlannerContext } = require('../services/planner.context.service')
 const tasksService = require('../services/planner.tasks.service')
 const { parseExpectedVersion } = require('../lib/versionHelpers')
+const {
+  hashIdempotencyRequest,
+  parseIdempotencyKey,
+  withIdempotency,
+} = require('../lib/idempotencyHelpers')
 
 const sendPlannerError = (res, error) => {
   const statusCode = error.statusCode ?? 500
@@ -47,9 +52,22 @@ const createTask = async (req, res) => {
       console.log('[planner.tasks] POST /tasks body keys:', Object.keys(req.body ?? {}))
     }
     const context = await getPlannerContext(req)
-    const payload = await tasksService.createTask(context, req.body ?? {})
+    const operation = 'planner.tasks.create'
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: {},
+      body: req.body ?? {},
+    })
 
-    return res.status(201).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 201 },
+      () => tasksService.createTask(context, req.body ?? {}),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }

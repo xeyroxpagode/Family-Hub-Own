@@ -1,6 +1,11 @@
 const { getPlannerContext } = require('../services/planner.context.service')
 const eventsService = require('../services/planner.events.service')
 const { parseExpectedVersion } = require('../lib/versionHelpers')
+const {
+  hashIdempotencyRequest,
+  parseIdempotencyKey,
+  withIdempotency,
+} = require('../lib/idempotencyHelpers')
 
 const sendPlannerError = (res, error) => {
   const statusCode = error.statusCode ?? 500
@@ -44,9 +49,22 @@ const listEvents = async (req, res) => {
 const createEvent = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await eventsService.createEvent(context, req.body ?? {})
+    const operation = 'planner.events.create'
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: {},
+      body: req.body ?? {},
+    })
 
-    return res.status(201).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 201 },
+      () => eventsService.createEvent(context, req.body ?? {}),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -79,9 +97,22 @@ const cancelEvent = async (req, res) => {
 const createOccurrenceOverride = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await eventsService.createOccurrenceOverride(context, req.params.id, req.body ?? {})
+    const operation = 'planner.events.occurrences.override.create'
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params?.id ?? '' },
+      body: req.body ?? {},
+    })
 
-    return res.status(201).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 201 },
+      () => eventsService.createOccurrenceOverride(context, req.params.id, req.body ?? {}),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }

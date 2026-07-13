@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -23,6 +23,7 @@ import {
   type PlannerGoalVisibility,
   type PlannerGoalProgressMode,
 } from '../../services/plannerGoals';
+import { createIdempotencyKey } from '../../services/idempotency';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
 import { AppText } from '../../components/ui';
@@ -162,6 +163,8 @@ export function GoalForm({
   const [endsAt, setEndsAt] = useState('');
   const [inputFocus, setInputFocus] = useState<string | null>(null);
   const [entityVersion, setEntityVersion] = useState<number | null>(null);
+
+  const goalCreateKeyRef = useRef(createIdempotencyKey('planner.goals.create'));
 
   const isFormReady = useMemo(() => {
     if (authLoading || loading || saving) return false;
@@ -429,8 +432,11 @@ export function GoalForm({
 
     try {
       if (mode === 'create') {
-        const { goal } = await createGoal(accessToken, payloadWithVersion);
+        const { goal } = await createGoal(accessToken, payloadWithVersion, {
+          idempotencyKey: goalCreateKeyRef.current,
+        });
         markPlannerChanged();
+        goalCreateKeyRef.current = createIdempotencyKey('planner.goals.create');
         if (onSaved) {
           onSaved('Meta creada.');
         } else if (routeReturnTo === 'PlannerHome') {

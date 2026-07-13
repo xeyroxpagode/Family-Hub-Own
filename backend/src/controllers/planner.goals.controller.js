@@ -1,6 +1,11 @@
 const { getPlannerContext } = require('../services/planner.context.service')
 const goalsService = require('../services/planner.goals.service')
 const { parseExpectedVersion } = require('../lib/versionHelpers')
+const {
+  hashIdempotencyRequest,
+  parseIdempotencyKey,
+  withIdempotency,
+} = require('../lib/idempotencyHelpers')
 
 const sendPlannerError = (res, error) => {
   const statusCode = error.statusCode ?? 500
@@ -62,9 +67,22 @@ const getGoalById = async (req, res) => {
 const createGoal = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await goalsService.createGoal(context, req.body ?? {})
+    const operation = 'planner.goals.create'
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: {},
+      body: req.body ?? {},
+    })
 
-    return res.status(201).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 201 },
+      () => goalsService.createGoal(context, req.body ?? {}),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }
@@ -132,9 +150,22 @@ const listMilestones = async (req, res) => {
 const createMilestone = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await goalsService.createMilestone(context, req.params.goalId, req.body ?? {})
+    const operation = 'planner.goals.milestones.create'
+    const idempotencyKey = parseIdempotencyKey(req)
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { goalId: req.params?.goalId ?? '' },
+      body: req.body ?? {},
+    })
 
-    return res.status(201).json(payload)
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 201 },
+      () => goalsService.createMilestone(context, req.params.goalId, req.body ?? {}),
+    )
+
+    return res.status(result.status).json(result.body)
   } catch (error) {
     return sendPlannerError(res, error)
   }

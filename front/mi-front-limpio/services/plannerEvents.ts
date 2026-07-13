@@ -1,4 +1,5 @@
 import { requestJson } from './api';
+import { createIdempotencyKey } from './idempotency';
 
 export type PlannerEventStatus = 'scheduled' | 'cancelled';
 
@@ -68,12 +69,19 @@ const toQueryString = (filters?: PlannerEventFilters) => {
 export const listPlannerEvents = (accessToken: string, filters?: PlannerEventFilters) =>
   requestJson<PlannerEventsResponse>(`/api/planner/events${toQueryString(filters)}`, { accessToken });
 
-export const createPlannerEvent = (accessToken: string, payload: CreatePlannerEventPayload) =>
-  requestJson<PlannerEventResponse>('/api/planner/events', {
+export const createPlannerEvent = (
+  accessToken: string,
+  payload: CreatePlannerEventPayload,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.create')
+  return requestJson<PlannerEventResponse>('/api/planner/events', {
     method: 'POST',
     accessToken,
     body: payload,
-  });
+    headers: { 'Idempotency-Key': key },
+  })
+}
 
 export const updatePlannerEvent = (
   accessToken: string,
@@ -107,9 +115,13 @@ export const createEventOccurrenceOverride = (
   accessToken: string,
   eventId: string,
   payload: CreateOccurrenceOverridePayload,
-) =>
-  requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/occurrences/override`, {
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.occurrences.override.create')
+  return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/occurrences/override`, {
     method: 'POST',
     accessToken,
     body: payload,
-  });
+    headers: { 'Idempotency-Key': key },
+  })
+}

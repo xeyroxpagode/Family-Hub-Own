@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -23,6 +23,7 @@ import {
   type CreatePlannerEventPayload,
   type PlannerEventRecurrence,
 } from '../../services/plannerEvents';
+import { createIdempotencyKey } from '../../services/idempotency';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
 import { buildLocalIso, dateToYMD, addDays, plannerStyles as S, recurrenceLabels } from './plannerShared';
@@ -129,6 +130,9 @@ export function EventForm({
   const [locationName, setLocationName] = useState('');
   const [recurrence, setRecurrence] = useState<PlannerEventRecurrence>('none');
   const [entityVersion, setEntityVersion] = useState<number | null>(null);
+
+  const eventCreateKeyRef = useRef(createIdempotencyKey('planner.events.create'));
+  const occurrenceOverrideKeyRef = useRef(createIdempotencyKey('planner.events.occurrences.override.create'));
 
   const isFormReadyForSubmit = React.useMemo(() => {
     if (authLoading || loading || saving) return false;
@@ -293,7 +297,8 @@ if (isGeneratedRecurringOccurrence) {
                 original_occurrence_start_at: occurrenceStartsAt,
                 starts_at: occurrenceStartsAt,
                 ends_at: occurrenceEndsAt ?? undefined,
-              });
+              }, { idempotencyKey: occurrenceOverrideKeyRef.current });
+              occurrenceOverrideKeyRef.current = createIdempotencyKey('planner.events.occurrences.override.create');
               targetEventId = overrideResponse.event.id;
             } else if (editScope === 'series') {
               if (!baseEventId) {
@@ -314,13 +319,14 @@ if (isGeneratedRecurringOccurrence) {
           Alert.alert('Planner', 'Evento actualizado.');
         }
       } else {
-        await createPlannerEvent(accessToken, payload);
+        await createPlannerEvent(accessToken, payload, { idempotencyKey: eventCreateKeyRef.current });
         markPlannerChanged();
         if (onSaved) {
           onSaved('Evento creado.');
         } else {
           Alert.alert('Planner', 'Evento creado.');
         }
+        eventCreateKeyRef.current = createIdempotencyKey('planner.events.create');
       }
 
       if (!onSaved) {

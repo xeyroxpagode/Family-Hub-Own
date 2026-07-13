@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -30,6 +30,7 @@ import {
   listGoals,
   type PlannerGoal,
 } from '../../services/plannerGoals';
+import { createIdempotencyKey } from '../../services/idempotency';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
@@ -195,6 +196,8 @@ export function TaskForm({
       (membership) => membership.household_id === householdId && membership.status === 'active',
     )?.id ?? '';
   }, [authMe?.active_household?.id, authMe?.memberships]);
+
+  const taskCreateKeyRef = useRef(createIdempotencyKey('planner.tasks.create'));
 
   const isFormReadyForSubmit = useMemo(() => {
     if (authLoading || loading || saving) return false;
@@ -427,7 +430,7 @@ export function TaskForm({
           Alert.alert('Planner', successMsg);
         }
       } else {
-        await createPlannerTask(accessToken, payload);
+        await createPlannerTask(accessToken, payload, { idempotencyKey: taskCreateKeyRef.current });
         markPlannerChanged();
         const successMsg = 'Tarea creada.';
         if (onSaved) {
@@ -435,6 +438,7 @@ export function TaskForm({
         } else {
           Alert.alert('Planner', successMsg);
         }
+        taskCreateKeyRef.current = createIdempotencyKey('planner.tasks.create');
       }
 
       if (!onSaved) {

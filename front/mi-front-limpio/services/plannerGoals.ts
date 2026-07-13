@@ -1,4 +1,5 @@
 import { requestJson } from './api';
+import { createIdempotencyKey } from './idempotency';
 
 export type PlannerGoalStatus = 'active' | 'completed' | 'failed';
 
@@ -156,12 +157,19 @@ export const getGoalById = (accessToken: string, goalId: string) =>
     { accessToken },
   );
 
-export const createGoal = (accessToken: string, payload: CreatePlannerGoalInput) =>
-  requestJson<PlannerGoalResponse>('/api/planner/goals', {
+export const createGoal = (
+  accessToken: string,
+  payload: CreatePlannerGoalInput,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.create')
+  return requestJson<PlannerGoalResponse>('/api/planner/goals', {
     method: 'POST',
     accessToken,
     body: payload,
-  });
+    headers: { 'Idempotency-Key': key },
+  })
+}
 
 export const updateGoal = (
   accessToken: string,
@@ -205,15 +213,19 @@ export const createGoalMilestone = (
   accessToken: string,
   goalId: string,
   payload: CreateMilestoneInput,
-) =>
-  requestJson<PlannerGoalMilestoneResponse>(
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.milestones.create')
+  return requestJson<PlannerGoalMilestoneResponse>(
     `/api/planner/goals/${goalId}/milestones`,
     {
       method: 'POST',
       accessToken,
       body: payload,
+      headers: { 'Idempotency-Key': key },
     },
-  );
+  )
+}
 
 export const updateGoalMilestone = (
   accessToken: string,

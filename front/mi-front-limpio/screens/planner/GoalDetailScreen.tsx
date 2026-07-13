@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +25,7 @@ import {
   type PlannerGoalCategory,
   type PlannerGoalMilestone,
 } from '../../services/plannerGoals';
+import { createIdempotencyKey } from '../../services/idempotency';
 import { listPlannerTasks, type PlannerTask } from '../../services/plannerTasks';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
@@ -66,6 +67,8 @@ export function GoalDetailScreen() {
   const [addingMilestone, setAddingMilestone] = useState(false);
   const [editingProgress, setEditingProgress] = useState(false);
   const [progressValue, setProgressValue] = useState('');
+
+  const milestoneCreateKeyRef = useRef(createIdempotencyKey('planner.goals.milestones.create'));
 
   const isFocused = useIsFocused();
 
@@ -223,9 +226,10 @@ export function GoalDetailScreen() {
       const { milestone } = await createGoalMilestone(accessToken, goalId, {
         title: newMilestone.trim(),
         sort_order: milestones.length,
-      });
+      }, { idempotencyKey: milestoneCreateKeyRef.current });
       setMilestones((prev) => [...prev, milestone]);
       setNewMilestone('');
+      milestoneCreateKeyRef.current = createIdempotencyKey('planner.goals.milestones.create');
       markPlannerChanged();
     } catch (err) {
       Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo crear el hito.');

@@ -1,4 +1,5 @@
 import { requestJson } from './api';
+import { createIdempotencyKey } from './idempotency';
 
 export type PlannerTaskStatus =
   | 'pending'
@@ -111,12 +112,19 @@ const toQueryString = (filters?: PlannerTaskFilters) => {
 export const listPlannerTasks = (accessToken: string, filters?: PlannerTaskFilters) =>
   requestJson<PlannerTasksResponse>(`/api/planner/tasks${toQueryString(filters)}`, { accessToken });
 
-export const createPlannerTask = (accessToken: string, payload: CreatePlannerTaskPayload) =>
-  requestJson<PlannerTaskResponse>('/api/planner/tasks', {
+export const createPlannerTask = (
+  accessToken: string,
+  payload: CreatePlannerTaskPayload,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.create')
+  return requestJson<PlannerTaskResponse>('/api/planner/tasks', {
     method: 'POST',
     accessToken,
     body: payload,
-  });
+    headers: { 'Idempotency-Key': key },
+  })
+}
 
 export const updatePlannerTask = (
   accessToken: string,
