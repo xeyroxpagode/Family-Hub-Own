@@ -18,6 +18,7 @@ export type PlannerCalendarEventItem = {
   is_recurring_occurrence?: boolean;
   is_override?: boolean;
   status: PlannerEventStatus;
+  version: number;
 };
 
 export type PlannerCalendarTaskItem = {

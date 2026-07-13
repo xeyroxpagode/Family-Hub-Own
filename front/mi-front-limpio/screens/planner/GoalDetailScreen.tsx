@@ -109,7 +109,7 @@ export function GoalDetailScreen() {
   };
 
   const handleComplete = () => {
-    if (!accessToken) return;
+    if (!accessToken || !goal) return;
     Alert.alert('Marcar como lograda', 'Seguro que esta meta se cumplio?', [
       { text: 'Cancelar', style: 'cancel' },
       {
@@ -117,11 +117,16 @@ export function GoalDetailScreen() {
         onPress: async () => {
           setSavingId(goalId);
           try {
-            const { goal: updated } = await completeGoal(accessToken, goalId);
+            const { goal: updated } = await completeGoal(accessToken, goalId, goal.version);
             setGoal(updated);
             markPlannerChanged();
           } catch (err) {
-            Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo completar.');
+            if (err instanceof ApiError && err.code === 'version_conflict') {
+              Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
+              await load();
+            } else {
+              Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo completar.');
+            }
           } finally {
             setSavingId(null);
           }
@@ -131,7 +136,7 @@ export function GoalDetailScreen() {
   };
 
   const handleFail = () => {
-    if (!accessToken) return;
+    if (!accessToken || !goal) return;
     Alert.alert('Marcar como fallida', 'Seguro que esta meta no se pudo lograr?', [
       { text: 'Cancelar', style: 'cancel' },
       {
@@ -140,11 +145,16 @@ export function GoalDetailScreen() {
         onPress: async () => {
           setSavingId(goalId);
           try {
-            const { goal: updated } = await failGoal(accessToken, goalId);
+            const { goal: updated } = await failGoal(accessToken, goalId, goal.version);
             setGoal(updated);
             markPlannerChanged();
           } catch (err) {
-            Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo actualizar.');
+            if (err instanceof ApiError && err.code === 'version_conflict') {
+              Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
+              await load();
+            } else {
+              Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo actualizar.');
+            }
           } finally {
             setSavingId(null);
           }
@@ -154,7 +164,7 @@ export function GoalDetailScreen() {
   };
 
   const handleDelete = () => {
-    if (!accessToken) return;
+    if (!accessToken || !goal) return;
     Alert.alert('Eliminar meta', 'Esto es permanente. Las tareas vinculadas no se borran.', [
       { text: 'Cancelar', style: 'cancel' },
       {
@@ -163,11 +173,16 @@ export function GoalDetailScreen() {
         onPress: async () => {
           setSavingId(goalId);
           try {
-            await deleteGoal(accessToken, goalId);
+            await deleteGoal(accessToken, goalId, goal.version);
             markPlannerChanged();
             navigation.goBack();
           } catch (err) {
-            Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo eliminar.');
+            if (err instanceof ApiError && err.code === 'version_conflict') {
+              Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
+              await load();
+            } else {
+              Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo eliminar.');
+            }
           } finally {
             setSavingId(null);
           }
@@ -185,12 +200,17 @@ export function GoalDetailScreen() {
     }
     setSavingId(goalId);
     try {
-      const { goal: updated } = await updateGoal(accessToken, goalId, { current_value: num });
+      const { goal: updated } = await updateGoal(accessToken, goalId, { current_value: num, expected_version: goal.version });
       setGoal(updated);
       setEditingProgress(false);
       markPlannerChanged();
     } catch (err) {
-      Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo actualizar.');
+      if (err instanceof ApiError && err.code === 'version_conflict') {
+        Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
+        await load();
+      } else {
+        Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo actualizar.');
+      }
     } finally {
       setSavingId(null);
     }
@@ -220,11 +240,17 @@ export function GoalDetailScreen() {
     try {
       const { milestone } = await updateGoalMilestone(accessToken, goalId, ms.id, {
         achieved: !ms.achieved,
+        expected_version: ms.version,
       });
       setMilestones((prev) => prev.map((m) => (m.id === ms.id ? milestone : m)));
       markPlannerChanged();
     } catch (err) {
-      Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo actualizar.');
+      if (err instanceof ApiError && err.code === 'version_conflict') {
+        Alert.alert('Planner', 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.');
+        await load();
+      } else {
+        Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo actualizar.');
+      }
     } finally {
       setSavingId(null);
     }
@@ -240,11 +266,16 @@ export function GoalDetailScreen() {
         onPress: async () => {
           setSavingId(ms.id);
           try {
-            await deleteGoalMilestone(accessToken, goalId, ms.id);
+            await deleteGoalMilestone(accessToken, goalId, ms.id, ms.version);
             setMilestones((prev) => prev.filter((m) => m.id !== ms.id));
             markPlannerChanged();
           } catch (err) {
-            Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo eliminar.');
+            if (err instanceof ApiError && err.code === 'version_conflict') {
+              Alert.alert('Planner', 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.');
+              await load();
+            } else {
+              Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo eliminar.');
+            }
           } finally {
             setSavingId(null);
           }

@@ -123,7 +123,7 @@ type AgendaItemCardProps = {
   isSaving: boolean;
   onShowToast?: (message: string) => void;
   onEditEvent: (item: any) => void;
-  onCancelEvent: (eventId: string) => void;
+  onCancelEvent: (eventId: string, version?: number) => void;
   onEditTask: (taskId: string) => void;
   onCompleteTask: (taskId: string) => void;
 };
@@ -171,7 +171,7 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
           </TouchableOpacity>
           <TouchableOpacity
             style={[S.dangerBtn, { minHeight: 36, paddingVertical: 6 }, isSaving && { opacity: 0.6 }]}
-            onPress={() => onCancelEvent(item.id)}
+            onPress={() => onCancelEvent(item.id, item.version)}
             disabled={isSaving}
           >
             <Text style={S.dangerText}>Cancelar</Text>

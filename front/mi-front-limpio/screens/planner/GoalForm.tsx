@@ -138,6 +138,8 @@ export function GoalForm({
   const { markPlannerChanged } = useAppRefresh();
   const accessToken = session?.access_token;
   const goalId = goalIdProp ?? route.params?.goalId as string | undefined;
+  const routeReturnTo = (route.params?.returnTo as string) || undefined;
+  const routeInitialTab = (route.params?.initialTab as string) || undefined;
 
   const [loading, setLoading] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
@@ -159,6 +161,7 @@ export function GoalForm({
   const [startsAt, setStartsAt] = useState('');
   const [endsAt, setEndsAt] = useState('');
   const [inputFocus, setInputFocus] = useState<string | null>(null);
+  const [entityVersion, setEntityVersion] = useState<number | null>(null);
 
   const isFormReady = useMemo(() => {
     if (authLoading || loading || saving) return false;
@@ -204,6 +207,7 @@ export function GoalForm({
         setDescription(goal.description ?? '');
         setCategory((goal.category as PlannerGoalCategory) || 'home');
         setVisibility(goal.visibility);
+        setEntityVersion(goal.version ?? 1);
 
         const pm = (goal.progress_mode ?? null) as PlannerGoalProgressMode | null;
         const tt = goal.target_type as PlannerGoalTargetType | null;
@@ -416,20 +420,27 @@ export function GoalForm({
     const payload = validateAndBuildPayload();
     if (!payload) return;
 
+    const payloadWithVersion = mode === 'edit' && entityVersion !== null
+      ? { ...payload, expected_version: entityVersion }
+      : payload;
+
     setSaving(true);
     setError(null);
 
     try {
       if (mode === 'create') {
-        const { goal } = await createGoal(accessToken, payload);
+        const { goal } = await createGoal(accessToken, payloadWithVersion);
         markPlannerChanged();
         if (onSaved) {
           onSaved('Meta creada.');
+        } else if (routeReturnTo === 'PlannerHome') {
+          const tab = routeInitialTab ?? 'goals';
+          navigation.replace('PlannerHome', { refreshKey: Date.now(), initialTab: tab });
         } else {
           navigation.navigate('GoalDetail', { goalId: goal.id });
         }
       } else if (goalId) {
-        await updateGoal(accessToken, goalId, payload);
+        await updateGoal(accessToken, goalId, payloadWithVersion);
         markPlannerChanged();
         if (onSaved) {
           onSaved('Meta actualizada.');
@@ -449,7 +460,19 @@ export function GoalForm({
       onClose();
       return;
     }
-    navigation.goBack();
+
+    if (routeReturnTo === 'PlannerHome') {
+      const tab = routeInitialTab ?? 'goals';
+      navigation.replace('PlannerHome', { refreshKey: Date.now(), initialTab: tab });
+      return;
+    }
+
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'goals' });
   };
 
   const handlePressOutside = () => {

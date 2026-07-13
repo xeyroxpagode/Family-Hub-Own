@@ -1,4 +1,5 @@
 const { createHttpError } = require('../lib/httpErrors')
+const { assertExpectedVersion } = require('../lib/versionHelpers')
 const { EVENT_RECURRENCES } = require('../constants/planner.constants')
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
@@ -214,8 +215,9 @@ const buildEventPatch = (body) => {
   return patch
 }
 
-const updateEvent = async (context, eventId, body) => {
+const updateEvent = async (context, eventId, body, expectedVersion) => {
   const current = await getEventOrThrow(context.client, context.householdId, eventId)
+  assertExpectedVersion(current.version, expectedVersion)
   const patch = buildEventPatch(body ?? {})
 
   if (Object.keys(patch).length === 0) {
@@ -227,38 +229,57 @@ const updateEvent = async (context, eventId, body) => {
   const endsAt = effectiveEndsAt ? new Date(effectiveEndsAt) : null
   validateEventDates({ startsAt, endsAt })
 
-  const { data, error } = await context.client
+  const query = context.client
     .from('planner_events')
     .update(patch)
     .eq('id', eventId)
     .eq('household_id', context.householdId)
-    .select('*')
-    .maybeSingle()
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
   }
 
   if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
     throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
   }
 
   return { event: data }
 }
 
-const cancelEvent = async (context, eventId) => {
-  await getEventOrThrow(context.client, context.householdId, eventId)
+const cancelEvent = async (context, eventId, expectedVersion) => {
+  const current = await getEventOrThrow(context.client, context.householdId, eventId)
+  assertExpectedVersion(current.version, expectedVersion)
 
-  const { data, error } = await context.client
+  const query = context.client
     .from('planner_events')
     .update({ status: 'cancelled' })
     .eq('id', eventId)
     .eq('household_id', context.householdId)
-    .select('*')
-    .maybeSingle()
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
+  }
+
+  if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
+    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
   }
 
   return { event: data }

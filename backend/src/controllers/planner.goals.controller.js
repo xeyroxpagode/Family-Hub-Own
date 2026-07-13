@@ -1,5 +1,6 @@
 const { getPlannerContext } = require('../services/planner.context.service')
 const goalsService = require('../services/planner.goals.service')
+const { parseExpectedVersion } = require('../lib/versionHelpers')
 
 const sendPlannerError = (res, error) => {
   const statusCode = error.statusCode ?? 500
@@ -72,7 +73,8 @@ const createGoal = async (req, res) => {
 const updateGoal = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await goalsService.updateGoal(context, req.params.id, req.body ?? {})
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await goalsService.updateGoal(context, req.params.id, req.body ?? {}, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {
@@ -83,7 +85,8 @@ const updateGoal = async (req, res) => {
 const deleteGoal = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await goalsService.deleteGoal(context, req.params.id)
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await goalsService.deleteGoal(context, req.params.id, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {
@@ -94,7 +97,8 @@ const deleteGoal = async (req, res) => {
 const completeGoal = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await goalsService.completeGoal(context, req.params.id)
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await goalsService.completeGoal(context, req.params.id, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {
@@ -105,7 +109,8 @@ const completeGoal = async (req, res) => {
 const failGoal = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await goalsService.failGoal(context, req.params.id)
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await goalsService.failGoal(context, req.params.id, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {
@@ -138,7 +143,8 @@ const createMilestone = async (req, res) => {
 const updateMilestone = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await goalsService.updateMilestone(context, req.params.goalId, req.params.milestoneId, req.body ?? {})
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await goalsService.updateMilestone(context, req.params.goalId, req.params.milestoneId, req.body ?? {}, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {
@@ -149,7 +155,8 @@ const updateMilestone = async (req, res) => {
 const deleteMilestone = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await goalsService.deleteMilestone(context, req.params.goalId, req.params.milestoneId)
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await goalsService.deleteMilestone(context, req.params.goalId, req.params.milestoneId, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {

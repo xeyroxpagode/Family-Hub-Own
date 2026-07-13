@@ -1,5 +1,6 @@
 const { getPlannerContext } = require('../services/planner.context.service')
 const eventsService = require('../services/planner.events.service')
+const { parseExpectedVersion } = require('../lib/versionHelpers')
 
 const sendPlannerError = (res, error) => {
   const statusCode = error.statusCode ?? 500
@@ -54,7 +55,8 @@ const createEvent = async (req, res) => {
 const updateEvent = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await eventsService.updateEvent(context, req.params.id, req.body ?? {})
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await eventsService.updateEvent(context, req.params.id, req.body ?? {}, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {
@@ -65,7 +67,8 @@ const updateEvent = async (req, res) => {
 const cancelEvent = async (req, res) => {
   try {
     const context = await getPlannerContext(req)
-    const payload = await eventsService.cancelEvent(context, req.params.id)
+    const expectedVersion = parseExpectedVersion(req)
+    const payload = await eventsService.cancelEvent(context, req.params.id, expectedVersion)
 
     return res.status(200).json(payload)
   } catch (error) {

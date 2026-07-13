@@ -169,14 +169,20 @@ export function HomeTabNavigator() {
     params?: PlannerStackParamList[keyof PlannerStackParamList]
   ) => {
     // Nested navigation from PrivateStack -> HomeTabs -> PlannerTab -> PlannerStack screen.
-    // For CreateTask triggered from Quick Actions, mark returnTo so TaskForm close
-    // navigates back to PlannerHome instead of falling through to Home.
-    const targetParams = screen === 'CreateTask'
-      ? { ...(params as any), returnTo: 'PlannerHome' as const }
-      : params
+    // For all Quick Action forms, mark returnTo so close/save navigates back to
+    // PlannerHome instead of falling through to Home or a stale stack position.
+    const enriched: any = { ...(params ?? {}) };
+    enriched.returnTo = 'PlannerHome';
+    if (screen === 'CreateTask') {
+      enriched.initialTab = 'tasks';
+    } else if (screen === 'CreateEvent') {
+      enriched.initialTab = 'calendar';
+    } else if (screen === 'CreateGoal') {
+      enriched.initialTab = 'goals';
+    }
     navigation.navigate('HomeTabs', {
       screen: 'PlannerTab',
-      params: { screen, params: targetParams }
+      params: { screen, params: enriched }
     });
     setShowQuickActions(false);
   }, [navigation]);

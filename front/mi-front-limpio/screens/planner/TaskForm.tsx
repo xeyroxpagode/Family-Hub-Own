@@ -156,6 +156,7 @@ export function TaskForm({
   const routeFromGoal = Boolean(route.params?.fromGoal);
   const routeReturnToGoalId = (route.params?.returnToGoalId as string) || undefined;
   const routeReturnTo = (route.params?.returnTo as string) || undefined;
+  const routeInitialTab = (route.params?.initialTab as string) || undefined;
 
   const [loading, setLoading] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
@@ -329,8 +330,9 @@ export function TaskForm({
     }
 
     if (routeReturnTo === 'PlannerHome') {
+      const tab = routeInitialTab ?? 'tasks';
       const refreshKey = Date.now();
-      navigation.navigate('PlannerHome', { refreshKey, initialTab: 'tasks' });
+      navigation.replace('PlannerHome', { refreshKey, initialTab: tab });
       return;
     }
 
@@ -442,6 +444,11 @@ export function TaskForm({
           } else {
             navigation.replace('GoalDetail', { goalId: routeReturnToGoalId });
           }
+        } else if (routeReturnTo === 'PlannerHome') {
+          const tab = routeInitialTab ?? 'tasks';
+          navigation.replace('PlannerHome', { refreshKey: Date.now(), initialTab: tab });
+        } else if (navigation.canGoBack()) {
+          navigation.goBack();
         } else {
           navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'tasks' });
         }
@@ -453,7 +460,14 @@ export function TaskForm({
           'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.',
         );
         if (!onSaved) {
-          navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'tasks' });
+          if (routeReturnTo === 'PlannerHome') {
+            const tab = routeInitialTab ?? 'tasks';
+            navigation.replace('PlannerHome', { refreshKey: Date.now(), initialTab: tab });
+          } else if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'tasks' });
+          }
         }
         return;
       }

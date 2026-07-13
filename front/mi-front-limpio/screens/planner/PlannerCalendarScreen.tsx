@@ -371,30 +371,35 @@ const selectedDateItems = useMemo(
                        : undefined;
                    onEditEvent?.(evt.id, context);
                  }}
-                 onCancelEvent={(eventId) => {
-                   if (!accessToken) return;
-                   Alert.alert('¿Cancelar este evento?', 'Dejará de aparecer como próximo evento.', [
-                     { text: 'Volver', style: 'cancel' },
-                     {
-                       text: 'Cancelar evento',
-                       style: 'destructive',
-                       onPress: async () => {
-                         setSavingId(eventId);
-                         try {
-                           await cancelPlannerEvent(accessToken, eventId);
-                           markPlannerChanged();
-                           await loadCalendar(true);
-                           onChanged?.();
-                           onShowToast?.('Evento cancelado');
-                         } catch (err) {
-                           Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos cancelar el evento.');
-                         } finally {
-                           setSavingId(null);
-                         }
-                       },
-                     },
-                   ]);
-                 }}
+onCancelEvent={(eventId, version) => {
+                    if (!accessToken) return;
+                    Alert.alert('¿Cancelar este evento?', 'Dejará de aparecer como próximo evento.', [
+                      { text: 'Volver', style: 'cancel' },
+                      {
+                        text: 'Cancelar evento',
+                        style: 'destructive',
+                        onPress: async () => {
+                          setSavingId(eventId);
+                          try {
+                            await cancelPlannerEvent(accessToken, eventId, version);
+                            markPlannerChanged();
+                            await loadCalendar(true);
+                            onChanged?.();
+                            onShowToast?.('Evento cancelado');
+                          } catch (err) {
+                            if (err instanceof ApiError && err.code === 'version_conflict') {
+                              Alert.alert('Planner', 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                              await loadCalendar(true);
+                            } else {
+                              Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos cancelar el evento.');
+                            }
+                          } finally {
+                            setSavingId(null);
+                          }
+                        },
+                      },
+                    ]);
+                  }}
                  onEditTask={(taskId) => onEditTask?.(taskId)}
                  onCompleteTask={async (taskId) => {
                    if (!accessToken) {

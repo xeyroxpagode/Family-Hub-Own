@@ -238,13 +238,11 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
   const dark = variant === 'dark';
   const cardVariant = dark ? 'glass' : 'default';
 
-  const openPlanner = (initialTab: 'tasks' | 'calendar', initialSheet?: 'task' | 'event') => {
+  const openPlanner = (initialTab: 'tasks' | 'calendar') => {
     navigation.navigate('PlannerTab', {
       screen: 'PlannerHome',
       params: {
         initialTab,
-        initialSheet,
-        sheetKey: Date.now(),
         refreshKey: Date.now(),
       },
     });

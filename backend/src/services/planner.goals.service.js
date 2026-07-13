@@ -8,6 +8,7 @@ const {
   GOAL_PROGRESS_MODES,
   GOAL_PROGRESS_MODE_TARGET_TYPE_MAP,
 } = require('../constants/planner.constants')
+const { assertExpectedVersion } = require('../lib/versionHelpers')
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
@@ -458,49 +459,65 @@ const buildGoalPatch = async (context, body, existingGoal) => {
   return patch
 }
 
-const updateGoal = async (context, goalId, body) => {
+const updateGoal = async (context, goalId, body, expectedVersion) => {
   const existing = await getGoalOrThrow(context.client, context.householdId, goalId)
+  assertExpectedVersion(existing.version, expectedVersion)
   const patch = await buildGoalPatch(context, body ?? {}, existing)
 
   if (Object.keys(patch).length === 0) {
     return { goal: await attachProgress(context, existing) }
   }
 
-  const { data, error } = await context.client
+  const query = context.client
     .from('planner_goals')
     .update(patch)
     .eq('id', goalId)
     .eq('household_id', context.householdId)
     .is('deleted_at', null)
-    .select('*')
-    .maybeSingle()
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
   }
   if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
 
   return { goal: await attachProgress(context, data) }
 }
 
-const deleteGoal = async (context, goalId) => {
-  await getGoalOrThrow(context.client, context.householdId, goalId)
+const deleteGoal = async (context, goalId, expectedVersion) => {
+  const existing = await getGoalOrThrow(context.client, context.householdId, goalId)
+  assertExpectedVersion(existing.version, expectedVersion)
 
-  const { data, error } = await context.client
+  const query = context.client
     .from('planner_goals')
     .update({ deleted_at: new Date().toISOString() })
     .eq('id', goalId)
     .eq('household_id', context.householdId)
     .is('deleted_at', null)
-    .select('*')
-    .maybeSingle()
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
   }
   if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
 
@@ -517,15 +534,17 @@ const validateGoalTransition = (fromStatus, toStatus) => {
   }
 }
 
-const completeGoal = async (context, goalId) => {
+const completeGoal = async (context, goalId, expectedVersion) => {
   const goal = await getGoalOrThrow(context.client, context.householdId, goalId)
+  assertExpectedVersion(goal.version, expectedVersion)
+
   if (goal.status === 'completed') {
     return { goal: { ...goal, progress_percentage: 100 } }
   }
 
   validateGoalTransition(goal.status, 'completed')
 
-  const { data, error } = await context.client
+  const query = context.client
     .from('planner_goals')
     .update({
       status: 'completed',
@@ -534,28 +553,37 @@ const completeGoal = async (context, goalId) => {
     .eq('id', goalId)
     .eq('household_id', context.householdId)
     .is('deleted_at', null)
-    .select('*')
-    .maybeSingle()
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
   }
   if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
 
   return { goal: { ...data, progress_percentage: 100 } }
 }
 
-const failGoal = async (context, goalId) => {
+const failGoal = async (context, goalId, expectedVersion) => {
   const goal = await getGoalOrThrow(context.client, context.householdId, goalId)
+  assertExpectedVersion(goal.version, expectedVersion)
+
   if (goal.status === 'failed') {
     return { goal: await attachProgress(context, goal) }
   }
 
   validateGoalTransition(goal.status, 'failed')
 
-  const { data, error } = await context.client
+  const query = context.client
     .from('planner_goals')
     .update({
       status: 'failed',
@@ -564,13 +592,20 @@ const failGoal = async (context, goalId) => {
     .eq('id', goalId)
     .eq('household_id', context.householdId)
     .is('deleted_at', null)
-    .select('*')
-    .maybeSingle()
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
   }
   if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
 
@@ -650,7 +685,7 @@ const createMilestone = async (context, goalId, body) => {
   return { milestone: data }
 }
 
-const updateMilestone = async (context, goalId, milestoneId, body) => {
+const updateMilestone = async (context, goalId, milestoneId, body, expectedVersion) => {
   await getGoalForMilestone(context.client, context.householdId, goalId)
 
   const { data: existing, error: fetchError } = await context.client
@@ -667,6 +702,8 @@ const updateMilestone = async (context, goalId, milestoneId, body) => {
   if (!existing) {
     throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
   }
+
+  assertExpectedVersion(existing.version, expectedVersion)
 
   const patch = {}
 
@@ -703,29 +740,62 @@ const updateMilestone = async (context, goalId, milestoneId, body) => {
     return { milestone: existing }
   }
 
-  const { data, error } = await context.client
+  const query = context.client
     .from('planner_goal_milestones')
     .update(patch)
     .eq('id', milestoneId)
     .eq('goal_id', goalId)
     .is('deleted_at', null)
-    .select('*')
-    .maybeSingle()
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
   }
   if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(409, 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
     throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
   }
 
   return { milestone: data }
 }
 
-const deleteMilestone = async (context, goalId, milestoneId) => {
+const deleteMilestone = async (context, goalId, milestoneId, expectedVersion) => {
   await getGoalForMilestone(context.client, context.householdId, goalId)
 
-  const { data: existing, error: fetchError } = await context.client
+  const { data: result, error: rpcError } = await context.client.rpc(
+    'soft_delete_goal_milestone_rpc',
+    {
+      p_goal_id: goalId,
+      p_milestone_id: milestoneId,
+      p_expected_version: expectedVersion ?? null,
+    }
+  )
+
+  if (rpcError) {
+    if (rpcError.code === '42501') {
+      throw createHttpError(403, 'No tenes permiso para realizar esta accion sobre metas.', 'rls_violation')
+    }
+    if (rpcError.code === '40007') {
+      throw createHttpError(409, 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
+    throwSupabaseError(rpcError)
+  }
+
+  if (!result || result.success === false) {
+    if (result?.error === 'milestone_not_found') {
+      throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+    }
+    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+  }
+
+  const { data: deletedMilestone, error: fetchError } = await context.client
     .from('planner_goal_milestones')
     .select('*')
     .eq('id', milestoneId)
@@ -736,27 +806,8 @@ const deleteMilestone = async (context, goalId, milestoneId) => {
   if (fetchError) {
     throwSupabaseError(fetchError)
   }
-  if (!existing) {
-    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
-  }
 
-  const { data, error } = await context.client
-    .from('planner_goal_milestones')
-    .update({ deleted_at: new Date().toISOString() })
-    .eq('id', milestoneId)
-    .eq('goal_id', goalId)
-    .is('deleted_at', null)
-    .select('*')
-    .maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-  if (!data) {
-    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
-  }
-
-  return { milestone: data }
+  return { milestone: deletedMilestone }
 }
 
 module.exports = {

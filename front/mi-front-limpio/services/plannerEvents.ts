@@ -19,6 +19,7 @@ export type PlannerEvent = {
   created_by_member_id?: string | null;
   created_at: string;
   updated_at: string;
+  version: number;
 };
 
 export type CreatePlannerEventPayload = {
@@ -31,7 +32,9 @@ export type CreatePlannerEventPayload = {
   recurrence?: PlannerEventRecurrence;
 };
 
-export type UpdatePlannerEventPayload = Partial<CreatePlannerEventPayload>;
+export type UpdatePlannerEventPayload = Partial<CreatePlannerEventPayload> & {
+  expected_version?: number;
+};
 
 export type PlannerEventFilters = {
   from?: string;
@@ -83,10 +86,15 @@ export const updatePlannerEvent = (
     body: payload,
   });
 
-export const cancelPlannerEvent = (accessToken: string, eventId: string) =>
+export const cancelPlannerEvent = (
+  accessToken: string,
+  eventId: string,
+  expectedVersion?: number,
+) =>
   requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}`, {
     method: 'DELETE',
     accessToken,
+    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
   });
 
 export type CreateOccurrenceOverridePayload = {

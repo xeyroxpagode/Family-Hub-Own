@@ -52,6 +52,7 @@ export type PlannerGoal = {
   tasks_pending?: number | null;
   milestones_total?: number | null;
   milestones_completed?: number | null;
+  version: number;
 };
 
 export type PlannerGoalMilestone = {
@@ -64,6 +65,7 @@ export type PlannerGoalMilestone = {
   sort_order: number;
   created_at: string;
   deleted_at: string | null;
+  version: number;
 };
 
 export type CreatePlannerGoalInput = {
@@ -80,7 +82,9 @@ export type CreatePlannerGoalInput = {
   ends_at?: string | null;
 };
 
-export type UpdatePlannerGoalInput = Partial<CreatePlannerGoalInput>;
+export type UpdatePlannerGoalInput = Partial<CreatePlannerGoalInput> & {
+  expected_version?: number;
+};
 
 export type CreateMilestoneInput = {
   title: string;
@@ -93,6 +97,7 @@ export type UpdateMilestoneInput = {
   target_value?: number | null;
   achieved?: boolean;
   sort_order?: number;
+  expected_version?: number;
 };
 
 export type PlannerGoalFilters = {
@@ -169,22 +174,25 @@ export const updateGoal = (
     body: payload,
   });
 
-export const deleteGoal = (accessToken: string, goalId: string) =>
+export const deleteGoal = (accessToken: string, goalId: string, expectedVersion?: number) =>
   requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}`, {
     method: 'DELETE',
     accessToken,
+    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
   });
 
-export const completeGoal = (accessToken: string, goalId: string) =>
+export const completeGoal = (accessToken: string, goalId: string, expectedVersion?: number) =>
   requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/complete`, {
     method: 'POST',
     accessToken,
+    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
   });
 
-export const failGoal = (accessToken: string, goalId: string) =>
+export const failGoal = (accessToken: string, goalId: string, expectedVersion?: number) =>
   requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/fail`, {
     method: 'POST',
     accessToken,
+    headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
   });
 
 export const listGoalMilestones = (accessToken: string, goalId: string) =>
@@ -226,11 +234,13 @@ export const deleteGoalMilestone = (
   accessToken: string,
   goalId: string,
   milestoneId: string,
+  expectedVersion?: number,
 ) =>
   requestJson<PlannerGoalMilestoneResponse>(
     `/api/planner/goals/${goalId}/milestones/${milestoneId}`,
     {
       method: 'DELETE',
       accessToken,
+      headers: expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : undefined,
     },
   );

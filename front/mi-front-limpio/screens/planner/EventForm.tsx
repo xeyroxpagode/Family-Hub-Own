@@ -104,6 +104,8 @@ export function EventForm({
   const { markPlannerChanged } = useAppRefresh();
   const accessToken = session?.access_token;
   const eventId = eventIdProp ?? route.params?.eventId as string | undefined;
+  const routeReturnTo = (route.params?.returnTo as string) || undefined;
+  const routeInitialTab = (route.params?.initialTab as string) || undefined;
 
   const [loading, setLoading] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
@@ -126,6 +128,7 @@ export function EventForm({
   const [allDay, setAllDay] = useState(false);
   const [locationName, setLocationName] = useState('');
   const [recurrence, setRecurrence] = useState<PlannerEventRecurrence>('none');
+  const [entityVersion, setEntityVersion] = useState<number | null>(null);
 
   const isFormReadyForSubmit = React.useMemo(() => {
     if (authLoading || loading || saving) return false;
@@ -186,6 +189,7 @@ export function EventForm({
         setAllDay(event.all_day);
         setLocationName(event.location_name ?? '');
         setRecurrence(event.recurrence);
+        setEntityVersion(event.version ?? 1);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'No pudimos cargar el evento.');
       } finally {
@@ -258,7 +262,7 @@ export function EventForm({
     const startsAt = buildLocalIso(date, allDay ? '00:00' : startTime);
     const finalEndsAt = allDay ? undefined : buildLocalIso(date, endTime);
 
-    const payload: CreatePlannerEventPayload = {
+    const payload: CreatePlannerEventPayload & { expected_version?: number } = {
       title: title.trim(),
       description: description.trim() || undefined,
       starts_at: startsAt,
@@ -266,6 +270,7 @@ export function EventForm({
       all_day: allDay,
       location_name: locationName.trim() || undefined,
       recurrence,
+      expected_version: mode === 'edit' ? entityVersion ?? undefined : undefined,
     };
 
     setSaving(true);
@@ -319,7 +324,15 @@ if (isGeneratedRecurringOccurrence) {
       }
 
       if (!onSaved) {
-        navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'calendar' });
+        const tab = routeReturnTo === 'PlannerHome'
+          ? (routeInitialTab ?? 'calendar')
+          : 'calendar';
+        const refreshKey = Date.now();
+        if (navigation.canGoBack()) {
+          navigation.goBack();
+        } else {
+          navigation.navigate('PlannerHome', { refreshKey, initialTab: tab });
+        }
       }
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'No pudimos guardar el evento.';
@@ -341,13 +354,21 @@ if (isGeneratedRecurringOccurrence) {
         onPress: async () => {
           setSaving(true);
           try {
-            await cancelPlannerEvent(accessToken, eventId);
+            await cancelPlannerEvent(accessToken, eventId, entityVersion ?? undefined);
             markPlannerChanged();
             if (onSaved) {
               onSaved('Evento cancelado.');
             } else {
               Alert.alert('Planner', 'Evento cancelado.');
-              navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'calendar' });
+              const tab = routeReturnTo === 'PlannerHome'
+                ? (routeInitialTab ?? 'calendar')
+                : 'calendar';
+              const refreshKey = Date.now();
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                navigation.navigate('PlannerHome', { refreshKey, initialTab: tab });
+              }
             }
           } catch (err) {
             Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos cancelar el evento.');
@@ -365,7 +386,19 @@ if (isGeneratedRecurringOccurrence) {
       return;
     }
 
-    navigation.goBack();
+    if (routeReturnTo === 'PlannerHome') {
+      const tab = routeInitialTab ?? 'calendar';
+      const refreshKey = Date.now();
+      navigation.replace('PlannerHome', { refreshKey, initialTab: tab });
+      return;
+    }
+
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'calendar' });
   };
 
   const handlePressOutside = () => {

@@ -245,12 +245,17 @@ export function PlannerGoalsScreen({ refreshKey, onChanged, onShowToast }: Props
             if (!accessToken) return;
             setSavingId(goal.id);
             try {
-              await deleteGoal(accessToken, goal.id);
+              await deleteGoal(accessToken, goal.id, goal.version);
               onShowToast?.('Meta eliminada.');
               onChanged?.();
               setGoals((prev) => prev.filter((g) => g.id !== goal.id));
             } catch (err) {
-              Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo eliminar.');
+              if (err instanceof ApiError && err.code === 'version_conflict') {
+                Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                void load(true);
+              } else {
+                Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo eliminar.');
+              }
             } finally {
               setSavingId(null);
             }
