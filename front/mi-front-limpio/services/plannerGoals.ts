@@ -1,7 +1,7 @@
 import { requestJson } from './api';
 import { createIdempotencyKey } from './idempotency';
 
-export type PlannerGoalStatus = 'active' | 'completed' | 'failed';
+export type PlannerGoalStatus = 'active' | 'completed' | 'closed';
 
 export type PlannerGoalVisibility = 'household' | 'personal';
 
@@ -45,6 +45,8 @@ export type PlannerGoal = {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  closed_at: string | null;
+  closed_reason: string | null;
   failed_at: string | null;
   deleted_at: string | null;
   progress_percentage: number | null;
@@ -222,11 +224,48 @@ export const completeGoal = (
   });
 };
 
-export const failGoal = (
+export const closeGoal = (
+  accessToken: string,
+  goalId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string; closedReason?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.close')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/close`, {
+    method: 'POST',
+    accessToken,
+    body: { closed_reason: options?.closedReason ?? null },
+    headers,
+  });
+};
+
+export const reopenGoal = (
   accessToken: string,
   goalId: string,
   expectedVersion?: number,
   options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.reopen')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (expectedVersion !== undefined) {
+    headers['If-Match'] = String(expectedVersion)
+  }
+  return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/reopen`, {
+    method: 'POST',
+    accessToken,
+    headers,
+  });
+};
+
+export const failGoal = (
+  accessToken: string,
+  goalId: string,
+  expectedVersion?: number,
+  options?: { idempotencyKey?: string; closedReason?: string },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.fail')
   const headers: Record<string, string> = { 'Idempotency-Key': key }
@@ -236,6 +275,7 @@ export const failGoal = (
   return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/fail`, {
     method: 'POST',
     accessToken,
+    body: { closed_reason: options?.closedReason ?? null },
     headers,
   });
 };

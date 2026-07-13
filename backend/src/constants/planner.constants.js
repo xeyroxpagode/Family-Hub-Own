@@ -44,13 +44,13 @@ const TASK_STATUS_ORDER = {
 const GOAL_STATUSES = [
   'active',
   'completed',
-  'failed',
+  'closed',
 ]
 
 const GOAL_STATUS_TRANSITIONS = {
-  active: ['completed', 'failed'],
-  completed: [],
-  failed: [],
+  active: ['completed', 'closed'],
+  completed: ['active'],
+  closed: ['active'],
 }
 
 const GOAL_VISIBILITY_VALUES = [

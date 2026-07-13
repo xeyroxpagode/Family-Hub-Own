@@ -173,6 +173,60 @@ const failGoal = async (req, res) => {
     const operation = 'planner.goals.fail'
     const expectedVersion = parseExpectedVersion(req)
     const idempotencyKey = parseIdempotencyKey(req)
+    const closedReason = req.body?.closed_reason ?? req.body?.reason ?? null
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: { closed_reason: closedReason },
+      expectedVersion,
+    })
+
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => goalsService.failGoal(context, req.params.id, expectedVersion, closedReason),
+    )
+
+    return res.status(result.status).json(result.body)
+  } catch (error) {
+    return sendPlannerError(res, error)
+  }
+}
+
+const closeGoal = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req)
+    const operation = 'planner.goals.close'
+    const expectedVersion = parseExpectedVersion(req)
+    const idempotencyKey = parseIdempotencyKey(req)
+    const closedReason = req.body?.closed_reason ?? null
+    const requestHash = hashIdempotencyRequest({
+      method: 'POST',
+      operation,
+      params: { id: req.params.id },
+      body: { closed_reason: closedReason },
+      expectedVersion,
+    })
+
+    const result = await withIdempotency(
+      context,
+      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
+      () => goalsService.closeGoal(context, req.params.id, expectedVersion, closedReason),
+    )
+
+    return res.status(result.status).json(result.body)
+  } catch (error) {
+    return sendPlannerError(res, error)
+  }
+}
+
+const reopenGoal = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req)
+    const operation = 'planner.goals.reopen'
+    const expectedVersion = parseExpectedVersion(req)
+    const idempotencyKey = parseIdempotencyKey(req)
     const requestHash = hashIdempotencyRequest({
       method: 'POST',
       operation,
@@ -184,7 +238,7 @@ const failGoal = async (req, res) => {
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => goalsService.failGoal(context, req.params.id, expectedVersion),
+      () => goalsService.reopenGoal(context, req.params.id, expectedVersion),
     )
 
     return res.status(result.status).json(result.body)
@@ -282,6 +336,7 @@ const deleteMilestone = async (req, res) => {
 }
 
 module.exports = {
+  closeGoal,
   completeGoal,
   createGoal,
   createMilestone,
@@ -291,6 +346,7 @@ module.exports = {
   getGoalById,
   listGoals,
   listMilestones,
+  reopenGoal,
   updateGoal,
   updateMilestone,
 }

@@ -13,6 +13,7 @@ import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native'
 import { ApiError } from '../../services/api';
 import {
   completeGoal,
+  closeGoal,
   deleteGoal,
   failGoal,
   getGoalById,
@@ -21,6 +22,7 @@ import {
   updateGoalMilestone,
   deleteGoalMilestone,
   updateGoal,
+  reopenGoal,
   type PlannerGoal,
   type PlannerGoalCategory,
   type PlannerGoalMilestone,
@@ -69,8 +71,9 @@ export function GoalDetailScreen() {
   const [progressValue, setProgressValue] = useState('');
 
   const milestoneCreateKeyRef = useRef(createIdempotencyKey('planner.goals.milestones.create'));
-  const goalCompleteKeyRef = useRef(createIdempotencyKey('planner.goals.complete'));
-  const goalFailKeyRef = useRef(createIdempotencyKey('planner.goals.fail'));
+const goalCompleteKeyRef = useRef(createIdempotencyKey('planner.goals.complete'));
+  const goalCloseKeyRef = useRef(createIdempotencyKey('planner.goals.close'));
+  const goalReopenKeyRef = useRef(createIdempotencyKey('planner.goals.reopen'));
   const goalDeleteKeyRef = useRef(createIdempotencyKey('planner.goals.delete'));
   const milestoneUpdateKeyRef = useRef(createIdempotencyKey('planner.goals.milestones.update'));
   const milestoneDeleteKeyRef = useRef(createIdempotencyKey('planner.goals.milestones.delete'));
@@ -144,26 +147,26 @@ export function GoalDetailScreen() {
     ]);
   };
 
-  const handleFail = () => {
+  const handleClose = () => {
     if (!accessToken || !goal) return;
-    Alert.alert('Marcar como fallida', 'Seguro que esta meta no se pudo lograr?', [
+    Alert.alert('Cerrar meta', 'Esta meta dejará de estar activa. Podés reabrirla más adelante.', [
       { text: 'Cancelar', style: 'cancel' },
       {
-        text: 'Fallida',
+        text: 'Cerrar',
         style: 'destructive',
         onPress: async () => {
           setSavingId(goalId);
           try {
-            const { goal: updated } = await failGoal(accessToken, goalId, goal.version, { idempotencyKey: goalFailKeyRef.current });
+            const { goal: updated } = await closeGoal(accessToken, goalId, goal.version, { idempotencyKey: goalCloseKeyRef.current });
             setGoal(updated);
             markPlannerChanged();
-            goalFailKeyRef.current = createIdempotencyKey('planner.goals.fail');
+            goalCloseKeyRef.current = createIdempotencyKey('planner.goals.close');
           } catch (err) {
             if (err instanceof ApiError && err.code === 'version_conflict') {
               Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
               await load();
             } else {
-              Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo actualizar.');
+              Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo cerrar.');
             }
           } finally {
             setSavingId(null);
@@ -171,6 +174,41 @@ export function GoalDetailScreen() {
         },
       },
     ]);
+  };
+
+  const handleReopen = () => {
+    if (!accessToken || !goal) return;
+    const isCompleted = goal.status === 'completed';
+    Alert.alert(
+      isCompleted ? 'Revertir logro' : 'Reabrir meta',
+      isCompleted
+        ? 'Esta meta volverá a estar activa. Podés marcarla como lograda otra vez más adelante.'
+        : 'Esta meta volverá a estar activa.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: isCompleted ? 'Revertir' : 'Reabrir',
+          onPress: async () => {
+            setSavingId(goalId);
+            try {
+              const { goal: updated } = await reopenGoal(accessToken, goalId, goal.version, { idempotencyKey: goalReopenKeyRef.current });
+              setGoal(updated);
+              markPlannerChanged();
+              goalReopenKeyRef.current = createIdempotencyKey('planner.goals.reopen');
+            } catch (err) {
+              if (err instanceof ApiError && err.code === 'version_conflict') {
+                Alert.alert('Planner', 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.');
+                await load();
+              } else {
+                Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo reabrir.');
+              }
+            } finally {
+              setSavingId(null);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const handleDelete = () => {
@@ -304,7 +342,7 @@ export function GoalDetailScreen() {
   const catIcon = goalCategoryIcons[category] || ('ellipse' as HomePlusIconName);
   const catLabel = goalCategoryLabels[category] || category;
   const isCompleted = goal?.status === 'completed';
-  const isFailed = goal?.status === 'failed';
+  const isClosed = goal?.status === 'closed';
   const isActive = goal?.status === 'active';
   const progressMode = goal?.progress_mode ?? 'steps';
   const showBar = goal ? shouldShowGoalProgressBar(goal) : false;
@@ -317,7 +355,7 @@ export function GoalDetailScreen() {
 
   const progressColor = isCompleted
     ? colors.success.base
-    : isFailed
+    : isClosed
     ? colors.danger.base
     : colors.sage[500];
 
@@ -377,15 +415,15 @@ export function GoalDetailScreen() {
               style={[
                 goal.status === 'completed'
                   ? S.goalStatusBadgeCompleted
-                  : goal.status === 'failed'
-                  ? S.goalStatusBadgeFailed
+                  : goal.status === 'closed'
+                  ? S.goalStatusBadgeClosed
                   : S.goalStatusBadgeActive,
               ]}
             >
               <AppText
                 variant="micro"
                 weight="700"
-                tone={goal.status === 'completed' ? 'success' : goal.status === 'failed' ? 'danger' : 'primary'}
+                tone={goal.status === 'completed' ? 'success' : goal.status === 'closed' ? 'danger' : 'primary'}
               >
                 {goalStatusLabels[goal.status]}
               </AppText>
@@ -557,17 +595,51 @@ export function GoalDetailScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[S.goalDetailDangerAction, { flex: 0, minWidth: 144 }]}
-                    onPress={handleFail}
+                    onPress={handleClose}
                     disabled={isSaving}
                   >
                     <AppText variant="bodySmall" tone="danger" weight="700">
-                      Cerrar sin lograr
+                      Cerrar meta
                     </AppText>
                   </TouchableOpacity>
                 </View>
               </View>
             )}
           </>
+        ) : null}
+        {goal.status === 'completed' ? (
+          <View style={{ marginTop: spacing[4] }}>
+            <TouchableOpacity
+              style={S.goalDetailPrimaryAction}
+              onPress={handleReopen}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <ActivityIndicator color={colors.text.inverse} size="small" />
+              ) : (
+                <AppText variant="bodySmall" tone="inverse" weight="800">
+                  Revertir logro
+                </AppText>
+              )}
+            </TouchableOpacity>
+          </View>
+        ) : null}
+        {goal.status === 'closed' ? (
+          <View style={{ marginTop: spacing[4] }}>
+            <TouchableOpacity
+              style={S.goalDetailPrimaryAction}
+              onPress={handleReopen}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <ActivityIndicator color={colors.text.inverse} size="small" />
+              ) : (
+                <AppText variant="bodySmall" tone="inverse" weight="800">
+                  Reabrir
+                </AppText>
+              )}
+            </TouchableOpacity>
+          </View>
         ) : null}
 
         {progressMode === 'tasks' ? (
@@ -673,7 +745,7 @@ export function GoalDetailScreen() {
                         >
                           {achieved ? (
                             <HomePlusIcon name="checkmark" size={16} color={colors.text.inverse} />
-                          ) : null}
+) : null}
                         </TouchableOpacity>
                       ) : savingId === ms.id ? (
                         <ActivityIndicator size="small" color={colors.terracotta[500]} style={{ width: 26 }} />

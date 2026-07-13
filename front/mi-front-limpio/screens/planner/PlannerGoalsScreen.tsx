@@ -45,7 +45,7 @@ const statusFilters: Array<{ key: StatusFilter; label: string }> = [
   { key: 'all', label: 'Todas' },
   { key: 'active', label: 'Activas' },
   { key: 'completed', label: 'Logradas' },
-  { key: 'failed', label: 'Fallidas' },
+  { key: 'closed', label: 'Cerradas' },
 ];
 
 const visibilityFilters: Array<{ key: VisibilityFilter; label: string }> = [
@@ -78,7 +78,7 @@ function GoalCard({
   const catIcon = goalCategoryIcons[category] || ('ellipse' as HomePlusIconName);
   const catLabel = goalCategoryLabels[category] || category;
   const isCompleted = goal.status === 'completed';
-  const isFailed = goal.status === 'failed';
+  const isClosed = goal.status === 'closed';
   const showBar = shouldShowGoalProgressBar(goal);
   const showNumeric = hasRealGoalProgress(goal) && goal.progress_mode === 'numeric';
   const progressText = getGoalProgressText(goal, {
@@ -88,7 +88,7 @@ function GoalCard({
 
   const progressColor = isCompleted
     ? colors.success.base
-    : isFailed
+    : isClosed
     ? colors.danger.base
     : colors.sage[500];
 
@@ -108,15 +108,15 @@ function GoalCard({
           style={[
             goal.status === 'completed'
               ? S.goalStatusBadgeCompleted
-              : goal.status === 'failed'
-              ? S.goalStatusBadgeFailed
+              : goal.status === 'closed'
+              ? S.goalStatusBadgeClosed
               : S.goalStatusBadgeActive,
           ]}
         >
           <AppText
             variant="micro"
             weight="700"
-            tone={goal.status === 'completed' ? 'success' : goal.status === 'failed' ? 'danger' : 'primary'}
+            tone={goal.status === 'completed' ? 'success' : goal.status === 'closed' ? 'danger' : 'primary'}
           >
             {goalStatusLabels[goal.status]}
           </AppText>
@@ -272,7 +272,7 @@ export function PlannerGoalsScreen({ refreshKey, onChanged, onShowToast }: Props
   const orderedGoals = useMemo(() => {
     const active = goals.filter((g) => g.status === 'active');
     const completed = goals.filter((g) => g.status === 'completed');
-    const failed = goals.filter((g) => g.status === 'failed');
+    const closed = goals.filter((g) => g.status === 'closed');
 
     const sortFn = (a: PlannerGoal, b: PlannerGoal) => {
       const aEnd = a.ends_at ?? '9999-12-31';
@@ -280,7 +280,7 @@ export function PlannerGoalsScreen({ refreshKey, onChanged, onShowToast }: Props
       return aEnd.localeCompare(bEnd);
     };
 
-    return [...active.sort(sortFn), ...failed.sort(sortFn), ...completed.sort(sortFn)];
+    return [...active.sort(sortFn), ...closed.sort(sortFn), ...completed.sort(sortFn)];
   }, [goals]);
 
   return (

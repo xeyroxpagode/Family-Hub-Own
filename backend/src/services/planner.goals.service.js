@@ -134,6 +134,10 @@ const calculateProgress = async (context, goal) => {
     return 100
   }
 
+  if (goal.status === 'closed') {
+    return 0
+  }
+
   const mode = goal.progress_mode ?? 'steps'
 
   if (mode === 'boolean') {
@@ -176,6 +180,10 @@ const calculateProgress = async (context, goal) => {
 const attachProgress = async (context, goal) => {
   if (goal.status === 'completed') {
     return { ...goal, progress_percentage: 100 }
+  }
+
+  if (goal.status === 'closed') {
+    return { ...goal, progress_percentage: 0 }
   }
 
   const mode = goal.progress_mode ?? 'steps'
@@ -573,21 +581,67 @@ const completeGoal = async (context, goalId, expectedVersion) => {
   return { goal: { ...data, progress_percentage: 100 } }
 }
 
-const failGoal = async (context, goalId, expectedVersion) => {
+const failGoal = async (context, goalId, expectedVersion, closedReason) => {
+  return closeGoal(context, goalId, expectedVersion, closedReason)
+}
+
+const closeGoal = async (context, goalId, expectedVersion, closedReason) => {
   const goal = await getGoalOrThrow(context.client, context.householdId, goalId)
   assertExpectedVersion(goal.version, expectedVersion)
 
-  if (goal.status === 'failed') {
+  if (goal.status === 'closed') {
     return { goal: await attachProgress(context, goal) }
   }
 
-  validateGoalTransition(goal.status, 'failed')
+  if (goal.status !== 'active') {
+    throw createHttpError(409, 'Transicion invalida.', 'invalid_status_transition')
+  }
 
   const query = context.client
     .from('planner_goals')
     .update({
-      status: 'failed',
-      failed_at: new Date().toISOString(),
+      status: 'closed',
+      closed_at: new Date().toISOString(),
+      closed_reason: closedReason ?? null,
+    })
+    .eq('id', goalId)
+    .eq('household_id', context.householdId)
+    .is('deleted_at', null)
+
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    query.eq('version', expectedVersion)
+  }
+
+  const { data, error } = await query.select('*').maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+  if (!data) {
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
+    }
+    throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
+  }
+
+  return { goal: await attachProgress(context, data) }
+}
+
+const reopenGoal = async (context, goalId, expectedVersion) => {
+  const goal = await getGoalOrThrow(context.client, context.householdId, goalId)
+  assertExpectedVersion(goal.version, expectedVersion)
+
+  if (goal.status !== 'closed' && goal.status !== 'completed') {
+    throw createHttpError(409, 'Transicion invalida.', 'invalid_status_transition')
+  }
+
+  const query = context.client
+    .from('planner_goals')
+    .update({
+      status: 'active',
+      closed_at: null,
+      closed_reason: null,
+      completed_at: null,
     })
     .eq('id', goalId)
     .eq('household_id', context.householdId)
@@ -811,6 +865,7 @@ const deleteMilestone = async (context, goalId, milestoneId, expectedVersion) =>
 }
 
 module.exports = {
+  closeGoal,
   completeGoal,
   createGoal,
   createMilestone,
@@ -821,6 +876,7 @@ module.exports = {
   getGoalOrThrow,
   listGoals,
   listMilestones,
+  reopenGoal,
   updateGoal,
   updateMilestone,
 }

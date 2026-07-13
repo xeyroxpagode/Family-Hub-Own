@@ -60,7 +60,7 @@ export const getTypeIcon = (templateKey?: string | null): string | undefined => 
 export const goalStatusLabels: Record<PlannerGoalStatus, string> = {
   active: 'Activa',
   completed: 'Lograda',
-  failed: 'Fallida',
+  closed: 'Cerrada',
 };
 
 export const goalVisibilityLabels: Record<PlannerGoalVisibility, string> = {
@@ -116,7 +116,7 @@ export const hasRealGoalProgress = (goal: PlannerGoal): boolean =>
 export const shouldShowGoalProgressBar = (goal: PlannerGoal): boolean => {
   const mode = goal.progress_mode;
   if (mode === 'boolean' || mode === 'none') return false;
-  if (goal.status === 'completed' || goal.status === 'failed') return false;
+  if (goal.status === 'completed' || goal.status === 'closed') return false;
   return hasRealGoalProgress(goal);
 };
 
@@ -152,7 +152,7 @@ export const getGoalProgressText = (
   }
   const mode = goal.progress_mode;
   if (goal.status === 'completed') return 'Meta lograda';
-  if (goal.status === 'failed') return 'Cerrada sin lograr';
+  if (goal.status === 'closed') return 'Cerrada sin lograr';
   switch (mode) {
     case 'steps': {
       const knownMilestoneTotal = opts?.milestoneCount ?? goal.milestones_total;
@@ -1426,7 +1426,7 @@ export const plannerStyles = StyleSheet.create({
     paddingVertical: spacing[1],
     backgroundColor: colors.success.soft,
   },
-  goalStatusBadgeFailed: {
+  goalStatusBadgeClosed: {
     borderRadius: radius.pill,
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[1],

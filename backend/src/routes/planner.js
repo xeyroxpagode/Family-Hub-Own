@@ -32,6 +32,8 @@ router.get('/goals/:id', goalsController.getGoalById)
 router.patch('/goals/:id', goalsController.updateGoal)
 router.delete('/goals/:id', goalsController.deleteGoal)
 router.post('/goals/:id/complete', goalsController.completeGoal)
+router.post('/goals/:id/close', goalsController.closeGoal)
+router.post('/goals/:id/reopen', goalsController.reopenGoal)
 router.post('/goals/:id/fail', goalsController.failGoal)
 
 router.get('/goals/:goalId/milestones', goalsController.listMilestones)
