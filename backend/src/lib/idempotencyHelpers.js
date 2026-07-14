@@ -3,7 +3,7 @@ const crypto = require('crypto')
 const { createHttpError } = require('./httpErrors')
 
 const IDEMPOTENCY_KEY_MAX_LENGTH = 128
-const IDEMPOTENCY_KEY_ALLOWED_CHARS = /^[A-Za-z0-9._:\-]+$/
+const IDEMPOTENCY_KEY_ALLOWED_CHARS = /^[A-Za-z0-9._:-]+$/
 
 const parseIdempotencyKey = (req) => {
   const raw = req?.headers?.['idempotency-key']
@@ -23,6 +23,27 @@ const parseIdempotencyKey = (req) => {
   return trimmed
 }
 
+/**
+ * Planner V0.2 — require an Idempotency-Key on mutations that can
+ * duplicate (creates, actions with side effects).
+ *
+ * Returns the validated key. Absence throws 422 `idempotency_key_required`.
+ * This is the G0.2 hardening: V0.1 allowed absence; V0.2 makes it
+ * mandatory on the operations tagged in `_G0_2_REQUIRED_IDEMPOTENCY`
+ * (see planner routes / controllers for the per-endpoint usage).
+ */
+const requireIdempotencyKey = (req) => {
+  const key = parseIdempotencyKey(req)
+  if (!key) {
+    throw createHttpError(
+      422,
+      'Idempotency-Key es obligatorio para esta mutación.',
+      'idempotency_key_required',
+    )
+  }
+  return key
+}
+
 const isPlainObject = (value) =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
 
@@ -38,8 +59,6 @@ const sortByKey = (obj) => {
     })
   return sorted
 }
-
-const canonicalize = (value) => JSON.stringify(sortByKey(value ?? null))
 
 const hashIdempotencyRequest = ({ method, operation, params = {}, body, expectedVersion }) => {
   const normalizedMethod = String(method ?? '').toUpperCase()
@@ -199,6 +218,7 @@ const withIdempotency = async (context, options, mutationFn) => {
 
 module.exports = {
   parseIdempotencyKey,
+  requireIdempotencyKey,
   hashIdempotencyRequest,
   withIdempotency,
 }

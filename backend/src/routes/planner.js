@@ -7,11 +7,16 @@ const summaryController = require('../controllers/planner.summary.controller')
 const goalsController = require('../controllers/planner.goals.controller')
 const trashController = require('../controllers/planner.trash.controller')
 const activityController = require('../controllers/planner.activity.controller')
+const capabilitiesController = require('../controllers/planner.capabilities.controller')
+const { requestContextMiddleware } = require('../middleware/requestContextMiddleware')
 const { plannerObservabilityMiddleware } = require('../lib/plannerObservability')
 
 const router = express.Router()
 
 router.use(authFinalMiddleware)
+// G0.2: end-to-end request_id. Order matters — set X-Request-Id on req
+// before observability stamps logs, so error envelopes include it.
+router.use(requestContextMiddleware)
 
 const plannerCacheMiddleware = (req, res, next) => {
   if (req.method === 'GET') {
@@ -26,6 +31,10 @@ const plannerCacheMiddleware = (req, res, next) => {
 
 router.use(plannerCacheMiddleware)
 router.use(plannerObservabilityMiddleware)
+
+// G0.2: capability projection for the active member+household.
+// Read-only, scoped server-side.
+router.get('/capabilities', capabilitiesController.getCapabilities)
 
 router.get('/activity', activityController.listActivity)
 

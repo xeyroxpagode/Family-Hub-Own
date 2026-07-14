@@ -1,262 +1,296 @@
-const { getPlannerContext } = require('../services/planner.context.service')
-const tasksService = require('../services/planner.tasks.service')
-const { parseExpectedVersion } = require('../lib/versionHelpers')
+'use strict';
+
+const { getPlannerContext } = require('../services/planner.context.service');
+const tasksService = require('../services/planner.tasks.service');
 const {
+  requireMutationId,
+  parseRequiredExpectedVersion,
+} = require('../lib/plannerMutationContracts');
+const {
+  requireIdempotencyKey,
   hashIdempotencyRequest,
-  parseIdempotencyKey,
   withIdempotency,
-} = require('../lib/idempotencyHelpers')
+} = require('../lib/idempotencyHelpers');
+const { resolveCapabilities, assertCapability } = require('../lib/plannerCapabilities');
+const { sendApiError } = require('../lib/httpErrors');
 
-const sendPlannerError = (res, error) => {
-  const statusCode = error.statusCode ?? 500
-
-  if (statusCode >= 500) {
-    console.error('[planner.tasks]', {
-      message: error.message,
-      code: error.code,
-      details: error.details,
-      hint: error.hint,
-      stack: error.stack,
-    })
-  }
-
-  return res.status(statusCode).json({
-    error: statusCode < 500 ? error.message : 'Error interno.',
-    code: error.code ?? 'internal_error',
-    ...(process.env.NODE_ENV !== 'production' && statusCode >= 500
-      ? {
-          debug: {
-            message: error.message,
-            details: error.details ?? null,
-            hint: error.hint ?? null,
-          },
-        }
-      : {}),
-  })
+/**
+ * Build the capability projection for the current request context.
+ * Used for enforcement before mutations.
+ */
+function buildCapabilities(context) {
+  return resolveCapabilities({
+    role: context.membership?.role,
+    membershipStatus: context.membership?.status,
+    household: context.household,
+  });
 }
 
 const listTasks = async (req, res) => {
   try {
-    const context = await getPlannerContext(req)
-    const payload = await tasksService.listTasks(context, req.query ?? {})
-
-    return res.status(200).json(payload)
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'planner.view');
+    const payload = await tasksService.listTasks(context, req.query ?? {});
+    return res.status(200).json(payload);
   } catch (error) {
-    return sendPlannerError(res, error)
+    return sendApiError(res, error, req);
   }
-}
+};
 
 const createTask = async (req, res) => {
   try {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[planner.tasks] POST /tasks body keys:', Object.keys(req.body ?? {}))
-    }
-    const context = await getPlannerContext(req)
-    const operation = 'planner.tasks.create'
-    const idempotencyKey = parseIdempotencyKey(req)
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+
+    const isPersonal = req.body?.visibility === 'personal';
+    const requiredCap = isPersonal ? 'task.create_personal' : 'task.create_household';
+    assertCapability(capabilities, requiredCap);
+
+    const operation = 'planner.tasks.create';
+    const mutationId = requireMutationId(req);
+    const idempotencyKey = requireIdempotencyKey(req);
     const requestHash = hashIdempotencyRequest({
       method: 'POST',
       operation,
       params: {},
       body: req.body ?? {},
       expectedVersion: null,
-    })
+    });
 
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 201 },
       () => tasksService.createTask(context, req.body ?? {}),
-    )
+    );
 
-    return res.status(result.status).json(result.body)
+    // Echo mutation ID on success for correlation
+    res.set('X-Mutation-Id', mutationId);
+    return res.status(result.status).json(result.body);
   } catch (error) {
-    return sendPlannerError(res, error)
+    return sendApiError(res, error, req);
   }
-}
+};
 
 const updateTask = async (req, res) => {
   try {
-    const context = await getPlannerContext(req)
-    const operation = 'planner.tasks.update'
-    const expectedVersion = parseExpectedVersion(req)
-    const idempotencyKey = parseIdempotencyKey(req)
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'task.edit_own');
+    // Note: task.edit_any is enforced by the service via RLS/ownership check
+
+    const operation = 'planner.tasks.update';
+    const mutationId = requireMutationId(req);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const expectedVersion = parseRequiredExpectedVersion(req);
     const requestHash = hashIdempotencyRequest({
       method: 'PATCH',
       operation,
       params: { id: req.params.id },
       body: req.body ?? {},
       expectedVersion,
-    })
+    });
 
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
       () => tasksService.updateTask(context, req.params.id, req.body ?? {}, expectedVersion),
-    )
+    );
 
-    return res.status(result.status).json(result.body)
+    res.set('X-Mutation-Id', mutationId);
+    return res.status(result.status).json(result.body);
   } catch (error) {
-    return sendPlannerError(res, error)
+    return sendApiError(res, error, req);
   }
-}
+};
 
 const cancelTask = async (req, res) => {
   try {
-    const context = await getPlannerContext(req)
-    const operation = 'planner.tasks.cancel'
-    const expectedVersion = parseExpectedVersion(req)
-    const idempotencyKey = parseIdempotencyKey(req)
-    const body = req.body ?? {}
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'task.cancel_own');
+
+    const operation = 'planner.tasks.cancel';
+    const mutationId = requireMutationId(req);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const expectedVersion = parseRequiredExpectedVersion(req);
+    const body = req.body ?? {};
     const requestHash = hashIdempotencyRequest({
       method: 'DELETE',
       operation,
       params: { id: req.params.id },
       body,
       expectedVersion,
-    })
+    });
 
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
       () => tasksService.cancelTask(context, req.params.id, expectedVersion, body),
-    )
+    );
 
-    return res.status(result.status).json(result.body)
+    res.set('X-Mutation-Id', mutationId);
+    return res.status(result.status).json(result.body);
   } catch (error) {
-    return sendPlannerError(res, error)
+    return sendApiError(res, error, req);
   }
-}
+};
 
 const completeTask = async (req, res) => {
   try {
-    const context = await getPlannerContext(req)
-    const operation = 'planner.tasks.complete'
-    const expectedVersion = parseExpectedVersion(req)
-    const idempotencyKey = parseIdempotencyKey(req)
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'task.complete_assigned');
+
+    const operation = 'planner.tasks.complete';
+    const mutationId = requireMutationId(req);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const expectedVersion = parseRequiredExpectedVersion(req);
     const requestHash = hashIdempotencyRequest({
       method: 'POST',
       operation,
       params: { id: req.params.id },
       body: {},
       expectedVersion,
-    })
+    });
 
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
       () => tasksService.completeTask(context, req.params.id, expectedVersion),
-    )
+    );
 
-    return res.status(result.status).json(result.body)
+    res.set('X-Mutation-Id', mutationId);
+    return res.status(result.status).json(result.body);
   } catch (error) {
-    return sendPlannerError(res, error)
+    return sendApiError(res, error, req);
   }
-}
+};
 
 const verifyTask = async (req, res) => {
   try {
-    const context = await getPlannerContext(req)
-    const operation = 'planner.tasks.verify'
-    const expectedVersion = parseExpectedVersion(req)
-    const idempotencyKey = parseIdempotencyKey(req)
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'task.verify');
+
+    const operation = 'planner.tasks.verify';
+    const mutationId = requireMutationId(req);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const expectedVersion = parseRequiredExpectedVersion(req);
     const requestHash = hashIdempotencyRequest({
       method: 'POST',
       operation,
       params: { id: req.params.id },
       body: {},
       expectedVersion,
-    })
+    });
 
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
       () => tasksService.verifyTask(context, req.params.id, expectedVersion),
-    )
+    );
 
-    return res.status(result.status).json(result.body)
+    res.set('X-Mutation-Id', mutationId);
+    return res.status(result.status).json(result.body);
   } catch (error) {
-    return sendPlannerError(res, error)
+    return sendApiError(res, error, req);
   }
-}
+};
 
 const trashTask = async (req, res) => {
   try {
-    const context = await getPlannerContext(req)
-    const operation = 'planner.tasks.trash'
-    const expectedVersion = parseExpectedVersion(req)
-    const idempotencyKey = parseIdempotencyKey(req)
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'task.restore'); // trash uses restore capability
+
+    const operation = 'planner.tasks.trash';
+    const mutationId = requireMutationId(req);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const expectedVersion = parseRequiredExpectedVersion(req);
     const requestHash = hashIdempotencyRequest({
       method: 'POST',
       operation,
       params: { id: req.params.id },
       body: {},
       expectedVersion,
-    })
+    });
 
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
       () => tasksService.trashTask(context, req.params.id, expectedVersion),
-    )
+    );
 
-    return res.status(result.status).json(result.body)
+    res.set('X-Mutation-Id', mutationId);
+    return res.status(result.status).json(result.body);
   } catch (error) {
-    return sendPlannerError(res, error)
+    return sendApiError(res, error, req);
   }
-}
+};
 
 const restoreTask = async (req, res) => {
   try {
-    const context = await getPlannerContext(req)
-    const operation = 'planner.tasks.restore'
-    const expectedVersion = parseExpectedVersion(req)
-    const idempotencyKey = parseIdempotencyKey(req)
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'task.restore');
+
+    const operation = 'planner.tasks.restore';
+    const mutationId = requireMutationId(req);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const expectedVersion = parseRequiredExpectedVersion(req);
     const requestHash = hashIdempotencyRequest({
       method: 'POST',
       operation,
       params: { id: req.params.id },
       body: {},
       expectedVersion,
-    })
+    });
 
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
       () => tasksService.restoreTask(context, req.params.id, expectedVersion),
-    )
+    );
 
-    return res.status(result.status).json(result.body)
+    res.set('X-Mutation-Id', mutationId);
+    return res.status(result.status).json(result.body);
   } catch (error) {
-    return sendPlannerError(res, error)
+    return sendApiError(res, error, req);
   }
-}
+};
 
 const reactivateTask = async (req, res) => {
   try {
-    const context = await getPlannerContext(req)
-    const operation = 'planner.tasks.reactivate'
-    const expectedVersion = parseExpectedVersion(req)
-    const idempotencyKey = parseIdempotencyKey(req)
-    const body = req.body ?? {}
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'task.cancel_own');
+
+    const operation = 'planner.tasks.reactivate';
+    const mutationId = requireMutationId(req);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const expectedVersion = parseRequiredExpectedVersion(req);
+    const body = req.body ?? {};
     const requestHash = hashIdempotencyRequest({
       method: 'POST',
       operation,
       params: { id: req.params.id },
       body,
       expectedVersion,
-    })
+    });
 
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
       () => tasksService.reactivateTask(context, req.params.id, expectedVersion),
-    )
+    );
 
-    return res.status(result.status).json(result.body)
+    res.set('X-Mutation-Id', mutationId);
+    return res.status(result.status).json(result.body);
   } catch (error) {
-    return sendPlannerError(res, error)
+    return sendApiError(res, error, req);
   }
-}
+};
 
 module.exports = {
   cancelTask,
@@ -268,4 +302,4 @@ module.exports = {
   trashTask,
   updateTask,
   verifyTask,
-}
+};

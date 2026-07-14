@@ -1,5 +1,4 @@
 import { Platform } from 'react-native';
-import axios from 'axios';
 
 const RAW_API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -52,18 +51,36 @@ const logApiDebug = (event: string, data: Record<string, unknown>) => {
   }
 };
 
-export const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+/**
+ * Generate a new mutation ID for a user intent.
+ * Stable across retries of the same intent.
+ */
+let mutationIdCounter = 0;
+export const generateMutationId = (): string => {
+  mutationIdCounter += 1;
+  return `mut_${Date.now()}_${mutationIdCounter}`;
+};
+
+/**
+ * Generate an idempotency key for a mutation.
+ * Format: idem_<operation>_<timestamp>_<random>
+ */
+export const createIdempotencyKey = (operation: string): string => {
+  const random = Math.random().toString(36).substring(2, 10);
+  return `idem_${operation}_${Date.now()}_${random}`;
+};
 
 type RequestJsonOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   accessToken?: string | null;
   body?: unknown;
   headers?: Record<string, string>;
+  /** Optional pre-generated mutation ID for this intent (stable across retries) */
+  mutationId?: string;
+  /** Optional pre-generated idempotency key */
+  idempotencyKey?: string;
+  /** Expected version for optimistic concurrency (If-Match) */
+  expectedVersion?: number;
 };
 
 export type AuthMeNavigation = {
@@ -223,13 +240,21 @@ export class ApiError extends Error {
   status: number;
   code: string | null;
   debugMessage: string | null;
+  requestId: string | null;
 
-  constructor(message: string, status: number, code: string | null = null, debugMessage?: string | null) {
+  constructor(
+    message: string,
+    status: number,
+    code: string | null = null,
+    debugMessage?: string | null,
+    requestId?: string | null,
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.debugMessage = debugMessage ?? null;
+    this.requestId = requestId ?? null;
 
     if (__DEV__ && this.debugMessage) {
       console.error('[ApiError]', this.debugMessage);
@@ -258,8 +283,11 @@ const buildApiUrl = (path: string) => {
 const getResponseMessage = (payload: unknown, fallback: string) => {
   if (payload && typeof payload === 'object') {
     const record = payload as Record<string, unknown>;
+    // Support both legacy flat { error: string } and new envelope { error: { message: string } }
     if (typeof record.message === 'string') return record.message;
     if (typeof record.error === 'string') return record.error;
+    const envelope = record.error as Record<string, unknown> | undefined;
+    if (envelope && typeof envelope.message === 'string') return envelope.message;
   }
 
   return fallback;
@@ -268,24 +296,44 @@ const getResponseMessage = (payload: unknown, fallback: string) => {
 const getResponseCode = (payload: unknown) => {
   if (payload && typeof payload === 'object') {
     const record = payload as Record<string, unknown>;
+    // Legacy flat { code: string }
     if (typeof record.code === 'string') return record.code;
+    // New envelope { error: { code: string } }
+    const envelope = record.error as Record<string, unknown> | undefined;
+    if (envelope && typeof envelope.code === 'string') return envelope.code;
   }
 
   return null;
 };
 
+const getResponseRequestId = (payload: unknown, responseHeaders: Headers) => {
+  // New envelope { error: { request_id: string } }
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    const envelope = record.error as Record<string, unknown> | undefined;
+    if (envelope && typeof envelope.request_id === 'string') return envelope.request_id;
+  }
+  // Response header X-Request-Id
+  return responseHeaders.get('x-request-id') ?? null;
+};
+
 const plannerErrorMessages: Record<string, string> = {
   version_conflict: 'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
+  version_conflict_v2: 'La versión de la entidad cambió. Actualizá y reintentá.',
   idempotency_in_flight: 'La operación ya está en curso. Esperá un momento e intentá de nuevo.',
   idempotency_key_conflict: 'Esta operación ya se procesó con otros datos.',
+  idempotency_key_required: 'Idempotency-Key es obligatorio para esta mutación.',
+  mutation_id_required: 'X-Mutation-Id es obligatorio para mutaciones Planner.',
+  expected_version_required: 'If-Match (o expected_version) es obligatorio para mutaciones sobre entidades existentes.',
+  invalid_expected_version: 'Versión esperada inválida.',
+  invalid_idempotency_key: 'Clave de idempotencia inválida.',
   task_in_trash: 'Esta tarea está en la papelera. Restaurala primero desde Papelera.',
   event_in_trash: 'Este evento está en la papelera. Restauralo primero desde Papelera.',
   parent_goal_in_trash: 'La meta padre está en la papelera. Restaurala primero.',
   rls_violation: 'No tenés permiso para esta acción. Verificá tu membresía en el hogar.',
-  invalid_idempotency_key: 'Clave de idempotencia inválida.',
+  planner_forbidden: 'No tenés permiso para realizar esta acción.',
   goal_not_found: 'Meta no encontrada.',
   milestone_not_found: 'Hito no encontrado.',
-  invalid_expected_version: 'Versión esperada inválida.',
   invalid_status_transition: 'Transición de estado no permitida.',
   cannot_verify_own_completion: 'No podés verificar tu propia completación.',
   invalid_template_key: 'Tipo de plantilla inválido.',
@@ -295,6 +343,7 @@ const plannerErrorMessages: Record<string, string> = {
   invalid_category: 'Categoría inválida.',
   incompatible_progress_mode_target_type: 'Modo de progreso incompatible con el tipo de objetivo.',
   validation_error: 'Datos inválidos. Revisá los campos e intentá de nuevo.',
+  planner_internal_error: 'Error interno.',
 };
 
 const normalizePlannerError = (code: string | null, fallbackMessage: string): string => {
@@ -303,11 +352,12 @@ const normalizePlannerError = (code: string | null, fallbackMessage: string): st
 };
 
 export async function requestJson<T>(path: string, options: RequestJsonOptions = {}): Promise<T> {
-  const { method = 'GET', accessToken, body, headers } = options;
+  const { method = 'GET', accessToken, body, headers, mutationId, idempotencyKey, expectedVersion } = options;
 
   const fullUrl = buildApiUrl(path);
 
   const isPlannerGet = method === 'GET' && path.startsWith('/api/planner');
+  const isPlannerMutation = method !== 'GET' && path.startsWith('/api/planner');
 
   logApiDebug('request', {
     baseURL: API_BASE_URL,
@@ -316,21 +366,36 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
     body: redactRequestBody(body),
   });
 
+  const requestHeaders: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    ...(isPlannerGet ? {
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
+    } : {}),
+    ...getBearerHeaders(accessToken),
+    ...headers,
+  };
+
+  // G0.2: Add mutation headers for planner mutations
+  if (isPlannerMutation) {
+    const mId = mutationId ?? generateMutationId();
+    requestHeaders['X-Mutation-Id'] = mId;
+
+    const iKey = idempotencyKey ?? createIdempotencyKey(path.replace('/api/planner/', '').replace(/\//g, '.'));
+    requestHeaders['Idempotency-Key'] = iKey;
+
+    if (expectedVersion !== undefined) {
+      requestHeaders['If-Match'] = String(expectedVersion);
+    }
+  }
+
   let response: Response;
 
   try {
     response = await fetch(fullUrl, {
       method,
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        ...(isPlannerGet ? {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-        } : {}),
-        ...getBearerHeaders(accessToken),
-        ...headers,
-      },
+      headers: requestHeaders,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (error) {
@@ -344,6 +409,8 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
   }
 
   const text = await response.text();
+
+  const responseRequestId = response.headers.get('x-request-id') ?? null;
 
   if (!text) {
     if (!response.ok) {
@@ -360,6 +427,7 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
         response.status,
         'empty_response',
         debugMsg,
+        responseRequestId,
       );
     }
     return {} as T;
@@ -380,7 +448,7 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
       status: response.status,
       body: bodyPreview,
     });
-    
+
     let userMessage = 'No pudimos conectar correctamente con el servidor. Intentá de nuevo.';
     if (response.status === 401) {
       userMessage = 'Tu sesión expiró o no está disponible. Volvé a iniciar sesión.';
@@ -390,7 +458,7 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
       userMessage = 'No pudimos conectar con el servidor. Revisá tu conexión e intentá de nuevo.';
     }
 
-    throw new ApiError(userMessage, response.status, 'invalid_json', debugMsg);
+    throw new ApiError(userMessage, response.status, 'invalid_json', debugMsg, responseRequestId);
   }
 
   if (!response.ok) {
@@ -402,10 +470,13 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
       body: payload,
     });
     const code = getResponseCode(payload);
+    const requestId = getResponseRequestId(payload, response.headers);
     throw new ApiError(
       normalizePlannerError(code, getResponseMessage(payload, 'No pudimos completar la solicitud.')),
       response.status,
       code,
+      undefined,
+      requestId,
     );
   }
 
