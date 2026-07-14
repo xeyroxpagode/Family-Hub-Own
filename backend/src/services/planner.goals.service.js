@@ -9,6 +9,11 @@ const {
   GOAL_PROGRESS_MODE_TARGET_TYPE_MAP,
 } = require('../constants/planner.constants')
 const { assertExpectedVersion } = require('../lib/versionHelpers')
+const {
+  pickGoalActivityState,
+  pickMilestoneActivityState,
+  recordPlannerActivity,
+} = require('./planner.activity.service')
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
@@ -432,6 +437,14 @@ const createGoal = async (context, body) => {
     throwSupabaseError(error)
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'goal',
+    entityId: data.id,
+    action: 'goal.created',
+    previousState: null,
+    nextState: pickGoalActivityState(data),
+  }).catch(() => {})
+
   return { goal: await attachProgress(context, data) }
 }
 
@@ -515,6 +528,8 @@ const updateGoal = async (context, goalId, body, expectedVersion) => {
     return { goal: await attachProgress(context, existing) }
   }
 
+  const previousState = pickGoalActivityState(existing)
+
   const query = context.client
     .from('planner_goals')
     .update(patch)
@@ -539,11 +554,37 @@ const updateGoal = async (context, goalId, body, expectedVersion) => {
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'goal',
+    entityId: data.id,
+    action: 'goal.updated',
+    previousState,
+    nextState: pickGoalActivityState(data),
+  }).catch(() => {})
+
   return { goal: await attachProgress(context, data) }
 }
 
 const trashMilestone = async (context, goalId, milestoneId, expectedVersion) => {
   await getGoalForMilestone(context.client, context.householdId, goalId)
+
+  const { data: milestoneBefore, error: fetchBeforeError } = await context.client
+    .from('planner_goal_milestones')
+    .select('*')
+    .eq('id', milestoneId)
+    .eq('goal_id', goalId)
+    .is('deleted_at', null)
+    .is('trashed_at', null)
+    .maybeSingle()
+
+  if (fetchBeforeError) {
+    throwSupabaseError(fetchBeforeError)
+  }
+  if (!milestoneBefore) {
+    throw createHttpError(404, 'Hito no encontrado.', 'milestone_not_found')
+  }
+
+  const previousState = pickMilestoneActivityState(milestoneBefore)
 
   const { data: result, error: rpcError } = await context.client.rpc(
     'trash_milestone_rpc',
@@ -582,6 +623,15 @@ const trashMilestone = async (context, goalId, milestoneId, expectedVersion) => 
   if (fetchError) {
     throwSupabaseError(fetchError)
   }
+
+  recordPlannerActivity(context, {
+    entityType: 'milestone',
+    entityId: milestoneId,
+    action: 'milestone.trashed',
+    previousState,
+    nextState: pickMilestoneActivityState(milestone),
+    metadata: { goal_id: goalId },
+  }).catch(() => {})
 
   return { milestone }
 }
@@ -647,6 +697,15 @@ const restoreMilestone = async (context, goalId, milestoneId, expectedVersion) =
     throwSupabaseError(fetchError)
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'milestone',
+    entityId: milestoneId,
+    action: 'milestone.restored',
+    previousState: null,
+    nextState: pickMilestoneActivityState(milestone),
+    metadata: { goal_id: goalId },
+  }).catch(() => {})
+
   return { milestone }
 }
 
@@ -661,6 +720,8 @@ const trashGoal = async (context, goalId, expectedVersion) => {
   if (existing.trashed_at !== null) {
     return { goal: await attachProgress(context, existing) }
   }
+
+  const previousState = pickGoalActivityState(existing)
 
   const query = context.client
     .from('planner_goals')
@@ -686,6 +747,14 @@ const trashGoal = async (context, goalId, expectedVersion) => {
     }
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
+
+  recordPlannerActivity(context, {
+    entityType: 'goal',
+    entityId: data.id,
+    action: 'goal.trashed',
+    previousState,
+    nextState: pickGoalActivityState(data),
+  }).catch(() => {})
 
   return { goal: await attachProgress(context, data) }
 }
@@ -741,6 +810,14 @@ const restoreGoal = async (context, goalId, expectedVersion) => {
     throwSupabaseError(fetchError)
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'goal',
+    entityId: goalId,
+    action: 'goal.restored',
+    previousState: null,
+    nextState: pickGoalActivityState(goal),
+  }).catch(() => {})
+
   return { goal: await attachProgress(context, goal) }
 }
 
@@ -763,6 +840,8 @@ const completeGoal = async (context, goalId, expectedVersion) => {
   }
 
   validateGoalTransition(goal.status, 'completed')
+
+  const previousState = pickGoalActivityState(goal)
 
   const query = context.client
     .from('planner_goals')
@@ -791,6 +870,14 @@ const completeGoal = async (context, goalId, expectedVersion) => {
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'goal',
+    entityId: data.id,
+    action: 'goal.completed',
+    previousState,
+    nextState: pickGoalActivityState(data),
+  }).catch(() => {})
+
   return { goal: { ...data, progress_percentage: 100 } }
 }
 
@@ -809,6 +896,8 @@ const closeGoal = async (context, goalId, expectedVersion, closedReason) => {
   if (goal.status !== 'active') {
     throw createHttpError(409, 'Transicion invalida.', 'invalid_status_transition')
   }
+
+  const previousState = pickGoalActivityState(goal)
 
   const query = context.client
     .from('planner_goals')
@@ -838,6 +927,15 @@ const closeGoal = async (context, goalId, expectedVersion, closedReason) => {
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'goal',
+    entityId: data.id,
+    action: 'goal.closed',
+    previousState,
+    nextState: pickGoalActivityState(data),
+    metadata: closedReason ? { closed_reason: closedReason } : null,
+  }).catch(() => {})
+
   return { goal: await attachProgress(context, data) }
 }
 
@@ -848,6 +946,8 @@ const reopenGoal = async (context, goalId, expectedVersion) => {
   if (goal.status !== 'closed' && goal.status !== 'completed') {
     throw createHttpError(409, 'Transicion invalida.', 'invalid_status_transition')
   }
+
+  const previousState = pickGoalActivityState(goal)
 
   const query = context.client
     .from('planner_goals')
@@ -877,6 +977,14 @@ const reopenGoal = async (context, goalId, expectedVersion) => {
     }
     throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
   }
+
+  recordPlannerActivity(context, {
+    entityType: 'goal',
+    entityId: data.id,
+    action: 'goal.reopened',
+    previousState,
+    nextState: pickGoalActivityState(data),
+  }).catch(() => {})
 
   return { goal: await attachProgress(context, data) }
 }
@@ -953,6 +1061,15 @@ const createMilestone = async (context, goalId, body) => {
     throwSupabaseError(error)
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'milestone',
+    entityId: data.id,
+    action: 'milestone.created',
+    previousState: null,
+    nextState: pickMilestoneActivityState(data),
+    metadata: { goal_id: goalId },
+  }).catch(() => {})
+
   return { milestone: data }
 }
 
@@ -1012,6 +1129,8 @@ const updateMilestone = async (context, goalId, milestoneId, body, expectedVersi
     return { milestone: existing }
   }
 
+  const previousState = pickMilestoneActivityState(existing)
+
   const query = context.client
     .from('planner_goal_milestones')
     .update(patch)
@@ -1035,6 +1154,15 @@ const updateMilestone = async (context, goalId, milestoneId, body, expectedVersi
     }
     throw createHttpError(404, 'Hito no encontrado.', 'milestone_not_found')
   }
+
+  recordPlannerActivity(context, {
+    entityType: 'milestone',
+    entityId: data.id,
+    action: 'milestone.updated',
+    previousState,
+    nextState: pickMilestoneActivityState(data),
+    metadata: { goal_id: goalId },
+  }).catch(() => {})
 
   return { milestone: data }
 }

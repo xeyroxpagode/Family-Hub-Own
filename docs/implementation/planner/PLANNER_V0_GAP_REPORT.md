@@ -352,23 +352,28 @@ destructive or retention feature (no permanent delete, no empty trash, no auto
 purge) and must NOT introduce new product lifecycle concepts. The items below
 are audit and internal-hardening work that fits inside V0 scope discipline:
 
-1. **[V0.9-1] Activity / change history for Planner mutations** — read-only
-   audit trail of who did what to each row (create/update/cancel/reactivate/
-   trash/restore/complete/close/reopen). Stored separately from the working
-   tables. Surfaced only to household admins in V0.9. No new state values,
-   no new endpoints beyond `GET /api/planner/activities?entity=...`.
-2. **[V0.9-2] Internal QA hardening** — add test coverage for `idempotency_in_flight`,
-   `idempotency_key_conflict`, `task_in_trash`, `event_in_trash`,
-   `parent_goal_in_trash` (once emitted), and `rls_violation` on all four
-   services.
-3. **[V0.9-3] Restored audit columns** — track who restored what and when
-   (`restored_at`, `restored_by_member_id`) on `planner_tasks`,
-   `planner_events`, `planner_goals`, `planner_goal_milestones`. This is
-   additive internal hardening and does NOT add a new user-visible action.
-4. **[V0.9-4] Milestone `achieve` / `unachieve` dedicated endpoints** only if
-   the UI audit identifies that a single PATCH-with-`achieved` is insufficient
-   for clarity. The semantics already exist via PATCH; this is a presentation
-   change, not new lifecycle.
+1. **[V0.9-1] Activity / change history for Planner mutations — IMPLEMENTED** —
+   read-only audit trail of who did what to each row
+   (create/update/cancel/reactivate/trash/restore/complete/close/reopen). Stored
+   separately from the working tables in `public.planner_activity_log`. Surfaced
+   only internally in V0.9 via `GET /api/planner/activity` (scoped by household,
+   not user-facing). No new state values, no new lifecycle concepts.
+   - Best-effort: logging failures never fail the primary mutation.
+   - No-op mutations are not logged.
+   - `previous_state` / `next_state` snapshots captured per action.
+   - `metadata` carries extra context (e.g. `cancelled_from_status`, `reason`).
+
+2. **[V0.9-2] Internal QA hardening** — NOT DONE in this pass (test coverage for
+   `idempotency_in_flight`, `idempotency_key_conflict`, `task_in_trash`,
+   `event_in_trash`, `parent_goal_in_trash`, `rls_violation` on all four
+   services). Tracked for V0.10 or V0.11.
+
+3. **[V0.9-3] Restored audit columns** — NOT DONE (explicitly out of scope per
+   V0.9 brief: "Do NOT implement ... New Planner lifecycle states"). Would add
+   `restored_at`, `restored_by_member_id` to working tables. Deferred.
+
+4. **[V0.9-4] Milestone `achieve` / `unachieve` dedicated endpoints** — DEFERRED.
+   The PATCH-with-`achieved` semantics already exist and are sufficient for V0.
 
 ### 6.3 V0.10 (cache / refresh / telemetry / minimal observability only)
 

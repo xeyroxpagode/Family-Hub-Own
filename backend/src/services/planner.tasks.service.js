@@ -5,6 +5,7 @@ const {
   TASK_STATUS_ORDER,
   TASK_TEMPLATE_KEYS,
 } = require('../constants/planner.constants')
+const { pickTaskActivityState, recordPlannerActivity } = require('./planner.activity.service')
 
 const ALLOWED_ORIGIN_MODULES = Object.freeze([
   'inventory',
@@ -487,6 +488,14 @@ const createTask = async (context, body) => {
     throwSupabaseError(error)
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'task',
+    entityId: data.id,
+    action: 'task.created',
+    previousState: null,
+    nextState: pickTaskActivityState(data),
+  }).catch(() => {})
+
   return { task: data }
 }
 
@@ -563,6 +572,8 @@ const updateTask = async (context, taskId, body, expectedVersion) => {
     return { task: await getTaskOrThrow(context.client, context.householdId, taskId) }
   }
 
+  const previousState = pickTaskActivityState(task)
+
   let query = context.client
     .from('planner_tasks')
     .update(patch)
@@ -590,6 +601,14 @@ const updateTask = async (context, taskId, body, expectedVersion) => {
     throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'task',
+    entityId: data.id,
+    action: 'task.updated',
+    previousState,
+    nextState: pickTaskActivityState(data),
+  }).catch(() => {})
+
   return { task: data }
 }
 
@@ -602,6 +621,7 @@ const cancelTask = async (context, taskId, expectedVersion, body = {}) => {
   }
 
   const previousStatus = task.status
+  const previousState = pickTaskActivityState(task)
 
   let query = context.client
     .from('planner_tasks')
@@ -636,6 +656,15 @@ const cancelTask = async (context, taskId, expectedVersion, body = {}) => {
     throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'task',
+    entityId: data.id,
+    action: 'task.cancelled',
+    previousState,
+    nextState: pickTaskActivityState(data),
+    metadata: body?.reason ? { reason: body.reason } : null,
+  }).catch(() => {})
+
   return { task: data }
 }
 
@@ -650,6 +679,8 @@ const reactivateTask = async (context, taskId, expectedVersion) => {
   if (task.status !== 'cancelled') {
     return { task }
   }
+
+  const previousState = pickTaskActivityState(task)
 
   const nextStatus = task.cancelled_from_status && task.cancelled_from_status !== 'cancelled'
     ? task.cancelled_from_status
@@ -688,6 +719,15 @@ const reactivateTask = async (context, taskId, expectedVersion) => {
     throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'task',
+    entityId: data.id,
+    action: 'task.reactivated',
+    previousState,
+    nextState: pickTaskActivityState(data),
+    metadata: { cancelled_from: task.cancelled_from_status ?? null },
+  }).catch(() => {})
+
   const hydrated = await hydrateMembers(context.client, [data])
   return { task: hydrated[0] }
 }
@@ -699,6 +739,8 @@ const completeTask = async (context, taskId, expectedVersion) => {
   if (['completed', 'awaiting_verification', 'verified', 'cancelled'].includes(task.status)) {
     return { task }
   }
+
+  const previousState = pickTaskActivityState(task)
 
   const nextStatus = task.requires_verification ? 'awaiting_verification' : 'completed'
 
@@ -734,6 +776,14 @@ const completeTask = async (context, taskId, expectedVersion) => {
     throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'task',
+    entityId: data.id,
+    action: 'task.completed',
+    previousState,
+    nextState: pickTaskActivityState(data),
+  }).catch(() => {})
+
   const hydrated = await hydrateMembers(context.client, [data])
   return { task: hydrated[0] }
 }
@@ -745,6 +795,8 @@ const verifyTask = async (context, taskId, expectedVersion) => {
   if (task.status !== 'awaiting_verification') {
     throw createHttpError(409, 'La task no esta awaiting_verification.', 'task_not_awaiting_verification')
   }
+
+  const previousState = pickTaskActivityState(task)
 
   const completedByMemberId = task.completed_by_member_id ?? null
   const completedByPersonId = task.completed_by_person_id ?? null
@@ -789,6 +841,14 @@ const verifyTask = async (context, taskId, expectedVersion) => {
     throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'task',
+    entityId: data.id,
+    action: 'task.verified',
+    previousState,
+    nextState: pickTaskActivityState(data),
+  }).catch(() => {})
+
   const hydrated = await hydrateMembers(context.client, [data])
   return { task: hydrated[0] }
 }
@@ -800,6 +860,8 @@ const trashTask = async (context, taskId, expectedVersion) => {
   if (task.trashed_at !== null) {
     return { task: await getTaskForTrashOperation(context.client, context.householdId, taskId) }
   }
+
+  const previousState = pickTaskActivityState(task)
 
   let query = context.client
     .from('planner_tasks')
@@ -831,6 +893,14 @@ const trashTask = async (context, taskId, expectedVersion) => {
     throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'task',
+    entityId: data.id,
+    action: 'task.trashed',
+    previousState,
+    nextState: pickTaskActivityState(data),
+  }).catch(() => {})
+
   return { task: data }
 }
 
@@ -841,6 +911,8 @@ const restoreTask = async (context, taskId, expectedVersion) => {
   if (task.trashed_at === null) {
     return { task }
   }
+
+  const previousState = pickTaskActivityState(task)
 
   let query = context.client
     .from('planner_tasks')
@@ -871,6 +943,14 @@ const restoreTask = async (context, taskId, expectedVersion) => {
     }
     throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
+
+  recordPlannerActivity(context, {
+    entityType: 'task',
+    entityId: data.id,
+    action: 'task.restored',
+    previousState,
+    nextState: pickTaskActivityState(data),
+  }).catch(() => {})
 
   return { task: data }
 }

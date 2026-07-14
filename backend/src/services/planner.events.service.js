@@ -1,6 +1,7 @@
 const { createHttpError } = require('../lib/httpErrors')
 const { assertExpectedVersion } = require('../lib/versionHelpers')
 const { EVENT_RECURRENCES } = require('../constants/planner.constants')
+const { pickEventActivityState, recordPlannerActivity } = require('./planner.activity.service')
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
@@ -197,6 +198,14 @@ const createEvent = async (context, body) => {
     throwSupabaseError(error)
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'event',
+    entityId: data.id,
+    action: 'event.created',
+    previousState: null,
+    nextState: pickEventActivityState(data),
+  }).catch(() => {})
+
   return { event: data }
 }
 
@@ -254,6 +263,8 @@ const updateEvent = async (context, eventId, body, expectedVersion) => {
     return { event: current }
   }
 
+  const previousState = pickEventActivityState(current)
+
   const startsAt = new Date(patch.starts_at ?? current.starts_at)
   const effectiveEndsAt = hasOwn(patch, 'ends_at') ? patch.ends_at : current.ends_at
   const endsAt = effectiveEndsAt ? new Date(effectiveEndsAt) : null
@@ -282,6 +293,14 @@ const updateEvent = async (context, eventId, body, expectedVersion) => {
     throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'event',
+    entityId: data.id,
+    action: 'event.updated',
+    previousState,
+    nextState: pickEventActivityState(data),
+  }).catch(() => {})
+
   return { event: data }
 }
 
@@ -294,6 +313,7 @@ const cancelEvent = async (context, eventId, expectedVersion, body = {}) => {
   }
 
   const previousStatus = current.status
+  const previousState = pickEventActivityState(current)
 
   const query = context.client
     .from('planner_events')
@@ -324,6 +344,15 @@ const cancelEvent = async (context, eventId, expectedVersion, body = {}) => {
     throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'event',
+    entityId: data.id,
+    action: 'event.cancelled',
+    previousState,
+    nextState: pickEventActivityState(data),
+    metadata: body?.reason ? { reason: body.reason } : null,
+  }).catch(() => {})
+
   return { event: data }
 }
 
@@ -338,6 +367,8 @@ const reactivateEvent = async (context, eventId, expectedVersion) => {
   if (current.status !== 'cancelled') {
     return { event: current }
   }
+
+  const previousState = pickEventActivityState(current)
 
   const nextStatus = current.cancelled_from_status && current.cancelled_from_status !== 'cancelled'
     ? current.cancelled_from_status
@@ -372,6 +403,15 @@ const reactivateEvent = async (context, eventId, expectedVersion) => {
     throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'event',
+    entityId: data.id,
+    action: 'event.reactivated',
+    previousState,
+    nextState: pickEventActivityState(data),
+    metadata: { cancelled_from: current.cancelled_from_status ?? null },
+  }).catch(() => {})
+
   return { event: data }
 }
 
@@ -382,6 +422,8 @@ const trashEvent = async (context, eventId, expectedVersion) => {
   if (current.trashed_at !== null) {
     return { event: await getEventForTrashOperation(context.client, context.householdId, eventId) }
   }
+
+  const previousState = pickEventActivityState(current)
 
   const query = context.client
     .from('planner_events')
@@ -409,6 +451,14 @@ const trashEvent = async (context, eventId, expectedVersion) => {
     throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
+  recordPlannerActivity(context, {
+    entityType: 'event',
+    entityId: data.id,
+    action: 'event.trashed',
+    previousState,
+    nextState: pickEventActivityState(data),
+  }).catch(() => {})
+
   return { event: data }
 }
 
@@ -419,6 +469,8 @@ const restoreEvent = async (context, eventId, expectedVersion) => {
   if (current.trashed_at === null) {
     return { event: current }
   }
+
+  const previousState = pickEventActivityState(current)
 
   const query = context.client
     .from('planner_events')
@@ -445,6 +497,14 @@ const restoreEvent = async (context, eventId, expectedVersion) => {
     }
     throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
+
+  recordPlannerActivity(context, {
+    entityType: 'event',
+    entityId: data.id,
+    action: 'event.restored',
+    previousState,
+    nextState: pickEventActivityState(data),
+  }).catch(() => {})
 
   return { event: data }
 }
@@ -501,6 +561,15 @@ const createOccurrenceOverride = async (context, eventId, payload) => {
   if (error) {
     throwSupabaseError(error)
   }
+
+  recordPlannerActivity(context, {
+    entityType: 'event',
+    entityId: data.id,
+    action: 'event.override_created',
+    previousState: null,
+    nextState: pickEventActivityState(data),
+    metadata: { parent_event_id: eventId },
+  }).catch(() => {})
 
   return { event: data }
 }

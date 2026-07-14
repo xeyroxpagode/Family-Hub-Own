@@ -1077,10 +1077,97 @@ mismatches.
 
 ---
 
-## 14. Out of scope for V0
+## 14. V0.9 — Internal Planner Activity Log (Audit History)
 
-The following are explicitly NOT shipped in V0.1. They must NOT be implemented
-without an explicit versioned amendment to this contract:
+> **Scope**: V0.9 adds a minimal, internal, best-effort audit trail for Planner
+> mutations. It is NOT user-facing in V0, NOT event sourcing, NOT realtime, and
+> NOT permanent delete / archive / empty trash.
+
+### 14.1 What it records
+
+Every successful Planner mutation that changes entity state is recorded in
+`public.planner_activity_log` with:
+
+| Field | Description |
+|-------|-------------|
+| `household_id` | Household that owns the entity. |
+| `actor_member_id` | Member who performed the action (from `context.membershipId`). |
+| `actor_person_id` | Person behind the member (from `context.personId`). |
+| `entity_type` | One of `task`, `event`, `goal`, `milestone`. |
+| `entity_id` | UUID of the mutated row. |
+| `action` | Namespaced action string (see 14.2). |
+| `previous_state` | Minimal snapshot of the row BEFORE the mutation (null for create). |
+| `next_state` | Minimal snapshot of the row AFTER the mutation. |
+| `metadata` | Extra context (e.g. `reason`, `cancelled_from_status`). |
+| `created_at` | When the log entry was written. |
+
+### 14.2 Action strings recorded
+
+**Tasks**
+- `task.created`
+- `task.updated`
+- `task.completed`
+- `task.verified`
+- `task.cancelled`
+- `task.reactivated`
+- `task.trashed`
+- `task.restored`
+
+**Events**
+- `event.created`
+- `event.updated`
+- `event.cancelled`
+- `event.reactivated`
+- `event.trashed`
+- `event.restored`
+- `event.override_created`
+
+**Goals**
+- `goal.created`
+- `goal.updated`
+- `goal.completed`
+- `goal.closed`
+- `goal.reopened`
+- `goal.trashed`
+- `goal.restored`
+
+**Milestones**
+- `milestone.created`
+- `milestone.updated`
+- `milestone.trashed`
+- `milestone.restored`
+
+### 14.3 Best-effort semantics
+
+- Logging **never fails the primary mutation**. If the activity insert errors,
+  the error is swallowed (logged via `console.warn` in dev, silent in prod) and
+  the original operation returns success.
+- No-op mutations (e.g. trashing an already-trashed item, cancelling an
+  already-cancelled item, reactivating a non-cancelled item) are **not logged**.
+- For update actions, both `previous_state` and `next_state` are captured.
+- For create actions, `previous_state` is `null`.
+- For trash/restore, snapshots reflect the `trashed_at` / `trashed_by_member_id`
+  columns changing.
+- For cancel/reactivate, `metadata` includes `cancelled_from_status`.
+
+### 14.4 Internal read endpoint (QA / future use)
+
+`GET /api/planner/activity?entity_type=&entity_id=&action=&limit=`
+- Scoped to the requesting household via RLS / context.
+- Not exposed in the frontend. Added for QA and future history screens.
+
+### 14.5 What it does NOT do (binding)
+
+- No `restored_at` / `restored_by_member_id` columns on working tables (would be
+  new schema; out of V0 scope).
+- No permanent delete tracking (permanent delete is out of scope for V0).
+- No archive, no empty trash, no auto purge.
+- No user-facing Activity screen in V0.
+- No realtime subscriptions.
+
+---
+
+## 15. Out of scope for V0
 
 - Archive (any kind)
 - Permanent delete (any kind)

@@ -6,10 +6,13 @@ const calendarController = require('../controllers/planner.calendar.controller')
 const summaryController = require('../controllers/planner.summary.controller')
 const goalsController = require('../controllers/planner.goals.controller')
 const trashController = require('../controllers/planner.trash.controller')
+const activityController = require('../controllers/planner.activity.controller')
 
 const router = express.Router()
 
 router.use(authFinalMiddleware)
+
+router.get('/activity', activityController.listActivity)
 
 router.get('/trash', trashController.getTrash)
 
