@@ -40,13 +40,14 @@ type Props = {
   onShowToast?: (message: string) => void;
 };
 
-type FilterKey = 'today' | 'open' | 'mine' | 'attention' | 'cancelled';
+type FilterKey = 'today' | 'open' | 'mine' | 'attention' | 'done' | 'cancelled';
 
 const filters: Array<{ key: FilterKey; label: string }> = [
   { key: 'today', label: 'Hoy' },
   { key: 'open', label: 'Pendientes' },
   { key: 'mine', label: 'Mías' },
   { key: 'attention', label: 'Atención' },
+  { key: 'done', label: 'Hechas' },
   { key: 'cancelled', label: 'Canceladas' },
 ];
 
@@ -448,6 +449,7 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
       open: 0,
       mine: 0,
       attention: 0,
+      done: 0,
       cancelled: 0,
     };
 
@@ -463,6 +465,7 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
         counts.attention++;
       }
       if (task.status === 'cancelled') counts.cancelled++;
+      if (['completed', 'verified'].includes(task.status) && matchesType(task)) counts.done++;
     });
 
     return counts;
@@ -470,7 +473,9 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
 
   const visibleTasks = useMemo(() => {
     let filtered = tasks.filter((task) => {
+      if (task.status === 'cancelled' && filter !== 'cancelled') return false;
       if (filter === 'cancelled') return task.status === 'cancelled' && matchesType(task);
+      if (filter === 'done') return ['completed', 'verified'].includes(task.status) && matchesType(task);
       if (!matchesType(task)) return false;
 
       if (filter === 'today') return task.status !== 'cancelled' && task.due_date === today;
@@ -508,7 +513,6 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
     return filtered;
   }, [filter, myMembershipId, tasks, today, isOpen, matchesType]);
 
-  // Narrative sections for "open" (Pendientes) or default view
   const useNarrative = filter === 'open' || filter === 'mine';
 
   const attentionTasks = useMemo(() => {
@@ -739,6 +743,8 @@ const confirmTrash = (task: PlannerTask) => {
         return { title: 'No tenés tareas asignadas', text: 'Las tareas que te asignen van a aparecer acá.' };
       case 'attention':
         return { title: 'Nada urgente por ahora', text: 'Las tareas vencidas, urgentes o por revisar van a aparecer acá.' };
+      case 'done':
+        return { title: 'Todavía no hay tareas hechas', text: 'Las tareas que completes o verifiquen van a aparecer acá.' };
       case 'cancelled':
         return { title: 'No hay tareas canceladas', text: 'Las tareas que cancelen van a aparecer acá.' };
       default:

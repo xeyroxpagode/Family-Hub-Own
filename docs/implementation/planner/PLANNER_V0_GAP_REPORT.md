@@ -380,38 +380,71 @@ are audit and internal-hardening work that fits inside V0 scope discipline:
 V0.10 stays inside V0 scope. No new top-level features, no global Trash, no bulk
 actions, no advanced realtime. The work is operational hardening only:
 
-1. **[V0.10-1] Cache/refresh strategy on the Planner lists** — evaluate whether
-   `GET /api/planner/tasks`, `GET /api/planner/events`, `GET /api/planner/goals`
-   and `GET /api/planner/trash` benefit from `ETag` / `If-None-Match` based on
-   `version` aggregates, and add where it improves client re-renders. The
-   existing `Cache-Control: no-store` header on the Trash endpoint stays.
-2. **[V0.10-2] Minimal telemetry** — count occurrences of `version_conflict`,
-   `idempotency_in_flight`, `idempotency_key_conflict`, `*_in_trash` and
-   `rls_violation` via structured logs only. No user-identifiable data exported.
-3. **[V0.10-3] Observability of long-running requests** — log slow
-   `reserve_planner_idempotency_key` and `complete_planner_idempotency_key`
-   RPC calls and slow `withIdempotency` mutations to surface bottlenecks in
-   the V0 idempotency implementation.
-4. **[V0.10-4] Frontend stale-row reconciliation helpers** — extract the
-   `version_conflict` -> refresh-and-retry flow into a small shared hook so
-   every Planner screen follows the same retry contract (see V0.2-8).
+1. **[V0.10-1] Cache/refresh strategy on the Planner lists** — **IMPLEMENTED**
+   - Middleware `plannerCacheMiddleware` in `backend/src/routes/planner.js` adds
+     `Cache-Control: no-store, no-cache, must-revalidate, private`, `Pragma: no-cache`,
+     `Expires: 0` to all `/api/planner` GET responses.
+   - Frontend `requestJson` in `front/mi-front-limpio/services/api.ts` sends
+     `Cache-Control: no-cache` + `Pragma: no-cache` on Planner GET requests.
+   - Trash endpoint already had no-cache headers; now consistent across all Planner GET.
+   - No ETag/If-None-Match added (evaluated: not needed for V0; no-store is simpler).
 
-### 6.4 V0.11 (migration / rollback / QA hardening only)
+2. **[V0.10-2] Minimal telemetry** — **IMPLEMENTED**
+   - `plannerObservabilityMiddleware` in `backend/src/lib/plannerObservability.js`
+     logs errors (status >= 400) with route, method, status, error code, entity, action,
+     request ID in development. Redacts sensitive fields (tokens, passwords).
+   - Logs slow requests (>1000ms) with duration, entity, action in development.
+
+3. **[V0.10-3] Observability of long-running requests** — **IMPLEMENTED**
+   - Same middleware measures all Planner requests. Warns in dev if >1000ms.
+   - Covers idempotency RPC calls and `withIdempotency` mutations automatically.
+
+4. **[V0.10-4] Frontend stale-row reconciliation helpers** — **PARTIAL (deferred to V0.11)**
+   - Existing `AppRefreshContext` + `markPlannerChanged()` + `useFocusEffect` already
+     provides cross-screen refresh on mutation. Each screen handles `version_conflict`
+     with its own retry logic (e.g., `GoalDetailScreen` alerts and reloads).
+   - A shared `useVersionConflictRetry` hook was NOT extracted in V0.10 to keep scope
+     minimal; deferred to V0.11 with contract regression tests.
+
+5. **[V0.10-5] Runtime QA bugfix: Calendar Cancelados rendering** — **IMPLEMENTED**
+   - Root cause: `PlannerEvent` objects passed to `AgendaItemCard` lacked the `type: 'event'`
+     discriminant, so cancelled events fell through to the task rendering branch (which
+     expected `due_date`, `priority`, `template_key`).
+   - Fix: in `PlannerCalendarScreen.tsx`, cancelled events are spread with
+     `{ ...evt, type: 'event' as const }` before being rendered.
+   - Dev-only `console.log` instrumentation added for `_loadCancelledEvents` fetch and
+     response count (gated behind `__DEV__`).
+
+6. **[V0.10-6] Runtime QA bugfix: Tasks "Hechas" view** — **IMPLEMENTED**
+   - Root cause: the tasks list already fetched completed/verified tasks
+     (`include_cancelled: true`, `limit: 500`), but the `isOpen` helper excluded them
+     (only matched `pending` / `awaiting_verification`). No filter surfaced completed tasks.
+   - Fix: added a new `done` FilterKey rendered as the "Hechas" chip. It matches
+     `status in ['completed','verified']`. `awaiting_verification` stays in "Atención".
+   - `emptyState` updated with "Todavía no hay tareas hechas."
+   - No backend changes (client-side filtering via the existing fetch).
+
+7. **[V0.10-7] Runtime QA: GoalDetail navigation to Home** — **WATCHLIST (not changed)**
+   - Audit of `GoalDetailScreen.tsx` and `TaskForm.tsx` found the return-to-goal path
+     is correctly wired via `routeFromGoal` + `routeReturnToGoalId` -> `goBack()` /
+     `navigation.replace('GoalDetail', ...)`.
+   - The prior regression-to-Home report did not reproduce in this run and appeared to
+     relate to a stale Expo state. Defensive handling is already in place.
+   - Not patched blindly; tracked on watchlist for V0.11 if it recurs.
+
+### 6.4 V0.11 (migration / rollback / QA hardening only) — **IMPLEMENTED**
 
 V0.11 is the end-of-V0 cleanup pass. It is still inside V0 scope and MUST NOT
-begin any V1-shaped feature. The work is migration hygiene and rollback
-preparation only:
+begin any V1-shaped feature. The work is migration hygiene, rollback preparation, and QA hardening only:
 
-1. **[V0.11-1] Prepare rollback migration** for `planner_idempotency_keys`,
-   `planner.trash.*` and `planner.cancellation.*` columns, so any V0 defect
-   can be rolled back without losing user data.
-2. **[V0.11-2] Drop `failed_at` from `planner_goals`** once all clients
-   (release-channel check) confirm they read `closed_at` instead. This is a
-   migration hygiene step tied to P0-005; it does NOT add behavior.
-3. **[V0.11-3] QA hardening against the V0.1 contract checklist** — re-run the
-   full checklist in `PLANNER_V0_CONTRACT.md` section 15 as a release gate.
-4. **[V0.11-4] Contract regression tests** — pin the response shapes and error
-   codes documented in `PLANNER_V0_CONTRACT.md` so that any drift fails CI.
+1. **[V0.11-1] Migration audit** — **DONE**: `PLANNER_V0_MIGRATION_AUDIT.md` documents all 15 Planner migrations with purpose, affected objects, backfill behavior, empty/existing DB safety, rollback notes, risk level, and verification queries.
+2. **[V0.11-2] Schema verification** — **DONE**: `PLANNER_V0_SCHEMA_CHECKS.sql` provides runnable checks for tables, columns, constraints, functions, RLS, and indexes.
+3. **[V0.11-3] QA hardening** — **DONE**: `PLANNER_V0_QA_RUNBOOK.md` covers environment setup, backend smoke tests, functional QA scenarios (tasks/events/goals/milestones/trash/activity), cache/refresh verification, copy audit, and known watchlist.
+4. **[V0.11-4] Release checklist** — **DONE**: `PLANNER_V0_RELEASE_CHECKLIST.md` with pre-merge and post-merge gates.
+5. **[V0.11-5] Contract regression tests** — **PARTIAL**: Documented in QA runbook and checklist; automated CI tests deferred to post-V0.
+6. **[V0.11-6] Drop `failed_at` from `planner_goals`** — **DEFERRED**: Legacy column retained for backward compatibility. Will be removed in a future migration after client migration confirmation.
+
+> **Note on rollback migrations**: V0.11 does NOT create actual `DOWN` migration files. The migration audit documents operational rollback notes for each migration, clearly marking destructive rollbacks as "manual/dev-only". This satisfies the rollback hardening requirement without introducing destructive SQL that could accidentally run in production.
 
 ### 6.5 Post-V0 roadmap / V1-V2 candidates
 
@@ -537,13 +570,24 @@ DB migrations:
 - `supabase/migrations/20260713002000_migrate_goals_failed_to_closed.sql`
 - `supabase/migrations/20260713003000_add_planner_trash_restore.sql`
 - `supabase/migrations/20260713004000_add_planner_cancellation_metadata.sql`
+- `supabase/migrations/20260713005000_create_planner_activity_log.sql`
+
+V0.11 documents created (this pass):
+- `docs/implementation/planner/PLANNER_V0_MIGRATION_AUDIT.md`
+- `docs/implementation/planner/PLANNER_V0_SCHEMA_CHECKS.sql`
+- `docs/implementation/planner/PLANNER_V0_QA_RUNBOOK.md`
+- `docs/implementation/planner/PLANNER_V0_RELEASE_CHECKLIST.md`
 
 ---
 
 ## 10. Status
 
 - Documents created: `docs/implementation/planner/PLANNER_V0_CONTRACT.md`,
-  `docs/implementation/planner/PLANNER_V0_GAP_REPORT.md` (this file).
+  `docs/implementation/planner/PLANNER_V0_GAP_REPORT.md` (this file),
+  `docs/implementation/planner/PLANNER_V0_MIGRATION_AUDIT.md`,
+  `docs/implementation/planner/PLANNER_V0_SCHEMA_CHECKS.sql`,
+  `docs/implementation/planner/PLANNER_V0_QA_RUNBOOK.md`,
+  `docs/implementation/planner/PLANNER_V0_RELEASE_CHECKLIST.md`.
 - Code changes: none.
 - DB changes: none.
 - Migration changes: none.

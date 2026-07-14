@@ -1190,6 +1190,55 @@ Every successful Planner mutation that changes entity state is recorded in
 
 ---
 
+## 14. V0.10 — Cache, Refresh & Minimal Observability
+
+### 14.1 Runtime QA bugfixes
+
+- **Calendar Cancelados**: cancelled events now render correctly. Root cause: `PlannerEvent` objects passed to `AgendaItemCard` lacked a `type: 'event'` discriminant, so they fell through to the task rendering branch. Fixed by spreading `{ ...evt, type: 'event' as const }` when mapping cancelled events.
+- **Tasks "Hechas"**: a new "Hechas" filter tab renders completed + verified tasks. Root cause: the open task list (`include_cancelled: true`, `limit: 500`) fetched completed tasks but all existing filters excluded them via `isOpen` (which only matched `pending` / `awaiting_verification`). Completed/verified tasks were downloaded but never displayed. The new `done` FilterKey matches `status in ['completed','verified']`. `awaiting_verification` stays in "Atención".
+
+### 14.2 Backend cache policy
+
+All Planner GET endpoints (`/api/planner/*` where method = GET) now return the following headers:
+
+```
+Cache-Control: no-store, no-cache, must-revalidate, private
+Pragma: no-cache
+Expires: 0
+```
+
+This prevents stale data after mutations (create/update/cancel/reactivate/trash/restore) and avoids confusing HTTP 304 responses on mutable views.
+
+The Trash endpoint (`GET /api/planner/trash`) already had these headers; the middleware now applies them consistently to all Planner GET routes.
+
+### 14.2 Frontend expectations
+
+- Frontend Planner GET requests MUST NOT rely on browser/HTTP cache. They send `Cache-Control: no-cache` and `Pragma: no-cache` headers on GET requests to `/api/planner/*` via the shared API client.
+- Mutations (POST, PATCH, DELETE) must refresh affected views. The app uses `AppRefreshContext` (`markPlannerChanged()`) to trigger re-fetch on mutation completion, plus `useFocusEffect` on each screen for foreground refresh.
+- No realtime / websocket / SSE in V0.10. Refresh is pull-based.
+
+### 14.3 Minimal backend observability
+
+A lightweight middleware (`plannerObservabilityMiddleware` in `backend/src/lib/plannerObservability.js`) wraps all `/api/planner` routes:
+
+- **Slow request logging**: In development, warns when any Planner request exceeds 1000ms with route, method, duration, entity, action, and request ID (if present).
+- **Error logging**: In development, logs Planner errors (status >= 400) with route, method, status, error code, entity, action, and request ID. Never logs access tokens or full request bodies (sensitive fields are redacted).
+- Not an analytics system — only console logging in development.
+
+### 14.4 Error code coverage (frontend)
+
+Frontend `ApiError` already parses backend `code`. V0.10 adds user-facing message mapping for:
+- `version_conflict` → "Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar."
+- `idempotency_in_flight` → "La operación ya está en curso. Esperá un momento."
+- `idempotency_key_conflict` → "La operación ya fue procesada con otros datos."
+- `task_in_trash` / `event_in_trash` → "Restaurá primero desde la Papelera."
+- `parent_goal_in_trash` → "Restaurá primero la meta padre."
+- `rls_violation` → "No tenés permiso. Refrescá y volvé a intentar."
+
+These map to existing backend codes; no new error codes introduced in V0.10.
+
+---
+
 ## 15. QA checklist
 
 ### 15.1 Tasks
@@ -1283,3 +1332,44 @@ Every successful Planner mutation that changes entity state is recorded in
 - [ ] No "Vaciar papelera" button exists.
 - [ ] "Meta" / "Metas" is used everywhere — no "Objetivo".
 - [ ] Goal status chips use `Activa` / `Lograda` / `Cerrada`.
+
+---
+
+## 16. V0.11 — QA / Migration / Rollback Hardening
+
+> **Scope**: V0.11 closes the technical V0 layer of Planner by adding verification documentation, schema checks, migration/rollback notes, and a final QA runbook. It does NOT add new runtime behavior.
+
+### 16.1 What V0.11 delivers
+
+- **Migration audit** (`PLANNER_V0_MIGRATION_AUDIT.md`): All 15 Planner migrations documented with purpose, affected objects, backfill behavior, empty/existing DB safety, rollback notes, risk level, and verification queries.
+- **Schema verification SQL** (`PLANNER_V0_SCHEMA_CHECKS.sql`): Runnable checks for tables, columns, constraints, functions, RLS, and indexes. Safe for Supabase Studio or `supabase db query`.
+- **QA runbook** (`PLANNER_V0_QA_RUNBOOK.md`): End-to-end environment setup, backend smoke tests, functional QA scenarios for tasks/events/goals/milestones/trash/activity, cache/refresh verification, copy audit, and known watchlist.
+- **Release checklist** (`PLANNER_V0_RELEASE_CHECKLIST.md`): Pre-merge and post-merge gates with checkboxes.
+
+### 16.2 What V0.11 does NOT change
+
+- No new API endpoints.
+- No new entity states or lifecycle transitions.
+- No Archive, Permanent delete, Empty trash, Auto purge.
+- No Global Trash / Global Archive.
+- No Bulk actions.
+- No Advanced realtime / Advanced offline.
+- No frontend Activity timeline UI (backend `GET /api/planner/activity` exists from V0.9 but is internal-only).
+- No schema changes (no new columns, tables, or constraints).
+
+### 16.3 Visual polish & UI improvements
+
+All visual polish, copy alignment fixes (e.g., "Por verificar" vs "En verificación"), and minor UI consistency items are **post-V0.11** and tracked in the gap report (V0.2 candidates).
+
+### 16.4 Verification artifacts
+
+| Artifact | Purpose |
+|----------|---------|
+| `PLANNER_V0_MIGRATION_AUDIT.md` | Complete migration history with rollback awareness |
+| `PLANNER_V0_SCHEMA_CHECKS.sql` | Automated schema validation |
+| `PLANNER_V0_QA_RUNBOOK.md` | End-to-end test scenarios |
+| `PLANNER_V0_RELEASE_CHECKLIST.md` | Merge gate checklist |
+
+### 16.5 Post-V0.11
+
+After V0.11 merges to `main`, the Planner V0 technical layer is considered **feature-complete and hardened**. The next product increment (V1) may introduce Archive, Permanent delete, Bulk actions, etc., but only after a new product decision and a separate contract version.

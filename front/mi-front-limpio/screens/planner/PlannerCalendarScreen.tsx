@@ -96,6 +96,9 @@ export function PlannerCalendarScreen({ refreshKey, onChanged, onCreateEvent, on
 
     try {
       const { from, to } = getViewDateRange(view, selectedDate);
+      if (__DEV__) {
+        console.log('[PlannerCalendar] loadCancelledEvents', { view, selectedDate: selectedDate.toISOString(), from: from.toISOString(), to: to.toISOString() });
+      }
       const response = await listPlannerEvents(accessToken, {
         status: 'cancelled',
         from: from.toISOString(),
@@ -103,6 +106,9 @@ export function PlannerCalendarScreen({ refreshKey, onChanged, onCreateEvent, on
         include_recurring: true,
         limit: 500,
       });
+      if (__DEV__) {
+        console.log('[PlannerCalendar] cancelledEvents loaded', { count: response.events.length });
+      }
       setCancelledEvents(response.events);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No pudimos cargar los eventos cancelados.');
@@ -142,10 +148,10 @@ export function PlannerCalendarScreen({ refreshKey, onChanged, onCreateEvent, on
     } else {
       void loadCancelledEvents();
     }
-  }, [accessToken, authLoading]);
+  }, [accessToken, authLoading, statusFilter, loadCalendar, loadCancelledEvents]);
 
   useEffect(() => {
-    if (!authLoading || !accessToken) return;
+    if (!accessToken || authLoading) return;
     if (statusFilter === 'scheduled') {
       void loadCalendar(true);
     } else {
@@ -285,7 +291,12 @@ const selectedDateItems = useMemo(
             <TouchableOpacity
               key={filterKey}
               style={[S.calendarViewChip, active && S.calendarViewChipActive]}
-              onPress={() => setStatusFilter(filterKey)}
+              onPress={() => {
+                if (__DEV__) {
+                  console.log('[PlannerCalendar] statusFilter changed', filterKey);
+                }
+                setStatusFilter(filterKey);
+              }}
             >
               <Text style={[S.calendarViewChipText, active && S.calendarViewChipTextActive]}>{statusFilterLabels[filterKey]}</Text>
             </TouchableOpacity>
@@ -691,14 +702,14 @@ onCompleteTask={async (taskId) => {
             <Text style={[S.label, { marginTop: 8, textTransform: 'none', fontSize: 13 }]}>
               Eventos cancelados
             </Text>
-            {cancelledEvents.map((item) => {
-              const uniqueKey = item.id;
-              const isSaving = savingId === item.id;
-
-              return (
-                <AgendaItemCard
-                  key={uniqueKey}
-                  item={item}
+            {cancelledEvents.map((evt) => {
+               const uniqueKey = evt.id;
+               const isSaving = savingId === evt.id;
+ 
+               return (
+                 <AgendaItemCard
+                   key={uniqueKey}
+                   item={{ ...evt, type: 'event' as const }}
                   isSaving={isSaving}
                   onShowToast={onShowToast}
                   onEditEvent={() => {}}

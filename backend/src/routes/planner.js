@@ -7,10 +7,25 @@ const summaryController = require('../controllers/planner.summary.controller')
 const goalsController = require('../controllers/planner.goals.controller')
 const trashController = require('../controllers/planner.trash.controller')
 const activityController = require('../controllers/planner.activity.controller')
+const { plannerObservabilityMiddleware } = require('../lib/plannerObservability')
 
 const router = express.Router()
 
 router.use(authFinalMiddleware)
+
+const plannerCacheMiddleware = (req, res, next) => {
+  if (req.method === 'GET') {
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    })
+  }
+  next()
+}
+
+router.use(plannerCacheMiddleware)
+router.use(plannerObservabilityMiddleware)
 
 router.get('/activity', activityController.listActivity)
 

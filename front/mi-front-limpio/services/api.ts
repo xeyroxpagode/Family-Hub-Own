@@ -274,10 +274,40 @@ const getResponseCode = (payload: unknown) => {
   return null;
 };
 
+const plannerErrorMessages: Record<string, string> = {
+  version_conflict: 'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
+  idempotency_in_flight: 'La operación ya está en curso. Esperá un momento e intentá de nuevo.',
+  idempotency_key_conflict: 'Esta operación ya se procesó con otros datos.',
+  task_in_trash: 'Esta tarea está en la papelera. Restaurala primero desde Papelera.',
+  event_in_trash: 'Este evento está en la papelera. Restauralo primero desde Papelera.',
+  parent_goal_in_trash: 'La meta padre está en la papelera. Restaurala primero.',
+  rls_violation: 'No tenés permiso para esta acción. Verificá tu membresía en el hogar.',
+  invalid_idempotency_key: 'Clave de idempotencia inválida.',
+  goal_not_found: 'Meta no encontrada.',
+  milestone_not_found: 'Hito no encontrado.',
+  invalid_expected_version: 'Versión esperada inválida.',
+  invalid_status_transition: 'Transición de estado no permitida.',
+  cannot_verify_own_completion: 'No podés verificar tu propia completación.',
+  invalid_template_key: 'Tipo de plantilla inválido.',
+  invalid_task_priority: 'Prioridad de tarea inválida.',
+  invalid_recurrence: 'Recurrencia inválida.',
+  invalid_visibility: 'Visibilidad inválida.',
+  invalid_category: 'Categoría inválida.',
+  incompatible_progress_mode_target_type: 'Modo de progreso incompatible con el tipo de objetivo.',
+  validation_error: 'Datos inválidos. Revisá los campos e intentá de nuevo.',
+};
+
+const normalizePlannerError = (code: string | null, fallbackMessage: string): string => {
+  if (!code) return fallbackMessage;
+  return plannerErrorMessages[code] ?? fallbackMessage;
+};
+
 export async function requestJson<T>(path: string, options: RequestJsonOptions = {}): Promise<T> {
   const { method = 'GET', accessToken, body, headers } = options;
 
   const fullUrl = buildApiUrl(path);
+
+  const isPlannerGet = method === 'GET' && path.startsWith('/api/planner');
 
   logApiDebug('request', {
     baseURL: API_BASE_URL,
@@ -294,6 +324,10 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
+        ...(isPlannerGet ? {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        } : {}),
         ...getBearerHeaders(accessToken),
         ...headers,
       },
@@ -367,10 +401,11 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
       status: response.status,
       body: payload,
     });
+    const code = getResponseCode(payload);
     throw new ApiError(
-      getResponseMessage(payload, 'No pudimos completar la solicitud.'),
+      normalizePlannerError(code, getResponseMessage(payload, 'No pudimos completar la solicitud.')),
       response.status,
-      getResponseCode(payload),
+      code,
     );
   }
 
