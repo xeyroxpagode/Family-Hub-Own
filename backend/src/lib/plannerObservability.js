@@ -2,18 +2,6 @@ const SLOW_THRESHOLD_MS = 1000
 
 const isDev = process.env.NODE_ENV !== 'production'
 
-function redactSensitive(obj) {
-  if (!obj || typeof obj !== 'object') return obj
-  const redacted = { ...obj }
-  for (const key of Object.keys(redacted)) {
-    const kl = key.toLowerCase()
-    if (kl.includes('token') || kl.includes('password') || kl.includes('secret') || kl.includes('authorization')) {
-      redacted[key] = '<redacted>'
-    }
-  }
-  return redacted
-}
-
 function getRequestId(req) {
   return req.headers['x-request-id'] || req.headers['x-correlation-id'] || req.id || null
 }

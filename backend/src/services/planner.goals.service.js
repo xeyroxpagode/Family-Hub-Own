@@ -1,6 +1,5 @@
 const { createHttpError } = require('../lib/httpErrors')
 const {
-  GOAL_STATUSES,
   GOAL_STATUS_TRANSITIONS,
   GOAL_VISIBILITY_VALUES,
   GOAL_CATEGORIES,
@@ -256,36 +255,12 @@ const getGoalForTrashOperation = async (client, householdId, goalId) => {
   return data
 }
 
-const getMilestoneForTrashOperation = async (client, goalId, milestoneId) => {
-  const { data, error } = await client
-    .from('planner_goal_milestones')
-    .select('*')
-    .eq('id', milestoneId)
-    .eq('goal_id', goalId)
-    .maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-  if (!data) {
-    throw createHttpError(404, 'Hito no encontrado.', 'milestone_not_found')
-  }
-  return data
-}
-
 const validateNullableDate = (value, fieldName) => {
   if (value === undefined || value === null || value === '') {
     return null
   }
   if (!isValidDateOnly(value)) {
     throw createHttpError(400, `${fieldName} invalido.`, 'validation_error')
-  }
-  return value
-}
-
-const validateStatus = (value) => {
-  if (!value || !GOAL_STATUSES.includes(value)) {
-    throw createHttpError(400, 'status invalido.', 'validation_error')
   }
   return value
 }
@@ -1046,8 +1021,8 @@ const createMilestone = async (context, goalId, body) => {
     goal_id: goalId,
     title,
     target_value: validateNonNegativeNumeric(body?.target_value, 'target_value', true),
-    achieved: hasOwn(body, 'achieved') ? Boolean(body.achieved) : false,
-    achieved_at: Boolean(body?.achieved) ? new Date().toISOString() : null,
+    achieved: !!body.achieved,
+    achieved_at: body?.achieved ? new Date().toISOString() : null,
     sort_order: Math.floor(sortOrder),
   }
 
@@ -1117,7 +1092,7 @@ const updateMilestone = async (context, goalId, milestoneId, body, expectedVersi
   }
 
   if (hasOwn(body, 'achieved')) {
-    patch.achieved = Boolean(body.achieved)
+    patch.achieved = !!body.achieved
     if (patch.achieved) {
       patch.achieved_at = existing.achieved_at ?? new Date().toISOString()
     } else {
