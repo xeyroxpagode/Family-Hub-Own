@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Alert, Animated, Image, Text, TouchableOpacity, View } from 'react-native';
-import { plannerStyles as S, getTypeDotColor, getTypeLabel, formatDate, formatTime, priorityLabelsWithLegacy } from './plannerShared';
+import { plannerStyles as S, getTypeDotColor, getTypeLabel, formatDate, formatTime, priorityLabelsWithLegacy, statusLabels, eventStatusLabels } from './plannerShared';
 import { colors } from '../../constants/theme';
 
 type CalendarDayCellProps = {
@@ -172,7 +172,7 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
           </View>
           <View style={[S.calendarAgendaBadge, isEventCancelled ? S.calendarAgendaBadgeCancelled : S.calendarAgendaBadgeEvent]}>
             <Text style={[S.calendarAgendaBadgeText, isEventCancelled ? S.calendarAgendaBadgeTextCancelled : S.calendarAgendaBadgeTextEvent]}>
-              {isEventCancelled ? 'Cancelado' : 'Evento'}
+              {isEventCancelled ? eventStatusLabels.cancelled : 'Evento'}
             </Text>
           </View>
         </View>
@@ -234,11 +234,11 @@ export const AgendaItemCard: React.FC<AgendaItemCardProps> = ({
   const typeDotColor = getTypeDotColor(item.template_key);
   const priorityLabel = priorityLabelsWithLegacy[item.priority] ?? 'Normal';
   const statusLabel = isCancelled
-    ? 'Cancelada'
-    : item.status === 'awaiting_verification' ? 'Por verificar'
-    : item.status === 'completed' ? 'Completada'
-    : item.status === 'verified' ? 'Verificada'
-    : 'Pendiente';
+    ? statusLabels.cancelled
+    : item.status === 'awaiting_verification' ? statusLabels.awaiting_verification
+    : item.status === 'completed' ? statusLabels.completed
+    : item.status === 'verified' ? statusLabels.verified
+    : statusLabels.pending;
   const ownerLabel = item.assigned_member?.display_name || null;
 
   const openMenu = () => {

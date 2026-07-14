@@ -688,7 +688,7 @@ const goalCompleteKeyRef = useRef(createIdempotencyKey('planner.goals.complete')
                         {task.status === 'completed' || task.status === 'verified'
                           ? 'Completada'
                           : task.status === 'awaiting_verification'
-                          ? 'Por verificar'
+                          ? 'En verificación'
                           : 'Pendiente'}
                         {task.due_date ? ` · ${formatDate(task.due_date)}` : ''}
                       </AppText>

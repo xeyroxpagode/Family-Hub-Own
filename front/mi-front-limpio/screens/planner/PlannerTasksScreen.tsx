@@ -27,6 +27,7 @@ import {
   plannerStyles as S,
   priorityLabels,
   priorityLabelsWithLegacy,
+  statusLabels,
 } from './plannerShared';
 import { lightHaptic } from '../../utils/haptics';
 import { colors, spacing } from '../../constants/theme';
@@ -140,11 +141,8 @@ function TaskCard({
 
   const getBadgeText = () => {
     if (isOverdue) return 'Vencida';
-    if (task.status === 'awaiting_verification') return 'Por verificar';
-    if (task.status === 'completed') return 'Completada';
-    if (task.status === 'verified') return 'Verificada';
-    if (task.status === 'cancelled') return 'Cancelada';
-    return 'Pendiente';
+    const key = task.status as keyof typeof statusLabels;
+    return statusLabels[key] ?? 'Pendiente';
   };
 
   const getBadgeTextStyle = () => {

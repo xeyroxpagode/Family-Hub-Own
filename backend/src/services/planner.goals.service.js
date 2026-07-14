@@ -263,7 +263,7 @@ const getMilestoneForTrashOperation = async (client, goalId, milestoneId) => {
     throwSupabaseError(error)
   }
   if (!data) {
-    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+    throw createHttpError(404, 'Hito no encontrado.', 'milestone_not_found')
   }
   return data
 }
@@ -490,7 +490,7 @@ const buildGoalPatch = async (context, body, existingGoal) => {
   }
 
   if (hasOwn(body, 'status')) {
-    throw createHttpError(400, 'status no se modifica con PATCH. Usa POST /goals/:id/complete o POST /goals/:id/fail.', 'validation_error')
+    throw createHttpError(400, 'status no se modifica con PATCH. Usá POST /goals/:id/complete o POST /goals/:id/close.', 'validation_error')
   }
 
   if (Object.keys(patch).length > 0) {
@@ -567,9 +567,9 @@ const trashMilestone = async (context, goalId, milestoneId, expectedVersion) => 
 
   if (!result || result.success === false) {
     if (result?.error === 'milestone_not_found') {
-      throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+      throw createHttpError(404, 'Hito no encontrado.', 'milestone_not_found')
     }
-    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+    throw createHttpError(404, 'Hito no encontrado.', 'milestone_not_found')
   }
 
   const { data: milestone, error: fetchError } = await context.client
@@ -587,7 +587,27 @@ const trashMilestone = async (context, goalId, milestoneId, expectedVersion) => 
 }
 
 const restoreMilestone = async (context, goalId, milestoneId, expectedVersion) => {
-  await getGoalForMilestone(context.client, context.householdId, goalId)
+  const { data: parentGoal, error: goalError } = await context.client
+    .from('planner_goals')
+    .select('id, trashed_at')
+    .eq('id', goalId)
+    .eq('household_id', context.householdId)
+    .is('deleted_at', null)
+    .maybeSingle()
+
+  if (goalError) {
+    throwSupabaseError(goalError)
+  }
+  if (!parentGoal) {
+    throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
+  }
+  if (parentGoal.trashed_at !== null) {
+    throw createHttpError(
+      409,
+      'Este hito pertenece a una meta que está en la papelera. Restaurá primero la meta.',
+      'parent_goal_in_trash'
+    )
+  }
 
   const { data: result, error: rpcError } = await context.client.rpc(
     'restore_milestone_rpc',
@@ -611,9 +631,9 @@ const restoreMilestone = async (context, goalId, milestoneId, expectedVersion) =
 
   if (!result || result.success === false) {
     if (result?.error === 'milestone_not_found') {
-      throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+      throw createHttpError(404, 'Hito no encontrado.', 'milestone_not_found')
     }
-    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+    throw createHttpError(404, 'Hito no encontrado.', 'milestone_not_found')
   }
 
   const { data: milestone, error: fetchError } = await context.client
@@ -952,7 +972,7 @@ const updateMilestone = async (context, goalId, milestoneId, body, expectedVersi
     throwSupabaseError(fetchError)
   }
   if (!existing) {
-    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+    throw createHttpError(404, 'Hito no encontrado.', 'milestone_not_found')
   }
 
   assertExpectedVersion(existing.version, expectedVersion)
@@ -1013,7 +1033,7 @@ const updateMilestone = async (context, goalId, milestoneId, body, expectedVersi
     if (expectedVersion !== null && expectedVersion !== undefined) {
       throw createHttpError(409, 'Este hito cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
     }
-    throw createHttpError(404, 'Milestone no encontrado.', 'milestone_not_found')
+    throw createHttpError(404, 'Hito no encontrado.', 'milestone_not_found')
   }
 
   return { milestone: data }

@@ -23,9 +23,14 @@ export const priorityLabelsWithLegacy: Record<string, string> = {
 export const statusLabels: Record<PlannerTaskStatus, string> = {
   pending: 'Pendiente',
   completed: 'Completada',
-  awaiting_verification: 'Por verificar',
+  awaiting_verification: 'En verificación',
   verified: 'Verificada',
   cancelled: 'Cancelada',
+};
+
+export const eventStatusLabels: Record<'scheduled' | 'cancelled', string> = {
+  scheduled: 'Programado',
+  cancelled: 'Cancelado',
 };
 
 export const typeLabels: Record<string, string> = {
@@ -213,6 +218,30 @@ export const addMonths = (date: Date, months: number) => {
   const next = new Date(date);
   next.setMonth(next.getMonth() + months);
   return next;
+};
+
+export const getViewDateRange = (view: 'day' | 'week' | 'month', date: Date): { from: Date; to: Date } => {
+  if (view === 'day') {
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(date);
+    end.setHours(23, 59, 59, 999);
+    return { from: start, to: end };
+  }
+  if (view === 'week') {
+    const start = new Date(date);
+    start.setDate(start.getDate() - start.getDay());
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    return { from: start, to: end };
+  }
+  const start = new Date(date.getFullYear(), date.getMonth(), 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  end.setHours(23, 59, 59, 999);
+  return { from: start, to: end };
 };
 
 export const buildLocalIso = (date: string, time: string) => {

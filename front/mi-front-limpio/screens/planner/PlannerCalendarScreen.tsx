@@ -15,6 +15,7 @@ import {
   addMonths,
   dateToYMD,
   formatDate,
+  getViewDateRange,
   getWeekDays,
   plannerStyles as S,
 } from './plannerShared';
@@ -94,14 +95,21 @@ export function PlannerCalendarScreen({ refreshKey, onChanged, onCreateEvent, on
     setError(null);
 
     try {
-      const response = await listPlannerEvents(accessToken, { include_cancelled: true, limit: 500 });
-      setCancelledEvents(response.events.filter((e) => e.status === 'cancelled'));
+      const { from, to } = getViewDateRange(view, selectedDate);
+      const response = await listPlannerEvents(accessToken, {
+        status: 'cancelled',
+        from: from.toISOString(),
+        to: to.toISOString(),
+        include_recurring: true,
+        limit: 500,
+      });
+      setCancelledEvents(response.events);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No pudimos cargar los eventos cancelados.');
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [accessToken, authLoading]);
+  }, [accessToken, authLoading, view, selectedDate]);
 
   const loadCalendar = useCallback(async (silent = false) => {
     if (!accessToken || authLoading) return;

@@ -333,7 +333,7 @@ const getTaskOrThrow = async (client, householdId, taskId) => {
   }
 
   if (!data) {
-    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
   return data
@@ -352,7 +352,7 @@ const getTaskForTrashOperation = async (client, householdId, taskId) => {
   }
 
   if (!data) {
-    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
   return data
@@ -587,7 +587,7 @@ const updateTask = async (context, taskId, body, expectedVersion) => {
         'version_conflict',
       )
     }
-    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
   return { task: data }
@@ -633,7 +633,7 @@ const cancelTask = async (context, taskId, expectedVersion, body = {}) => {
         'version_conflict',
       )
     }
-    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
   return { task: data }
@@ -685,7 +685,7 @@ const reactivateTask = async (context, taskId, expectedVersion) => {
         'version_conflict',
       )
     }
-    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
   const hydrated = await hydrateMembers(context.client, [data])
@@ -731,7 +731,7 @@ const completeTask = async (context, taskId, expectedVersion) => {
         'version_conflict',
       )
     }
-    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
   const hydrated = await hydrateMembers(context.client, [data])
@@ -786,7 +786,7 @@ const verifyTask = async (context, taskId, expectedVersion) => {
         'version_conflict',
       )
     }
-    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
   const hydrated = await hydrateMembers(context.client, [data])
@@ -828,7 +828,7 @@ const trashTask = async (context, taskId, expectedVersion) => {
         'version_conflict',
       )
     }
-    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
   return { task: data }
@@ -869,7 +869,7 @@ const restoreTask = async (context, taskId, expectedVersion) => {
         'version_conflict',
       )
     }
-    throw createHttpError(404, 'Task no encontrada.', 'task_not_found')
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
 
   return { task: data }

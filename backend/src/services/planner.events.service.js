@@ -6,6 +6,15 @@ const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
 const isTrueQuery = (value) => value === true || value === 'true' || value === '1'
 const throwSupabaseError = (error) => {
+  const isRlsViolation =
+    error.code === '42501' ||
+    error.code === 'PGRST301' ||
+    (typeof error.message === 'string' && error.message.toLowerCase().includes('row-level security'))
+
+  if (isRlsViolation) {
+    throw createHttpError(403, 'No tenés permiso para realizar esta acción sobre eventos.', 'rls_violation')
+  }
+
   const httpError = createHttpError(500, error.message, error.code ?? 'internal_error')
   httpError.details = error.details
   httpError.hint = error.hint
@@ -79,7 +88,7 @@ const getEventOrThrow = async (client, householdId, eventId) => {
   }
 
   if (!data) {
-    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
+    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
   return data
@@ -98,7 +107,7 @@ const getEventForTrashOperation = async (client, householdId, eventId) => {
   }
 
   if (!data) {
-    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
+    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
   return data
@@ -270,7 +279,7 @@ const updateEvent = async (context, eventId, body, expectedVersion) => {
     if (expectedVersion !== null && expectedVersion !== undefined) {
       throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
     }
-    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
+    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
   return { event: data }
@@ -279,6 +288,10 @@ const updateEvent = async (context, eventId, body, expectedVersion) => {
 const cancelEvent = async (context, eventId, expectedVersion, body = {}) => {
   const current = await getEventOrThrow(context.client, context.householdId, eventId)
   assertExpectedVersion(current.version, expectedVersion)
+
+  if (current.status === 'cancelled') {
+    return { event: current }
+  }
 
   const previousStatus = current.status
 
@@ -308,7 +321,7 @@ const cancelEvent = async (context, eventId, expectedVersion, body = {}) => {
     if (expectedVersion !== null && expectedVersion !== undefined) {
       throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
     }
-    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
+    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
   return { event: data }
@@ -356,7 +369,7 @@ const reactivateEvent = async (context, eventId, expectedVersion) => {
     if (expectedVersion !== null && expectedVersion !== undefined) {
       throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
     }
-    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
+    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
   return { event: data }
@@ -393,7 +406,7 @@ const trashEvent = async (context, eventId, expectedVersion) => {
     if (expectedVersion !== null && expectedVersion !== undefined) {
       throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
     }
-    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
+    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
   return { event: data }
@@ -430,7 +443,7 @@ const restoreEvent = async (context, eventId, expectedVersion) => {
     if (expectedVersion !== null && expectedVersion !== undefined) {
       throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
     }
-    throw createHttpError(404, 'Event no encontrado.', 'event_not_found')
+    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
   return { event: data }

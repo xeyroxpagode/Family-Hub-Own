@@ -50,7 +50,7 @@ const TYPE_ICONS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pendiente',
   completed: 'Completada',
-  awaiting_verification: 'Por verificar',
+  awaiting_verification: 'En verificación',
   verified: 'Verificada',
   cancelled: 'Cancelada',
   scheduled: 'Programado',
