@@ -1,5 +1,7 @@
 import { requestJson } from './api';
 import { createIdempotencyKey } from './idempotency';
+import { plannerCache } from './planner/plannerCache';
+import { plannerKeys } from './planner/plannerKeys';
 
 export type PlannerTaskStatus =
   | 'pending'
@@ -258,3 +260,75 @@ export const restorePlannerTask = (
     headers,
   });
 };
+
+/**
+ * G0.3 vertical proof — optimistic complete with cache integration.
+ * Demonstrates the full lifecycle: snapshot → patch → server call → reconcile/rollback.
+ * Uses plannerCache for context-token-protected storage and exact rollback on 412/5xx/offline.
+ */
+export async function completePlannerTaskOptimistic(
+  accessToken: string,
+  taskId: string,
+  expectedVersion: number,
+  options?: { idempotencyKey?: string; signal?: AbortSignal; timeoutMs?: number },
+) {
+  const mutationId = `mut_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const idempotencyKey = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.complete');
+
+  // Keys are readonly (string | number)[]; convert to unknown[][] for cache API
+  const detailKey = plannerKeys.tasks.detail({ householdId: '' }, taskId) as unknown[];
+  const listKeys = [
+    plannerKeys.tasks.all({ householdId: '' }) as unknown[],
+    plannerKeys.tasks.list({ householdId: '' }, {}) as unknown[],
+  ];
+  const affectedKeys = [detailKey, ...listKeys];
+
+  // Register mutation with snapshot (for rollback)
+  plannerCache.registerPendingMutation(mutationId, affectedKeys, { householdId: '' });
+
+  // 2. Optimistic patch: mark task as completed locally
+  const newStatus = 'completed' as const;
+  plannerCache.applyOptimisticPatch(affectedKeys, (current: any) => {
+    if (!current) return current;
+    if (Array.isArray(current)) {
+      return current.map((t: any) => t.id === taskId ? { ...t, status: newStatus, version: t.version + 1 } : t);
+    }
+    if (current.id === taskId) {
+      return { ...current, status: newStatus, version: current.version + 1 };
+    }
+    return current;
+  });
+
+  try {
+    // 3. Server call with If-Match and Idempotency-Key
+    const headers: Record<string, string> = { 'Idempotency-Key': idempotencyKey, 'If-Match': String(expectedVersion) };
+    const response = await requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/complete`, {
+      method: 'POST',
+      accessToken,
+      headers,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+    });
+
+    // 4. Success: reconcile with canonical server response
+    plannerCache.reconcileOptimistic(mutationId, { householdId: '' }, response.task, detailKey);
+
+    // 5. Directed invalidation (detail is now canonical; lists will refetch)
+    plannerCache.executeInvalidation(
+      { kind: 'task', action: 'complete', entityId: taskId },
+      { householdId: '' },
+    );
+
+    return response;
+  } catch (error) {
+    // 6. Error: rollback to exact snapshot
+    //    On 412 (version_conflict_v2) we rollback and do NOT silently retry.
+    if (error instanceof Error && 'status' in error && (error as any).status === 412) {
+      plannerCache.rollbackOptimistic(mutationId);
+      throw error;
+    }
+    // Other errors (network, 5xx, abort) — rollback and rethrow
+    plannerCache.rollbackOptimistic(mutationId);
+    throw error;
+  }
+}

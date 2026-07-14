@@ -81,6 +81,10 @@ type RequestJsonOptions = {
   idempotencyKey?: string;
   /** Expected version for optimistic concurrency (If-Match) */
   expectedVersion?: number;
+  /** AbortSignal for cancellation (household switch, sign-out, timeout, unmount) */
+  signal?: AbortSignal | null;
+  /** Timeout in milliseconds. Triggers abort if the request exceeds this duration. */
+  timeoutMs?: number;
 };
 
 export type AuthMeNavigation = {
@@ -236,6 +240,18 @@ export type MembershipResponse = {
   membership: AuthMeMembership;
 };
 
+/**
+ * Raised when a request is cancelled via AbortController (household switch,
+ * sign-out, timeout, unmount). This is NEVER an error for the user —
+ * consumers must discriminate it and suppress error UI.
+ */
+export class AbortError extends Error {
+  constructor(path: string, signal?: AbortSignal) {
+    super(`Request aborted: ${path}${signal?.aborted ? ' (signal aborted)' : ''}`);
+    this.name = 'AbortError';
+  }
+}
+
 export class ApiError extends Error {
   status: number;
   code: string | null;
@@ -352,7 +368,17 @@ const normalizePlannerError = (code: string | null, fallbackMessage: string): st
 };
 
 export async function requestJson<T>(path: string, options: RequestJsonOptions = {}): Promise<T> {
-  const { method = 'GET', accessToken, body, headers, mutationId, idempotencyKey, expectedVersion } = options;
+  const {
+    method = 'GET',
+    accessToken,
+    body,
+    headers,
+    mutationId,
+    idempotencyKey,
+    expectedVersion,
+    signal,
+    timeoutMs,
+  } = options;
 
   const fullUrl = buildApiUrl(path);
 
@@ -390,6 +416,34 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
     }
   }
 
+  // Build final AbortSignal: external signal + timeout
+  let controller: AbortController | null = null;
+  let finalSignal: AbortSignal | undefined;
+
+  if (signal || timeoutMs != null) {
+    controller = new AbortController();
+    const signals: AbortSignal[] = controller ? [controller.signal] : [];
+
+    if (timeoutMs != null && timeoutMs > 0) {
+      const timer = setTimeout(() => controller?.abort(), timeoutMs);
+      // Timeout is a derived signal; cleanup on settle
+      const cleanup = () => clearTimeout(timer);
+      if (typeof controller.signal.addEventListener === 'function') {
+        // Modern env: attach cleanup once ANY signal fires
+        controller.signal.addEventListener('abort', cleanup, { once: true });
+      }
+      // Fallback: normal GC — the timer won't fire after the promise settles.
+    }
+
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        controller?.abort();
+      });
+    }
+
+    finalSignal = controller.signal;
+  }
+
   let response: Response;
 
   try {
@@ -397,8 +451,16 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
       method,
       headers: requestHeaders,
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: finalSignal,
     });
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new AbortError(path, finalSignal);
+    }
+    // TypeScript/React Native may not expose DOMException;
+    // check AbortError by own wrapper or by message.
+    if (error instanceof AbortError) throw error;
+
     logApiDebug('network-error', {
       baseURL: API_BASE_URL,
       endpoint: path,

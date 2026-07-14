@@ -24,6 +24,7 @@ import {
 } from '../services/api';
 import { supabase } from '../supabase';
 import { getAuthErrorMessage } from '../utils/authErrors';
+import { plannerCache } from '../services/planner/plannerCache';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -648,7 +649,7 @@ const signUp = useCallback(
     [clearAuthMe, loadAuthMe, persistBackendSession],
   );
 
-  const signOut = useCallback(async (): Promise<AuthActionResult> => {
+const signOut = useCallback(async (): Promise<AuthActionResult> => {
     let backendError: string | null = null;
 
     try {
@@ -663,6 +664,9 @@ const signUp = useCallback(
 
     setIsPasswordRecovery(false);
     clearAuthMe();
+
+    // Planner G0.3: full cleanup of server state, capabilities, optimistic patches
+    plannerCache.cleanupSignOut();
 
     if (error) {
       return {

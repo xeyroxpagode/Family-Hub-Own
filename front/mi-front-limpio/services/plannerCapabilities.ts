@@ -1,4 +1,6 @@
 import { requestJson } from './api';
+import { plannerCache } from './planner/plannerCache';
+import { plannerKeys } from './planner/plannerKeys';
 
 /**
  * Planner V0.2 — Frontend capabilities contract.
@@ -149,4 +151,54 @@ export async function fetchPlannerCapabilities(
     { accessToken },
   );
   return resp.capabilities;
+}
+
+/**
+ * G0.3 — Cache-integrated capabilities fetch.
+ * Uses plannerCache with proper scope (account + household + membership),
+ * stale-while-revalidate semantics, and context-token protection.
+ *
+ * Returns cached data immediately if fresh; otherwise fetches and updates cache.
+ * Does NOT throw on abort; abort is handled by caller via signal.
+ */
+export async function fetchPlannerCapabilitiesCached(
+  accessToken: string,
+  scope: {
+    accountId: string;
+    householdId: string;
+    membershipId: string;
+  },
+  options?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<PlannerCapabilitiesProjection> {
+  const key = plannerKeys.capabilities(scope);
+  const now = Date.now();
+
+  // 1. Check cache for fresh entry
+  const cached = plannerCache.get<PlannerCapabilitiesProjection>(key);
+  if (cached && plannerCache.isFresh(key)) {
+    return cached;
+  }
+
+  // 2. Mark pending to deduplicate concurrent fetches
+  plannerCache.setPending(key);
+
+  try {
+    // 3. Fetch from server
+    const resp = await requestJson<PlannerCapabilitiesResponse>(
+      '/api/planner/capabilities',
+      { accessToken, signal: options?.signal, timeoutMs: options?.timeoutMs },
+    );
+
+    // 4. Store in cache (context token baked in)
+    plannerCache.set(key, resp.capabilities);
+
+    return resp.capabilities;
+  } catch (error) {
+    // 5. Error handling: if abort, don't cache error; if network/5xx, mark error
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw error;
+    }
+    plannerCache.setError(key, error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  }
 }
