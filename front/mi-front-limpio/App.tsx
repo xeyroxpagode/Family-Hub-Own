@@ -7,6 +7,9 @@ import { HouseholdProvider } from './context/HouseholdContext';
 import { AppRefreshProvider } from './context/AppRefreshContext';
 import { AppNavigator } from './navigation/AppNavigator';
 import type { RootStackParamList } from './navigation/types';
+import { registerLifecycleHandlers } from './services/registerLifecycleHandlers';
+
+registerLifecycleHandlers();
 
 const linking: LinkingOptions<RootStackParamList> = {
   prefixes: [Linking.createURL('/')],

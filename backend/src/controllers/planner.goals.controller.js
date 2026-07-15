@@ -10,7 +10,7 @@ const {
   requireIdempotencyKey,
   hashIdempotencyRequest,
   withIdempotency,
-} = require('../lib/idempotencyHelpers');
+} = require('../lib/plannerIdempotencyAdapter');
 const { resolveCapabilities, assertCapability } = require('../lib/plannerCapabilities');
 const { sendApiError } = require('../lib/httpErrors');
 

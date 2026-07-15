@@ -1,6 +1,11 @@
 import { requestJson } from './api';
 import { plannerCache } from './planner/plannerCache';
 import { plannerKeys } from './planner/plannerKeys';
+import {
+  hasCapability as hasCoreCapability,
+  hasAllCapabilities as hasAllCoreCapabilities,
+  hasAnyCapability as hasAnyCoreCapability,
+} from './core/capabilities';
 
 /**
  * Planner V0.2 — Frontend capabilities contract.
@@ -116,7 +121,7 @@ export function hasCapability(
   projection: PlannerCapabilitiesProjection | null | undefined,
   capability: PlannerCapability,
 ): boolean {
-  return projection?.[capability] === true;
+  return hasCoreCapability(projection, capability);
 }
 
 /**
@@ -126,7 +131,7 @@ export function hasAllCapabilities(
   projection: PlannerCapabilitiesProjection | null | undefined,
   ...capabilities: PlannerCapability[]
 ): boolean {
-  return capabilities.every((c) => hasCapability(projection, c));
+  return hasAllCoreCapabilities(projection, capabilities);
 }
 
 /**
@@ -136,7 +141,7 @@ export function hasAnyCapability(
   projection: PlannerCapabilitiesProjection | null | undefined,
   ...capabilities: PlannerCapability[]
 ): boolean {
-  return capabilities.some((c) => hasCapability(projection, c));
+  return hasAnyCoreCapability(projection, capabilities);
 }
 
 /**
@@ -171,7 +176,7 @@ export async function fetchPlannerCapabilitiesCached(
   options?: { signal?: AbortSignal; timeoutMs?: number },
 ): Promise<PlannerCapabilitiesProjection> {
   const key = plannerKeys.capabilities(scope);
-  const now = Date.now();
+  const contextToken = plannerCache.captureContextToken();
 
   // 1. Check cache for fresh entry
   const cached = plannerCache.get<PlannerCapabilitiesProjection>(key);
@@ -180,7 +185,7 @@ export async function fetchPlannerCapabilitiesCached(
   }
 
   // 2. Mark pending to deduplicate concurrent fetches
-  plannerCache.setPending(key);
+  plannerCache.setPending(key, contextToken);
 
   try {
     // 3. Fetch from server
@@ -190,7 +195,7 @@ export async function fetchPlannerCapabilitiesCached(
     );
 
     // 4. Store in cache (context token baked in)
-    plannerCache.set(key, resp.capabilities);
+    plannerCache.setForContext(key, resp.capabilities, contextToken);
 
     return resp.capabilities;
   } catch (error) {
@@ -198,7 +203,7 @@ export async function fetchPlannerCapabilitiesCached(
     if (error instanceof Error && error.name === 'AbortError') {
       throw error;
     }
-    plannerCache.setError(key, error instanceof Error ? error : new Error(String(error)));
+    plannerCache.setError(key, error instanceof Error ? error : new Error(String(error)), contextToken);
     throw error;
   }
 }

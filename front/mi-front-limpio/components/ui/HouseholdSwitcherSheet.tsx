@@ -11,6 +11,7 @@ import { HomePlusIcon } from '../../constants/icons';
 import { colors, radius, spacing, shadows, typography } from '../../constants/theme';
 import { setActiveHousehold, getUserHouseholds, type UserHousehold } from '../../services/api';
 import { normalizeUserHouseholds, getHouseholdCountByStatus } from '../../utils/householdUtils';
+import { runHouseholdSwitch } from '../../services/core/lifecycle';
 
 export type HouseholdSwitcherSheetProps = {
   visible: boolean;
@@ -49,7 +50,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }: HouseholdSwitcherSheetProps) {
   const { refetchMe, authMe } = useAuth();
-  const { currentHousehold, reload } = useHousehold();
+  const { currentHousehold } = useHousehold();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [households, setHouseholds] = useState<UserHousehold[]>([]);
@@ -125,9 +126,15 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
 
     setLoading(true);
     try {
-      const result = await setActiveHousehold(accessToken, householdId);
-      await refetchMe();
-      await reload();
+      await runHouseholdSwitch({
+        fromHouseholdId: currentId,
+        toHouseholdId: householdId,
+        activate: async () => {
+          const result = await setActiveHousehold(accessToken, householdId);
+          await refetchMe();
+          return result;
+        },
+      });
       onRequestClose();
     } catch (error) {
       const message = error instanceof Error
@@ -137,7 +144,7 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
     } finally {
       setLoading(false);
     }
-  }, [accessToken, currentHousehold, refetchMe, reload, onRequestClose]);
+  }, [accessToken, currentHousehold, refetchMe, onRequestClose]);
 
   const handlePendingHousehold = useCallback((householdId: string, status: string) => {
     if (status === 'pending') {

@@ -24,7 +24,7 @@ import {
 } from '../services/api';
 import { supabase } from '../supabase';
 import { getAuthErrorMessage } from '../utils/authErrors';
-import { plannerCache } from '../services/planner/plannerCache';
+import { markSessionActive, runSessionCleanup } from '../services/core/lifecycle';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -413,6 +413,8 @@ const persistBackendSession = useCallback(
       return;
     }
 
+    markSessionActive();
+
     void loadAuthMe(accessToken);
   }, [clearAuthMe, loadAuthMe, session?.access_token]);
 
@@ -660,13 +662,14 @@ const signOut = useCallback(async (): Promise<AuthActionResult> => {
         : 'No pudimos cerrar tu sesion en el servidor.';
     }
 
+    // Global cleanup is domain-agnostic and idempotent. Registered domains
+    // cancel requests and clear sensitive state without Auth importing them.
+    await runSessionCleanup();
+
     const { error } = await supabase.auth.signOut({ scope: 'local' });
 
     setIsPasswordRecovery(false);
     clearAuthMe();
-
-    // Planner G0.3: full cleanup of server state, capabilities, optimistic patches
-    plannerCache.cleanupSignOut();
 
     if (error) {
       return {

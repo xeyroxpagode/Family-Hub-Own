@@ -501,3 +501,11 @@ Push performed: NO
 
 Next authorized phase: G0.4 only if G0.3 PASSED
 ```
+
+## Post-G0.3.1 architecture update
+
+La evidencia anterior se conserva como historia de G0.3. G0.3.1 extrajo el mecanismo agnóstico de almacenamiento, snapshot/rollback, cancel registry y context generation a `services/core/serverState.ts`. `services/planner/plannerCache.ts` permanece como facade y dueño de keys, TTLs, invalidation graph y reconciliación Planner.
+
+Household y Auth ya no importan `plannerCache`: el composition root registra el adapter Planner en `services/registerLifecycleHandlers.ts` sobre `services/core/lifecycle.ts`. La generación de sign-out ahora avanza de forma monótona y las respuestas capturan su generación al iniciar, corrigiendo la aceptación posible de late writes. También se corrigió la invalidación por prefijo para comparar arrays estructuralmente.
+
+Comando vigente: `npm.cmd run test:g0.3`. Resultado G0.3.1: 46/46 assertions PASS. Este update no cambia el alcance funcional de Planner ni reescribe el resultado histórico de G0.3.

@@ -1,4 +1,4 @@
-import { requestJson } from './api';
+import { OPERATION_KINDS, requestJson } from './api';
 import { createIdempotencyKey } from './idempotency';
 
 export type PlannerGoalStatus = 'active' | 'completed' | 'closed';
@@ -171,6 +171,7 @@ export const createGoal = (
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.create')
   return requestJson<PlannerGoalResponse>('/api/planner/goals', {
     method: 'POST',
+    operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
     body: payload,
     headers: { 'Idempotency-Key': key },
@@ -186,6 +187,7 @@ export const updateGoal = (
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.update')
   return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}`, {
     method: 'PATCH',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     body: payload,
     headers: { 'Idempotency-Key': key },
@@ -205,6 +207,7 @@ export const deleteGoal = (
   }
   return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}`, {
     method: 'DELETE',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -223,6 +226,7 @@ export const trashGoal = (
   }
   return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/trash`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -241,6 +245,7 @@ export const restoreGoal = (
   }
   return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/restore`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -259,6 +264,7 @@ export const completeGoal = (
   }
   return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/complete`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -277,6 +283,7 @@ export const closeGoal = (
   }
   return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/close`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     body: { closed_reason: options?.closedReason ?? null },
     headers,
@@ -296,6 +303,7 @@ export const reopenGoal = (
   }
   return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/reopen`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -314,6 +322,7 @@ export const failGoal = (
   }
   return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/fail`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     body: { closed_reason: options?.closedReason ?? null },
     headers,
@@ -337,6 +346,7 @@ export const createGoalMilestone = (
     `/api/planner/goals/${goalId}/milestones`,
     {
       method: 'POST',
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
       accessToken,
       body: payload,
       headers: { 'Idempotency-Key': key },
@@ -356,6 +366,7 @@ export const updateGoalMilestone = (
     `/api/planner/goals/${goalId}/milestones/${milestoneId}`,
     {
       method: 'PATCH',
+      operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
       accessToken,
       body: payload,
       headers: { 'Idempotency-Key': key },
@@ -379,6 +390,7 @@ export const deleteGoalMilestone = (
     `/api/planner/goals/${goalId}/milestones/${milestoneId}`,
     {
       method: 'DELETE',
+      operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
       accessToken,
       headers,
     },
@@ -401,6 +413,7 @@ export const trashGoalMilestone = (
     `/api/planner/goals/${goalId}/milestones/${milestoneId}/trash`,
     {
       method: 'POST',
+      operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
       accessToken,
       headers,
     },
@@ -423,6 +436,7 @@ export const restoreGoalMilestone = (
     `/api/planner/goals/${goalId}/milestones/${milestoneId}/restore`,
     {
       method: 'POST',
+      operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
       accessToken,
       headers,
     },

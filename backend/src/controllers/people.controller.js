@@ -8,8 +8,6 @@ const AVATAR_MAX_BYTES = 500 * 1024
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
 
-const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-
 const compressAvatarBuffer = async (inputBuffer) => {
   const sharp = loadSharp()
   let quality = 80

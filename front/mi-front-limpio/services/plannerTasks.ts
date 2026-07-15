@@ -1,4 +1,4 @@
-import { requestJson } from './api';
+import { OPERATION_KINDS, requestJson } from './api';
 import { createIdempotencyKey } from './idempotency';
 import { plannerCache } from './planner/plannerCache';
 import { plannerKeys } from './planner/plannerKeys';
@@ -128,6 +128,7 @@ export const createPlannerTask = (
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.create')
   return requestJson<PlannerTaskResponse>('/api/planner/tasks', {
     method: 'POST',
+    operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
     body: payload,
     headers: { 'Idempotency-Key': key },
@@ -147,6 +148,7 @@ export const updatePlannerTask = (
   }
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}`, {
     method: 'PATCH',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     body: payload,
     headers,
@@ -166,6 +168,7 @@ export const cancelPlannerTask = (
   }
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}`, {
     method: 'DELETE',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -184,6 +187,7 @@ export const completePlannerTask = (
   }
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/complete`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -202,6 +206,7 @@ export const verifyPlannerTask = (
   }
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/verify`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -220,6 +225,7 @@ export const trashPlannerTask = (
   }
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/trash`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -238,6 +244,7 @@ export const reactivatePlannerTask = (
   }
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/reactivate`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -256,6 +263,7 @@ export const restorePlannerTask = (
   }
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/restore`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -270,21 +278,22 @@ export async function completePlannerTaskOptimistic(
   accessToken: string,
   taskId: string,
   expectedVersion: number,
-  options?: { idempotencyKey?: string; signal?: AbortSignal; timeoutMs?: number },
+  options: { householdId: string; idempotencyKey?: string; signal?: AbortSignal; timeoutMs?: number },
 ) {
   const mutationId = `mut_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const idempotencyKey = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.complete');
 
   // Keys are readonly (string | number)[]; convert to unknown[][] for cache API
-  const detailKey = plannerKeys.tasks.detail({ householdId: '' }, taskId) as unknown[];
+  const scope = { householdId: options.householdId };
+  const detailKey = plannerKeys.tasks.detail(scope, taskId) as unknown[];
   const listKeys = [
-    plannerKeys.tasks.all({ householdId: '' }) as unknown[],
-    plannerKeys.tasks.list({ householdId: '' }, {}) as unknown[],
+    plannerKeys.tasks.all(scope) as unknown[],
+    plannerKeys.tasks.list(scope, {}) as unknown[],
   ];
   const affectedKeys = [detailKey, ...listKeys];
 
   // Register mutation with snapshot (for rollback)
-  plannerCache.registerPendingMutation(mutationId, affectedKeys, { householdId: '' });
+  plannerCache.registerPendingMutation(mutationId, affectedKeys, scope);
 
   // 2. Optimistic patch: mark task as completed locally
   const newStatus = 'completed' as const;
@@ -304,6 +313,7 @@ export async function completePlannerTaskOptimistic(
     const headers: Record<string, string> = { 'Idempotency-Key': idempotencyKey, 'If-Match': String(expectedVersion) };
     const response = await requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/complete`, {
       method: 'POST',
+      operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
       accessToken,
       headers,
       signal: options?.signal,
@@ -311,12 +321,12 @@ export async function completePlannerTaskOptimistic(
     });
 
     // 4. Success: reconcile with canonical server response
-    plannerCache.reconcileOptimistic(mutationId, { householdId: '' }, response.task, detailKey);
+    plannerCache.reconcileOptimistic(mutationId, scope, response.task, detailKey);
 
     // 5. Directed invalidation (detail is now canonical; lists will refetch)
     plannerCache.executeInvalidation(
       { kind: 'task', action: 'complete', entityId: taskId },
-      { householdId: '' },
+      scope,
     );
 
     return response;

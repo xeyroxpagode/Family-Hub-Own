@@ -3,7 +3,6 @@ import type { Household, HouseholdMember } from '../services/households';
 import type { AuthMeHousehold, AuthMeMembership } from '../services/api';
 import { supabase } from '../supabase';
 import { useAuth } from './AuthContext';
-import { plannerCache } from '../services/planner/plannerCache';
 
 type HouseholdContextType = {
   currentHousehold: Household | null;
@@ -137,21 +136,6 @@ const loadMembers = useCallback(async () => {
 useEffect(() => {
     void loadMembers();
   }, [loadMembers]);
-
-  // Household switch lifecycle: when active householdId changes, clean up planner cache
-  // and bump context token so stale responses from old household are discarded.
-  const prevHouseholdIdRef = React.useRef<string | null>(currentHousehold?.id ?? null);
-  useEffect(() => {
-    const newHouseholdId = currentHousehold?.id ?? null;
-    const oldHouseholdId = prevHouseholdIdRef.current;
-
-    if (oldHouseholdId && newHouseholdId && oldHouseholdId !== newHouseholdId) {
-      // Household switched — run cleanup for old household
-      plannerCache.cleanupHouseholdSwitch({ householdId: oldHouseholdId });
-    }
-
-    prevHouseholdIdRef.current = newHouseholdId;
-  }, [currentHousehold?.id]);
 
   const reload = useCallback(async () => {
     setReloading(true);

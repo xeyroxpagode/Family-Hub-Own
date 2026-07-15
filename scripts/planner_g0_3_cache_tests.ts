@@ -156,7 +156,9 @@ runTest('Cancellation — household switch aborts previous requests (context tok
 
   // Old household data should be inaccessible
   assert(plannerCache.get(plannerKeys.tasks.list(scopeA, {})) === null, 'hh-A data discarded after switch');
-  assert(plannerCache.get(plannerKeys.tasks.list(scopeB, {})) !== null, 'hh-B data still accessible');
+  assert(plannerCache.get(plannerKeys.tasks.list(scopeB, {})) === null, 'entries from the previous generation are sealed');
+  plannerCache.set(plannerKeys.tasks.list(scopeB, {}), ['tB-current']);
+  assert(plannerCache.get(plannerKeys.tasks.list(scopeB, {})) !== null, 'new household can populate current generation');
 });
 
 runTest('Cancellation — sign-out aborts all requests and clears cache', () => {
@@ -165,12 +167,13 @@ runTest('Cancellation — sign-out aborts all requests and clears cache', () => 
   plannerCache.set(plannerKeys.capabilities({ accountId: 'a1', householdId: 'hh-1', membershipId: 'm1' }), { 'task.create': true });
   plannerCache.registerPendingMutation('mut-1', [plannerKeys.tasks.detail(scope, 't1')], scope);
 
+  const previousToken = plannerCache.getContextToken();
   plannerCache.cleanupSignOut();
 
   assert(plannerCache.get(plannerKeys.tasks.list(scope, {})) === null, 'tasks cleared');
   assert(plannerCache.get(plannerKeys.capabilities({ accountId: 'a1', householdId: 'hh-1', membershipId: 'm1' })) === null, 'capabilities cleared');
   assert(plannerCache.getPendingMutations().length === 0, 'pending mutations cleared');
-  assert(plannerCache.getContextToken() === 0, 'context token reset');
+  assert(plannerCache.getContextToken() > previousToken, 'session generation invalidated');
 });
 
 // =============================================================================
@@ -181,21 +184,25 @@ runTest('Late-response — old household response cannot overwrite new household
   const scopeA: HouseholdScope = { householdId: 'hh-A' };
   const scopeB: HouseholdScope = { householdId: 'hh-B' };
 
-  // Request A starts (context token = 0)
+  // Request A starts and captures its generation.
+  const requestAGeneration = plannerCache.captureContextToken();
   plannerCache.set(plannerKeys.tasks.list(scopeA, {}), ['tA-real']);
 
   // Switch to household B (context token = 1)
   plannerCache.cleanupHouseholdSwitch(scopeA);
   plannerCache.set(plannerKeys.tasks.list(scopeB, {}), ['tB-real']);
 
-  // Late response from A arrives — would try to write with old context token
-  // Our cache.getEntry checks contextToken, so it would be ignored on read
-  // The entry still exists but is logically invalid
+  // Late response from A arrives with its captured generation and is rejected.
+  const accepted = plannerCache.setForContext(
+    plannerKeys.tasks.list(scopeA, {}),
+    ['tA-late'],
+    requestAGeneration,
+  );
   const entryA = plannerCache.getEntry(plannerKeys.tasks.list(scopeA, {}));
-  assert(entryA !== null, 'entry exists but has old contextToken');
-  assert(entryA?.contextToken === 0, 'old contextToken');
+  assert(!accepted, 'old-generation write rejected');
+  assert(entryA === null, 'old household entry remains inaccessible');
   assert(plannerCache.getContextToken() === 1, 'current contextToken is 1');
-  assert(!plannerCache.isCurrentContext(entryA!), 'isCurrentContext returns false');
+  assert(plannerCache.get<string[]>(plannerKeys.tasks.list(scopeB, {}))?.[0] === 'tB-real', 'B remains canonical');
 });
 
 // =============================================================================
@@ -215,11 +222,11 @@ runTest('Optimistic update — snapshot → patch → success reconciliation', (
 
   // Optimistic patch
   plannerCache.applyOptimisticPatch([detailKey], (c) => c ? { ...c, status: 'completed' } : c);
-  assert(plannerCache.get(detailKey)?.status === 'completed', 'optimistic patch applied');
+  assert(plannerCache.get<{ status: string }>(detailKey)?.status === 'completed', 'optimistic patch applied');
 
   // Reconcile with server response
   plannerCache.reconcileOptimistic('mut-1', scope, { id: 't1', status: 'completed', version: 2 }, detailKey);
-  assert(plannerCache.get(detailKey)?.version === 2, 'reconciled with server version');
+  assert(plannerCache.get<{ version: number }>(detailKey)?.version === 2, 'reconciled with server version');
   assert(plannerCache.getPendingMutations().length === 0, 'mutation removed after reconcile');
 });
 
@@ -231,11 +238,11 @@ runTest('Optimistic rollback — exact rollback on 412 version_conflict_v2', () 
   plannerCache.registerPendingMutation('mut-412', [detailKey], scope);
 
   plannerCache.applyOptimisticPatch([detailKey], (c) => c ? { ...c, status: 'completed' } : c);
-  assert(plannerCache.get(detailKey)?.status === 'completed', 'optimistic applied');
+  assert(plannerCache.get<{ status: string }>(detailKey)?.status === 'completed', 'optimistic applied');
 
   // Simulate 412 error → rollback
   plannerCache.rollbackOptimistic('mut-412');
-  const rolled = plannerCache.get(detailKey);
+  const rolled = plannerCache.get<{ status: string; version: number }>(detailKey);
   assert(rolled?.status === 'pending', 'rolled back to pending');
   assert(rolled?.version === 1, 'version restored to 1');
 });
@@ -248,7 +255,7 @@ runTest('Optimistic — same mutationId does not double-patch (caller responsibi
   plannerCache.registerPendingMutation('mut-dup', [detailKey], scope);
 
   plannerCache.applyOptimisticPatch([detailKey], (c) => c ? { ...c, status: 'completed' } : c);
-  const afterFirst = plannerCache.get(detailKey);
+  const afterFirst = plannerCache.get<{ status: string }>(detailKey);
   assert(afterFirst?.status === 'completed', 'first patch');
 
   // Caller should check isMutationCurrent before re-applying
@@ -261,9 +268,10 @@ runTest('Optimistic — same mutationId does not double-patch (caller responsibi
 // =============================================================================
 
 runTest('Cleanup — sign-out idempotent', () => {
+  const previousToken = plannerCache.getContextToken();
   plannerCache.cleanupSignOut(); // first
   plannerCache.cleanupSignOut(); // second
-  assert(plannerCache.getContextToken() === 0, 'token stays 0');
+  assert(plannerCache.getContextToken() > previousToken, 'repeated cleanup remains safe and invalidates generations');
   assert(plannerCache.getPendingMutations().length === 0, 'mutations stay empty');
 });
 
@@ -275,9 +283,9 @@ runTest('Cleanup — household B does not see household A data', () => {
   plannerCache.set(plannerKeys.tasks.list(scopeA, {}), ['tA']);
   plannerCache.set(plannerKeys.tasks.list(scopeB, {}), ['tB']);
 
-  assert(plannerCache.get(plannerKeys.tasks.list(scopeA, {}))?.length === 1, 'A sees A');
-  assert(plannerCache.get(plannerKeys.tasks.list(scopeB, {}))?.length === 1, 'B sees B');
-  assert(plannerCache.get(plannerKeys.tasks.list(scopeA, {}))?.[0] !== 'tB', 'A does not see B data');
+  assert(plannerCache.get<string[]>(plannerKeys.tasks.list(scopeA, {}))?.length === 1, 'A sees A');
+  assert(plannerCache.get<string[]>(plannerKeys.tasks.list(scopeB, {}))?.length === 1, 'B sees B');
+  assert(plannerCache.get<string[]>(plannerKeys.tasks.list(scopeA, {}))?.[0] !== 'tB', 'A does not see B data');
 });
 
 // =============================================================================
@@ -288,7 +296,7 @@ runTest('Transport — requestJson options accept signal, timeoutMs, mutationId,
   // TypeScript compile check — if this compiles, the types are correct
   const opts = {
     method: 'POST' as const,
-    signal: new AbortSignal(),
+    signal: new AbortController().signal,
     timeoutMs: 5000,
     mutationId: 'mut-test',
     idempotencyKey: 'idem-test',

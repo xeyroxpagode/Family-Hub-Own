@@ -1373,3 +1373,9 @@ All visual polish, copy alignment fixes (e.g., "Por verificar" vs "En verificaci
 ### 16.5 Post-V0.11
 
 After V0.11 merges to `main`, the Planner V0 technical layer is considered **feature-complete and hardened**. The next product increment (V1) may introduce Archive, Permanent delete, Bulk actions, etc., but only after a new product decision and a separate contract version.
+
+## 17. Post-G0.3.1 architecture update
+
+Este contrato funcional no cambia. Los mecanismos compartidos de transporte, errores, request/mutation identity, mutation header validation, capability projection/enforcement, server state y lifecycle pertenecen ahora a HomePlus Core. Planner conserva catálogo de capabilities, query keys, invalidation graph, TTL policy, optimistic patches y persistencia de idempotencia.
+
+Los adapters de compatibilidad y comandos actuales se documentan en `docs/implementation/core/HOMEPLUS_CORE_CONTRACTS.md`. No se implementó Planner V1 ni G0.4.

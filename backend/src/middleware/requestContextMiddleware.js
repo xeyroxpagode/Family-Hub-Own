@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Planner V0.2 — Request correlation middleware.
+ * HomePlus Core request-correlation middleware.
  *
  * Accepts an incoming `X-Request-Id` only when it matches a safe format.
  * Otherwise generates a fresh UUID v4. The chosen id is exposed as
@@ -16,6 +16,7 @@
  */
 
 const crypto = require('crypto');
+const { readMutationId } = require('../lib/mutationContracts');
 
 const REQUEST_ID_HEADER = 'x-request-id';
 const MAX_REQUEST_ID_LENGTH = 128;
@@ -43,8 +44,10 @@ function requestContextMiddleware(req, res, next) {
   const accepted = sanitizeIncomingRequestId(incoming);
   const requestId = accepted || uuidv4();
   req.requestId = requestId;
+  req.mutationId = readMutationId(req);
   // Expose on res for other middleware/controllers and always echo on response.
   res.set('X-Request-Id', requestId);
+  if (req.mutationId) res.set('X-Mutation-Id', req.mutationId);
   next();
 }
 

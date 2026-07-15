@@ -1,63 +1,88 @@
 #!/usr/bin/env node
 /**
- * Planner V0.2 — Contract Tests (G0.2)
+ * Planner V0 G0.2 contract tests.
  *
- * Runs against a local Supabase instance with applied migrations.
- * Requires: SUPABASE_URL, SUPABASE_ANON_KEY, TEST_ACCESS_TOKEN (authenticated user).
+ * Runs against the HomePlus backend connected to Supabase.
+ * Required: TEST_ACCESS_TOKEN for a user with an active household.
+ * Optional: API_BASE_URL (default http://127.0.0.1:3001).
  *
- * These tests verify the G0.2 contracts are implemented correctly.
- * They are NOT full integration tests — just contract shape/behavior assertions.
+ * Exit codes: 0 = every block and cleanup passed; 1 = missing runtime,
+ * contract/fixture failure, or cleanup failure.
  */
 
-const { createClient } = require('@supabase/supabase-js');
+'use strict';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const API_BASE_URL = (process.env.API_BASE_URL || 'http://127.0.0.1:3001').replace(/\/+$/, '');
 const ACCESS_TOKEN = process.env.TEST_ACCESS_TOKEN;
+const PLANNER_BASE = '/api/planner';
+const createdTasks = [];
+const blockResults = [];
+let assertionCount = 0;
 
-if (!SUPABASE_ANON_KEY || !ACCESS_TOKEN) {
-  console.error('Missing env: SUPABASE_ANON_KEY and TEST_ACCESS_TOKEN required');
+if (!ACCESS_TOKEN) {
+  console.error('Missing env: TEST_ACCESS_TOKEN required');
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  global: { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } },
-});
-
-const PLANNER_BASE = '/api/planner';
-
 async function request(path, options = {}) {
-  const url = `${SUPABASE_URL}${PLANNER_BASE}${path}`;
   const headers = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
+    Authorization: `Bearer ${ACCESS_TOKEN}`,
     ...options.headers,
   };
-  const res = await fetch(url, {
+  const response = await fetch(`${API_BASE_URL}${PLANNER_BASE}${path}`, {
     method: options.method || 'GET',
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
-  const text = await res.text();
-  let json = null;
-  try { json = text ? JSON.parse(text) : null; } catch { /* ignore */ }
-  return { status: res.status, headers: res.headers, body: json, text };
+  const text = await response.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { /* response-shape assertions report invalid JSON */ }
+  return { status: response.status, headers: response.headers, body, text };
 }
 
-function assert(cond, msg) {
-  if (!cond) throw new Error(`ASSERTION FAILED: ${msg}`);
-  console.log(`  ✓ ${msg}`);
+function assert(condition, message) {
+  if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
+  assertionCount += 1;
+  console.log(`  PASS: ${message}`);
+}
+
+async function runBlock(name, fn) {
+  console.log(`\n=== ${name} ===`);
+  try {
+    await fn();
+    blockResults.push({ name, status: 'PASS' });
+  } catch (error) {
+    blockResults.push({ name, status: 'FAIL' });
+    throw error;
+  }
+}
+
+function trackTask(task) {
+  createdTasks.push({ id: task.id, version: task.version });
+  return task;
+}
+
+function updateTrackedVersion(taskId, version) {
+  const tracked = createdTasks.find((task) => task.id === taskId);
+  if (tracked) tracked.version = version;
 }
 
 async function testCapabilitiesProjection() {
-  console.log('\n=== Capabilities Projection ===');
-  const res = await request('/capabilities');
-  assert(res.status === 200, 'GET /capabilities returns 200');
-  assert(res.body && typeof res.body.capabilities === 'object', 'capabilities object present');
-  assert(res.body.source && res.body.source.household_id, 'source.household_id present');
-  assert(res.body.source && res.body.source.membership_id, 'source.membership_id present');
-  assert(res.body.source && res.body.source.role, 'source.role present');
-  // Check all canonical capabilities are present
+  const response = await request('/capabilities');
+  const diagnostic = response.body && typeof response.body === 'object'
+    ? `keys ${Object.keys(response.body).join(',')}; errorType ${typeof response.body.error}; topCode ${response.body.code || 'none'}`
+    : `bodyType ${typeof response.body}`;
+  assert(
+    response.status === 200,
+    `GET /capabilities returns 200 (actual ${response.status}; ${diagnostic}; nestedCode ${response.body?.error?.code || 'none'})`,
+  );
+  assert(response.body && typeof response.body.capabilities === 'object', 'capabilities object present');
+  assert(response.body.householdId, 'householdId present');
+  assert(response.body.membershipId, 'membershipId present');
+  assert(response.body.role, 'role present');
+
   const expected = [
     'planner.view', 'planner.search',
     'task.create_household', 'task.create_personal', 'task.assign_self', 'task.assign_members',
@@ -70,76 +95,78 @@ async function testCapabilitiesProjection() {
     'goal.manage_participants', 'goal.archive', 'goal.restore',
     'planner.templates.use', 'planner.templates.manage', 'planner.audit.view', 'planner.settings.manage',
   ];
-  for (const cap of expected) {
-    assert(Object.prototype.hasOwnProperty.call(res.body.capabilities, cap), `capability ${cap} present`);
-    assert(typeof res.body.capabilities[cap] === 'boolean', `capability ${cap} is boolean`);
+  for (const capability of expected) {
+    assert(Object.prototype.hasOwnProperty.call(response.body.capabilities, capability), `capability ${capability} present`);
+    assert(typeof response.body.capabilities[capability] === 'boolean', `capability ${capability} is boolean`);
   }
+}
+
+async function testServerSideEnforcement() {
+  const projection = await request('/capabilities');
+  assert(projection.status === 200, 'capability projection available for enforcement test');
+  assert(projection.body?.capabilities?.['task.create_household'] === false, 'QA fixture denies task.create_household');
+
+  const denied = await request('/tasks', {
+    method: 'POST',
+    headers: {
+      'X-Mutation-Id': `test_mut_denied_${Date.now()}`,
+      'Idempotency-Key': `test_idem_denied_${Date.now()}`,
+    },
+    body: { title: 'Denied household task contract test', visibility: 'household' },
+  });
+  assert(denied.status === 403, 'server rejects a mutation without the required capability');
+  assert(denied.body?.error?.code === 'planner_forbidden', 'denial uses planner_forbidden');
 }
 
 async function testErrorEnvelope() {
-  console.log('\n=== Error Envelope ===');
-  // 401
-  const res401 = await request('/tasks', { headers: { Authorization: 'Bearer invalid_token' } });
-  assert(res401.status === 401, 'invalid token returns 401');
-  assert(res401.body && res401.body.error && res401.body.error.code, 'envelope has error.code');
-  assert(res401.body.error.message, 'envelope has error.message');
-  assert(res401.body.error.request_id, 'envelope has error.request_id');
-  assert(res401.headers.get('x-request-id'), 'X-Request-Id header present on 401');
+  const unauthorized = await request('/tasks', { headers: { Authorization: 'Bearer invalid_token' } });
+  assert(unauthorized.status === 401, 'invalid token returns 401');
+  assert(unauthorized.body?.error?.code, '401 envelope has error.code');
+  assert(unauthorized.body?.error?.message, '401 envelope has error.message');
+  assert(unauthorized.body?.error?.request_id, '401 envelope has error.request_id');
+  assert(unauthorized.headers.get('x-request-id'), 'X-Request-Id header present on 401');
 
-  // 404
-  const res404 = await request('/tasks/00000000-0000-0000-0000-000000000000');
-  assert(res404.status === 404 || res404.status === 403, 'not found returns 404/403');
-  assert(res404.body && res404.body.error && res404.body.error.code, '404 envelope has code');
-  assert(res404.body.error.request_id, '404 envelope has request_id');
+  const notFound = await request('/tasks/00000000-0000-0000-0000-000000000000');
+  assert(notFound.status === 404 || notFound.status === 403, 'not found returns 404/403');
+  assert(notFound.body?.error?.code, '404 envelope has code');
+  assert(notFound.body?.error?.request_id, '404 envelope has request_id');
 }
 
 async function testRequestIdCorrelation() {
-  console.log('\n=== Request ID Correlation ===');
-  const res = await request('/tasks');
-  assert(res.status === 200, 'GET /tasks returns 200');
-  const reqIdHeader = res.headers.get('x-request-id');
-  assert(reqIdHeader && reqIdHeader.length > 0, 'X-Request-Id header on success response');
-  // Also test on error
-  const resErr = await request('/tasks/00000000-0000-0000-0000-000000000000');
-  const reqIdErr = resErr.headers.get('x-request-id');
-  assert(reqIdErr && reqIdErr.length > 0, 'X-Request-Id header on error response');
-  // Should match envelope
-  if (resErr.body?.error?.request_id) {
-    assert(resErr.body.error.request_id === reqIdErr, 'envelope.request_id matches X-Request-Id header');
-  }
+  const success = await request('/tasks');
+  assert(success.status === 200, 'GET /tasks returns 200');
+  assert(success.headers.get('x-request-id'), 'X-Request-Id header on success response');
+
+  const failure = await request('/tasks/00000000-0000-0000-0000-000000000000');
+  const headerId = failure.headers.get('x-request-id');
+  assert(headerId, 'X-Request-Id header on error response');
+  assert(failure.body?.error?.request_id === headerId, 'envelope.request_id matches X-Request-Id header');
 }
 
 async function testMutationId() {
-  console.log('\n=== X-Mutation-Id ===');
-  // Create a task with mutation id
   const mutationId = `test_mut_${Date.now()}`;
-  const res = await request('/tasks', {
+  const response = await request('/tasks', {
     method: 'POST',
     headers: { 'X-Mutation-Id': mutationId },
     body: { title: 'Contract test task', visibility: 'personal' },
   });
-  // May be 201 or 422 (idempotency key required) — both should echo X-Mutation-Id
-  assert(res.headers.get('x-mutation-id') === mutationId, 'X-Mutation-Id echoed on response');
-  assert(res.body?.task || res.body?.error, 'has response body');
+  assert(response.headers.get('x-mutation-id') === mutationId, 'X-Mutation-Id echoed on response');
+  assert(response.body?.task || response.body?.error, 'mutation response has a body');
 }
 
 async function testIdempotencyRequired() {
-  console.log('\n=== Idempotency-Key Required ===');
-  // POST without Idempotency-Key should return 422
-  const res = await request('/tasks', {
+  const response = await request('/tasks', {
     method: 'POST',
     headers: { 'X-Mutation-Id': `test_mut_${Date.now()}` },
     body: { title: 'No idempotency key', visibility: 'personal' },
   });
-  assert(res.status === 422, 'POST /tasks without Idempotency-Key returns 422');
-  assert(res.body?.error?.code === 'idempotency_key_required', 'error code is idempotency_key_required');
-  assert(res.body?.error?.request_id, 'error envelope has request_id');
+  assert(response.status === 422, 'POST /tasks without Idempotency-Key returns 422');
+  assert(response.body?.error?.code === 'idempotency_key_required', 'error code is idempotency_key_required');
+  assert(response.body?.error?.request_id, '422 envelope has request_id');
 }
 
 async function testIfMatchRequired() {
-  console.log('\n=== If-Match Required ===');
-  // First create a task with idempotency key
-  const createRes = await request('/tasks', {
+  const created = await request('/tasks', {
     method: 'POST',
     headers: {
       'X-Mutation-Id': `test_mut_${Date.now()}`,
@@ -147,15 +174,11 @@ async function testIfMatchRequired() {
     },
     body: { title: 'If-Match test task', visibility: 'personal' },
   });
-  if (createRes.status !== 201) {
-    console.log('  ⚠ Create task failed, skipping If-Match test:', createRes.status, createRes.body);
-    return;
-  }
-  const task = createRes.body.task;
+  assert(created.status === 201, 'fixture task for If-Match is created');
+  const task = trackTask(created.body.task);
   assert(task.version !== undefined, 'created task has version');
 
-  // PATCH without If-Match should return 422
-  const patchRes = await request(`/tasks/${task.id}`, {
+  const patched = await request(`/tasks/${task.id}`, {
     method: 'PATCH',
     headers: {
       'X-Mutation-Id': `test_mut_${Date.now()}`,
@@ -163,13 +186,12 @@ async function testIfMatchRequired() {
     },
     body: { title: 'Updated' },
   });
-  assert(patchRes.status === 422, 'PATCH without If-Match returns 422');
-  assert(patchRes.body?.error?.code === 'expected_version_required', 'error code is expected_version_required');
+  assert(patched.status === 422, 'PATCH without If-Match returns 422');
+  assert(patched.body?.error?.code === 'expected_version_required', 'error code is expected_version_required');
 }
 
 async function testIfMatchStale() {
-  console.log('\n=== If-Match Stale (412) ===');
-  const createRes = await request('/tasks', {
+  const created = await request('/tasks', {
     method: 'POST',
     headers: {
       'X-Mutation-Id': `test_mut_${Date.now()}`,
@@ -177,13 +199,10 @@ async function testIfMatchStale() {
     },
     body: { title: 'Stale version test', visibility: 'personal' },
   });
-  if (createRes.status !== 201) {
-    console.log('  ⚠ Create task failed, skipping stale version test:', createRes.status, createRes.body);
-    return;
-  }
-  const task = createRes.body.task;
-  // Update with correct version
-  const patchRes1 = await request(`/tasks/${task.id}`, {
+  assert(created.status === 201, 'fixture task for stale-version test is created');
+  const task = trackTask(created.body.task);
+
+  const firstUpdate = await request(`/tasks/${task.id}`, {
     method: 'PATCH',
     headers: {
       'X-Mutation-Id': `test_mut_${Date.now()}`,
@@ -192,69 +211,103 @@ async function testIfMatchStale() {
     },
     body: { title: 'First update' },
   });
-  assert(patchRes1.status === 200, 'first update succeeds');
-  const newVersion = patchRes1.body.task.version;
+  assert(firstUpdate.status === 200, 'first update succeeds');
+  const newVersion = firstUpdate.body.task.version;
+  updateTrackedVersion(task.id, newVersion);
 
-  // Retry with old version should return 412
-  const patchRes2 = await request(`/tasks/${task.id}`, {
+  const staleUpdate = await request(`/tasks/${task.id}`, {
     method: 'PATCH',
     headers: {
       'X-Mutation-Id': `test_mut_${Date.now()}`,
       'Idempotency-Key': `test_idem_${Date.now()}`,
-      'If-Match': String(task.version), // stale
+      'If-Match': String(task.version),
     },
     body: { title: 'Second update' },
   });
-  assert(patchRes2.status === 412, 'stale If-Match returns 412');
-  assert(patchRes2.body?.error?.code === 'version_conflict_v2', 'error code is version_conflict_v2');
-  assert(patchRes2.body?.error?.details?.current === newVersion, 'details include current version');
-  assert(patchRes2.body?.error?.details?.expected === task.version, 'details include expected version');
+  assert(staleUpdate.status === 412, 'stale If-Match returns 412');
+  assert(staleUpdate.body?.error?.code === 'version_conflict_v2', 'error code is version_conflict_v2');
+  assert(staleUpdate.body?.error?.details?.current === newVersion, 'details include current version');
+  assert(staleUpdate.body?.error?.details?.expected === task.version, 'details include expected version');
 }
 
 async function testIdempotencyReplay() {
-  console.log('\n=== Idempotency Replay ===');
-  const idemKey = `test_idem_replay_${Date.now()}`;
-  const mutId = `test_mut_replay_${Date.now()}`;
-  // First request
-  const res1 = await request('/tasks', {
+  const idempotencyKey = `test_idem_replay_${Date.now()}`;
+  const mutationId = `test_mut_replay_${Date.now()}`;
+  const first = await request('/tasks', {
     method: 'POST',
-    headers: { 'X-Mutation-Id': mutId, 'Idempotency-Key': idemKey },
+    headers: { 'X-Mutation-Id': mutationId, 'Idempotency-Key': idempotencyKey },
     body: { title: 'Idempotency replay test', visibility: 'personal' },
   });
-  assert(res1.status === 201, 'first create returns 201');
-  const task1 = res1.body.task;
-  // Second request with same key + mutation id
-  const res2 = await request('/tasks', {
+  assert(first.status === 201, 'first create returns 201');
+  const task = trackTask(first.body.task);
+
+  const replay = await request('/tasks', {
     method: 'POST',
-    headers: { 'X-Mutation-Id': mutId, 'Idempotency-Key': idemKey },
+    headers: { 'X-Mutation-Id': mutationId, 'Idempotency-Key': idempotencyKey },
     body: { title: 'Idempotency replay test', visibility: 'personal' },
   });
-  assert(res2.status === 201, 'replay returns 201');
-  assert(res2.body.task.id === task1.id, 'replay returns same task id');
+  assert(replay.status === 201, 'replay returns 201');
+  assert(replay.body.task.id === task.id, 'replay returns the same task id');
+}
+
+async function cleanupCreatedTasks() {
+  console.log('\n=== Cleanup ===');
+  let cleaned = 0;
+  for (const task of createdTasks) {
+    const response = await request(`/tasks/${task.id}/trash`, {
+      method: 'POST',
+      headers: {
+        'X-Mutation-Id': `test_mut_cleanup_${task.id}`,
+        'Idempotency-Key': `test_idem_cleanup_${task.id}`,
+        'If-Match': String(task.version),
+      },
+    });
+    if (response.status !== 200) {
+      throw new Error(`Cleanup failed for a temporary task (status ${response.status}).`);
+    }
+    cleaned += 1;
+  }
+  console.log(`  temporary tasks trashed: ${cleaned}/${createdTasks.length}`);
+  console.log('  durable activity/idempotency records retained by contract');
 }
 
 async function main() {
-  console.log('Running Planner V0.2 G0.2 Contract Tests...');
-  console.log(`Target: ${SUPABASE_URL}${PLANNER_BASE}`);
+  console.log('Running Planner V0 G0.2 Contract Tests...');
+  console.log(`Target: ${API_BASE_URL}${PLANNER_BASE}`);
 
-  try {
-    await testCapabilitiesProjection();
-    await testErrorEnvelope();
-    await testRequestIdCorrelation();
-    await testMutationId();
-    await testIdempotencyRequired();
-    await testIfMatchRequired();
-    await testIfMatchStale();
-    await testIdempotencyReplay();
+  const blocks = [
+    ['Capabilities Projection', testCapabilitiesProjection],
+    ['Server-side Capability Enforcement', testServerSideEnforcement],
+    ['Error Envelope', testErrorEnvelope],
+    ['Request ID Correlation', testRequestIdCorrelation],
+    ['X-Mutation-Id', testMutationId],
+    ['Idempotency-Key Required', testIdempotencyRequired],
+    ['If-Match Required', testIfMatchRequired],
+    ['If-Match Stale (412)', testIfMatchStale],
+    ['Idempotency Replay', testIdempotencyReplay],
+  ];
 
-    console.log('\n=== ALL CONTRACT TESTS PASSED ===');
-    process.exit(0);
-  } catch (err) {
-    console.error('\n=== CONTRACT TEST FAILED ===');
-    console.error(err.message);
-    console.error(err.stack);
-    process.exit(1);
+  let suiteError = null;
+  for (const [name, fn] of blocks) {
+    if (suiteError) break;
+    try { await runBlock(name, fn); } catch (error) { suiteError = error; }
   }
+
+  try { await cleanupCreatedTasks(); } catch (error) { suiteError = suiteError || error; }
+
+  console.log('\n=== BLOCK RESULTS ===');
+  for (const result of blockResults) console.log(`${result.status}: ${result.name}`);
+  console.log(`Assertions: ${assertionCount}`);
+
+  if (suiteError) {
+    console.error('\n=== CONTRACT TEST FAILED ===');
+    console.error(suiteError.message);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log('\n=== ALL CONTRACT TESTS PASSED ===');
+  process.exitCode = 0;
 }
 
 main();

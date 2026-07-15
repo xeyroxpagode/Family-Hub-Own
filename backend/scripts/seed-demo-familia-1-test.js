@@ -78,10 +78,6 @@ function toDateStr(date) {
   return date.toISOString().split('T')[0];
 }
 
-function toTimestampStr(date) {
-  return date.toISOString();
-}
-
 async function findOrCreateAuthUser(email, displayName) {
   try {
     const { data: existingUser, error: fetchError } = await supabaseAdmin
@@ -93,7 +89,7 @@ async function findOrCreateAuthUser(email, displayName) {
     if (existingUser && !fetchError) {
       return existingUser;
     }
-  } catch (fetchErr) {
+  } catch {
     console.log(`   Note: Could not fetch user ${email}, attempting to create...`);
   }
 
@@ -111,10 +107,6 @@ async function findOrCreateAuthUser(email, displayName) {
   if (error) {
     if (error.message.includes('already been registered')) {
       console.log(`   ⚠ User ${email} exists in auth but not accessible via RLS. Attempting workaround...`);
-      const { data: authData } = await supabaseAdmin.auth.admin.getUserById(
-        '00000000-0000-0000-0000-000000000000'
-      ).catch(() => ({ data: null }));
-      
       const { data: allUsers } = await supabaseAdmin.auth.admin.listUsers({
         page: 1,
         perPage: 100,
