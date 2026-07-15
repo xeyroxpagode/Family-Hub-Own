@@ -23,6 +23,13 @@
 
 import type { PlannerCapability, PlannerCapabilitiesProjection } from '../plannerCapabilities';
 
+// Re-export the capability type and projection shape so unit tests and
+// downstream consumers can compose their projections without importing the
+// raw service module. No parallel engine created here: this is purely a
+// passive alias for ergonomics and refactor protection.
+export type { PlannerCapability, PlannerCapabilitiesProjection } from '../plannerCapabilities';
+export { PLANNER_CAPABILITIES } from '../plannerCapabilities';
+
 /**
  * Check if a single capability is granted in the projection.
  * Returns `false` for missing/undefined projection, unknown keys.
@@ -32,6 +39,32 @@ export function hasPlannerCapability(
   capability: PlannerCapability,
 ): boolean {
   return projection?.[capability] === true;
+}
+
+/**
+ * Short alias for `hasPlannerCapability` used by M1 unit tests.
+ * Single typed authority - no parallel capability engine.
+ */
+export const can = hasPlannerCapability;
+
+/**
+ * Check if AT LEAST ONE capability is granted. Alias for the M1 test contract.
+ */
+export function canAny(
+  projection: PlannerCapabilitiesProjection | null | undefined,
+  ...capabilities: PlannerCapability[]
+): boolean {
+  return capabilities.some((cap) => hasPlannerCapability(projection, cap));
+}
+
+/**
+ * Check if ALL listed capabilities are granted. Alias for the M1 test contract.
+ */
+export function canAll(
+  projection: PlannerCapabilitiesProjection | null | undefined,
+  ...capabilities: PlannerCapability[]
+): boolean {
+  return capabilities.every((cap) => hasPlannerCapability(projection, cap));
 }
 
 /**
@@ -225,4 +258,67 @@ export function isQuickActionEnabled(
     case 'goal': return canCreateAnyGoal(projection);
     default: return false;
   }
+}
+
+/**
+ * Quick Action scope: `personal` requires the per-action personal capability,
+ * `household` requires the household capability, `none` when neither is granted.
+ * When both personal and household are granted, we surface `household` so the
+ * user can see the higher-permission scope (the form still lets them pick the
+ * scope at submit time, server enforces).
+ */
+export type QuickActionScope = 'personal' | 'household' | 'none';
+
+export type QuickActionDescriptor = {
+  readonly kind: QuickActionKind;
+  readonly visible: boolean;
+  readonly scope: QuickActionScope;
+};
+
+function resolveQuickActionScope(
+  personalCap: boolean,
+  householdCap: boolean,
+): QuickActionScope {
+  if (householdCap) return 'household';
+  if (personalCap) return 'personal';
+  return 'none';
+}
+
+/**
+ * Evaluate the Quick Action capability matrix for the current projection.
+ * Used by M4 to filter visible actions and disable the ones without grants.
+ *
+ * Returns a fixed 3-element list (task, event, goal) with `visible` and
+ * `scope`. The UI must never invent extra actions; Invite is not part of the
+ * Planner domain and is not returned here.
+ */
+export function evaluateQuickActionCapabilities(
+  projection: PlannerCapabilitiesProjection | null | undefined,
+): readonly QuickActionDescriptor[] {
+  return [
+    {
+      kind: 'task',
+      visible: canCreateAnyTask(projection),
+      scope: resolveQuickActionScope(
+        canCreatePersonalTask(projection),
+        canCreateHouseholdTask(projection),
+      ),
+    },
+    {
+      kind: 'event',
+      visible: canCreateAnyEvent(projection),
+      scope: resolveQuickActionScope(
+        canCreatePersonalEvent(projection),
+        canCreateHouseholdEvent(projection),
+      ),
+    },
+    {
+      kind: 'goal',
+      visible: canCreateAnyGoal(projection),
+      scope: resolveQuickActionScope(
+        canCreatePersonalGoal(projection),
+        canCreateHouseholdGoal(projection),
+      ),
+    },
+  ];
 }

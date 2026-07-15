@@ -23,8 +23,11 @@
     "../scripts/planner_v1_navigation_tests.ts",
     "../scripts/planner_v1_mutation_tests.ts",
     "../scripts/planner_v1_error_tests.ts",
+    "../scripts/planner_v1_capabilities_flags_tests.ts",
+    "../scripts/planner_v1_shell_state_tests.ts",
     "../front/mi-front-limpio/services/core/*.ts",
-    "../front/mi-front-limpio/services/planner/*.ts"
+    "../front/mi-front-limpio/services/planner/*.ts",
+    "../front/mi-front-limpio/navigation/plannerNavigationContract.ts"
   ],
   "exclude": ["node_modules"]
 }

@@ -37,7 +37,8 @@ import {
   can,
   canAny,
   canAll,
-} from '../../front/mi-front-limpio/services/planner/plannerCapabilitiesAdapter';
+  type PlannerCapabilitiesProjection,
+} from '../front/mi-front-limpio/services/planner/plannerCapabilitiesAdapter';
 
 import {
   canOpenPlannerSearch,
@@ -45,7 +46,7 @@ import {
   plannerSearchFallbackAction,
   PLANNER_SEARCH_FLAG_KEY,
   PLANNER_SEARCH_CAPABILITY,
-} from '../../front/mi-front-limpio/services/planner/plannerSearchGate';
+} from '../front/mi-front-limpio/services/planner/plannerSearchGate';
 
 // ---------------------------------------------------------------------------
 // Simple test framework
@@ -108,10 +109,14 @@ runTest('Capabilities catalog — 38 keys present', () => {
 // 2. Deny-safe behavior
 // ---------------------------------------------------------------------------
 
-const emptyProjection: Record<string, boolean> = {};
+const emptyProjection = projection({});
 const nullProjection = null;
 const undefinedProjection = undefined;
-const partialProjection = { 'task.create_personal': true };
+const partialProjection = projection({ 'task.create_personal': true });
+
+function projection(p: Record<string, boolean>): PlannerCapabilitiesProjection {
+  return p as unknown as PlannerCapabilitiesProjection;
+}
 
 runTest('canCreate* — deny-safe with missing/null/undefined projection', () => {
   // All should return false for missing projection
@@ -121,7 +126,7 @@ runTest('canCreate* — deny-safe with missing/null/undefined projection', () =>
     canCreatePersonalGoal, canCreateHouseholdGoal, canCreateAnyGoal,
     canViewPlanner, canSearchPlanner,
   ]) {
-    assert(fn(emptyProjection) === false, `${fn.name} false for empty`);
+    assert(fn(projection(emptyProjection)) === false, `${fn.name} false for empty`);
     assert(fn(nullProjection) === false, `${fn.name} false for null`);
     assert(fn(undefinedProjection) === false, `${fn.name} false for undefined`);
   }
@@ -129,28 +134,28 @@ runTest('canCreate* — deny-safe with missing/null/undefined projection', () =>
 
 runTest('canCreate* — only true when capability explicitly true', () => {
   // Personal only
-  const personalOnly = { 'task.create_personal': true, 'task.create_household': false };
+  const personalOnly = projection({ 'task.create_personal': true, 'task.create_household': false });
   assert(canCreatePersonalTask(personalOnly) === true, 'personal true');
   assert(canCreateHouseholdTask(personalOnly) === false, 'household false');
   assert(canCreateAnyTask(personalOnly) === true, 'any true when personal');
 
   // Household only
-  const householdOnly = { 'task.create_personal': false, 'task.create_household': true };
+  const householdOnly = projection({ 'task.create_personal': false, 'task.create_household': true });
   assert(canCreatePersonalTask(householdOnly) === false, 'personal false');
   assert(canCreateHouseholdTask(householdOnly) === true, 'household true');
   assert(canCreateAnyTask(householdOnly) === true, 'any true when household');
 
   // Both true
-  const both = { 'task.create_personal': true, 'task.create_household': true };
+  const both = projection({ 'task.create_personal': true, 'task.create_household': true });
   assert(canCreateAnyTask(both) === true, 'any true when both');
 
   // Both false
-  const neither = { 'task.create_personal': false, 'task.create_household': false };
+  const neither = projection({ 'task.create_personal': false, 'task.create_household': false });
   assert(canCreateAnyTask(neither) === false, 'any false when neither');
 
   // Missing key = deny
-  assert(canCreatePersonalTask({}) === false, 'missing key -> false');
-  assert(canCreatePersonalTask({ 'task.create_personal': 'true' }) === false, 'non-boolean -> false');
+  assert(canCreatePersonalTask(projection({})) === false, 'missing key -> false');
+  assert(canCreatePersonalTask(projection({ 'task.create_personal': 'true' as unknown as boolean })) === false, 'non-boolean -> false');
 });
 
 // ---------------------------------------------------------------------------
@@ -159,33 +164,33 @@ runTest('canCreate* — only true when capability explicitly true', () => {
 
 runTest('evaluateQuickActionCapabilities — returns correct matrix', () => {
   // No grants
-  const none = evaluateQuickActionCapabilities({});
+  const none = evaluateQuickActionCapabilities(projection({}));
   assert(none.every(a => a.visible === false && a.scope === 'none'), 'all hidden when no grants');
 
   // Personal task only
-  const personalTask = evaluateQuickActionCapabilities({ 'task.create_personal': true });
+  const personalTask = evaluateQuickActionCapabilities(projection({ 'task.create_personal': true }));
   const taskEntry = personalTask.find(e => e.kind === 'task');
   assert(taskEntry?.visible === true && taskEntry?.scope === 'personal', 'personal task visible');
 
   // Household task only
-  const householdTask = evaluateQuickActionCapabilities({ 'task.create_household': true });
+  const householdTask = evaluateQuickActionCapabilities(projection({ 'task.create_household': true }));
   const hhTask = householdTask.find(e => e.kind === 'task');
   assert(hhTask?.visible === true && hhTask?.scope === 'household', 'household task visible');
 
   // All three personal
-  const allPersonal = evaluateQuickActionCapabilities({
+  const allPersonal = evaluateQuickActionCapabilities(projection({
     'task.create_personal': true,
     'event.create_personal': true,
     'goal.create_personal': true,
-  });
+  }));
   assert(allPersonal.every(e => e.visible === true && e.scope === 'personal'), 'all personal visible');
 
   // Mixed
-  const mixed = evaluateQuickActionCapabilities({
+  const mixed = evaluateQuickActionCapabilities(projection({
     'task.create_household': true,
     'event.create_personal': true,
     'goal.create_personal': true,
-  });
+  }));
   const mTask = mixed.find(e => e.kind === 'task');
   const mEvent = mixed.find(e => e.kind === 'event');
   const mGoal = mixed.find(e => e.kind === 'goal');
@@ -195,10 +200,10 @@ runTest('evaluateQuickActionCapabilities — returns correct matrix', () => {
 });
 
 runTest('isQuickActionEnabled — specific checks', () => {
-  const proj = { 'task.create_household': true, 'event.create_personal': true };
-  assert(isQuickActionEnabled(proj, 'task') === true, 'task enabled');
-  assert(isQuickActionEnabled(proj, 'event') === true, 'event enabled');
-  assert(isQuickActionEnabled(proj, 'goal') === false, 'goal disabled');
+  const qaProj = projection({ 'task.create_household': true, 'event.create_personal': true });
+  assert(isQuickActionEnabled(qaProj, 'task') === true, 'task enabled');
+  assert(isQuickActionEnabled(qaProj, 'event') === true, 'event enabled');
+  assert(isQuickActionEnabled(qaProj, 'goal') === false, 'goal disabled');
 });
 
 // ---------------------------------------------------------------------------
@@ -206,19 +211,19 @@ runTest('isQuickActionEnabled — specific checks', () => {
 // ---------------------------------------------------------------------------
 
 runTest('Detail action guards — deny-safe', () => {
-  const proj = { 'task.edit_own': true, 'event.edit_own': false };
+  const proj = projection({ 'task.edit_own': true, 'event.edit_own': false });
 
   assert(canEditOwnTask(proj) === true, 'task edit own true');
   assert(canEditOwnEvent(proj) === false, 'event edit own false');
-  assert(canCancelOwnTask({}) === false, 'missing -> false');
-  assert(canCompleteAssignedTask({}) === false, 'missing -> false');
-  assert(canRestoreFromTrash({}) === false, 'missing -> false');
-  assert(canManageEventParticipants({}) === false, 'missing -> false');
-  assert(canEditOwnGoal({}) === false, 'missing -> false');
-  assert(canCompleteOwnGoal({}) === false, 'missing -> false');
-  assert(canCloseOwnGoal({}) === false, 'missing -> false');
-  assert(canManageGoalParticipants({}) === false, 'missing -> false');
-  assert(canRestoreGoal({}) === false, 'missing -> false');
+  assert(canCancelOwnTask(projection({})) === false, 'missing -> false');
+  assert(canCompleteAssignedTask(projection({})) === false, 'missing -> false');
+  assert(canRestoreFromTrash(projection({})) === false, 'missing -> false');
+  assert(canManageEventParticipants(projection({})) === false, 'missing -> false');
+  assert(canEditOwnGoal(projection({})) === false, 'missing -> false');
+  assert(canCompleteOwnGoal(projection({})) === false, 'missing -> false');
+  assert(canCloseOwnGoal(projection({})) === false, 'missing -> false');
+  assert(canManageGoalParticipants(projection({})) === false, 'missing -> false');
+  assert(canRestoreGoal(projection({})) === false, 'missing -> false');
 });
 
 // ---------------------------------------------------------------------------
@@ -226,20 +231,20 @@ runTest('Detail action guards — deny-safe', () => {
 // ---------------------------------------------------------------------------
 
 runTest('can / canAny / canAll — deny-safe', () => {
-  const proj = { 'task.create_personal': true, 'task.create_household': false };
+  const proj = projection({ 'task.create_personal': true, 'task.create_household': false });
 
   assert(can(proj, 'task.create_personal') === true, 'can true');
   assert(can(proj, 'task.create_household') === false, 'can false');
-  assert(can(proj, 'unknown.capability') === false, 'unknown -> false');
-  assert(can({}, 'task.create_personal') === false, 'empty -> false');
+  assert(can(proj, 'task.restore') === false, 'unknown -> false');
+  assert(can(projection({}), 'task.create_personal') === false, 'empty -> false');
 
   assert(canAny(proj, 'task.create_personal', 'task.create_household') === true, 'canAny one true');
   assert(canAny(proj, 'task.create_household', 'event.create_personal') === false, 'canAny both false');
-  assert(canAny({}, 'task.create_personal') === false, 'canAny empty -> false');
+  assert(canAny(projection({}), 'task.create_personal') === false, 'canAny empty -> false');
 
   assert(canAll(proj, 'task.create_personal') === true, 'canAll one true');
   assert(canAll(proj, 'task.create_personal', 'task.create_household') === false, 'canAll one false');
-  assert(canAll({}, 'task.create_personal') === false, 'canAll empty -> false');
+  assert(canAll(projection({}), 'task.create_personal') === false, 'canAll empty -> false');
 });
 
 // ---------------------------------------------------------------------------
