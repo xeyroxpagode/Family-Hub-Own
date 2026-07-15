@@ -4,10 +4,12 @@
 const crypto = require('node:crypto');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const dotenv = require('../backend/node_modules/dotenv');
 const { createClient } = require('../backend/node_modules/@supabase/supabase-js');
+const { loadTestEnvironment } = require('../tests/helpers/environment');
 
-dotenv.config({ path: path.resolve(__dirname, '../backend/.env'), quiet: true });
+const testEnvironment = loadTestEnvironment({
+  required: ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'],
+});
 const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'];
 const missing = required.filter((name) => !process.env[name]);
 if (missing.length) {
@@ -20,7 +22,7 @@ if (!['127.0.0.1', 'localhost'].includes(url.hostname)) {
   process.exit(1);
 }
 
-const port = 3104;
+const port = Number(process.env.HOMEPLUS_TEST_PORT || process.env.PORT || 3104);
 const baseUrl = `http://127.0.0.1:${port}`;
 const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const publicClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -76,6 +78,16 @@ async function cleanup() {
   }
 }
 
+async function stopBackend(child) {
+  if (child.exitCode !== null) return;
+  child.kill('SIGTERM');
+  await Promise.race([
+    new Promise((resolve) => child.once('exit', resolve)),
+    new Promise((resolve) => setTimeout(resolve, 3000)),
+  ]);
+  if (child.exitCode === null) child.kill('SIGKILL');
+}
+
 async function main() {
   const child = spawn(process.execPath, ['index.js'], {
     cwd: path.resolve(__dirname, '../backend'),
@@ -110,12 +122,14 @@ async function main() {
       console.error(`FIXTURE_CLEANUP_FAILED code=${error?.code ?? 'unknown_error'}`);
       exitCode = 1;
     });
-    child.kill('SIGTERM');
+    await stopBackend(child);
+    testEnvironment.cleanup();
   }
   process.exitCode = exitCode;
 }
 
 main().catch((error) => {
+  testEnvironment.cleanup();
   console.error(`G0.4_RUNTIME_FAILED code=${error?.code ?? 'runtime_failure'} message=${error.message}`);
   process.exitCode = 1;
 });

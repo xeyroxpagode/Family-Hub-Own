@@ -218,3 +218,7 @@ Push performed: NO
 
 Next authorized phase: G0.5 only if G0.4 PASSED
 ```
+
+## Post-G0.5 test infrastructure update
+
+G0.4 ahora se ejecuta con `npm run test:g0.4` mediante el runner global y conserva sus tres scripts como suites de dominio: 33 contratos, 27 assertions DB y 5 runtime. `tests/integration/run.js` asigna un puerto libre al runtime y espera el cierre del backend; `tests/db/run.js` ejecuta fixtures transaccionales y lint local. Los tres errores remotos legacy documentados en este reporte fueron eliminados mediante `20260715010000_remove_broken_legacy_rpcs.sql`; lint remoto final: 0 errores y paridad 33/33. Resultado G0.5: G0.4 PASS (65 assertions totales), cleanup PASS. No se deprecan los wrappers todavía.

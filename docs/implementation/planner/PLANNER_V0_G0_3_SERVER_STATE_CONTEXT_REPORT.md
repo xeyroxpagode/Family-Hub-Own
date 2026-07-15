@@ -509,3 +509,7 @@ La evidencia anterior se conserva como historia de G0.3. G0.3.1 extrajo el mecan
 Household y Auth ya no importan `plannerCache`: el composition root registra el adapter Planner en `services/registerLifecycleHandlers.ts` sobre `services/core/lifecycle.ts`. La generación de sign-out ahora avanza de forma monótona y las respuestas capturan su generación al iniciar, corrigiendo la aceptación posible de late writes. También se corrigió la invalidación por prefijo para comparar arrays estructuralmente.
 
 Comando vigente: `npm.cmd run test:g0.3`. Resultado G0.3.1: 46/46 assertions PASS. Este update no cambia el alcance funcional de Planner ni reescribe el resultado histórico de G0.3.
+
+## Post-G0.5 test infrastructure update
+
+G0.3 conserva sus fuentes de dominio y ahora delega desde el comando raíz `npm run test:g0.3` al runner global `tests/run.js`. La compilación se escribe solo en `scripts/compiled/` (ignorado), y `npm run test:frontend`, `npm run test:planner`, `npm run quality` y `npm run test:g0` reutilizan la misma suite. Resultado G0.5: 46/46 assertions PASS, exit 0. No hay deprecación funcional; el script anterior queda como suite de dominio compatible.

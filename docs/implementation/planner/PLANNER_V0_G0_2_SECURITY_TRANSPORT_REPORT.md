@@ -134,3 +134,7 @@ G0.2 CURRENT RUNTIME EVIDENCE: VERIFIED (115 assertions, exit 0)
 ```
 
 This is current reconstructed evidence, not a claim about an unrecorded original G0.2 execution.
+
+## Post-G0.5 test infrastructure update
+
+G0.2 ahora se ejecuta desde la raíz con `npm run test:g0.2` o como parte de `npm run test:integration`. El runner final es `tests/integration/run.js`: inicia un backend aislado en un puerto libre, carga únicamente entorno local mediante `tests/helpers/environment.js`, genera una sesión QA real en proceso y delega los 115 contratos históricos a `scripts/planner_g0_2_runtime_runner.js`. El cleanup se ejecuta en `finally`, el proceso backend se espera/cierra y una falta de runtime produce `RUNTIME_REQUIRED`, nunca PASS. Resultado G0.5: 115/115 assertions PASS; fixture cleanup PASS. El wrapper histórico se conserva por compatibilidad.

@@ -1,0 +1,70 @@
+name: HomePlus Quality
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homeplus-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Static, contract, and local DB quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            front/mi-front-limpio/package-lock.json
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.90.0
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+      - name: Install frontend dependencies
+        run: npm ci --prefix front/mi-front-limpio
+      - name: Start isolated local Supabase
+        run: supabase start
+      - name: Run official quality gate
+        run: npm run quality
+        env:
+          HOMEPLUS_TEST_REQUIRE_LOCAL_DB: '1'
+
+  integration:
+    name: Local runtime integration
+    if: github.event_name == 'workflow_dispatch'
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            front/mi-front-limpio/package-lock.json
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.90.0
+      - run: npm ci
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix front/mi-front-limpio
+      - run: supabase start
+      - name: Run isolated runtime suites
+        run: npm run test:integration

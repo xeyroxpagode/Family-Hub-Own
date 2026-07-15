@@ -245,7 +245,7 @@ export const FamilyPendingSheet: React.FC<FamilyPendingSheetProps> = ({
                       </View>
                       {request.reason ? (
                         <AppText variant="caption" tone="tertiary" style={styles.reason}>
-                          "{request.reason}"
+                          {`“${request.reason}”`}
                         </AppText>
                       ) : null}
                     </View>

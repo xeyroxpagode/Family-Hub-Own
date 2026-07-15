@@ -226,3 +226,7 @@ G0.3.1 STATUS: PASSED
 ```
 
 Blocker closure ejecutó G0.2 contra el backend real aislado en `127.0.0.1:3101`, con sesión QA generada en memoria y fixture local completamente eliminado: 115 assertions, exit code 0. Los tres contratos G0.2 reconstruidos existen y aclaran el carácter posterior de la evidencia. G0.3, boundaries, TypeScript, syntax, ESLint, schema, migration parity y diff-check se revalidaron en el cierre. G0.4 queda autorizado como siguiente fase, pero no fue iniciado aquí.
+
+## Post-G0.5 test infrastructure update
+
+Los boundary checks G0.3.1 quedan incorporados al Testing Core oficial. `npm run test:core` ejecuta `node:test` para helpers globales más 23 assertions backend y 19 frontend; `npm run quality` agrega syntax global, lint, contratos, DB, coverage, privacidad y whitespace. Las suites viven bajo `tests/` y los scripts históricos bajo `scripts/` se mantienen como suites delegadas, no como runners paralelos. Resultado G0.5: Core boundaries PASS; coverage Core 78.35% líneas, 65.19% ramas y 61.97% funciones con thresholds 78/65/61.

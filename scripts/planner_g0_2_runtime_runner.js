@@ -13,10 +13,12 @@
 const crypto = require('node:crypto');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const dotenv = require('../backend/node_modules/dotenv');
 const { createClient } = require('../backend/node_modules/@supabase/supabase-js');
+const { loadTestEnvironment } = require('../tests/helpers/environment');
 
-dotenv.config({ path: path.resolve(__dirname, '../backend/.env'), quiet: true });
+const testEnvironment = loadTestEnvironment({
+  required: ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'],
+});
 
 const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'];
 const missing = required.filter((name) => !process.env[name]);
@@ -203,7 +205,12 @@ async function main() {
 
   console.log(`G0.2_TEST_EXIT_CODE=${testExitCode}`);
   console.log(`G0.2_FIXTURE_CLEANUP=${cleanupStatus}`);
+  testEnvironment.cleanup();
   process.exit(testExitCode);
 }
 
-main();
+main().catch((error) => {
+  testEnvironment.cleanup();
+  console.error(`FIXTURE_FAILURE: ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
+});
