@@ -1,182 +1,134 @@
-# Planner V1 — especificación final previa a implementación
+# Planner V1 — especificación lista para implementación
 
-> **V1 STATUS: NOT READY**
-> Auditoría ejecutada: 2026-07-14T00:41:20-03:00
-> Repositorio: `C:/Users/thega/Desktop/HomePlus`
+> **V1 STATUS: IMPLEMENTATION READY**
+>
+> Revalidación: 2026-07-14 (America/Buenos_Aires)
+>
 > Rama: `v1`
-> Commit auditado: `a9d869b5755a90188dd8b964506251e56af74632`
+>
+> Commit auditado: `cec151b5e6b2d063d60a5f614cbf7134c800de9f`
+>
+> Working tree inicial: limpio
+>
+> Node/npm/Supabase CLI: `v24.13.0` / `11.6.2` / `2.90.0`
+
+```text
+V0 CONTRACT GATE: PASSED
+M1 STATUS: AUTHORIZED
+```
+
+| Metadata de cierre | Valor |
+|---|---|
+| Commit G0.5 | `cec151b5e6b2d063d60a5f614cbf7134c800de9f` — `test(core): close G0.5 and HomePlus V0 contract gate` |
+| Commit final V0 gate | `cec151b5e6b2d063d60a5f614cbf7134c800de9f` |
+| Migration state | 33 local / 33 remoto, sin divergencia |
+| CI | `.github/workflows/homeplus-quality.yml` |
 
 ## 1. Dictamen
 
-No se puede iniciar la implementación de Planner V1 sobre el estado auditado. V0 dejó disponibles la identidad canónica de miembro y la resolución server-side del hogar activo, y dejó implementaciones locales útiles de `version` e idempotencia. Sin embargo, faltan contratos públicos que V1 consume de manera directa: capabilities de Planner, feature flags, cache/query keys segregadas por hogar, invalidación dirigida, `X-Mutation-Id`, outbox/auditoría durable y una base automatizada de tests. Además, las migraciones de Planner V0 están presentes y pasan los checks en la base local, pero no aparecen aplicadas en la base remota consultada.
+Planner V1 puede comenzar desde el commit auditado. Los 17 contratos de V0 están `AVAILABLE`: identidad y hogar activos, capabilities, errores, concurrencia, idempotencia, mutation identity, feature flags, cache/invalidation, lifecycle, telemetría, audit/outbox, migraciones, runners y baseline global.
 
-Estas carencias no pueden ocultarse con permisos por rol en frontend, refetch global, flags constantes, eventos de consola ni dobles escrituras best-effort. Hacerlo violaría las fuentes normativas. Primero debe cerrarse el gate V0 descrito en este documento y en `planner_v1_v0_contract_check.md`.
+Este estado no afirma que V1 ya exista. Shell, host, Search entry, Summary, deep links, accesibilidad y QA siguen siendo trabajo M1–M13. No se implementó M1 durante esta revalidación.
 
-No se rediseña V1. Las decisiones físicas siguientes fijan dónde debe implementarse cada pieza una vez que el gate V0 esté cerrado.
+## 2. Evidencia de la base satisfecha
 
-## 2. Autoridad y alcance
-
-Fuentes, en orden de autoridad:
-
-1. `docs/polish-final/planner_final_polish.md`, leído desde `HEAD` porque el sparse checkout no lo materializa.
-2. `docs/polish-final/planner_final_gap_map.md`, leído desde `HEAD` por la misma razón.
-3. Código, migraciones y documentos V0 del commit auditado.
-4. `planner_v1_implementation_ready_draft.md`, convertido por esta auditoría y no usado para contradecir evidencia.
-
-El commit normativo `5a04a47db9c98f725515ed3fb3d02965504aa8ab` es ancestro de `HEAD`. Esta auditoría verifica solamente las bases V0 necesarias para V1. V2, V3 y V4 quedan fuera de alcance salvo dependencias públicas que bloqueen V1.
-
-## 3. Evidencia de V0 consumida por V1
-
-| Contrato | Estado auditado | Evidencia real | Consecuencia para V1 |
-|---|---|---|---|
-| Identidad canónica | AVAILABLE | `backend/src/services/planner/planner.context.service.js` resuelve `userId`, `householdId`, `membershipId` | Puede usarse sin alias de miembro |
-| Hogar activo server-side | AVAILABLE | El mismo servicio valida hogar y membresía activa | Ningún payload V1 debe enviar `householdId` como autoridad |
-| Membresía y capabilities | PARTIAL | Existe rol/membresía; no existe proyección ni verificación de capabilities Planner | Bloquea acciones, Search, estados y seguridad UI/API |
-| Errores tipados | PARTIAL | Controladores devuelven envelopes planos `{ error, code }`; faltan envelope canónico, `request_id` consistente y cobertura de estados | Bloquea estados globales y observabilidad confiable |
-| `version` / concurrencia | PARTIAL | Columnas, triggers, RPCs y `If-Match` existen localmente; el contrato V0 admite ausencia del header y el remoto no tiene las migraciones | No hay garantía deployable |
-| Idempotencia | PARTIAL | `Idempotency-Key` y store/RPC existen localmente; migración remota ausente | Mutaciones no tienen garantía deployable |
-| Headers de mutación | PARTIAL | `Authorization`, `Idempotency-Key` e `If-Match` aparecen; `X-Mutation-Id` no existe | Bloquea correlación y deduplicación completa |
-| Feature flags | MISSING | No se encontró registro, servicio ni nombre real de flag | Search debe permanecer inaccesible |
-| Cache por hogar | MISSING | GET usa `no-store`; frontend usa timestamps de refresh, no cache de entidades | Bloquea aislamiento, switch y optimismo seguro |
-| Invalidación dirigida | MISSING | `AppRefreshContext` dispara refetch global por timestamps | Bloquea resumen y one-tap conforme a norma |
-| Telemetría base | PARTIAL | `plannerObservability.js` registra latencia/error en desarrollo; no existe proveedor de eventos de producto | Bloquea matriz de eventos V1 |
-| Audit/outbox | PARTIAL | Existe `planner_activity_log` best-effort; no hay outbox ni auditoría durable | Bloquea side effects confiables |
-| Cancelación/archivo/trash | PARTIAL | Cancelación y trash existen; archivo no está modelado como contrato separado | No extender V1 a archivo sin base explícita |
-| Migraciones aplicadas | PARTIAL | Local llega a `20260713005000`; remoto se detiene en `202607050001` | Gate de despliegue bloqueado |
-| Tests V0 | PARTIAL | Hay SQL manual/documental; no hay runner ni archivos automatizados | No existe red de regresión para empezar V1 |
-| Compilación/lint | PARTIAL | Frontend TypeScript pasa; backend syntax pasa; ESLint backend tiene 4 errores existentes | Baseline no está completamente verde |
-| Compatibilidad cliente-servidor | PARTIAL | CRUD básico coincide; Summary, errores, cache y headers no cumplen contrato V1 | Requiere corrección de base antes de UI V1 |
-
-Detalle reproducible: `planner_v1_v0_contract_check.md`.
-
-## 4. Estado por bloque V1
-
-| Bloque V1 | Estado | Evidencia/decisión |
+| Base | API real | Evidencia actual |
 |---|---|---|
-| Shell Planner | PARTIAL | `PlannerScreen.tsx` ya es el shell físico, pero mezcla carga, estadísticas y sheets contextuales; además muestra slogan prohibido |
-| Tabs Tasks / Calendar / Goals | PARTIAL | Existen y filtran, pero no persisten por cuenta+hogar ni restauran correctamente tras switch |
-| `PlannerSheetHost` único | MISSING | Hay un `QuickActionSheet` global y modales separados en `PlannerScreen`; no hay host único ni lock de submit |
-| Quick Actions | PARTIAL | Task/Event/Goal existen en orden; faltan filtro por capability, estados seguros y garantía one-instance (Invite queda fuera del alcance de Quick Actions V1) |
-| Create Goal | PARTIAL | Reutiliza `GoalForm`, pero orden/campos/redirect no cumplen el flujo rápido y acepta `current_value` del cliente |
-| Search | BLOCKED_BY_V0 | No hay screen, endpoint, query contract ni feature flag real |
-| Estados globales y error boundary | BLOCKED_BY_V0 | No hay error boundary; errores públicos son parciales y faltan capabilities/cache |
-| Cambio de hogar | BLOCKED_BY_V0 | El switch funciona, pero no cierra host, cancela requests ni limpia cache segregada |
-| Home summary backend | CONFLICT | El endpoint actual calcula counts/briefing y falla como unidad; la norma exige proyección determinística con secciones y `partial_errors` |
-| Home summary frontend | CONFLICT | `HomePlannerSections.tsx` hace cuatro requests y ranking cliente; la norma exige una proyección backend y one-tap con rollback |
-| Deep links y route params | PARTIAL | Linking sólo declara pantallas raíz y faltan detalles/search; params no siguen el contrato final de IDs + procedencia |
-| Telemetría | PARTIAL | Hay logs técnicos parciales, pero faltan proveedor/eventos de producto y tests de PII |
-| Accesibilidad runtime | RUNTIME_REQUIRED | Hay primitives parciales; faltan focus restore y validación VoiceOver/TalkBack, teclado, safe areas y fuente grande |
-| QA/rollback/DONE | BLOCKED_BY_V0 | No hay runner frontend/backend ni E2E; no se puede declarar DONE verificable |
+| Contexto | `getPlannerContext` en `backend/src/services/planner.context.service.js` | G0.2 runtime PASS, 115 assertions |
+| Capabilities | `PLANNER_CAPABILITIES`, `resolveCapabilities`, `GET /api/planner/capabilities`, `fetchPlannerCapabilitiesCached` | 38 claves, denial server-side PASS |
+| Transport/errors | `requestJson`, `ApiError`, `AbortError`, `buildApiErrorEnvelope`, `sendApiError` | Core 23 + G0.2 runtime PASS |
+| Mutation contracts | `generateMutationId`, `requireMutationId`, `requireIdempotencyKey`, `parseRequiredExpectedVersion` | required/echo/replay/412 PASS |
+| Cache/context | `createServerState`, `plannerKeys`, `plannerCache`, `runHouseholdSwitch`, `runSessionCleanup` | Core frontend 19 + Planner 46 PASS |
+| Feature flag | `planner.search_entry`, `GET /api/feature-flags`, `FeatureFlagsProvider` | default false, override, kill switch y proyección PASS |
+| Telemetry/privacy | `telemetry`, `telemetryCatalog`, allowlists y `assertSafeStructuredData` | 33 contratos; PII/secret scans PASS |
+| Audit/outbox | `audit_events`, `outbox_events`, RPCs transaccionales, processor/retry | 27 DB + 33 contracts + 5 runtime PASS |
+| DB/CI | `tests/db/*`, `tests/run.js`, `.github/workflows/homeplus-quality.yml` | parity 33/33; lint 0 local/remoto; quality/G0 PASS |
 
-Totales: `COMPLIANT 0`, `PARTIAL 6`, `MISSING 1`, `CONFLICT 2`, `BLOCKED_BY_V0 4`, `RUNTIME_REQUIRED 1`.
+Detalle por contrato: `planner_v1_v0_contract_check.md`.
 
-## 5. Decisiones físicas finales
+## 3. Estado por bloque V1
 
-### 5.1 Shell y navegación
+Estados autorizados: `READY_TO_IMPLEMENT`, `EXISTING_PARTIAL`, `EXISTING_CONFLICT_TO_REFACTOR`, `RUNTIME_REQUIRED`, `BLOCKED`.
 
-- El shell seguirá siendo `front/mi-front-limpio/src/screens/planner/PlannerScreen.tsx`; se refactoriza, no se crea un shell paralelo.
-- Los nombres de rutas reales se conservan: `PlannerHome`, `CreateTask`, `EditTask`, `CreateEvent`, `EditEvent`, `CreateGoal`, `EditGoal`, `GoalDetail`, `PlannerTrash`.
-- Se agregan a `front/mi-front-limpio/src/navigation/types.ts` las rutas faltantes que V1 usa: `TaskDetail`, `EventDetail` y `PlannerSearch`. No se agrega Archive en V1.
-- Los params de rutas de detalle contienen sólo IDs y metadatos de navegación (`source`, `returnTo`, `justCreated`); nunca objetos de dominio.
-- `front/mi-front-limpio/App.tsx` incorporará paths anidados del stack Planner. `HomeTabNavigator.tsx` sigue siendo el único compositor del stack y tabs.
-- El tipo de tab se exporta desde `navigation/types.ts` como `PlannerTabKey = 'tasks' | 'calendar' | 'goals'`; se elimina el tipo local duplicado. La vista se llama Calendar aunque administre entidades Event.
-- La persistencia vive en el nuevo adaptador `front/mi-front-limpio/src/services/plannerPreferences.ts`, sobre el AsyncStorage ya instalado. Clave física: `planner:last-tab:${accountId}:${householdId}`. Si falta un componente de identidad no se persiste.
-
-### 5.2 Host único de sheets
-
-- Nuevo contexto: `front/mi-front-limpio/src/context/PlannerSheetContext.tsx`.
-- Nuevo host: `front/mi-front-limpio/src/components/planner/PlannerSheetHost.tsx`.
-- Se monta exactamente una vez en `HomeTabNavigator.tsx`, al mismo nivel que `QuickActionSheet` ocupa hoy.
-- El host absorbe el modal global de `QuickActionSheet.tsx` y los modales task/event de `PlannerScreen.tsx`; éstos dejan de montar `Modal` por su cuenta.
-- Reutiliza `TaskForm`, `EventForm` y `GoalForm` mediante sus variantes embedded. No duplica lógica de creación.
-- Estado público mínimo del contexto: `open(kind, source)`, `close(reason)`, `activeKind`, `isOpen`, `isSubmitting`.
-- `close` queda bloqueado durante submit. Back, backdrop, swipe, cambio de hogar y sign-out atraviesan el mismo cierre idempotente. Al cerrar, restaura foco al disparador cuando sigue montado.
-- El doble disparo actual del botón central se corrige en `CenterTabButton.tsx`: una sola ruta de activación, no `onPress` más `onPressOut`.
-
-### 5.3 Quick Actions y capabilities
-
-Quick Actions V1 contiene exclusivamente tres acciones, en este orden:
-
-1. Crear tarea.
-2. Crear evento.
-3. Crear meta.
-
-Invitar persona no forma parte de Quick Actions de Planner V1; el flujo de invitaciones pertenece al dominio People/Household y queda fuera del alcance de V1.
-
-Presentación visual obligatoria de cada acción:
-
-- superficie o botón circular;
-- icono reconocible centrado dentro del círculo;
-- nombre visible de la acción;
-- iconografía consistente con el Design System (sin emojis como iconografía final);
-- estados `normal`, `pressed`, `disabled`, `loading` y `focus`;
-- área táctil accesible mínima;
-- feedback visual al presionar.
-
-Acciones:
-
-- círculo con icono de tarea + nombre `Crear tarea`;
-- círculo con icono de calendario + nombre `Crear evento`;
-- círculo con icono de meta/objetivo + nombre `Crear meta`.
-
-No se define una librería de iconos nueva desde V1: la implementación debe reutilizar la librería real ya presente en el repositorio y confirmada en la fase de implementación. No se agrega una cuarta acción ni un espacio reservado para Invite.
-
-| Acción | Capability pública requerida | Destino |
+| Bloque | Estado | Punto de partida y trabajo V1 |
 |---|---|---|
-| Task | `task.create_household` o `task.create_personal` | host `task` |
-| Event | `event.create_household` o `event.create_personal` | host `event` |
-| Goal | `goal.create_household` o `goal.create_personal` | host `goal` |
+| Shell Planner | `EXISTING_PARTIAL` | `screens/planner/PlannerScreen.tsx` existe; M2 lo reduce a shell/header/tabs/states y retira slogan/stat cards |
+| Tabs Tasks/Calendar/Goals | `EXISTING_PARTIAL` | Existen; M6 tipa `PlannerTabKey` y persiste por account+household |
+| Sheet Host | `READY_TO_IMPLEMENT` | Lifecycle/cancelación/headers están disponibles; M3 crea un host singleton y migra los modales existentes |
+| Quick Actions | `EXISTING_PARTIAL` | Task/Event/Goal ya existen; M4 aplica capabilities reales, una activación por intención, estados y accesibilidad |
+| Create Goal | `EXISTING_PARTIAL` | `GoalForm` embedded existe; M5 implementa quick path, progreso inicial 0, retry estable y post-create one-shot |
+| Search entry | `READY_TO_IMPLEMENT` | `planner.search_entry` default false, proyección frontend y `planner.search` disponibles; M7 agrega solo entry/route/fallback. Search productiva queda fuera |
+| Estados globales | `READY_TO_IMPLEMENT` | Envelope, cache y telemetry existen; M2 agrega `PlannerStateView` y `PlannerErrorBoundary` |
+| Household switch/sign-out | `EXISTING_PARTIAL` | Core lifecycle ya cancela y limpia cache/flags; M7 agrega cierre de host, preferencias y restauración de tab |
+| Home Summary backend | `EXISTING_CONFLICT_TO_REFACTOR` | `GET /api/planner/summary` existe, pero el shape/ranking actual se reemplaza en M8 por 3/3/1 con counts y errores parciales |
+| Home Summary frontend | `EXISTING_CONFLICT_TO_REFACTOR` | `HomePlannerSections.tsx` hace fan-out/ranking cliente; M9 consume una proyección y one-tap con rollback |
+| Deep links | `EXISTING_PARTIAL` | Linking raíz existe; M1/M10 agrega rutas tipadas y cold/warm paths con IDs solamente |
+| Telemetría V1 | `READY_TO_IMPLEMENT` | Provider, sinks, privacidad y catálogo registrable existen; M2–M11 agrega eventos V1 sin PII |
+| Accesibilidad | `RUNTIME_REQUIRED` | Primitives existentes permiten implementación; VoiceOver/TalkBack, gestures, teclado, safe areas, fuente grande y reduced motion se validan en runtime M11/M12 |
+| QA/rollback/DONE | `READY_TO_IMPLEMENT` | Runners root, integration, DB, CI, scans y coverage existen; M1–M13 agregan tests V1 y evidencia runtime |
 
-El backend sigue siendo la autoridad sobre las capabilities; no se derivan permisos desde roles. La capability de invitación puede seguir existiendo en People/Household, pero no es dependencia ni criterio de Planner V1.
+Totales: `READY_TO_IMPLEMENT 5`, `EXISTING_PARTIAL 6`, `EXISTING_CONFLICT_TO_REFACTOR 2`, `RUNTIME_REQUIRED 1`, `BLOCKED 0`.
 
-Las capabilities Planner son nombres normativos, pero hoy no tienen implementación real. No se permite derivarlas del rol ni asumir `true`. Hasta que V0 las entregue desde servidor y las haga cumplir en mutaciones, Task/Event/Goal no pueden considerarse implementables. Quick Actions se filtra exclusivamente por las capabilities de Task/Event/Goal.
+## 4. Contratos físicos vinculantes
 
-### 5.4 Create Goal
+### 4.1 Navegación y shell
 
-- Se modifica `GoalForm.tsx`; no se crea otro formulario. Quick Create no se convierte en el formulario completo.
-- Campos visibles inicialmente: título; categoría con default `home`; visibilidad con default `household`; Guardar.
-- Quedan dentro de “Más opciones” colapsadas y no bloquean create: descripción, modo de progreso, prioridad, responsable, participantes, inicio, fecha objetivo, target y unidad, template, recurrencia, hitos.
-- `current_value` inicial se fija server-side en cero y deja de ser editable/enviable en create.
-- Submit genera `Idempotency-Key` y `X-Mutation-Id`, abre una sola mutación y bloquea todos los cierres.
-- Draft se conserva durante submit y tras error; retry reutiliza la misma intención/idempotency.
-- Éxito: invalidación dirigida del goal, lista Goals y Home Summary; navegación a `GoalDetail` con `{ goalId, source: 'quick_action', justCreated: true }`.
-- Error: conserva draft, muestra error tipado con `request_id` cuando exista y permite retry con la misma intención/idempotency conforme al contrato servidor.
+- Shell: `front/mi-front-limpio/screens/planner/PlannerScreen.tsx`; se refactoriza, no se duplica.
+- Composición: `front/mi-front-limpio/navigation/HomeTabNavigator.tsx`.
+- Tipos: `front/mi-front-limpio/navigation/types.ts` exportará `PlannerTabKey = 'tasks' | 'calendar' | 'goals'`.
+- Rutas actuales conservadas: `PlannerHome`, `CreateTask`, `EditTask`, `CreateEvent`, `EditEvent`, `CreateGoal`, `EditGoal`, `GoalDetail`, `PlannerTrash`.
+- Rutas V1 autorizadas: `TaskDetail`, `EventDetail`, `PlannerSearch`; params solo IDs y metadata `source`, `returnTo`, `justCreated`.
+- Linking: `front/mi-front-limpio/App.tsx`; no se transportan objetos de dominio en URLs o route params.
 
-### 5.4.1 Post-create de Goal
+### 4.2 Sheet Host y Quick Actions
 
-Después del éxito de create goal, exactamente en este orden:
+- Nuevos: `context/PlannerSheetContext.tsx` y `components/planner/PlannerSheetHost.tsx`.
+- Mount único en `HomeTabNavigator.tsx`.
+- API pública: `open(kind, source)`, `close(reason)`, `activeKind`, `isOpen`, `isSubmitting`.
+- `QuickActionSheet.tsx` pasa a presentacional; `PlannerScreen.tsx` deja de montar sheets propios.
+- `CenterTabButton.tsx` conserva una sola vía de activación.
+- Durante submit se bloquean back/backdrop/swipe; el draft y la identidad sobreviven al error; cierre restaura foco cuando el trigger sigue montado.
+- Acciones exactas y orden: Crear tarea, Crear evento, Crear meta. Invite pertenece a Household/People y no forma parte de Planner V1.
+- Visibilidad: `hasAnyCapability` sobre capabilities personal/household de cada entidad; el servidor siempre revalida.
 
-1. incorporar la respuesta canónica a cache;
-2. actualizar Goals;
-3. actualizar Planner Summary;
-4. abrir GoalDetail;
-5. mostrar una acción post-create exactamente una vez.
+### 4.3 Create Goal
 
-Acciones post-create por tipo de meta (one-shot mediante `justCreated` o estado equivalente):
+- Se reutiliza `screens/planner/GoalForm.tsx` y su wrapper `CreateGoalScreen.tsx`.
+- Inicial: título, categoría `home`, visibilidad `household`, Guardar.
+- “Más opciones”: descripción, modo de progreso, prioridad, responsable, participantes, inicio, fecha objetivo, target/unidad, template, recurrencia e hitos.
+- Create no acepta progreso inicial autoritativo; backend fija `current_value = 0`.
+- Una intención conserva mutation ID e idempotency key entre retry; submit lock impide duplicación.
+- Éxito: respuesta canónica → goal detail/list → Summary → `GoalDetail({ goalId, source: 'quick_action', justCreated: true })`.
+- Post-create one-shot: Steps (primer paso), Tasks (crear/vincular), Numeric (primer avance), Boolean (abrir), None (nota/tarea); no se repite al reingresar.
 
-- Steps: agregar primer paso / ahora no.
-- Tasks: crear tarea / vincular existente / ahora no.
-- Numeric: registrar primer avance / ahora no.
-- Boolean: abrir meta / ahora no.
-- None: agregar nota / crear tarea / ahora no.
+### 4.4 Search entry
 
-La acción se muestra exactamente una vez por goal recién creado. Si el usuario sale y reentra a GoalDetail el `justCreated` no se repite. Se agregan tests y criterios DONE correspondientes en `planner_v1_test_matrix.md` y `planner_v1_implementation_order.md`.
+- Flag exacto: `planner.search_entry`; default `false`; client-visible; deny-safe; kill switch server-side.
+- Capability exacta: `planner.search`.
+- Nuevo screen autorizado: `screens/planner/PlannerSearchScreen.tsx`.
+- V1 incluye icono/header, route, deep-link readiness, fallback, back behavior, estados base y `planner_search_opened`.
+- V1 no incluye endpoint, índice, resultados, ranking, filtros, paginación ni query cache productiva. La key `plannerKeys.search` permanece reservada.
 
-### 5.5 Search
+### 4.5 Query keys, cache e invalidación
 
-V1 implementa únicamente el entry point: icono de Search en top bar; route; tipos de navegación; feature flag necesario para exposición futura; telemetría de apertura; fallback; back behavior; estados visuales base; deep-link readiness.
+Fuente única: `front/mi-front-limpio/services/planner/plannerKeys.ts`.
 
-V1 no implementa endpoint, controller, service, resultados reales, ranking, índices, filtros reales, paginación ni búsqueda productiva. No se crea `planner.search.controller.js`, no se crea `planner.search.service.js`, no se declara Search API productiva, no se introducen query/cache de resultados ni tests que exijan resultados reales en V1.
+| Uso | Factory real |
+|---|---|
+| Capabilities | `plannerKeys.capabilities({ accountId, householdId, membershipId })` |
+| Task list/detail | `plannerKeys.tasks.list/all/detail` |
+| Event list/detail | `plannerKeys.events.list/all/detail` |
+| Goal list/detail/milestones | `plannerKeys.goals.list/all/detail/milestones/milestoneDetail` |
+| Summary | `plannerKeys.summary({ householdId })` |
+| Trash | `plannerKeys.trash({ householdId }, type?)` |
+| Calendar | `plannerKeys.calendar({ householdId }, view?, date?)` |
+| Search reservada | `plannerKeys.search({ householdId }, query, filters?)` |
 
-- Screen físico: `front/mi-front-limpio/src/screens/planner/PlannerSearchScreen.tsx` como placeholder gated con estados visuales base y mensaje fallback.
-- El icono vive en el header de `PlannerScreen.tsx`; nunca abre un sheet.
-- En el estado actual no existe feature flag real. El icono debe permanecer oculto mientras Search no sea funcional; no se inventará `planner_search_enabled` ni equivalente. El feature flag de Search se conserva como contrato V0 necesario para exposición futura: su ausencia bloquea únicamente la exposición del entry point, no bloquea el resto de V1.
+Mutaciones usan `plannerCache.getInvalidationKeys`/`executeInvalidation`. Optimismo usa `registerPendingMutation`, `applyOptimisticPatch`, `reconcileOptimistic`, `rollbackOptimistic`. Requests capturan generación y escriben con `setForContext`; switch/sign-out cancelan y avanzan generación monótona.
 
-### 5.6 Home Summary
+### 4.6 Home Summary
 
-Se conserva `GET /api/planner/summary` y se reemplaza su contrato en `backend/src/services/planner/planner.summary.service.js`; no se crea un segundo endpoint.
-
-Contrato de respuesta requerido:
+Se conserva `GET /api/planner/summary`; M8 refactoriza `backend/src/services/planner.summary.service.js` y `backend/src/controllers/planner.summary.controller.js`.
 
 ```ts
 type PlannerSummary = {
@@ -190,189 +142,56 @@ type PlannerSummary = {
     upcoming_events: number;
     active_goals: number;
   };
-  tasks: Array<{
-    id: string;
-    title: string;
-    status: string;
-    priority: string;
-    due_at: string | null;
-    assigned_membership_id: string | null;
-    version: number;
-  }>;
-  events: Array<{
-    id: string;
-    title: string;
-    starts_at: string;
-    ends_at: string | null;
-    version: number;
-  }>;
-  goal: {
-    id: string;
-    name: string;
-    target_value: number | null;
-    current_value: number;
-    unit: string | null;
-    target_date: string | null;
-    version: number;
-  } | null;
-  partial_errors: Array<{
-    section: 'tasks' | 'events' | 'goals';
-    code: string;
-    request_id?: string;
-  }>;
+  tasks: Array<{ id: string; title: string; status: string; priority: string; due_at: string | null; assigned_membership_id: string | null; version: number }>;
+  events: Array<{ id: string; title: string; starts_at: string; ends_at: string | null; version: number }>;
+  goal: { id: string; name: string; target_value: number | null; current_value: number; unit: string | null; target_date: string | null; version: number } | null;
+  partial_errors: Array<{ section: 'tasks' | 'events' | 'goals'; code: string; request_id?: string }>;
 };
 ```
 
-Reglas: máximo 3 tasks, máximo 3 events, máximo 1 goal; selección y orden determinísticos backend-only; cada sección falla de forma independiente con errores parciales; no hay `briefing_text` como sustituto de datos; `generated_at` y `projection_version` siempre presentes; `counts` siempre presente. El discriminador de sección usa `section: 'tasks' | 'events' | 'goals'` salvo evidencia normativa superior explícita.
+Reglas: máximo 3 tasks, 3 events y 1 goal; orden backend determinístico; secciones aisladas; counts siempre presentes; sin ranking cliente. M9 usa `plannerKeys.summary` y rollback dirigido para one-tap task.
 
-`front/mi-front-limpio/src/services/plannerSummary.ts` adopta exactamente ese tipo. `HomePlannerSections.tsx` elimina los cuatro requests y el ranking cliente, consume una sola proyección, permite one-tap complete de task y aplica optimismo sólo cuando existan cache e invalidación V0.
+### 4.7 Telemetría y privacidad
 
-### 5.7 Query keys, cache e invalidación
+M1–M11 registra en `PLANNER_TELEMETRY_EVENTS` los eventos: `planner_opened`, `planner_tab_changed`, `planner_quick_actions_opened`, `planner_quick_action_selected`, `planner_sheet_opened`, `planner_sheet_closed`, `planner_create_submitted`, `planner_create_succeeded`, `planner_create_failed`, `planner_search_opened`, `planner_summary_loaded`, `planner_summary_partial`, `planner_task_quick_completed`, `planner_household_switched`, `planner_error_shown`.
 
-**Estado real:** no existe librería/adaptador de cache Planner, no existen query keys y no existe registro de invalidaciones. `AppRefreshContext` sólo expone timestamps globales. Por tanto no hay nombres reales que puedan declararse como implementados.
+Solo propiedades técnicas allowlisted: `entity_kind`, `source`, `tab`, `result_count_bucket`, `latency_bucket`, `error_code`, `has_partial_errors`, `household_context_changed`. Se prohíben títulos, descripciones, nombres, emails, IDs de persona/hogar/entidad y query cruda.
 
-El cierre V0 debe publicar, antes de V1, nombres físicos para estos scopes mínimos:
+### 4.8 Audit/outbox
 
-- detalle de entidad: household + kind + entity id;
-- lista por tab/filtros: household + kind + filtros normalizados (tab keys: `tasks`/`calendar`/`goals`);
-- Home Summary: household;
-- Search: household + query normalizada + filtros (reservado para exposición futura; V1 no implementa Search productiva ni resultados);
-- capabilities: account + household + membership.
+- Audit durable append-only: `audit_events`.
+- Outbox transaccional: `record_audit_and_enqueue_outbox` dentro de la transacción del dominio.
+- Worker: `processOutboxBatch`; registry `outboxHandlerRegistry`; retry `computeRetryDecision`; leases/dedupe/dead-letter mediante RPCs G0.4.
+- Una mutación sin side effect real no inventa evento outbox.
+- `planner_activity_log` puede conservarse como actividad de dominio temporal, nunca como autoridad audit.
 
-Grafo de invalidación requerido, que deberá escribirse usando esos nombres públicos y no strings locales:
+### 4.9 Accesibilidad
 
-| Mutación | Actualiza/invalidará |
-|---|---|
-| create/update/complete/cancel task | task detail, task lists afectadas, Home Summary, Search si está activo |
-| create/update/cancel event | event detail, event lists afectadas, Home Summary, Search si está activo |
-| create/update/complete/close goal | goal detail, goal lists afectadas, Home Summary, Search si está activo |
-| cambio de hogar | cancela requests del hogar anterior, purga/sella cache anterior, carga capabilities y prefs del nuevo hogar |
-| sign-out | cierra sheets, cancela requests y elimina toda cache Planner de la sesión |
+Shell, tabs, Search, botón central, Quick Actions, forms y CTA usan roles/labels/selected state. Sheet mueve foco al título/primer control y lo restaura al cerrar; error de submit conserva draft, se anuncia y se enfoca. Targets, contraste, fuente grande, reduced motion, safe areas y teclado requieren evidencia runtime. VoiceOver y TalkBack se ejecutan en M11/M12.
 
-No se permite `refetchAll`, timestamps globales ni mezclar datos de dos household IDs.
+## 5. Orden, tests y rollback
 
-### 5.8 Estados, switch y seguridad de contexto
+- Orden vinculante: `planner_v1_implementation_order.md`; G0 queda `COMPLETE / VERIFIED`; M1–M13 se conservan.
+- File map vinculante: `planner_v1_file_map.md` con rutas reales sin el árbol `src/` inexistente.
+- Matriz: `planner_v1_test_matrix.md`; infraestructura V0 figura `PREREQUISITE PASS` y casos V1 como `PLANNED` o `RUNTIME_REQUIRED`.
+- Baseline por microfase: `npm.cmd run typecheck`, `npm.cmd run lint`, `npm.cmd run test:planner`, suites focalizadas y `git diff --check`.
+- Gate ensamblado: `npm.cmd run test:g0`, `npm.cmd run quality`, `npm.cmd run test:integration`, `npm.cmd run test:db`, `npm.cmd run test:db:remote`.
+- Rollback es por microfase; no se edita una migración aplicada ni se conserva un camino duplicado.
 
-- Nuevos componentes físicos: `components/planner/PlannerStateView.tsx` y `components/planner/PlannerErrorBoundary.tsx`.
-- Estados explícitos: initial loading, refresh, empty, partial, offline, forbidden, not-found, conflict, generic error y retrying.
-- El boundary registra el evento tipado, muestra fallback y jamás deja una pantalla en blanco.
-- Cambio de hogar: cerrar host → bloquear nuevas mutaciones → cancelar requests → activar hogar → limpiar/sellar cache anterior → cargar capabilities/prefs → restaurar tab válida → renderizar.
-- Toda respuesta lleva token lógico de account+household; una respuesta tardía del contexto anterior se descarta.
-- Sign-out ejecuta la misma limpieza de host/requests/cache antes de desmontar navegación.
+## 6. Definition of Ready satisfecha
 
-### 5.9 Telemetría
+1. Los 17 contratos están `AVAILABLE` y ninguno está `BLOCKED`.
+2. V0 final gate y G0.5 están aprobados.
+3. Capabilities, flags, query keys, cache, lifecycle, telemetry y outbox tienen nombres y archivos físicos.
+4. Migration parity local/remoto es 33/33; lint local/remoto es 0.
+5. Typecheck, lint, backend, frontend, contracts, Core, Planner, G0.2, G0.3, G0.4, DB, integration, G0 y quality devolvieron exit 0.
+6. Secret/privacy scans pasaron; no hubo skips.
+7. M1 tiene archivos, APIs y comandos reales.
+8. `planner_v1_open_decisions.md` declara que no existen decisiones abiertas.
 
-Eventos requeridos por el contrato normativo:
-
-`planner_opened`, `planner_tab_changed`, `planner_quick_actions_opened`, `planner_quick_action_selected`, `planner_sheet_opened`, `planner_sheet_closed`, `planner_create_submitted`, `planner_create_succeeded`, `planner_create_failed`, `planner_search_opened`, `planner_summary_loaded`, `planner_summary_partial`, `planner_task_quick_completed`, `planner_household_switched`, `planner_error_shown`.
-
-Propiedades permitidas: `entity_kind`, `source`, `tab`, `result_count_bucket`, `latency_bucket`, `error_code`, `has_partial_errors`, `household_context_changed`. No títulos, descripciones, queries crudas, emails, nombres ni IDs de persona/hogar/entidad. Como no existe proveedor de producto en el repo, la instrumentación queda bloqueada por V0; `console` no es implementación aceptable.
-
-### 5.10 Accesibilidad
-
-- Shell, tabs, icono Search, botón central, filas Quick Actions, campos y CTAs llevan `accessibilityRole`, label estable y hint sólo cuando agrega información.
-- El target táctil mínimo, contraste, fuente grande, reduced motion, safe areas y teclado se verifican en dispositivo/emulador; no se aprueban por inspección de JSX.
-- Al abrir un sheet el foco entra en título/primer control; al cerrar vuelve al disparador si existe. Los errores de submit se anuncian y enfocan sin borrar el draft.
-- Tabs exponen selected state; loading no encierra foco; empty/error/partial son distinguibles por lector de pantalla.
-- VoiceOver y TalkBack son runtime obligatorio en M11/M12.
-
-### 5.11 Arquitectura frontend real
-
-El repositorio organiza Planner por screens, components, services y contexts, no mediante un módulo `features/planner`. V1 se adapta a esa arquitectura y no crea un árbol paralelo. `HomeTabNavigator.tsx` conserva ownership de composición; `PlannerScreen.tsx` del shell; los forms actuales del dominio; services actuales del transporte. Las únicas piezas nuevas resueltas son el contexto/host singleton, state view, error boundary, preferencias y Search screen listados en el file map. Cache, flags y telemetría dependen de APIs V0 públicas y no se implementan como adapters privados V1.
-
-## 6. API y contratos públicos
-
-- Base actual: `EXPO_PUBLIC_API_URL`, con ajuste localhost web en `front/mi-front-limpio/src/services/api.ts`.
-- Auth: bearer Supabase y hogar resuelto server-side; no introducir `householdId` autoritativo en bodies.
-- Mutaciones: `Idempotency-Key`, `X-Mutation-Id` y, para entidades existentes, `If-Match`/`version` obligatorios.
-- Error público final: status HTTP correcto y body tipado con `code`, `message` seguro, `request_id` y `details` no sensibles cuando corresponda. Debe preservar al menos 400, 401, 403, 404, 409, 412, 422, 429 y 5xx.
-- Requests de Search, Summary y listas deben ser abortables. Un abort por navegación/switch no muestra error al usuario ni emite failure de producto.
-- El servidor valida capabilities; ocultar o deshabilitar una acción en UI es sólo una mejora de UX.
-
-## 7. Gate obligatorio antes de la primera línea V1
-
-Todos deben estar cerrados y verificados:
-
-1. Migraciones V0 de Planner aplicadas y listadas en el entorno remoto objetivo.
-2. Proyección server-side de las capabilities normativas y enforcement en endpoints Planner.
-3. Registro real de feature flags, incluyendo el flag decidido para Search.
-4. Adaptador de cache con query keys públicas, scope por hogar, cancelación e invalidación dirigida.
-5. `X-Mutation-Id` propagado y correlacionado en cliente, API e idempotencia/telemetría.
-6. Outbox/auditoría durable para los side effects que lo requieren; `planner_activity_log` best-effort no basta.
-7. Envelope de error público consolidado.
-8. Runner y suites mínimas automatizadas para backend, frontend e integración.
-9. Baseline estático verde o excepciones documentadas y aceptadas; hoy ESLint backend tiene cuatro errores.
-
-No hay workaround permitido. Si cualquiera sigue abierto, el estado continúa `NOT READY`.
-
-Aclaraciones sobre el alcance del gate:
-
-- La falta de Search backend no bloquea V1 porque Search productiva no pertenece a V1; V1 sólo expone el entry point (icono, route, flag, telemetría de apertura, fallback, back behavior, estados base, deep-link readiness).
-- Archive no pertenece a V1 y su ausencia no debe bloquear M1.
-- El feature flag de Search bloquea únicamente la exposición del entry point de Search; no bloquea el resto de V1.
-- Los contratos compartidos de V0 sí deben cerrarse antes de comenzar V1, conforme al proceso acordado. El gate V0 sigue fallando y no debe ocultarse.
-
-## 8. Riesgos auditados
-
-| Riesgo | Evidencia | Control obligatorio |
-|---|---|---|
-| Seguridad sólo en UI | No existen capabilities Planner server-side | Capabilities V0 + tests de 403 forzado |
-| Duplicación de entidades | Activación doble del botón central y mutaciones sin mutation ID | Host singleton, una ruta de press, idempotency + mutation ID |
-| Fuga entre hogares | No hay cache segregada/cancelación; switch recarga sin token de contexto | Keys por hogar, abort, purge/seal y stale-response guard |
-| Home inconsistente | Cuatro requests/ranking cliente; endpoint falla como unidad | Proyección backend 3/3/1 y `partial_errors` |
-| Search accidentalmente pública | No existe feature flag real | No renderizar icono ni registrar ruta/endpoint antes de G0 |
-| Side effects perdidos/duplicados | Activity log best-effort, sin outbox | Outbox transaccional y chaos test |
-| Deploy local-only | Migraciones Planner ausentes del remoto | Migration parity como release gate |
-| Regresiones invisibles | Sin runners/tests/CI | G0 automatizado antes de M1 |
-| PII en observabilidad | No existe schema/allowlist de eventos | Adapter V0, allowlist y tests de privacidad |
-
-Ninguno de estos riesgos se acepta mediante documentación solamente; todos requieren evidencia ejecutable.
-
-## 9. QA, microfases, rollback y DONE
-
-- Orden ejecutable condicionado: `planner_v1_implementation_order.md`.
-- Archivos actuales y destinos físicos: `planner_v1_file_map.md`.
-- Casos y comandos: `planner_v1_test_matrix.md`.
-- Contratos V0: `planner_v1_v0_contract_check.md`.
-- Decisiones abiertas: `planner_v1_open_decisions.md`.
-
-Rollback se hace por microfase, sin mezclar schema, backend y frontend en una reversión opaca. V1 no comienza con una migración. Cualquier migración necesaria para cerrar el gate pertenece a la reparación V0 y debe probarse/aplicarse antes de M1. Cada microfase define rollback de navegación/UI/API/cache y no se marca DONE con flags forzados o código muerto.
-
-QA combina checks automatizados y runtime. Los comandos hoy disponibles y sus resultados, así como cada caso futuro con su bloqueo físico, están en `planner_v1_test_matrix.md`. No se sustituye un caso `AUTO-BLOCKED` por walkthrough manual; VoiceOver/TalkBack, safe areas, teclado, cold links y conectividad sí requieren además evidencia runtime.
-
-Las microfases vinculantes son G0 y M1–M13 de `planner_v1_implementation_order.md`. G0 no es trabajo V1: es la condición previa que impide empezar M1.
-
-## 10. Criterio DONE global de V1
-
-V1 sólo queda DONE cuando:
-
-- el gate V0 está cerrado en local y entorno remoto;
-- shell, tabs, host único, Quick Actions, Goal rápido (Quick Create + post-create), Search (entry point only), Summary (incluye counts) y deep links cumplen los contratos anteriores;
-- capabilities se verifican en servidor y se reflejan en UI;
-- no hay fuga de datos entre hogares ni respuesta tardía que contamine el contexto activo;
-- query keys e invalidaciones dirigidas pasan tests;
-- optimistic updates revierten ante 403/409/412/422/5xx y offline;
-- todos los eventos de telemetría pasan pruebas de esquema y PII;
-- lector de pantalla, teclado, safe areas, foco, targets táctiles y reduced motion pasan QA;
-- unit, integration, contract, navigation y E2E críticos están verdes;
-- TypeScript, syntax/lint, schema checks y migration parity están verdes;
-- no quedan rutas duplicadas, sheets paralelos, estadísticas legacy ni código del flujo anterior.
-
-En el commit auditado estos criterios no se cumplen. El dictamen final es **NOT READY**.
-
-## 11. Definition of Ready final
-
-Planner V1 está `IMPLEMENTATION READY` únicamente cuando, en una nueva auditoría sobre un SHA identificado:
-
-1. los nueve puntos del gate de la sección 7 están PASS con evidencia local y remota;
-2. todos los contratos V0 consumidos por M1–M13 son `AVAILABLE`, no `PARTIAL` o `MISSING`;
-3. el file map contiene APIs físicas reales para cache, query keys, flags, capabilities, telemetría y outbox;
-4. la test matrix contiene framework, archivo y comando reales para cada caso automatizable;
-5. typecheck, lint, contract tests, schema checks y migration parity están verdes;
-6. no queda una decisión abierta ni contradicción normativa.
-
-Estado de esta auditoría: **NOT READY**. La primera línea de código V1 no debe escribirse todavía.
-
-## Post-G0.4 architecture update
-
-The global G0.4 implementation supplies the physical feature-flag registry/evaluator/projection, `planner.search_entry` default false, telemetry provider/privacy schemas, append-only audit, transactional outbox and processor/retry contracts. Planner is only the first consumer (`task.complete` audit); Planner V1, Search UI/backend and G0.5 remain unimplemented. The historical readiness verdict above is retained as evidence from its audited SHA and must be re-audited after G0.4 final verification.
+```text
+PLANNER V1 FOCUSED READINESS REVALIDATION: PASSED
+V0 CONTRACT GATE: PASSED
+V1 STATUS: IMPLEMENTATION READY
+M1 STATUS: AUTHORIZED
+```

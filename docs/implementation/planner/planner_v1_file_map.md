@@ -1,129 +1,113 @@
 # Planner V1 — mapa físico de archivos
 
-Estado: **condicionado al cierre del gate V0**. Este mapa resuelve ubicación y ownership; no autoriza implementación mientras `planner_v1_implementation_ready.md` permanezca `NOT READY`.
+Estado: `IMPLEMENTATION READY`. Rutas verificadas contra `cec151b5e6b2d063d60a5f614cbf7134c800de9f`.
 
-## 0. Matriz operativa obligatoria
+El frontend real no usa un árbol `src/`: sus authorities viven directamente bajo `front/mi-front-limpio/`. Este mapa elimina las referencias históricas incorrectas.
 
-| archivo actual | estado | responsabilidad actual | acción requerida | archivo destino | microfase | dependencia de V0 | tests |
-|---|---|---|---|---|---|---|---|
-| `front/mi-front-limpio/App.tsx` | EXISTS/PARTIAL | linking raíz | Agregar paths Planner tipados | mismo | M1/M10 | errores/contexto | V1-NAV-01..04 |
-| `front/mi-front-limpio/src/navigation/types.ts` | EXISTS/PARTIAL | param lists reales | Exportar tab; details/Search; IDs+metadata | mismo | M1 | ninguna física adicional | V1-NAV-01 |
-| `front/mi-front-limpio/src/navigation/HomeTabNavigator.tsx` | EXISTS/PARTIAL | tabs/stack/quick modal | Registrar screens y montar host singleton | mismo | M1/M3 | capabilities/flags | V1-SHEET-01..04 |
-| `front/mi-front-limpio/src/screens/planner/PlannerScreen.tsx` | EXISTS/CONFLICT | shell+tabs+stats+modales | Reducir a shell/tabs/header/states | mismo | M2/M3/M6/M7 | cache/capabilities/flags | V1-SHL-01..03, V1-TAB-01..03 |
-| `front/mi-front-limpio/src/components/ui/QuickActionSheet.tsx` | EXISTS/PARTIAL | menú/modal Task/Event/Goal | Menú Task/Event/Goal sin ownership modal | mismo o retirar tras migración | M3/M4 | capabilities | V1-QA-01..05 |
-| `front/mi-front-limpio/src/components/ui/CenterTabButton.tsx` | EXISTS/DEFECT | abre Quick Actions | Una única activación accesible | mismo | M3 | ninguna | V1-SHEET-02 |
-| `front/mi-front-limpio/src/components/planner/{TaskForm,EventForm,GoalForm}.tsx` | EXISTS/PARTIAL | formularios y embedded modes | Reusar en host; headers/errors; Goal quick path | mismos | M4/M5 | capabilities, errors, mutation ID | V1-QA-02..05, V1-GOAL-01..04 |
-| — | MISSING | no hay estado singleton | Crear contexto público del host | `front/mi-front-limpio/src/context/PlannerSheetContext.tsx` | M3 | lifecycle cache/context | V1-SHEET-01..04 |
-| — | MISSING | no hay host único | Crear único Modal/compositor | `front/mi-front-limpio/src/components/planner/PlannerSheetHost.tsx` | M3 | capabilities | V1-SHEET-01..05 |
-| — | MISSING | estados inline/incompletos | Crear presentador de estados | `front/mi-front-limpio/src/components/planner/PlannerStateView.tsx` | M2 | errors/cache | V1-SHL-01..02 |
-| — | MISSING | no hay boundary | Crear fallback de crash | `front/mi-front-limpio/src/components/planner/PlannerErrorBoundary.tsx` | M2 | telemetry/errors | V1-SHL-03 |
-| — | MISSING | tab no persistido | Crear adapter AsyncStorage por account+household | `front/mi-front-limpio/src/services/plannerPreferences.ts` | M6 | identidad/contexto AVAILABLE | V1-TAB-01..03 |
-| — | BLOCKED/MISSING | no hay Search UI | Crear placeholder screen gated | `front/mi-front-limpio/src/screens/planner/PlannerSearchScreen.tsx` | M7 | flag | V1-SRCH-01 |
-| `front/mi-front-limpio/src/services/api.ts` | EXISTS/PARTIAL | fetch/auth/errors | Abort/timeout/error envelope/mutation ID | mismo | G0/M1 | errors/mutation ID | V1-ERR-01, V1-CHAOS-01 |
-| `front/mi-front-limpio/src/services/idempotency.ts` | EXISTS/PARTIAL | genera idempotency key | Unir intención con mutation ID y retry | mismo | G0/M4/M5 | mutation contract | V1-QA-04..05 |
-| `front/mi-front-limpio/src/services/planner{Tasks,Events,Goals}.ts` | EXISTS/PARTIAL | clientes CRUD | Capabilities/headers/cache/invalidation | mismos | M4/M5/M9 | G0 completo | V1-QA/V1-GOAL/V1-CACHE |
-| `front/mi-front-limpio/src/services/plannerSummary.ts` | EXISTS/CONFLICT | counts/briefing shape | Adoptar contrato 3/3/1 | mismo | M9 | summary backend/cache | V1-SUM-01..06 |
-| `front/mi-front-limpio/src/components/home/HomePlannerSections.tsx` | EXISTS/CONFLICT | 4 requests/ranking cliente | Una proyección + partial + one-tap | mismo | M9 | cache/invalidation | V1-SUM-04..06 |
-| `front/mi-front-limpio/src/context/AppRefreshContext.tsx` | EXISTS/CONFLICT | timestamps/refetch amplio | Retirar ownership Planner | adapter cache V0 todavía sin ruta pública | G0/M9/M13 | cache keys | V1-CACHE-01..02 |
-| `front/mi-front-limpio/src/context/HouseholdContext.tsx` | EXISTS/PARTIAL | hogar/role | Consumir capabilities y lifecycle seguro | mismo | G0/M7 | capabilities/cache | V1-CTX-01..03 |
-| `front/mi-front-limpio/src/components/household/HouseholdSwitcherSheet.tsx` | EXISTS/PARTIAL | activa/refetch/reload | close/cancel/activate/purge/load/restore | mismo | M7 | cache/cancellation | V1-CTX-01..02 |
-| `front/mi-front-limpio/src/context/AuthContext.tsx` | EXISTS/PARTIAL | sesión/sign-out | Cleanup Planner previo | mismo | M7 | cache/lifecycle | V1-CTX-03 |
-| `backend/src/services/planner/planner.context.service.js` | EXISTS/PARTIAL | hogar/membership/role | Consumir/enforce capabilities | mismo | G0 | capability contract | V1-QA-01..03 |
-| `backend/src/{routes/planner.js,controllers/planner/planner.summary.controller.js}` | EXISTS/PARTIAL | routing/summary response | Search gated; error/partial envelope | mismos | M7/M8 | flags/errors | V1-SRCH/V1-SUM |
-| `backend/src/services/planner/planner.summary.service.js` | EXISTS/CONFLICT | counts/briefing total | Proyección determinística 3/3/1 parcial | mismo | M8 | error/outbox sólo si side effect | V1-SUM-01..03 |
-| `backend/src/services/planner/planner.goals.service.js` | EXISTS/PARTIAL | CRUD Goal | `current_value=0`, capability, durable effects | mismo | M5 | capabilities/outbox | V1-GOAL-01..04 |
-| `backend/src/middleware/plannerObservability.js` | EXISTS/PARTIAL | logs dev | Correlación pública sin PII | mismo | G0/M11 | telemetry/mutation ID | V1-TEL-01..02 |
-| — | BLOCKED/UNRESOLVED | no hay cache/flags/telemetry/outbox públicos | G0 debe publicar ubicación/API; V1 no inventa archivos | ruta pública a definir por G0 | G0 | contrato faltante mismo | V1-CACHE, V1-TEL, V1-OUT |
+## 1. Infraestructura V0 disponible
 
-## 1. Frontend — archivos existentes a modificar
-
-| Archivo real | Símbolos actuales relevantes | Cambio V1 exacto | Microfase |
+| Concern | Archivo real | Símbolos/API | Uso V1 |
 |---|---|---|---|
-| `front/mi-front-limpio/App.tsx` | `linking` | Declarar paths anidados Planner para home, task/event/goal detail y Search; mantener IDs como params | M1, M10 |
-| `front/mi-front-limpio/src/navigation/types.ts` | `HomeTabParamList`, `PlannerStackParamList` | Exportar `PlannerTabKey = 'tasks' | 'calendar' | 'goals'`; tipar `TaskDetail`, `EventDetail`, `PlannerSearch`; agregar `source`, `returnTo`, `justCreated`; ampliar `initialSheet` a goal sólo durante transición y luego retirarlo | M1 |
-| `front/mi-front-limpio/src/navigation/HomeTabNavigator.tsx` | `PlannerStackNavigator`, `HomeTabs`, quick-action state | Registrar nuevas screens; montar un solo `PlannerSheetProvider/PlannerSheetHost`; quitar el estado/modal global anterior | M1, M3 |
-| `front/mi-front-limpio/src/screens/planner/PlannerScreen.tsx` | `PlannerScreen`, `PlannerInternalTab`, sheets locales | Conservarlo como shell; retirar slogan, stat cards y modales locales; agregar Search condicionado; delegar states; persistir tab; usar host único | M2, M3, M6, M7 |
-| `front/mi-front-limpio/src/components/ui/QuickActionSheet.tsx` | `QuickActionSheet` | Convertir en menú presentacional del host; filas Task/Event/Goal exclusivamente como botones circulares con icono y nombre visible; filtro por capability; no montar `Modal` | M3, M4 |
-| `front/mi-front-limpio/src/components/ui/CenterTabButton.tsx` | `CenterTabButton`, `handlePressOut` | Eliminar doble activación `onPress` + `onPressOut`; emitir una única apertura accesible | M3 |
-| `front/mi-front-limpio/src/components/planner/TaskForm.tsx` | formulario embedded existente | Integrar submit-lock/error tipado/mutation headers con host; no duplicar validaciones | M4 |
-| `front/mi-front-limpio/src/components/planner/EventForm.tsx` | formulario embedded existente | Igual que Task; conservar una sola fuente de creación | M4 |
-| `front/mi-front-limpio/src/components/planner/GoalForm.tsx` | `GoalForm`, `embedded`, submit create/update | Quick Create: título, categoría(default home), visibilidad(default household), Guardar; "Más opciones" colapsadas: descripción, modo progreso, prioridad, responsable, participantes, inicio, fecha objetivo, target/unidad, template, recurrencia, hitos; eliminar `current_value` de create; headers; redirect a `GoalDetail` con `justCreated: true`; draft/retry | M5 |
-| `front/mi-front-limpio/src/screens/planner/CreateGoalScreen.tsx` | wrapper de `GoalForm` | Mantener wrapper thin y reutilizar el mismo formulario; adaptar params de retorno | M5 |
-| `front/mi-front-limpio/src/services/api.ts` | `apiFetch`, base URL, parsing de error | Abort/timeout; envelope tipado; 422/429; request ID; propagación de mutation ID; no agregar cache ad hoc | G0, M1 |
-| `front/mi-front-limpio/src/services/idempotency.ts` | generación de key | Integrarse con el contrato V0 de intención/mutation ID; no regenerar en retry de la misma intención | G0, M5 |
-| `front/mi-front-limpio/src/services/plannerGoals.ts` | `createPlannerGoal` | Quitar `current_value` de create; headers V0; usar invalidaciones públicas luego de éxito | M5 |
-| `front/mi-front-limpio/src/services/plannerTasks.ts` | create/update/complete de task | Conectar one-tap a cache/rollback e invalidaciones dirigidas | M4, M9 |
-| `front/mi-front-limpio/src/services/plannerEvents.ts` | create/update de event | Integrar headers e invalidación pública | M4 |
-| `front/mi-front-limpio/src/services/plannerSummary.ts` | shape de counts/briefing | Reemplazar por `PlannerSummary` final (incluye `counts`: overdue_tasks, today_tasks, awaiting_verification, upcoming_events, active_goals) y una única request abortable | M8, M9 |
-| `front/mi-front-limpio/src/components/home/HomePlannerSections.tsx` | `useHomePlannerData`, ranking cliente, cuatro requests | Consumir sólo Summary; render `counts` + 3/3/1; partial errors; one-tap task con optimismo/rollback | M9 |
-| `front/mi-front-limpio/src/context/AppRefreshContext.tsx` | timestamps `plannerChangedAt`, `homeChangedAt` | Retirar su uso como cache/invalidation Planner una vez migrados todos los consumidores; no extenderlo | G0, M9, M13 |
-| `front/mi-front-limpio/src/context/HouseholdContext.tsx` | hogar/membresía activa, role | Consumir proyección pública de capabilities y coordinar cambio de contexto con lifecycle Planner | G0, M7 |
-| `front/mi-front-limpio/src/components/household/HouseholdSwitcherSheet.tsx` | `handleSwitch` | Ejecutar protocolo close/cancel/activate/purge/load/restore; descartar respuestas tardías | M7 |
-| `front/mi-front-limpio/src/context/AuthContext.tsx` | sesión y `signOut` | Invocar cleanup Planner antes de desmontar sesión; no duplicar ownership de cache | M7 |
+| HTTP/error/headers | `front/mi-front-limpio/services/api.ts` | `requestJson`, `ApiError`, `AbortError`, `OPERATION_KINDS`, `generateMutationId`, `createIdempotencyKey` | Toda request M1–M13; mutation identity estable por intención |
+| Request control | `front/mi-front-limpio/services/core/requestControl.ts` | `createRequestControl` | Abort externo, timeout y registro global |
+| Server state | `front/mi-front-limpio/services/core/serverState.ts` | `createServerState`, `appRequestRegistry` | Generation guard, snapshots, rollback y cancellation |
+| Planner keys | `front/mi-front-limpio/services/planner/plannerKeys.ts` | `plannerKeys`, `classifyKey`, `householdOf` | Única factory de keys V1 |
+| Planner cache | `front/mi-front-limpio/services/planner/plannerCache.ts` | `plannerCache`, `getInvalidationKeys`, `executeInvalidation` | Lists/detail/Summary/capabilities/rollback |
+| Lifecycle | `front/mi-front-limpio/services/core/lifecycle.ts` | `runHouseholdSwitch`, `runSessionCleanup` | Switch/sign-out |
+| Composition lifecycle | `front/mi-front-limpio/services/registerLifecycleHandlers.ts` | `registerLifecycleHandlers` | Requests → flags → Planner cache |
+| Capabilities frontend | `front/mi-front-limpio/services/plannerCapabilities.ts` | `PLANNER_CAPABILITIES`, `fetchPlannerCapabilitiesCached`, `hasCapability`, `hasAnyCapability` | UX deny-safe; backend revalida |
+| Flags frontend | `front/mi-front-limpio/context/FeatureFlagsContext.tsx`; `services/core/featureFlags.ts`; `featureFlagStore.ts` | `FeatureFlagsProvider`, `useFeatureFlags`, `fetchFeatureFlagProjection`, `isFeatureEnabled` | `planner.search_entry` |
+| Capability backend | `backend/src/lib/capabilityEngine.js`; `backend/src/lib/plannerCapabilities.js` | engine, catálogo/matriz, `resolveCapabilities`, `assertCapability` | Enforcement Planner |
+| Capability endpoint | `backend/src/controllers/planner.capabilities.controller.js`; `backend/src/routes/planner.js` | `getPlannerCapabilities`; `GET /api/planner/capabilities` | Proyección account/household/membership |
+| Error backend | `backend/src/lib/httpErrors.js`; `backend/src/middleware/errorEnvelopeMiddleware.js`; `requestContextMiddleware.js` | `sendApiError`, envelope, request/mutation IDs | Status/error/support token |
+| Mutation backend | `backend/src/lib/mutationContracts.js`; `plannerMutationContracts.js`; `plannerIdempotencyAdapter.js` | required headers, hashing, reserve/replay | Create y versioned mutations |
+| Flags backend | `backend/src/lib/featureFlagRegistry.js`; `config/featureFlags.js`; `constants/plannerFeatureFlags.js`; `routes/featureFlags.js` | registry/evaluator/projection; `planner.search_entry`; `GET /api/feature-flags` | Gating server-owned |
+| Telemetry | `backend/src/lib/telemetry.js`; `config/telemetry.js`; `constants/plannerTelemetryEvents.js` | `telemetry.track`, `telemetryCatalog`, sinks | Eventos V1 allowlisted |
+| Privacy | `backend/src/lib/dataPrivacy.js` | `assertSafeStructuredData` | PII/size validation |
+| Audit/outbox | `backend/src/lib/outboxRegistry.js`; `outboxRetryPolicy.js`; `services/outboxProcessor.service.js`; migration G0.4 | registry, retry, processor y RPCs | Side effects reales y audit durable |
+| Runners | `tests/run.js`; `tests/integration/run.js`; `tests/db/run.js`; `tests/db/remote.js` | comandos root | Tests V1 y gates |
 
-## 2. Frontend — archivos nuevos resueltos
+## 2. Frontend existente a modificar
 
-| Archivo nuevo | Export principal | Responsabilidad única | Microfase |
+| Archivo real | Estado | Símbolos/responsabilidad actual | Cambio V1 | Fase | Tests |
+|---|---|---|---|---|---|
+| `front/mi-front-limpio/App.tsx` | `EXISTING_PARTIAL` | `App`, providers, linking raíz | Agregar linking Planner anidado sin cambiar providers Core | M1/M10 | V1-NAV-01..04 |
+| `front/mi-front-limpio/navigation/types.ts` | `EXISTING_PARTIAL` | `HomeTabParamList`, `PlannerStackParamList` | Exportar `PlannerTabKey`; tipar details/Search y metadata | M1 | V1-NAV-01 |
+| `front/mi-front-limpio/navigation/HomeTabNavigator.tsx` | `EXISTING_PARTIAL` | stacks/tabs/quick-action state | Registrar routes y montar provider/host singleton | M1/M3 | V1-SHEET-01..04 |
+| `front/mi-front-limpio/screens/planner/PlannerScreen.tsx` | `EXISTING_PARTIAL` | shell, tabs, stats, sheets locales | Shell/header/states; retirar stats/slogan/modales; Search gated; preferencias | M2/M3/M6/M7 | V1-SHL, V1-TAB, V1-SRCH |
+| `front/mi-front-limpio/components/ui/QuickActionSheet.tsx` | `EXISTING_PARTIAL` | modal/menú Task/Event/Goal | Menú presentacional del host, capabilities, tres acciones exactas | M3/M4 | V1-QA-01,06..10 |
+| `front/mi-front-limpio/components/ui/CenterTabButton.tsx` | `EXISTING_PARTIAL` | trigger central | Una activación accesible por tap | M3 | V1-SHEET-02 |
+| `front/mi-front-limpio/screens/planner/TaskForm.tsx` | `EXISTING_PARTIAL` | form y embedded mode | Submit lock, identity estable, typed errors, cache/invalidation | M4 | V1-QA-04/05 |
+| `front/mi-front-limpio/screens/planner/EventForm.tsx` | `EXISTING_PARTIAL` | form y embedded mode | Mismo contrato Task, sin lógica duplicada | M4 | V1-QA-04/05 |
+| `front/mi-front-limpio/screens/planner/GoalForm.tsx` | `EXISTING_PARTIAL` | create/edit y embedded mode | Quick Create, more-options, draft/retry, redirect/post-create | M5 | V1-GOAL-01..06 |
+| `front/mi-front-limpio/screens/planner/CreateGoalScreen.tsx` | `EXISTING_PARTIAL` | wrapper GoalForm | Wrapper thin y params de retorno | M5 | V1-GOAL-03 |
+| `front/mi-front-limpio/screens/planner/GoalDetailScreen.tsx` | `EXISTING_PARTIAL` | detalle Goal | Consumir `justCreated` una vez y render post-create por tipo | M5/M10 | V1-GOAL-05/06 |
+| `front/mi-front-limpio/services/plannerTasks.ts` | `EXISTING_PARTIAL` | CRUD/complete y proof optimistic | Completar adapters V1, Summary one-tap y graph real | M4/M9 | V1-SUM-05/06 |
+| `front/mi-front-limpio/services/plannerEvents.ts` | `EXISTING_PARTIAL` | CRUD Event | Host submit, headers, invalidación | M4 | V1-QA-04/05 |
+| `front/mi-front-limpio/services/plannerGoals.ts` | `EXISTING_PARTIAL` | CRUD Goal | No enviar progreso inicial; invalidación/redirect | M5 | V1-GOAL-01..05 |
+| `front/mi-front-limpio/services/plannerSummary.ts` | `EXISTING_CONFLICT_TO_REFACTOR` | shape counts/briefing actual | Tipo 3/3/1+counts+partial; request única abortable | M8/M9 | V1-SUM-01..07 |
+| `front/mi-front-limpio/components/home/HomePlannerSections.tsx` | `EXISTING_CONFLICT_TO_REFACTOR` | fan-out y ranking cliente | Consumir Summary única y one-tap rollback | M9 | V1-SUM-04..06 |
+| `front/mi-front-limpio/context/AppRefreshContext.tsx` | `EXISTING_CONFLICT_TO_REFACTOR` | timestamps globales | Retirar ownership Planner tras migrar consumidores | M9/M13 | V1-CACHE-02 |
+| `front/mi-front-limpio/context/HouseholdContext.tsx` | `EXISTING_PARTIAL` | hogar/members | Mantener Core lifecycle; integrar host/prefs/tab | M7 | V1-CTX-01..03 |
+| `front/mi-front-limpio/components/ui/HouseholdSwitcherSheet.tsx` | `EXISTING_PARTIAL` | switch UI | close host antes de `runHouseholdSwitch`; estados/errores | M7 | V1-CTX-01/02 |
+| `front/mi-front-limpio/context/AuthContext.tsx` | `EXISTING_PARTIAL` | sesión/sign-out | Cierre host antes de `runSessionCleanup`; prefs de sesión | M7 | V1-CTX-03 |
+| `front/mi-front-limpio/context/FeatureFlagsContext.tsx` | `EXISTS` | proyección flags | Consumir sin fork; no evaluar overrides en cliente | M7 | V1-SRCH-01 |
+
+## 3. Frontend nuevo autorizado
+
+| Archivo destino | Export principal | Responsabilidad | Fase |
 |---|---|---|---|
-| `front/mi-front-limpio/src/context/PlannerSheetContext.tsx` | `PlannerSheetProvider`, `usePlannerSheet` | Máquina de estado pública del único host y restauración de foco | M3 |
-| `front/mi-front-limpio/src/components/planner/PlannerSheetHost.tsx` | `PlannerSheetHost` | Único `Modal` Planner; compone menú/Task/Event/Goal y aplica close/submit/safe-area/keyboard | M3 |
-| `front/mi-front-limpio/src/components/planner/PlannerStateView.tsx` | `PlannerStateView` | Estados loading/empty/partial/offline/forbidden/not-found/conflict/error | M2 |
-| `front/mi-front-limpio/src/components/planner/PlannerErrorBoundary.tsx` | `PlannerErrorBoundary` | Fallback contra crash y emisión de error seguro | M2 |
-| `front/mi-front-limpio/src/services/plannerPreferences.ts` | `getLastPlannerTab`, `setLastPlannerTab`, `clearPlannerPreferences` | Persistencia por account+household en AsyncStorage | M6 |
-| `front/mi-front-limpio/src/screens/planner/PlannerSearchScreen.tsx` | `PlannerSearchScreen` | Search unificado, debounced, cancelable y flag-gated | M7 |
+| `front/mi-front-limpio/context/PlannerSheetContext.tsx` | `PlannerSheetProvider`, `usePlannerSheet` | Estado del host, intent identity, submit lock y trigger ref | M3 |
+| `front/mi-front-limpio/components/planner/PlannerSheetHost.tsx` | `PlannerSheetHost` | Único Modal Planner; compone menú/Task/Event/Goal | M3 |
+| `front/mi-front-limpio/components/planner/PlannerStateView.tsx` | `PlannerStateView` | Loading/refresh/empty/partial/offline/403/404/conflict/error | M2 |
+| `front/mi-front-limpio/components/planner/PlannerErrorBoundary.tsx` | `PlannerErrorBoundary` | Fallback accesible, retry y telemetry segura | M2 |
+| `front/mi-front-limpio/services/plannerPreferences.ts` | `getLastPlannerTab`, `setLastPlannerTab`, `clearPlannerPreferences` | AsyncStorage `planner:last-tab:${accountId}:${householdId}` | M6 |
+| `front/mi-front-limpio/screens/planner/PlannerSearchScreen.tsx` | `PlannerSearchScreen` | Placeholder/entry gated; sin resultados productivos | M7 |
+| `front/mi-front-limpio/screens/planner/TaskDetailScreen.tsx` | `TaskDetailScreen` | Detalle por `taskId`, estados/cache/deep link | M10 |
+| `front/mi-front-limpio/screens/planner/EventDetailScreen.tsx` | `EventDetailScreen` | Detalle por `eventId`, estados/cache/deep link | M10 |
 
-`plannerPreferences.ts` es la única creación física que puede fijarse sin elegir una librería nueva, porque AsyncStorage ya está instalado y usado. Los archivos de cache y telemetría **no se nombran aquí**: esos subsistemas no existen y su API pública debe quedar definida por el cierre V0, no por una implementación V1 local.
+No se autoriza un cache, feature-flag provider, capability engine, HTTP client, telemetry provider u outbox paralelo: se consumen los archivos V0 existentes.
 
-## 3. Backend — archivos existentes a modificar
+## 4. Backend existente a modificar
 
-| Archivo real | Símbolos actuales relevantes | Cambio V1 exacto | Microfase |
-|---|---|---|---|
-| `backend/src/routes/planner.js` | router Planner y middleware no-store | Conservar Summary existente; no registrar Search | M8 |
-| `backend/src/services/planner/planner.context.service.js` | `resolvePlannerContext` | Consumir/enforce capabilities públicas V0; no inferir permisos por rol | G0 |
-| `backend/src/controllers/planner/planner.summary.controller.js` | `getSummary` | Envelope de error canónico y request ID; preservar partial section errors como datos | M8 |
-| `backend/src/services/planner/planner.summary.service.js` | `getPlannerSummary` | Proyección 3 tasks/3 events/1 goal, ranking determinístico, `generated_at`, `projection_version`, `counts` (overdue_tasks, today_tasks, awaiting_verification, upcoming_events, active_goals), `partial_errors` con section `'tasks'|'events'|'goals'` | M8 |
-| `backend/src/controllers/planner/planner.goals.controller.js` | create/update wrappers | Exigir capabilities y mutation headers; no aceptar progreso inicial arbitrario | G0, M5 |
-| `backend/src/services/planner/planner.goals.service.js` | `createGoal` | Forzar `current_value = 0`; emitir side effect durable por contrato V0 | M5 |
-| `backend/src/controllers/planner/planner.tasks.controller.js` | create/update/state actions | Capabilities, mutation ID y errores tipados | G0, M9 |
-| `backend/src/services/planner/planner.tasks.service.js` | selección/state changes | Soportar Summary y one-tap sin lógica de ranking cliente | M8, M9 |
-| `backend/src/controllers/planner/planner.events.controller.js` | create/update/state actions | Capabilities, mutation ID y errores tipados | G0 |
-| `backend/src/middleware/plannerObservability.js` | request/latency logging | Correlacionar request/mutation IDs con el proveedor V0; no emitir PII | G0, M11 |
-| `backend/src/lib/householdPermissions.js` | `getRolePermissions`, `canInviteMembers` | Hallazgo existente del dominio Household; no es dependencia de Planner V1 ni de Quick Actions | G0 |
+| Archivo real | Estado | Cambio V1 | Fase | APIs V0 usadas |
+|---|---|---|---|---|
+| `backend/src/routes/planner.js` | `EXISTS` | Conservar Summary; no registrar Search backend | M8 | auth/context/envelope global |
+| `backend/src/controllers/planner.summary.controller.js` | `EXISTING_PARTIAL` | Envelope existente + partial errors como datos | M8 | `sendApiError`, request ID |
+| `backend/src/services/planner.summary.service.js` | `EXISTING_CONFLICT_TO_REFACTOR` | Proyección determinística 3/3/1, counts, secciones aisladas | M8 | contexto y servicios Planner |
+| `backend/src/controllers/planner.goals.controller.js` | `EXISTS` | Reusar capability/header/idempotency; validar quick-create contract | M5 | `assertCapability`, required headers |
+| `backend/src/services/planner.goals.service.js` | `EXISTING_PARTIAL` | Forzar progreso inicial 0 y retornar versión canónica | M5 | audit/outbox solo ante acción real |
+| `backend/src/controllers/planner.tasks.controller.js` | `EXISTS` | Conservar `task.complete` auditado; soportar one-tap sin API paralela | M9 | 412, idempotency, audit correlation |
+| `backend/src/services/planner.tasks.service.js` | `EXISTS` | Reusar `complete_planner_task_with_audit` | M9 | RPC transaccional existente |
+| `backend/src/constants/plannerTelemetryEvents.js` | `EXISTING_PARTIAL` | Registrar esquemas V1 adicionales | M2–M11 | `telemetryCatalog`, privacy gate |
 
-## 4. Backend — archivos nuevos condicionados
+No se crean controller/service/route de Search en V1.
 
-No se crean archivos de Search backend en V1 (entry point only). No se fija un archivo nuevo de capabilities, flags, cache, outbox o telemetría: son bases V0 ausentes y su diseño/ubicación debe quedar publicado como contrato V0. Crear una versión sólo para Planner V1 sería el workaround prohibido.
+## 5. Tests nuevos autorizados
 
-## 5. Archivos a retirar o vaciar de ownership
+Se integran al runner real `tests/run.js`; fuentes TypeScript se compilan mediante `scripts/tsconfig.test.json` a `scripts/compiled/` ignorado.
 
-| Archivo/símbolo | Acción al final de V1 | Condición |
+| Archivo destino | Alcance | Comando público |
 |---|---|---|
-| `QuickActionSheet.tsx` como dueño de `Modal` | Retirar ese ownership; puede sobrevivir como menú presentacional | Host único probado |
-| modales locales de `PlannerScreen.tsx` | Eliminar | Task/Event/Goal abren por `PlannerSheetContext` |
-| `PlannerInternalTab` local | Eliminar | `PlannerTabKey` exportado y usado |
-| stat cards y slogan de `PlannerScreen.tsx` | Eliminar | Shell final renderizado |
-| ranking y requests paralelos de `HomePlannerSections.tsx` | Eliminar | Summary final integrado |
-| invalidación Planner por `AppRefreshContext` | Eliminar | Todos los consumidores migrados a cache V0 |
-| `briefing_text` como contrato Home | Eliminar | Proyección final consumida |
+| `scripts/planner_v1_frontend_tests.ts` | keys, preferences, sheet state, states, Search gate, Summary projection UI logic | `npm.cmd run test:planner` |
+| `scripts/planner_v1_navigation_tests.ts` | param types, paths, cold/warm state reducers | `npm.cmd run test:planner` |
+| `scripts/planner_v1_backend_contract_tests.js` | Summary contract/determinism/partial errors y goal quick-create | `npm.cmd run test:contracts` |
+| `scripts/planner_v1_integration_tests.js` | headers/capability/switch/two-client/outbox contracts | `npm.cmd run test:integration` |
 
-## 6. Schema y migraciones
+Los tests runtime de gestures, cold start real, VoiceOver/TalkBack, teclado y safe areas usan el build de la app y quedan como `RUNTIME_REQUIRED` en la matriz; no se finge un framework E2E inexistente.
 
-Planner V1 no tiene una migración propia preautorizada. La auditoría no encontró una necesidad V1 que deba resolverse cambiando schema antes de implementar UI/API. Las migraciones locales V0 ya existentes deben aplicarse al remoto como parte del gate V0.
+## 6. Archivos/símbolos a retirar de ownership
 
-Si el cierre V0 determina que capabilities, flags u outbox requieren schema, esas migraciones pertenecen a V0, tienen rollback y tests propios y deben estar aplicadas antes de M1. No se mezclarán con commits/microfases V1.
-
-## 7. Mapa de ownership final
-
-| Dominio | Dueño físico final |
+| Camino legacy | Condición de retiro |
 |---|---|
-| Navegación/paths | `App.tsx`, `navigation/types.ts`, `HomeTabNavigator.tsx` |
-| Shell/tabs | `PlannerScreen.tsx` |
-| Sheets | `PlannerSheetContext.tsx` + `PlannerSheetHost.tsx` |
-| Formularios | `TaskForm.tsx`, `EventForm.tsx`, `GoalForm.tsx` |
-| Preferencia de tab | `plannerPreferences.ts` |
-| Summary backend | `planner.summary.service.js` |
-| Summary frontend | `plannerSummary.ts` + `HomePlannerSections.tsx` |
-| Search | `PlannerSearchScreen.tsx` (entry point gated), condicionado; sin backend en V1 |
-| Contexto/permissions | contrato público V0 consumido por `HouseholdContext`/backend context |
-| Cache/invalidation | contrato público V0 todavía ausente |
-| Telemetría/outbox | contrato público V0 todavía ausente |
+| `QuickActionSheet.tsx` como dueño del `Modal` | Host singleton probado |
+| Modales Task/Event locales de `PlannerScreen.tsx` | Toda apertura pasa por `PlannerSheetContext` |
+| `PlannerInternalTab` local | `PlannerTabKey` exportado |
+| Stats/slogan del shell | State/shell M2 aprobado |
+| Ranking y cuatro requests de `HomePlannerSections.tsx` | Summary M8/M9 aprobada |
+| `plannerChangedAt`/`markPlannerChanged` como invalidación | Consumidores migrados a `plannerCache` |
+| `briefing_text` como contrato Home | Nuevo shape versionado consumido |
+
+## 7. Schema
+
+V1 no comienza con una migración. Las 33 migraciones están aplicadas local/remoto. Cualquier necesidad de schema descubierta durante M1–M13 requiere una fase explícita y una migración forward nueva; nunca se edita historia aplicada.

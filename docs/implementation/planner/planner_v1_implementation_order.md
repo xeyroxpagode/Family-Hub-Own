@@ -1,284 +1,112 @@
 # Planner V1 — orden de implementación
 
-Estado: **NO EJECUTABLE** hasta cerrar G0. Las microfases están diseñadas para producir cambios pequeños, reversibles y verificables; ninguna habilita un workaround a una base V0 ausente.
+Estado de entrada:
 
-## Matriz operativa completa
+```text
+G0 — COMPLETE / VERIFIED
+V0 CONTRACT GATE: PASSED
+M1 STATUS: AUTHORIZED
+```
 
-Los comandos futuros marcados `G0 REQUIRED` no tienen hoy nombre real porque no existe runner. Deben reemplazarse por comandos públicos y verdes antes de M1.
+G0 es precondición satisfecha, no una fase futura. Se conserva el orden M1–M13. Cada fase produce un cambio pequeño, verificable y reversible; ninguna crea infraestructura paralela a Core.
 
-| fase | objetivo | precondiciones | archivos | backend | frontend | cache | telemetría | tests | comandos de verificación | rollback | DONE | commit sugerido |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| G0 | Publicar bases V0 | ninguna | definidos por reparación V0 | capabilities, flags, errors, mutation ID, outbox, remoto | adapters públicos y runners | keys/cancel/invalidation | provider+PII schema | contract/integration/cache/outbox | schema checks; migration parity; typecheck/lint; `G0 REQUIRED` suites | por reparación/migración V0 | 10 gates con evidencia | fuera de V1 |
-| M1 | Contracts nav/transporte | G0 DONE | types, App, navigator, api | validar headers/errors | routes/params/linking/abort | consumir API G0 | sólo correlation hooks | V1-NAV, V1-ERR | frontend typecheck/lint/test; backend contract (`G0 REQUIRED`) | retirar rutas/params, conservar G0 | contracts verdes | `planner-v1-m1-navigation-contracts` |
-| M2 | Shell/state boundary | M1 DONE | PlannerScreen, StateView, ErrorBoundary | sin cambio de dominio | shell sin legacy; estados/boundary | una lectura sin fetch duplicado | opened/error | V1-SHL | frontend typecheck/lint/component (`G0 REQUIRED`) | restaurar shell, conservar M1 | estados+boundary verdes | `planner-v1-m2-shell-states` |
-| M3 | Sheet singleton | M2 DONE | SheetContext, SheetHost, navigator, PlannerScreen, QuickAction, CenterButton | ninguno | host único, close/lock/focus | sin mutation/cache nueva | opened/closed | V1-SHEET | frontend unit/component/E2E (`G0 REQUIRED`) | revertir migración modal completa | un solo host runtime | `planner-v1-m3-single-sheet-host` |
-| M4 | Quick Actions Task/Event/Goal | M3 DONE | menú/forms/services | enforce capability; headers | filas filtradas, drafts/errors | invalidar keys G0 | QA/create lifecycle | V1-QA | frontend+API integration (`G0 REQUIRED`) | flag real por acción; conservar host | UI/API coinciden, 1 intención=1 mutación | `planner-v1-m4-quick-actions` |
-| M5 | Goal rápido | M4 DONE | GoalForm/screen/client/controller/service | progreso 0; capability; side effect | orden, lock, retry, redirect | goal/list/summary/search keys | create lifecycle | V1-GOAL | frontend+API integration (`G0 REQUIRED`) | revertir UI+handler juntos | no duplicado; GoalDetail final | `planner-v1-m5-create-goal` |
-| M6 | Tabs persistentes | M5 DONE | PlannerScreen, preferences, types | ninguno | persistir por account+household | limpiar preferencia de sesión | tab_changed | V1-TAB | frontend unit/component (`G0 REQUIRED`) | dejar de leer/escribir y limpiar key | aislamiento probado | `planner-v1-m6-tab-persistence` |
-| M7 | Context switch | M6 DONE; flags/cache | switcher, contexts, PlannerScreen.tsx, nuevo PlannerSearchScreen.tsx | sin Search backend | lifecycle + Search entry point gated | cancel/purge/seal | switched | V1-CTX, V1-SRCH | frontend/integration/E2E (`G0 REQUIRED`) | apagar flag Search; conservar switch seguro | cero stale leak; flag off inaccesible | `planner-v1-m7-context-switch` |
-| M8 | Summary backend | M7 DONE | summary service/controller/repos | proyección 3/3/1 parcial | sólo contract update preparatorio | key Summary publicada | server latency/error correlation | V1-SUM-01..03 | backend unit/contract/integration (`G0 REQUIRED`) | version/flag real; sin endpoint paralelo | shape/determinismo/partial verdes | `planner-v1-m8-summary-backend` |
-| M9 | Summary Home+one-tap | M8 DONE | summary client, Home sections, task client, refresh context | complete contract existente | una request; optimistic UX | patch/rollback dirigido | loaded/partial/quick_completed | V1-SUM-04..06, V1-CACHE | frontend/cache integration/E2E (`G0 REQUIRED`) | apagar one-tap con flag real | sin fan-out/global refetch; rollback exacto | `planner-v1-m9-summary-home` |
-| M10 | Deep links | M9 DONE | App, navigator, detail screens | 403/404 existentes | cold/warm paths y back | detail key scoped | source permitido | V1-NAV-02..04 | navigation/E2E (`G0 REQUIRED`) | retirar mapping defectuoso | paths/back determinísticos | `planner-v1-m10-deep-links` |
-| M11 | A11y+telemetría | M10 DONE | toda superficie V1 + adapter G0 | eventos correlacionados | roles/foco/targets/motion | ninguna nueva | todos los eventos+PII | V1-TEL, V1-A11Y | schema tests+E2E+runtime (`G0 REQUIRED`) | apagar eventos; conservar a11y | schema verde + QA firmado | `planner-v1-m11-a11y-telemetry` |
-| M12 | Regresión/caos | M11 DONE | suites/harness G0 | fallas/concurrencia/outbox | runtime workflows | aislamiento/rollback | assertions de fallas | toda la matriz/chaos | todos los comandos G0 + schema/migrations | bloquear release | matriz verde local/remoto/runtime | `planner-v1-m12-regression` |
-| M13 | Cleanup/docs | M12 DONE | legacy files/símbolos+docs | quitar shapes/imports legacy | quitar modales/stats/ranking/refresh | cero timestamps Planner | quitar eventos temporales | full regression | rg legacy; typecheck/lint/tests; diff check | restaurar sólo consumidor omitido | cero caminos legacy; docs finales | `planner-v1-m13-cleanup` |
+## Comandos base reales
 
-## G0 — Readiness gate V0 (bloqueante, fuera de V1)
+Desde la raíz, en PowerShell se usa `npm.cmd`:
 
-**Objetivo:** convertir las bases parciales/faltantes en contratos públicos deployados.
+- Estático: `npm.cmd run typecheck`, `npm.cmd run lint`.
+- Dominio: `npm.cmd run test:planner`, `npm.cmd run test:frontend`, `npm.cmd run test:backend`, `npm.cmd run test:contracts`, `npm.cmd run test:core`.
+- Runtime/DB: `npm.cmd run test:integration`, `npm.cmd run test:db`, `npm.cmd run test:db:remote`.
+- Gate: `npm.cmd run test:g0`, `npm.cmd run quality`, `git diff --check`.
 
-**Debe entregar:**
+## G0 — COMPLETE / VERIFIED
 
-1. parity de migraciones Planner entre local y remoto;
-2. capabilities normativas proyectadas y enforced server-side;
-3. registro/API de feature flags y flag real de Search (solo para gatear entry point, no backend);
-4. cache con query keys por hogar, cancelación e invalidación dirigida;
-5. `X-Mutation-Id` end-to-end;
-6. error envelope consolidado;
-7. outbox/auditoría durable donde corresponda;
-8. proveedor de telemetría de producto sin PII;
-9. runners y suites mínimas backend/frontend/integración;
-10. baseline estático verde.
+| Precondiciones | Archivos/APIs reales | Keys/capabilities/flags | Tests/resultados | Rollback/DONE |
+|---|---|---|---|---|
+| HomePlus V0 cerrado sobre `cec151b5...` | `requestJson`, `ApiError`, `createServerState`, `plannerCache`, `runHouseholdSwitch`, capability engine, flag registry, telemetry, audit/outbox y runners root | `plannerKeys.*`; catálogo 38; `planner.search_entry` default false | typecheck/lint/backend/frontend/contracts/Core/Planner/G0.2/G0.3/G0.4/DB/integration/G0/quality exit 0; parity 33/33 | Rollback pertenece a cada entrega Core ya cerrada. DONE: 17 contratos `AVAILABLE`, 0 bloqueados |
 
-**Checks de salida:** migration list local/remoto sin divergencia; schema checks; contract tests de capabilities/idempotency/version/errors; cache isolation test; mutation correlation test; outbox retry test; TypeScript, syntax, lint y tests verdes.
+## Matriz M1–M13
 
-**Rollback:** cada reparación V0 se revierte con su propio artefacto; una migración no se declara aplicada si no existe rollback probado.
+| Fase | Objetivo y precondiciones | Archivos | APIs Core/V0, keys, capabilities y flags | Tests y comandos reales | Rollback | DONE | Commit sugerido |
+|---|---|---|---|---|---|---|---|
+| M1 | Congelar navegación/transporte. Pre: G0 verificado | `navigation/types.ts`, `App.tsx`, `navigation/HomeTabNavigator.tsx`, `services/api.ts`; tests V1 navigation/frontend | `requestJson`, `ApiError`, `AbortError`, `OPERATION_KINDS`; routes solo IDs; `plannerKeys` disponible; sin capability/flag nueva | `typecheck`, `lint`, `test:frontend`, `test:contracts`, `test:planner`, `git diff --check` | Retirar solo mappings/params nuevos; conservar Core | Types/paths/abort/statuses verdes; ningún param transporta objetos | `planner-v1-m1-navigation-contracts` |
+| M2 | Shell y estados globales. Pre: M1 | `PlannerScreen.tsx`; nuevos `PlannerStateView.tsx`, `PlannerErrorBoundary.tsx`; catálogo telemetry Planner | `plannerKeys.summary/list`; `ApiError`; `telemetry.track`; capability `planner.view` | `typecheck`, `lint`, `test:planner`, `test:frontend`, `test:contracts` | Restaurar layout anterior, no contratos M1 | Loading/refresh/empty/partial/offline/403/404/conflict/error y crash fallback probados | `planner-v1-m2-shell-states` |
+| M3 | Host único. Pre: M2 | nuevos `PlannerSheetContext.tsx`, `PlannerSheetHost.tsx`; navigator, PlannerScreen, QuickActionSheet, CenterTabButton | `generateMutationId`; `runHouseholdSwitch`/`runSessionCleanup`; sin key/flag nueva | `typecheck`, `lint`, `test:planner`, `test:frontend`; runtime gestures/foco queda marcado | Revertir provider/host y migración modal como unidad; nunca dejar dos hosts | Un host montado, una apertura por tap, close idempotente, submit lock y focus restore | `planner-v1-m3-single-sheet-host` |
+| M4 | Quick Actions Task/Event/Goal. Pre: M3 | QuickActionSheet, TaskForm, EventForm, GoalForm, services task/event | `fetchPlannerCapabilitiesCached`, `hasAnyCapability`; capabilities `task.create_*`, `event.create_*`, `goal.create_*`; `plannerCache.executeInvalidation`; no flag local | `typecheck`, `lint`, `test:planner`, `test:contracts`, `test:integration` | Retirar la acción afectada; host permanece; rollback no introduce constante permisiva | Tres acciones exactas, server denial, una intención=una mutación, drafts/errors seguros | `planner-v1-m4-quick-actions` |
+| M5 | Goal rápido/post-create. Pre: M4 | GoalForm, CreateGoalScreen, GoalDetailScreen, `plannerGoals.ts`, goal controller/service | capability `goal.create_personal|household`; `plannerKeys.goals.detail/list/all`, `plannerKeys.summary`; required headers; audit/outbox solo si hay efecto real | `typecheck`, `lint`, `test:planner`, `test:contracts`, `test:integration`, `test:db` | Revertir UI+handler juntos; conservar contratos V0 | Backend fija progreso 0; retry no duplica; cache canónica; GoalDetail y post-create one-shot | `planner-v1-m5-create-goal` |
+| M6 | Tabs persistentes. Pre: M5 | PlannerScreen, nuevo `plannerPreferences.ts`, navigation types | identidad account+household; AsyncStorage existente; key de preferencia `planner:last-tab:${accountId}:${householdId}`; `planner_tab_changed` | `typecheck`, `lint`, `test:planner`, `test:frontend` | Dejar de leer/escribir y limpiar keys propias | Default Tasks; aislamiento entre hogares/cuentas; corrupt value seguro | `planner-v1-m6-tab-persistence` |
+| M7 | Switch seguro y Search entry. Pre: M6 | switcher, HouseholdContext, AuthContext, PlannerScreen, nuevo PlannerSearchScreen | `runHouseholdSwitch`, `runSessionCleanup`, `appRequestRegistry`, `plannerCache.cleanup*`, `useFeatureFlags`; flag `planner.search_entry`; capability `planner.search`; key Search solo reservada | `typecheck`, `lint`, `test:planner`, `test:frontend`, `test:integration`; deep link/gesture runtime | Kill switch/flag false oculta Search; protocolo seguro de contexto permanece | Host cierra antes de switch; A no aparece en B; sign-out purga; Search inaccesible con flag false | `planner-v1-m7-context-switch` |
+| M8 | Summary backend. Pre: M7 | summary service/controller, backend V1 contract tests | `getPlannerContext`, `sendApiError`; `plannerKeys.summary` define consumidor; capability `planner.view`; sin Search backend | `typecheck`, `lint`, `test:backend`, `test:contracts`, `test:integration`, `test:db` | Versionar/revertir el shape como unidad; no crear endpoint paralelo | Shape exacto, counts, límites 3/3/1, orden estable, secciones parciales y hogar vacío verdes | `planner-v1-m8-summary-backend` |
+| M9 | Summary Home + task one-tap. Pre: M8 | plannerSummary, HomePlannerSections, plannerTasks, AppRefreshContext | `plannerKeys.summary/tasks.*`; `registerPendingMutation`, optimistic patch/reconcile/rollback; capability `task.complete_assigned`; `complete_planner_task_with_audit` | `typecheck`, `lint`, `test:planner`, `test:frontend`, `test:integration` | Deshabilitar one-tap; conservar lectura Summary; restaurar consumidor anterior solo durante rollback | Una request; sin ranking/fan-out/refetch global; success y 403/409/412/422/5xx/offline restauran keys correctas | `planner-v1-m9-summary-home` |
+| M10 | Deep links/details. Pre: M9 | App, navigator, nuevos TaskDetail/EventDetail, GoalDetail existente | detail keys scoped; `ApiError`; capability `planner.view`; Search route respeta flag/capability | `typecheck`, `lint`, `test:planner`, `test:frontend`; cold/warm runtime | Retirar mapping defectuoso, conservar screen interna | Task/Event/Goal por ID, auth/403/404/back determinísticos, URLs sin payload | `planner-v1-m10-deep-links` |
+| M11 | Accesibilidad + telemetry completa. Pre: M10 | superficies V1, `plannerTelemetryEvents.js` | `telemetryCatalog`, `telemetry.track`, privacy gate; todas las properties allowlisted; no keys nuevas | `typecheck`, `lint`, `test:contracts`, `test:planner`, `test:secrets`; VoiceOver/TalkBack/teclado/safe-area runtime | Sink noop/config apaga emisión; nunca revertir fixes a11y por rollback telemetry | Schemas/PII verdes y QA runtime firmada para roles, foco, targets, contraste, fuente y motion | `planner-v1-m11-a11y-telemetry` |
+| M12 | Regresión/caos. Pre: M11 | suites/harness V1 integrados a runners | Todos los contratos; two-client 412; outbox leases/dedupe/retry/dead-letter; generation guard | `test:g0`, `quality`, `test:integration`, `test:db`, `test:db:remote`, `test:secrets`, `git diff --check`; runtime cold starts/dos clientes/chaos | Bloquear release y revertir la microfase causante | Matriz automática verde, no skips críticos, runtime futuro ejecutado, parity/lint/schema verdes | `planner-v1-m12-regression` |
+| M13 | Cleanup/docs. Pre: M12 | legacy ownership y documentación | Sin adapters V1 paralelos; `plannerKeys`/Core siguen authority | `rg` de símbolos legacy, `typecheck`, `lint`, `test:g0`, `quality`, `git diff --check` | Restaurar solo consumidor real omitido y volver a ejecutar gate | Cero modales/ranking/stats/refresh timestamps Planner legacy; docs y código coinciden | `planner-v1-m13-cleanup` |
 
-**DONE:** los diez puntos tienen evidencia reproducible y nombres/API públicos. Recién entonces puede comenzar M1.
+## Detalle vinculante por fase
 
-Aclaraciones sobre alcance del gate:
+### M1 — navegación y transporte
 
-- La falta de Search backend no bloquea V1 porque Search productiva no pertenece a V1; V1 solo expone el entry point (icono, route, flag, telemetría de apertura, fallback, back behavior, estados base, deep-link readiness).
-- Archive no pertenece a V1 y su ausencia no debe bloquear M1.
-- El feature flag de Search bloquea únicamente la exposición del entry point.
-- Los contratos compartidos de V0 sí deben cerrarse antes de comenzar V1, conforme al proceso acordado. El gate V0 sigue fallando y no debe ocultarse.
+- Agregar `PlannerTabKey`, `TaskDetail`, `EventDetail`, `PlannerSearch` y metadata tipada.
+- Mantener `requestJson`; no crear otro cliente HTTP.
+- Probar 400/401/403/404/409/412/422/429/5xx, request ID y abort silencioso.
+- M1 no cambia UX ni schema.
 
-## M1 — Congelar contratos de navegación y transporte
+### M2 — shell y estados
 
-**Objetivo:** tipar la superficie V1 sin cambiar UX.
+- Retirar slogan/stat cards del shell.
+- Separar initial load de refresh y contenido stale.
+- Boundary nunca deja pantalla blanca y emite `planner_error_shown` sin PII.
 
-**Precondiciones:** G0 DONE.
+### M3 — host singleton
 
-**Archivos:** `navigation/types.ts`, `App.tsx`, `HomeTabNavigator.tsx`, `services/api.ts`.
+- Provider/host se monta exactamente una vez.
+- Back/backdrop/swipe y cambio de contexto llaman al mismo `close(reason)`.
+- En submit no se cierra; error conserva draft e identity; éxito limpia intención.
 
-**Cambios:** `PlannerTabKey`; rutas de detalle/Search; params sólo IDs + source/return; linking anidado; abort/error/mutation headers usando contratos G0.
+### M4 — Quick Actions
 
-**Tests:** type-level routes, parsing de deep links, transport contract, abort silencioso, statuses 401/403/404/409/412/422/429/5xx.
+- Orden: Task, Event, Goal; icono existente del Design System, nombre visible, superficies circulares y estados normal/pressed/disabled/loading/focus.
+- UI filtrada por proyección, API protegida por controladores Planner.
+- Invite queda fuera del dominio Planner.
 
-**Rollback:** retirar sólo rutas/params nuevos; no tocar datos.
+### M5 — Create Goal
 
-**DONE:** TypeScript y tests de navegación/transporte verdes, ninguna ruta recibe objetos.
+- Campos iniciales mínimos y more-options colapsado.
+- Progreso inicial 0 server-side.
+- Post-create exactamente una vez según modo; cache/Goals/Summary antes de abrir detalle.
 
-**Commit sugerido:** `planner-v1-m1-navigation-contracts`.
+### M6 — tabs
 
-## M2 — Shell y estados globales
+- Persistencia solo con accountId+householdId completos.
+- Fallback Tasks para ausencia/corrupción; nunca compartir key entre cuentas/hogares.
 
-**Objetivo:** hacer de `PlannerScreen.tsx` un shell estable.
+### M7 — contexto/Search
 
-**Archivos:** `PlannerScreen.tsx`, nuevos `PlannerStateView.tsx`, `PlannerErrorBoundary.tsx`.
+- Secuencia: cerrar host → cancelar requests → activar → limpiar scope anterior/avanzar generación → cargar flags/capabilities/prefs → restaurar tab.
+- Search es entry point gated y fallback; no endpoint/resultados productivos.
 
-**Cambios:** eliminar slogan/stat cards; separar initial loading/refresh/empty/partial/offline/forbidden/not-found/conflict/error; error boundary sin pantalla blanca; header accesible.
+### M8/M9 — Summary
 
-**Cache:** lectura de keys públicas G0; sin fetch duplicado por focus + mount.
+- M8 produce contrato server 3/3/1, counts y errores por sección.
+- M9 elimina cuatro requests y ranking cliente.
+- One-tap usa versión/idempotencia/mutation ID/audit existentes y rollback exacto.
 
-**Telemetría:** `planner_opened`, `planner_error_shown`.
+### M10 — deep links
 
-**Tests:** render por estado, retry, error boundary, PII schema.
+- Params contienen IDs, `source`, `returnTo`, `justCreated`; nunca rows.
+- Probar cold/warm, sin auth, hogar distinto, 403/404 y back stack.
 
-**Rollback:** volver al shell anterior sin borrar los contratos M1.
+### M11 — a11y/telemetry
 
-**DONE:** cada estado tiene UI y test; un crash de child muestra fallback recuperable.
+- Eventos V1 se registran en el catálogo real, no mediante `console` directo.
+- VoiceOver/TalkBack, focus, gestures, teclado, safe areas, fuente grande y reduced motion requieren runtime.
 
-**Commit sugerido:** `planner-v1-m2-shell-states`.
+### M12/M13 — cierre
 
-## M3 — Host único de sheets
-
-**Objetivo:** garantizar una sola instancia modal Planner.
-
-**Archivos:** nuevos `PlannerSheetContext.tsx`, `PlannerSheetHost.tsx`; `HomeTabNavigator.tsx`, `PlannerScreen.tsx`, `QuickActionSheet.tsx`, `CenterTabButton.tsx`.
-
-**Cambios:** provider/host único; migrar menú y task/event sheets; arreglar doble activación; back/backdrop/swipe/keyboard/safe-area/focus; cierre bloqueado en submit.
-
-**Tests:** double tap, apertura concurrente, back/backdrop, submit lock, focus restore, cambio de orientación/safe areas.
-
-**Rollback:** restaurar mount previo y modales locales como una unidad; no dejar dos hosts.
-
-**DONE:** una búsqueda runtime del árbol encuentra un solo host/Modal Planner y toda apertura usa el contexto.
-
-**Commit sugerido:** `planner-v1-m3-single-sheet-host`.
-
-## M4 — Quick Actions Task/Event/Goal
-
-**Objetivo:** completar menú y permisos de Quick Actions (exclusivamente Crear tarea / Crear evento / Crear meta). Invite queda fuera del alcance de Planner V1.
-
-**Archivos:** `QuickActionSheet.tsx`, `TaskForm.tsx`, `EventForm.tsx`, servicios task/event. No se tocan archivos del flujo de invitación desde Planner V1.
-
-**Cambios:** orden estricto Task/Event/Goal; cada acción como botón circular con icono y nombre visible (sin emojis como iconografía final); estado `normal`, `pressed`, `disabled`, `loading` y `focus`; área táctil accesible mínima; feedback visual; visibilidad por capability de Task/Event/Goal únicamente; sin fila Invite ni espacio reservado; headers y errores; drafts; no empty sheet.
-
-Reutilización de iconografía: no se introduce librería de iconos nueva; se reutiliza la librería real ya presente en el repositorio y confirmada por la fase de implementación.
-
-**Invalidación:** sólo keys de entidad/lista/Summary/Search publicadas en G0.
-
-**Telemetría:** opened, selected, sheet opened/closed, create submitted/succeeded/failed.
-
-**Tests:** matriz de capabilities Task/Event/Goal; denied server-side aunque UI sea manipulada; retries idempotentes; offline; 409/412/422; assertions de cantidad (exactamente tres acciones), iconos circulares, nombre visible, una sola activación por tap, estado disabled/loading, accesibilidad y foco.
-
-**Rollback:** desactivar la entrada afectada mediante flag real G0, no constante local; mantener host. No se invierte el alcance de Invite porque nunca fue parte de V1.
-
-**DONE:** tres acciones visibles y operables (Crear tarea / Crear evento / Crear meta) con servidor coincidente; cada capability produce una mutación por intención; UI/API coinciden.
-
-**Commit sugerido:** `planner-v1-m4-quick-actions`.
-
-## M5 — Create Goal rápido
-
-**Objetivo:** implementar el flujo normativo reutilizando `GoalForm`.
-
-**Archivos:** `GoalForm.tsx`, `CreateGoalScreen.tsx`, `plannerGoals.ts`, goal controller/service.
-
-**Cambios:** Quick Create: título, categoría(default home), visibilidad(default household), Guardar; "Más opciones" colapsadas: descripción, modo progreso, prioridad, responsable, participantes, inicio, fecha objetivo, target/unidad, template, recurrencia, hitos; `current_value=0` server-side; participantes/hitos opcionales; submit lock; same-intent retry; navegación a GoalDetail con `justCreated: true`.
-
-**Invalidación:** goal detail/list, Summary y Search dirigidos.
-
-**Post-create (una vez, usando `justCreated`):** pasos según tipo — Steps: agregar primer paso / ahora no; Tasks: crear tarea / vincular existente / ahora no; Numeric: registrar primer avance / ahora no; Boolean: abrir meta / ahora no; None: agregar nota / crear tarea / ahora no.
-
-**Tests:** validación, visibility/capability, idempotency, mutation ID, redirect, draft retention, partial milestone error policy, rollback, post-create action mostrada exactamente una vez.
-
-**Rollback:** revertir UI y handler de create juntos; no revertir contratos G0.
-
-**DONE:** cero progreso arbitrario del cliente; doble tap no duplica goal; success termina en detalle real; post-create action one-shot.
-
-**Commit sugerido:** `planner-v1-m5-create-goal`.
-
-## M6 — Tabs y preferencia por contexto
-
-**Objetivo:** restaurar último tab por cuenta+hogar.
-
-**Archivos:** `PlannerScreen.tsx`, nuevo `plannerPreferences.ts`, `navigation/types.ts`.
-
-**Cambios:** key `planner:last-tab:${accountId}:${householdId}`; fallback Tasks; escritura tras selección válida; limpieza de sesión.
-
-**Telemetría:** `planner_tab_changed` sin IDs.
-
-**Tests:** primera visita, restart, dos hogares, dos cuentas, valor corrupto, sign-out.
-
-**Rollback:** dejar de leer/escribir la key; datos persistidos inocuos pueden limpiarse.
-
-**DONE:** nunca se restaura una preferencia de otro account/household.
-
-**Commit sugerido:** `planner-v1-m6-tab-persistence`.
-
-## M7 — Context switch
-
-**Objetivo:** asegurar cambio de contexto seguro; Search solo entry point gated.
-
-**Archivos:** `HouseholdSwitcherSheet.tsx`, `HouseholdContext.tsx`, `AuthContext.tsx`, `PlannerScreen.tsx`, nuevo `PlannerSearchScreen.tsx` (placeholder gated).
-
-**Cambios:** close/cancel/activate/purge/load/restore; response token; cleanup sign-out; icono Search solo con flag (entry point); sin Search backend; debounce/abort en placeholder.
-
-**Cache:** keys por hogar; no compartir páginas entre hogares.
-
-**Telemetría:** household switched, search opened, nunca query cruda.
-
-**Tests:** switch durante request y durante sheet; sign-out; flag off/on; forbidden; stale response; deep link Search; PII.
-
-**Rollback:** apagar el flag real de Search; el protocolo seguro de switch permanece.
-
-**DONE:** Search inaccesible con flag off; ninguna respuesta/cache del hogar anterior aparece tras switch.
-
-**Commit sugerido:** `planner-v1-m7-context-switch`.
-
-## M8 — Home Summary backend
-
-**Objetivo:** producir la única proyección determinística 3/3/1 con counts.
-
-**Archivos:** summary service/controller, task/event/goal repositories existentes cuando sea necesario.
-
-**Cambios:** selección server-side; secciones aisladas; `generated_at`, `projection_version`, `counts` (overdue_tasks, today_tasks, awaiting_verification, upcoming_events, active_goals), `partial_errors` con section `'tasks'|'events'|'goals'`; envelope final.
-
-**Tests:** orden estable, límites, timezone, sección fallida, hogar vacío, permissions, query budget y contrato JSON (incluye counts).
-
-**Rollback:** proteger el nuevo shape con versionado/flag real si G0 así lo define; no mantener dos endpoints indefinidamente.
-
-**DONE:** contract tests prueban exactitud y determinismo; una sección rota no elimina las demás; counts siempre presentes.
-
-**Commit sugerido:** `planner-v1-m8-summary-backend`.
-
-## M9 — Home Summary frontend y task one-tap
-
-**Objetivo:** consumir sólo Summary (incluye counts) y completar task con optimismo reversible.
-
-**Archivos:** `plannerSummary.ts`, `HomePlannerSections.tsx`, `plannerTasks.ts`, retiro de refresh timestamps Planner.
-
-**Cambios:** un request; render `counts` + 3/3/1; partial UI; one-tap; optimistic patch sobre detail/list/Summary y rollback exacto.
-
-**Telemetría:** summary loaded/partial, task quick completed.
-
-**Tests:** éxito, 403/409/412/422/5xx/offline, rapid tap, partial section, invalidación mínima, no global refetch.
-
-**Rollback:** deshabilitar one-tap mediante flag real si existe incidente; conservar lectura de Summary.
-
-**DONE:** cero ranking/request paralelo cliente y rollback restaura todas las keys afectadas; counts renderizados.
-
-**Commit sugerido:** `planner-v1-m9-summary-home`.
-
-## M10 — Deep links y rutas de detalle
-
-**Objetivo:** completar navegación directa y recuperación de contexto.
-
-**Archivos:** `App.tsx`, `HomeTabNavigator.tsx`, detail screens existentes/nuevas registradas.
-
-**Cambios:** paths reales; 404/403; source/return; Goal recién creado; cold/warm start.
-
-**Tests:** cada kind, ID inválido, sin auth, hogar distinto, cold start, back stack.
-
-**Rollback:** retirar mapping problemático, no la screen interna.
-
-**DONE:** URLs no contienen payload y el back stack es determinístico.
-
-**Commit sugerido:** `planner-v1-m10-deep-links`.
-
-## M11 — Accesibilidad y telemetría completa
-
-**Objetivo:** cerrar contratos transversales sin alterar dominio.
-
-**Archivos:** shell/host/forms/search/home; adapter público G0.
-
-**Cambios:** labels/roles/hints, orden de foco, targets, keyboard, reduced motion, todos los eventos y redacción PII.
-
-**Tests:** esquema de eventos; snapshot de propiedades prohibidas; VoiceOver/TalkBack; fuente grande; contraste; teclado.
-
-**Rollback:** eventos pueden apagarse por config del proveedor; nunca retirar fixes de accesibilidad por rollback de telemetría.
-
-**DONE:** matriz automática + QA manual firmada.
-
-**Commit sugerido:** `planner-v1-m11-a11y-telemetry`.
-
-## M12 — Regresión, caos y runtime
-
-**Objetivo:** probar el sistema ensamblado.
-
-**Checks:** suites unit/integration/contract/navigation/E2E; offline/reconnect; timeout; 401; concurrent edit; duplicate tap; household switch; sign-out; process/server failure; schema/migration parity; lint/typecheck.
-
-**Rollback:** bloquear release; no parchear tests ni omitir escenarios críticos.
-
-**DONE:** matriz completa verde y evidencia runtime adjunta.
-
-**Commit sugerido:** `planner-v1-m12-regression`.
-
-## M13 — Limpieza y cierre
-
-**Objetivo:** eliminar caminos legacy y congelar documentación.
-
-**Cambios:** retirar modales duplicados, stats/slogan, ranking cliente, briefing legacy, refresh timestamps Planner, imports muertos y flags temporales.
-
-**Checks:** búsqueda de símbolos legacy, bundle/typecheck/lint/tests, diff de rutas y contratos.
-
-**Rollback:** por eliminación individual si un consumidor real fue omitido; ningún camino legacy se conserva “por si acaso”.
-
-**DONE:** criterios globales de `planner_v1_implementation_ready.md` completos y release gate aprobado.
-
-**Commit sugerido:** `planner-v1-m13-cleanup`.
+- M12 combina pruebas automáticas, DB remota read-only y runtime.
+- M13 elimina caminos legacy solo después del gate ensamblado.
 
 ## Regla de secuencia
 
-No se adelanta M7 Search antes del protocolo de contexto, ni M9 optimismo antes de cache/invalidation, ni M4/M5 acciones antes de capabilities server-side. Las microfases pueden subdividirse, pero no reordenarse de modo que una UI publique una capacidad cuya base V0 todavía no exista.
+No se adelanta M7 antes del host/lifecycle, M9 antes de M8/cache, ni M4/M5 antes de capabilities y mutation contracts. Subdividir una fase no autoriza publicar una superficie sin sus tests y rollback.
