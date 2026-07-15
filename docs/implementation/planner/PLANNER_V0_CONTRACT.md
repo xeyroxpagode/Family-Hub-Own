@@ -1379,3 +1379,7 @@ After V0.11 merges to `main`, the Planner V0 technical layer is considered **fea
 Este contrato funcional no cambia. Los mecanismos compartidos de transporte, errores, request/mutation identity, mutation header validation, capability projection/enforcement, server state y lifecycle pertenecen ahora a HomePlus Core. Planner conserva catálogo de capabilities, query keys, invalidation graph, TTL policy, optimistic patches y persistencia de idempotencia.
 
 Los adapters de compatibilidad y comandos actuales se documentan en `docs/implementation/core/HOMEPLUS_CORE_CONTRACTS.md`. No se implementó Planner V1 ni G0.4.
+
+## Post-G0.4 architecture update
+
+Planner now registers `planner.search_entry` (default false) in the global Core registry. It does not implement or expose Search. The existing `task.complete` mutation is the first transactional consumer of global append-only audit and returns its audit correlation; it emits no outbox event because no real side effect exists. `planner_activity_log` remains temporary domain activity, not audit authority. Telemetry event policy remains Planner-owned and uses the global validated provider.

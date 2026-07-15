@@ -1,5 +1,5 @@
 // 1. Cargar variables de entorno SIEMPRE primero
-require('dotenv').config(); 
+require('dotenv').config();
 
 // 2. Importar librerías (UNA sola vez cada una)
 const express = require('express');
@@ -8,7 +8,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 
 // 3. Importar tus rutas de la carpeta src
-const authRoutes = require('./src/routes/auth'); 
+const authRoutes = require('./src/routes/auth');
 const householdsRoutes = require('./src/routes/households');
 const {
   householdInviteLinksRouter,
@@ -20,6 +20,7 @@ const usersRoutes = require('./src/routes/users');
 const peopleRoutes = require('./src/routes/people');
 const plannerRoutes = require('./src/routes/planner');
 const inventoryRoutes = require('./src/routes/inventory');
+const featureFlagsRoutes = require('./src/routes/featureFlags');
 const { requestContextMiddleware } = require('./src/middleware/requestContextMiddleware');
 const { errorEnvelopeMiddleware } = require('./src/middleware/errorEnvelopeMiddleware');
 const { sendApiError } = require('./src/lib/httpErrors');
@@ -83,6 +84,7 @@ app.use('/invitations', invitationsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/users', usersRoutes);
 app.use('/api/people', peopleRoutes);
+app.use('/api/feature-flags', featureFlagsRoutes);
 app.use('/api/planner', plannerRoutes);
 app.use('/api/inventory', inventoryRoutes);
 // Ruta de prueba

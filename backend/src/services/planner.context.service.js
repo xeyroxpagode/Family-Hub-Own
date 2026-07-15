@@ -58,6 +58,7 @@ const getPlannerContext = async (req) => {
 
   return {
     client,
+    accountId: req.user.id,
     person,
     household,
     membership,

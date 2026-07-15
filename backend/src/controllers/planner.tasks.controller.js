@@ -13,6 +13,7 @@ const {
 } = require('../lib/plannerIdempotencyAdapter');
 const { resolveCapabilities, assertCapability } = require('../lib/plannerCapabilities');
 const { sendApiError } = require('../lib/httpErrors');
+const { telemetry } = require('../config/telemetry');
 
 /**
  * Build the capability projection for the current request context.
@@ -157,12 +158,25 @@ const completeTask = async (req, res) => {
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => tasksService.completeTask(context, req.params.id, expectedVersion),
+      () => tasksService.completeTask(context, req.params.id, expectedVersion, {
+        requestId: req.requestId,
+        mutationId,
+      }),
     );
 
+    await telemetry.track('planner_mutation_succeeded', {
+      action: 'task.complete',
+      entity_kind: 'task',
+      audited: Boolean(result.body?.correlation?.audit_event_id),
+    }, { requestId: req.requestId, mutationId }).catch(() => {});
     res.set('X-Mutation-Id', mutationId);
     return res.status(result.status).json(result.body);
   } catch (error) {
+    await telemetry.track('planner_mutation_failed', {
+      action: 'task.complete',
+      entity_kind: 'task',
+      error_code: error?.code ?? 'unknown_error',
+    }, { requestId: req.requestId, mutationId: req.mutationId }).catch(() => {});
     return sendApiError(res, error, req);
   }
 };

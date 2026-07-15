@@ -3,7 +3,15 @@
     "test:g0.3": "tsc -p scripts/tsconfig.test.json && node scripts/compiled/scripts/planner_g0_3_cache_tests.js",
     "test:core:frontend": "tsc -p scripts/tsconfig.test.json && node scripts/compiled/scripts/homeplus_core_frontend_tests.js",
     "test:core:backend": "node scripts/homeplus_core_contract_tests.js",
-    "test:core": "npm run test:core:backend && npm run test:core:frontend && npm run test:g0.3"
+    "test:core": "npm run test:core:backend && npm run test:core:frontend && npm run test:g0.3",
+    "test:feature-flags": "node scripts/homeplus_g0_4_contract_tests.js",
+    "test:telemetry": "node scripts/homeplus_g0_4_contract_tests.js",
+    "test:audit-outbox": "node scripts/homeplus_g0_4_database_tests.js",
+    "test:g0.4:runtime": "node scripts/homeplus_g0_4_runtime_runner.js",
+    "test:g0.4": "node scripts/homeplus_g0_4_contract_tests.js && node scripts/homeplus_g0_4_database_tests.js && node scripts/homeplus_g0_4_runtime_runner.js",
+    "outbox:process": "node backend/scripts/process-outbox.js",
+    "outbox:inspect": "node backend/scripts/inspect-outbox.js",
+    "outbox:retry": "node backend/scripts/retry-outbox.js"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

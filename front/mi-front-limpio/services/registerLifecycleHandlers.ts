@@ -2,6 +2,7 @@ import { appRequestRegistry } from './core/serverState';
 import { registerHouseholdLifecycle, registerSessionLifecycle } from './core/lifecycle';
 import { plannerCache } from './planner/plannerCache';
 import { registerPlannerErrorMessages } from './planner/plannerErrorMessages';
+import { featureFlagStore } from './core/featureFlagStore';
 
 let registered = false;
 
@@ -19,6 +20,14 @@ export function registerLifecycleHandlers() {
   });
 
   registerHouseholdLifecycle({
+    name: 'core.feature-flags',
+    order: 20,
+    afterSwitch: ({ fromHouseholdId }) => {
+      featureFlagStore.clearHousehold(fromHouseholdId);
+    },
+  });
+
+  registerHouseholdLifecycle({
     name: 'planner.server-state',
     order: 100,
     afterSwitch: ({ fromHouseholdId }) => {
@@ -31,6 +40,14 @@ export function registerLifecycleHandlers() {
     order: 10,
     cleanup: () => {
       appRequestRegistry.cancelAll();
+    },
+  });
+
+  registerSessionLifecycle({
+    name: 'core.feature-flags',
+    order: 20,
+    cleanup: () => {
+      featureFlagStore.clearSession();
     },
   });
 

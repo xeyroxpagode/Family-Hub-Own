@@ -1,7 +1,7 @@
 # HomePlus Core Adoption Matrix
 
-**Corte:** 2026-07-14 / branch `homeplus-core-infrastructure-parity` / commit auditado `6a018a5` + working tree G0.3.1  
-**Estado:** `G0.3.1 STATUS: PASSED` tras blocker closure.  
+**Corte:** 2026-07-14 / branch `homeplus-core-infrastructure-parity` / commit auditado `6a018a5` + working tree G0.3.1
+**Estado:** `G0.3.1 STATUS: PASSED` tras blocker closure.
 **Leyenda:** `CORE_SHARED`, `DOMAIN_ADAPTER`, `DOMAIN_POLICY`, `LEGACY_DUPLICATE`, `NOT_APPLICABLE`, `MISSING`, `RUNTIME_REQUIRED`.
 
 ## Active module inventory
@@ -86,3 +86,15 @@ No se creó una tabla global de idempotencia ni se reutilizó `planner_idempoten
 `scripts/planner_g0_2_runtime_runner.js` creó un hogar QA efímero con memberships coordinator/child, obtuvo una sesión real en memoria, ejecutó 9/9 bloques y 115 assertions con exit code 0 y eliminó el fixture. Los tres documentos G0.2 faltantes fueron reconstruidos con aclaración histórica. No se persistieron secrets.
 
 La revalidación corrigió el nombre del handler de `/api/planner/capabilities` y defectos del test original; no añadió un mecanismo paralelo ni alteró la clasificación de adopción.
+
+## G0.4 adoption update
+
+| Concern | Core | Planner | Other domains |
+| --- | --- | --- | --- |
+| Feature flags | registry/evaluator/projection/lifecycle | owns `planner.search_entry` definition | may register future real definitions |
+| Telemetry | catalog/provider/privacy/sinks | owns Planner event schemas | may register schemas |
+| Audit | append-only table + transaction primitive | `task.complete` adopted | no invented actions |
+| Outbox | table/claim/retry/dead-letter/processor | no event without a real side effect | domains register real handlers later |
+| Correlation | request/mutation/audit/outbox/telemetry contract | completion proves request+mutation+audit | reusable |
+
+`planner_activity_log` is `KEEP_AS_DOMAIN_ACTIVITY` + temporary compatibility, never global audit authority.

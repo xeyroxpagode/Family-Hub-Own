@@ -8,6 +8,7 @@ import { AppRefreshProvider } from './context/AppRefreshContext';
 import { AppNavigator } from './navigation/AppNavigator';
 import type { RootStackParamList } from './navigation/types';
 import { registerLifecycleHandlers } from './services/registerLifecycleHandlers';
+import { FeatureFlagsProvider } from './context/FeatureFlagsContext';
 
 registerLifecycleHandlers();
 
@@ -33,11 +34,13 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <HouseholdProvider>
-          <AppRefreshProvider>
-            <NavigationContainer linking={linking}>
-              <AppNavigator />
-            </NavigationContainer>
-          </AppRefreshProvider>
+          <FeatureFlagsProvider>
+            <AppRefreshProvider>
+              <NavigationContainer linking={linking}>
+                <AppNavigator />
+              </NavigationContainer>
+            </AppRefreshProvider>
+          </FeatureFlagsProvider>
         </HouseholdProvider>
       </AuthProvider>
     </SafeAreaProvider>

@@ -372,3 +372,7 @@ Planner V1 está `IMPLEMENTATION READY` únicamente cuando, en una nueva auditor
 6. no queda una decisión abierta ni contradicción normativa.
 
 Estado de esta auditoría: **NOT READY**. La primera línea de código V1 no debe escribirse todavía.
+
+## Post-G0.4 architecture update
+
+The global G0.4 implementation supplies the physical feature-flag registry/evaluator/projection, `planner.search_entry` default false, telemetry provider/privacy schemas, append-only audit, transactional outbox and processor/retry contracts. Planner is only the first consumer (`task.complete` audit); Planner V1, Search UI/backend and G0.5 remain unimplemented. The historical readiness verdict above is retained as evidence from its audited SHA and must be re-audited after G0.4 final verification.

@@ -8,6 +8,10 @@ import {
   runHouseholdSwitch,
   runSessionCleanup,
 } from '../front/mi-front-limpio/services/core/lifecycle.js';
+import {
+  featureFlagStore,
+  isFeatureEnabled,
+} from '../front/mi-front-limpio/services/core/featureFlagStore.js';
 
 let passed = 0;
 
@@ -93,6 +97,15 @@ async function main() {
   }
   assert(activeHousehold === 'hh-a', 'failed household activation preserves the old household');
   assert(order.join(',') === 'before-transport,before-state,rollback-state,rollback-transport', 'household lifecycle ordering and rollback are deterministic');
+
+  featureFlagStore.set('account-a', 'hh-a', Object.freeze({ 'planner.search_entry': true }));
+  featureFlagStore.set('account-a', 'hh-b', Object.freeze({ 'planner.search_entry': false }));
+  assert(isFeatureEnabled(featureFlagStore.get('account-a', 'hh-a'), 'planner.search_entry'), 'feature flag projection is scoped by household');
+  featureFlagStore.clearHousehold('hh-a');
+  assert(!isFeatureEnabled(featureFlagStore.get('account-a', 'hh-a'), 'planner.search_entry'), 'household switch clears the previous flag projection');
+  assert(!isFeatureEnabled(featureFlagStore.get('account-a', 'hh-b'), 'planner.search_entry'), 'disabled flag remains deny-safe');
+  featureFlagStore.clearSession();
+  assert(Object.keys(featureFlagStore.get('account-a', 'hh-b')).length === 0, 'sign-out clears all feature flag projections');
 
   __testOnlyLifecycle.clear();
   let cleanups = 0;

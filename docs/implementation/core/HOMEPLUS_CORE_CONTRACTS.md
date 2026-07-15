@@ -1,9 +1,9 @@
 # HomePlus Core Contracts
 
-**Versión:** G0.3.1  
-**Fecha:** 2026-07-14  
-**Estado del contrato:** `G0.3.1 STATUS: PASSED` tras blocker closure.  
-**Branch:** `homeplus-core-infrastructure-parity`  
+**Versión:** G0.3.1
+**Fecha:** 2026-07-14
+**Estado del contrato:** `G0.3.1 STATUS: PASSED` tras blocker closure.
+**Branch:** `homeplus-core-infrastructure-parity`
 **Commit auditado:** `6a018a577530d2cb28135afc41deaab59ba81d14`
 
 ## Boundary
@@ -158,3 +158,9 @@ G0.2 se ejecuta de forma reproducible con `node scripts/planner_g0_2_runtime_run
 Los documentos reconstruidos son `PLANNER_V0_G0_2_SECURITY_TRANSPORT_REPORT.md`, `PLANNER_V0_CAPABILITIES_CONTRACT.md` y `PLANNER_V0_ERROR_TRANSPORT_CONTRACT.md`; ninguno se presenta como evidencia contemporánea del commit original.
 
 La única corrección backend de closure fue alinear la ruta `/api/planner/capabilities` con el símbolo realmente exportado `getPlannerCapabilities`. El resto de correcciones se limitó al harness G0.2 (API URL, bearer, response shape, no-skip y cleanup); el boundary no cambió.
+
+## G0.4 operation and rollout extension
+
+HomePlus Core now also owns reusable feature-flag registration/evaluation, authenticated flag projection, telemetry catalog/provider/privacy validation, append-only audit mechanics, transactional outbox mechanics, handler registration, retry policy and the one-shot processor. Domain definitions/actions/payloads/handlers remain domain policy. Planner registers `planner.search_entry` and adopts Core audit through transactional `task.complete`; Core libraries still import no Planner module.
+
+Normative contracts: `HOMEPLUS_FEATURE_FLAGS_CONTRACT.md`, `HOMEPLUS_TELEMETRY_PRIVACY_CONTRACT.md` and `HOMEPLUS_AUDIT_OUTBOX_CONTRACT.md`.

@@ -1,10 +1,10 @@
 # HomePlus Core Lifecycle Contract
 
-**Versión:** G0.3.1  
-**Owner:** HomePlus Core  
-**Implementación:** `front/mi-front-limpio/services/core/lifecycle.ts`  
-**Branch:** `homeplus-core-infrastructure-parity`  
-**Commit auditado:** `6a018a577530d2cb28135afc41deaab59ba81d14`  
+**Versión:** G0.3.1
+**Owner:** HomePlus Core
+**Implementación:** `front/mi-front-limpio/services/core/lifecycle.ts`
+**Branch:** `homeplus-core-infrastructure-parity`
+**Commit auditado:** `6a018a577530d2cb28135afc41deaab59ba81d14`
 **Estado:** `G0.3.1 STATUS: PASSED`
 
 ## Invariants
@@ -109,3 +109,7 @@ npm.cmd run test:core
 El lifecycle no requirió rediseño. El cierre añadió evidencia G0.2 real: fixture local efímero, sesión child generada en memoria, 115 assertions y cleanup completo con exit code 0. Los tres contratos G0.2 reconstruidos documentan el transporte/capabilities usado por esta infraestructura. G0.3 y los boundary tests se reejecutaron; no se persistieron credenciales.
 
 Las correcciones de closure quedaron fuera del lifecycle: nombre del handler de capabilities y harness runtime G0.2. Los handlers household/session y su orden permanecen sin cambios.
+
+## G0.4 feature projection lifecycle
+
+`core.feature-flags` runs after request cancellation and before Planner server-state cleanup. After a successful household switch it removes the old household projection; `FeatureFlagsProvider` loads the new authenticated server projection. Session cleanup clears every account/household flag projection. Missing/error state is `{}` and therefore deny-safe.

@@ -243,3 +243,7 @@ Las dos referencias `docs/polish-final/*` fueron leídas desde `HEAD` con `git s
 **V0 CONTRACT GATE FAILED — V1 NOT READY.**
 
 No hay contradicción que requiera una decisión de producto: hay bases objetivamente ausentes o no desplegadas. Deben repararse en V0; V1 no puede crear sustitutos locales.
+
+## Post-G0.4 architecture update
+
+G0.4 adds the previously missing global flag/telemetry/audit/outbox mechanisms and the real `planner.search_entry` definition without implementing Search. It also gives `task.complete` a transactional audit proof and provides an outbox processor. This update does not rewrite the historical classification above, does not claim all Planner actions are migrated, and does not start Planner V1; a fresh gate audit must use G0.4 final local/remote evidence.

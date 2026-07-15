@@ -732,60 +732,36 @@ const reactivateTask = async (context, taskId, expectedVersion) => {
   return { task: hydrated[0] }
 }
 
-const completeTask = async (context, taskId, expectedVersion) => {
-  const task = await getTaskOrThrow(context.client, context.householdId, taskId)
-  assertExpectedVersion(task.version, expectedVersion)
+const completeTask = async (context, taskId, expectedVersion, correlation = {}) => {
+  const { data, error } = await context.client.rpc('complete_planner_task_with_audit', {
+    p_household_id: context.householdId,
+    p_task_id: taskId,
+    p_expected_version: expectedVersion,
+    p_actor_membership_id: context.membershipId,
+    p_actor_account_id: context.accountId,
+    p_request_id: correlation.requestId ?? null,
+    p_mutation_id: correlation.mutationId ?? null,
+  })
 
-  if (['completed', 'awaiting_verification', 'verified', 'cancelled'].includes(task.status)) {
-    return { task }
-  }
-
-  const previousState = pickTaskActivityState(task)
-
-  const nextStatus = task.requires_verification ? 'awaiting_verification' : 'completed'
-
-  let query = context.client
-    .from('planner_tasks')
-    .update({
-      status: nextStatus,
-      completed_by_member_id: context.membershipId,
-      completed_by_person_id: context.personId,
-      completed_at: new Date().toISOString(),
-    })
-    .eq('id', taskId)
-    .eq('household_id', context.householdId)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query = query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(
-        409,
-        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
-        'version_conflict',
-      )
-    }
+  if (error) throwSupabaseError(error)
+  if (data?.outcome === 'not_found') {
     throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
   }
+  if (data?.outcome === 'version_conflict') {
+    throw createHttpError(
+      412,
+      'La versión de la entidad cambió. Actualizá y reintentá.',
+      'version_conflict_v2',
+      { current: Number(data.current_version), expected: Number(expectedVersion) },
+    )
+  }
+  if (!data?.task) throw createHttpError(500, 'Respuesta transaccional inválida.', 'planner_audit_transaction_failed')
 
-  recordPlannerActivity(context, {
-    entityType: 'task',
-    entityId: data.id,
-    action: 'task.completed',
-    previousState,
-    nextState: pickTaskActivityState(data),
-  }).catch(() => {})
-
-  const hydrated = await hydrateMembers(context.client, [data])
-  return { task: hydrated[0] }
+  const hydrated = await hydrateMembers(context.client, [data.task])
+  return {
+    task: hydrated[0],
+    correlation: { audit_event_id: data.audit_event_id ?? null },
+  }
 }
 
 const verifyTask = async (context, taskId, expectedVersion) => {
