@@ -23,7 +23,25 @@ const linking: LinkingOptions<RootStackParamList> = {
       UpdatePassword: 'auth/callback',
       P02CrearGrupo: 'crear-grupo',
       P03InvitarPersonas: 'invitar/:householdId',
-      HomeTabs: 'home',
+      HomeTabs: {
+        path: 'home',
+        screens: {
+          PlannerTab: {
+            path: 'planner',
+            screens: {
+              PlannerHome: '',
+              // Deep-link paths for detail screens under the PlannerTab stack.
+              // Entity IDs are validated as UUIDs before any request.
+              // Household is resolved server-side from the authenticated context.
+              // An entity belonging to another household results in deny/not-found.
+              TaskDetail: 'tasks/:entityId',
+              EventDetail: 'events/:entityId',
+              GoalDetail: 'goals/:entityId',
+              PlannerSearch: 'search',
+            },
+          },
+        },
+      },
       JoinHousehold: 'join',
     },
   },
