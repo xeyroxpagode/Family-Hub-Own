@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { Animated, ActivityIndicator, View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -24,7 +24,9 @@ import { GoalDetailScreen } from '../screens/planner/GoalDetailScreen';
 import { PlannerTrashScreen } from '../screens/planner/PlannerTrashScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { APP_ICONS, HomePlusIcon } from '../constants/icons';
-import { AppTopBar, HouseholdSwitcherSheet, QuickActionSheet, CenterTabButton } from '../components/ui';
+import { AppTopBar, HouseholdSwitcherSheet, CenterTabButton } from '../components/ui';
+import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
+import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
 import { colors, spacing } from '../constants/theme';
 
 const Tab = createBottomTabNavigator<HomeTabParamList>();
@@ -135,6 +137,24 @@ function MoreStackScreen() {
   return <MoreScreen />;
 }
 
+// ---------------------------------------------------------------------------
+// M3: CenterTabButton adapter that delegates to PlannerSheetProvider.
+// Replaces the legacy local `showQuickActions` state in HomeTabNavigator.
+// ---------------------------------------------------------------------------
+
+function M3CenterTabButton({ triggerRef }: { triggerRef: React.RefObject<unknown> }) {
+  const sheet = usePlannerSheet();
+
+  const handlePress = useCallback(() => {
+    if (sheet.isSubmitting) return;
+    sheet.openActions();
+  }, [sheet]);
+
+  return <CenterTabButton onPress={handlePress} />;
+}
+
+// ---------------------------------------------------------------------------
+
 export function HomeTabNavigator() {
   const { session, authMe } = useAuth();
   const { currentRole } = useHousehold();
@@ -142,7 +162,6 @@ export function HomeTabNavigator() {
   const insets = useSafeAreaInsets();
   
   const [showHouseholdSwitcher, setShowHouseholdSwitcher] = useState(false);
-  const [showQuickActions, setShowQuickActions] = useState(false);
 
   const personName = authMe?.person?.display_name ?? 'Usuario';
   const personAvatarUrl = authMe?.person?.avatar_url ?? null;
@@ -157,37 +176,18 @@ export function HomeTabNavigator() {
     setShowHouseholdSwitcher(true);
   }, []);
 
-  const handleQuickActionPress = useCallback(() => {
-    setShowQuickActions(true);
-  }, []);
-
   const isAdultoMayor = currentRole === 'adulto_mayor';
   const tabBarBg = colors.terracotta[500];
   const tabBarHeight = isAdultoMayor ? 84 : 72;
   const bottomPadding = Math.max(insets.bottom, spacing[3]);
 
-  const quickActionNavigate = useCallback((
-    screen: keyof PlannerStackParamList,
-    params?: PlannerStackParamList[keyof PlannerStackParamList]
-  ) => {
-    // Nested navigation from PrivateStack -> HomeTabs -> PlannerTab -> PlannerStack screen.
-    // For all Quick Action forms, mark returnTo so close/save navigates back to
-    // PlannerHome instead of falling through to Home or a stale stack position.
-    const enriched: any = { ...(params ?? {}) };
-    enriched.returnTo = 'PlannerHome';
-    if (screen === 'CreateTask') {
-      enriched.initialTab = 'tasks';
-    } else if (screen === 'CreateEvent') {
-      enriched.initialTab = 'calendar';
-    } else if (screen === 'CreateGoal') {
-      enriched.initialTab = 'goals';
-    }
-    navigation.navigate('HomeTabs', {
-      screen: 'PlannerTab',
-      params: { screen, params: enriched }
-    });
-    setShowQuickActions(false);
-  }, [navigation]);
+  // M3: The CenterTabButton's trigger ref will be set by the button itself
+  // and consumed by PlannerSheetHost for focus restoration.
+  const addButtonTriggerRef = useRef<unknown>(null);
+
+  // M3 legacy adapter: the QuickActionSheet still exists as presentational
+  // inside PlannerSheetHost (actions menu). The local state here is removed;
+  // the CenterTabButton delegates to PlannerSheetProvider.
 
   return (
     <View style={styles.container}>
@@ -200,99 +200,103 @@ export function HomeTabNavigator() {
         onHouseholdPress={handleHouseholdPress}
       />
 
-      <Tab.Navigator
-        screenOptions={{
-          headerShown: false,
-          tabBarShowLabel: false,
-          tabBarStyle: {
-            backgroundColor: tabBarBg,
-            borderTopColor: 'rgba(255,248,234,0.18)',
-            borderTopWidth: 1,
-            height: tabBarHeight + insets.bottom,
-            paddingBottom: bottomPadding,
-            paddingTop: 8,
-          },
-        }}
-      >
-        <Tab.Screen
-          name="HomeTab"
-          component={HomeScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon
-                iconKey="home"
-                label="Inicio"
-                focused={focused}
-              />
-            ),
+      <PlannerSheetProvider>
+        <Tab.Navigator
+          screenOptions={{
+            headerShown: false,
+            tabBarShowLabel: false,
+            tabBarStyle: {
+              backgroundColor: tabBarBg,
+              borderTopColor: 'rgba(255,248,234,0.18)',
+              borderTopWidth: 1,
+              height: tabBarHeight + insets.bottom,
+              paddingBottom: bottomPadding,
+              paddingTop: 8,
+            },
           }}
-        />
+        >
+          <Tab.Screen
+            name="HomeTab"
+            component={HomeScreen}
+            options={{
+              tabBarIcon: ({ focused }) => (
+                <TabIcon
+                  iconKey="home"
+                  label="Inicio"
+                  focused={focused}
+                />
+              ),
+            }}
+          />
 
-        <Tab.Screen
-          name="PeopleTab"
-          component={FamilyStackScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon
-                iconKey="people"
-                label="Familia"
-                focused={focused}
-              />
-            ),
-          }}
-        />
+          <Tab.Screen
+            name="PeopleTab"
+            component={FamilyStackScreen}
+            options={{
+              tabBarIcon: ({ focused }) => (
+                <TabIcon
+                  iconKey="people"
+                  label="Familia"
+                  focused={focused}
+                />
+              ),
+            }}
+          />
 
-        <Tab.Screen
-          name="AddTab"
-          component={AddTabPlaceholder}
-          options={{
-            tabBarButton: () => <CenterTabButton onPress={handleQuickActionPress} />,
-          }}
-        />
+          <Tab.Screen
+            name="AddTab"
+            component={AddTabPlaceholder}
+            options={{
+              tabBarButton: () => (
+                <M3CenterTabButton triggerRef={addButtonTriggerRef} />
+              ),
+            }}
+          />
 
-        <Tab.Screen
-          name="PlannerTab"
-          component={PlannerStackScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon
-                iconKey="planner"
-                label="Planner"
-                focused={focused}
-              />
-            ),
-          }}
-        />
+          <Tab.Screen
+            name="PlannerTab"
+            component={PlannerStackScreen}
+            options={{
+              tabBarIcon: ({ focused }) => (
+                <TabIcon
+                  iconKey="planner"
+                  label="Planner"
+                  focused={focused}
+                />
+              ),
+            }}
+          />
 
-        <Tab.Screen
-          name="MoreTab"
-          component={MoreStackScreen}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon
-                iconKey="more"
-                label="Más"
-                focused={focused}
-              />
-            ),
-          }}
-        />
-      </Tab.Navigator>
+          <Tab.Screen
+            name="MoreTab"
+            component={MoreStackScreen}
+            options={{
+              tabBarIcon: ({ focused }) => (
+                <TabIcon
+                  iconKey="more"
+                  label="Más"
+                  focused={focused}
+                />
+              ),
+            }}
+          />
+        </Tab.Navigator>
+
+        {/* M3: Single sheet host — replaces both QuickActionSheet Modal and
+            the legacy compat-bridge Modal in PlannerScreen. */}
+        <PlannerSheetHost />
+      </PlannerSheetProvider>
 
       <HouseholdSwitcherSheet
         visible={showHouseholdSwitcher}
         onRequestClose={() => setShowHouseholdSwitcher(false)}
         accessToken={session?.access_token ?? null}
       />
-
-      <QuickActionSheet
-        visible={showQuickActions}
-        onRequestClose={() => setShowQuickActions(false)}
-        onNavigate={quickActionNavigate}
-      />
     </View>
   );
 }
+
+
 
 const styles = StyleSheet.create({
   container: {

@@ -1,7 +1,7 @@
 /**
- * Planner V1 — M2 Planner Shell.
+ * Planner V1 — M2 Planner Shell (M3 sheet host migration complete).
  *
- * Purpose (frozen by `planner_v1_implementation_order.md` §M2):
+ * Purpose (frozen by `planner_v1_implementation_order.md` §M2 and §M3):
  * - Single Planner Shell owns the visible global state via the pure
  *   `resolvePlannerShellState`. Tasks, Calendar and Goals retain ownership of
  *   their internal content but the Shell decides what is visible at the
@@ -17,12 +17,20 @@
  *   back to a product empty state.
  * - Forbidden/not_found are separated; conflict is NEVER auto-resolved via
  *   last-write-wins (M4/M5 finalize conflict UI inside forms).
- * - The Shell does not implement `PlannerSheetHost` (deferred to M3): the
- *   existing Task/Event modal is intentionally kept as a compatibility bridge
- *   and marked for M3 takeover.
  *
- * Out of scope for M2:
- * - Sheet host/provider (M3).
+ * M3 changes (replacing the compat-bridge-until-M3 left by M2):
+ * - Removed: local Modal of Task/Event forms (the legacy compat bridge).
+ * - Removed: local `PlannerSheet` discriminated union as the source of truth.
+ * - Added: `usePlannerSheet()` delegation — onCreateTask / onEditTask /
+ *   onCreateEvent / onEditEvent now call `openTaskForm` / `openEventForm` on
+ *   the canonical `PlannerSheetProvider`. The actual Modal is owned once by
+ *   `PlannerSheetHost` mounted in `HomeTabNavigator`.
+ * - The Shell still owns its `overflow` Modal (Papelera) — that is a Planner
+ *   navigation menu, not a sheet over the planner create/edit forms, and is
+ *   outside the M3 sheet host scope (it has no form content and no submit
+ *   lifecycle). It stays unchanged.
+ *
+ * Out of scope for M2/M3:
  * - Search entry (M7).
  * - Quick Actions V1 (M4).
  * - Goal Quick Create (M5).
@@ -30,13 +38,12 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, Modal, Pressable, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { Modal, Pressable, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import { AppCard, AppText, Skeleton } from '../../components/ui';
+import { AppText } from '../../components/ui';
 import { APP_ICONS, HomePlusIcon, type HomePlusIconName } from '../../constants/icons';
 import { colors } from '../../constants/theme';
-import { ApiError } from '../../services/api';
 import { getPlannerSummary, type PlannerSummary } from '../../services/plannerSummary';
 import {
   fetchPlannerCapabilitiesCached,
@@ -46,11 +53,10 @@ import { classifyPlannerError, type PlannerError } from '../../services/planner/
 import { canViewPlanner } from '../../services/planner/plannerCapabilitiesAdapter';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
-import { EventForm } from './EventForm';
+import { usePlannerSheet } from '../../context/PlannerSheetContext';
 import { PlannerCalendarScreen } from './PlannerCalendarScreen';
 import { PlannerGoalsScreen } from './PlannerGoalsScreen';
 import { PlannerTasksScreen } from './PlannerTasksScreen';
-import { TaskForm } from './TaskForm';
 import { plannerStyles as S } from './plannerShared';
 import {
   PLANNER_TAB_KEYS,
@@ -66,22 +72,10 @@ import {
 } from '../../services/planner/plannerShellState';
 
 // ---------------------------------------------------------------------------
-// 1. Compatibility: legacy sheet bridge owned by the Shell until M3.
+// 1. M3 — PlannerScreen no longer owns the Task/Event sheet Modal. The only
+//    local Modal retained is the overflow (Papelera) menu which is a Planner
+//    navigation surface, not a sheet host form.
 // ---------------------------------------------------------------------------
-
-type PlannerSheet =
-  | { type: 'task'; mode: 'create' | 'edit'; id?: string; initialDueDate?: string }
-  | {
-      type: 'event';
-      mode: 'create' | 'edit';
-      id?: string;
-      baseEventId?: string;
-      occurrenceId?: string;
-      occurrenceStartsAt?: string;
-      occurrenceEndsAt?: string;
-      isGeneratedRecurringOccurrence?: boolean;
-      initialDate?: string;
-    };
 
 const DEFAULT_TAB: PlannerTabKey = 'tasks';
 
@@ -114,10 +108,14 @@ export function PlannerScreen() {
   const [capabilities, setCapabilities] = useState<PlannerCapabilitiesProjection | null>(null);
   const [capabilitiesReady, setCapabilitiesReady] = useState(false);
 
-  // --- Compat bridge: legacy sheet owned by the Shell until M3 host ---
-  const [sheet, setSheet] = useState<PlannerSheet | null>(null);
+  // --- M3: sheet state migrated to PlannerSheetProvider ---
+  // Local sheet state was removed in M3; `sheet` here is the provider
+  // controller. Toasts remain Shell-owned for the create/edit one-shot.
   const [toast, setToast] = useState<string | null>(null);
   const [showOverflow, setShowOverflow] = useState(false);
+
+  // --- M3: planner sheet provider consumer (for create/edit open) ---
+  const sheet = usePlannerSheet();
 
   // -------------------------------------------------------------------------
   // 3. Initial summary load + silent refresh on focus
@@ -190,8 +188,13 @@ export function PlannerScreen() {
 
     if (isPlannerTabKey(p.initialTab)) setActiveTab(p.initialTab);
 
-    if (p.initialSheet === 'task') setSheet({ type: 'task', mode: 'create' });
-    else if (p.initialSheet === 'event') setSheet({ type: 'event', mode: 'create' });
+    // M3: route param driven sheet open delegates to the provider rather than
+    // the legacy local state. We don't re-fire if the sheet is already open.
+    if (p.initialSheet === 'task') {
+      sheet.openTaskForm({ source: 'planner' });
+    } else if (p.initialSheet === 'event') {
+      sheet.openEventForm({ source: 'planner' });
+    }
 
     if (p.refreshKey) {
       setRefreshKey((value) => value + 1);
@@ -233,15 +236,22 @@ export function PlannerScreen() {
     void loadSummary(true);
   }, [loadSummary]);
 
-  const completeSheetMutation = useCallback(
-    (message: string) => {
-      setSheet(null);
-      setToast(message);
-      changed();
-      setTimeout(() => setToast(null), 2200);
-    },
-    [changed],
-  );
+  // M3: when the planner sheet closes with reason 'success' (set by the host
+  // after a Task/Event form saved), refresh the planner summary. We watch
+  // `sheet.state` transitions from open to closed+success reason via a small
+  // effect that diffs the previous state kind.
+  const prevSheetKindRef = useRef(sheet.state.kind);
+  useEffect(() => {
+    const prev = prevSheetKindRef.current;
+    const next = sheet.state.kind;
+    if (prev !== 'closed' && next === 'closed') {
+      // A sheet just closed — refresh the summary defensively. Real mutations
+      // already invalidate cache via plannerCache; this keeps the Shell's
+      // top-level numbers in sync without a global refetch.
+      void loadSummary(true);
+    }
+    prevSheetKindRef.current = next;
+  }, [sheet.state.kind, loadSummary]);
 
   const openTrash = useCallback(() => {
     navigation.navigate('PlannerTrash');
@@ -452,8 +462,8 @@ export function PlannerScreen() {
             <PlannerTasksScreen
               refreshKey={refreshKey}
               onChanged={changed}
-              onCreateTask={() => setSheet({ type: 'task', mode: 'create' })}
-              onEditTask={(id) => setSheet({ type: 'task', mode: 'edit', id })}
+              onCreateTask={() => sheet.openTaskForm({ source: 'planner' })}
+              onEditTask={(id) => sheet.openTaskForm({ mode: 'edit', taskId: id, source: 'planner' })}
               onShowToast={(msg) => {
                 setToast(msg);
                 setTimeout(() => setToast(null), 2200);
@@ -465,25 +475,24 @@ export function PlannerScreen() {
             <PlannerCalendarScreen
               refreshKey={refreshKey}
               onChanged={changed}
-              onCreateEvent={(initialDate) => setSheet({ type: 'event', mode: 'create', initialDate })}
+              onCreateEvent={(initialDate) =>
+                sheet.openEventForm({ source: 'planner', initialDate })
+              }
               onEditEvent={(eventId, context) =>
-                setSheet(
+                sheet.openEventForm(
                   context?.isGeneratedRecurringOccurrence
                     ? {
-                        type: 'event',
                         mode: 'edit',
-                        id: eventId,
-                        baseEventId: context.baseEventId,
-                        occurrenceId: context.occurrenceId,
-                        occurrenceStartsAt: context.occurrenceStartsAt,
-                        occurrenceEndsAt: context.occurrenceEndsAt,
-                        isGeneratedRecurringOccurrence: true,
+                        eventId,
+                        source: 'planner',
                       }
-                    : { type: 'event', mode: 'edit', id: eventId },
+                    : { mode: 'edit', eventId, source: 'planner' },
                 )
               }
-              onEditTask={(id) => setSheet({ type: 'task', mode: 'edit', id })}
-              onCreateTask={(initialDueDate) => setSheet({ type: 'task', mode: 'create', initialDueDate })}
+              onEditTask={(id) => sheet.openTaskForm({ mode: 'edit', taskId: id, source: 'planner' })}
+              onCreateTask={(initialDueDate) =>
+                sheet.openTaskForm({ source: 'planner', initialDueDate })
+              }
               onShowToast={(msg) => {
                 setToast(msg);
                 setTimeout(() => setToast(null), 2200);
@@ -502,53 +511,6 @@ export function PlannerScreen() {
             />
           ) : null}
         </ScrollView>
-
-        {/* --- Compat bridge: legacy sheet owned by the Shell until M3 --- */}
-        <Modal visible={Boolean(sheet)} transparent animationType="slide" onRequestClose={() => setSheet(null)}>
-          <Pressable
-            style={S.sheetBackdrop}
-            onPress={() => {
-              Keyboard.dismiss();
-              setSheet(null);
-            }}
-          >
-            <Pressable style={S.sheetPanel} onPress={(e) => e.stopPropagation()}>
-              <View style={S.sheetHandleContainer}>
-                <View style={S.sheetHandle} />
-                <TouchableOpacity
-                  style={S.sheetCloseButton}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    setSheet(null);
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <AppText variant="micro" tone="tertiary" weight="700">Cerrar</AppText>
-                </TouchableOpacity>
-              </View>
-              {sheet?.type === 'task' ? (
-                <TaskForm
-                  mode={sheet.mode}
-                  taskId={sheet.id}
-                  initialDueDate={sheet.initialDueDate}
-                  embedded
-                  onClose={() => setSheet(null)}
-                  onSaved={completeSheetMutation}
-                />
-              ) : null}
-              {sheet?.type === 'event' ? (
-                <EventForm
-                  mode={sheet.mode}
-                  eventId={sheet.id}
-                  initialDate={sheet.initialDate}
-                  embedded
-                  onClose={() => setSheet(null)}
-                  onSaved={completeSheetMutation}
-                />
-              ) : null}
-            </Pressable>
-          </Pressable>
-        </Modal>
       </SafeAreaView>
     </PlannerErrorBoundary>
   );

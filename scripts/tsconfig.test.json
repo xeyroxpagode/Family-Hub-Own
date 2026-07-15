@@ -17,7 +17,7 @@
     "noEmit": false,
     "jsx": "react-native"
   },
-  "include": [
+"include": [
     "../scripts/planner_g0_3_cache_tests.ts",
     "../scripts/homeplus_core_frontend_tests.ts",
     "../scripts/planner_v1_navigation_tests.ts",
@@ -25,6 +25,7 @@
     "../scripts/planner_v1_error_tests.ts",
     "../scripts/planner_v1_capabilities_flags_tests.ts",
     "../scripts/planner_v1_shell_state_tests.ts",
+    "../scripts/planner_v1_sheet_state_tests.ts",
     "../front/mi-front-limpio/services/core/*.ts",
     "../front/mi-front-limpio/services/planner/*.ts",
     "../front/mi-front-limpio/navigation/plannerNavigationContract.ts"
