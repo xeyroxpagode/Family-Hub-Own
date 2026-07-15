@@ -15,10 +15,15 @@
  * literals on their own: they import from here.
  */
 
-const { createHttpError } = require('./httpErrors');
+const {
+  createCapabilityCatalog,
+  projectCapabilities,
+  hasCapability: hasCoreCapability,
+  assertCapability: assertCoreCapability,
+} = require('./capabilityEngine');
 
 // Canonical capability names. Do not duplicate as string literals elsewhere.
-const PLANNER_CAPABILITIES = Object.freeze([
+const PLANNER_CAPABILITIES = createCapabilityCatalog([
   'planner.view',
   'planner.search',
 
@@ -361,10 +366,11 @@ function resolveCapabilities({ role, membershipStatus, household }) {
   // because the planner context already rejects non-active memberships, so
   // this is a defensive fallback and also documents the invariant.
   if (membershipStatus !== 'active' || !PLANNER_ROLES.includes(role)) {
-    return Object.fromEntries(PLANNER_CAPABILITIES.map((c) => [c, false]));
+    return projectCapabilities(PLANNER_CAPABILITIES, () => false);
   }
-  return Object.fromEntries(
-    PLANNER_CAPABILITIES.map((c) => [c, readConfiguredPermission(household, c, role)]),
+  return projectCapabilities(
+    PLANNER_CAPABILITIES,
+    (capability) => readConfiguredPermission(household, capability, role),
   );
 }
 
@@ -374,8 +380,7 @@ function resolveCapabilities({ role, membershipStatus, household }) {
  * Returns a boolean. Does NOT throw: callers decide whether to throw.
  */
 function hasCapability(capabilities, capability) {
-  if (!capabilities || typeof capabilities !== 'object') return false;
-  return capabilities[capability] === true;
+  return hasCoreCapability(capabilities, capability);
 }
 
 /**
@@ -386,14 +391,10 @@ function hasCapability(capabilities, capability) {
  * Throwing keeps controllers clean: `assertCapability(ctx, 'task.verify')`.
  */
 function assertCapability(capabilities, capability) {
-  if (!hasCapability(capabilities, capability)) {
-    throw createHttpError(
-      403,
-      'No tenes permiso para realizar esta accion.',
-      'planner_forbidden',
-      { capability: capability ?? null },
-    );
-  }
+  assertCoreCapability(capabilities, capability, {
+    code: 'planner_forbidden',
+    message: 'No tenés permiso para realizar esta acción.',
+  });
 }
 
 /**

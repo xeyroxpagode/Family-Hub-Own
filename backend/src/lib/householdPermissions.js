@@ -2,6 +2,7 @@ const FINAL_ROLES = Object.freeze(['coordinator', 'adult', 'adolescent', 'child'
 const FUNCTIONAL_STATUSES = Object.freeze(['pending', 'active', 'finalized']);
 const ALL_STATUSES = Object.freeze(['pending', 'active', 'suspended', 'finalized']);
 const MAX_HOUSEHOLD_MEMBERSHIPS = 5;
+const { createCapabilityCatalog, projectCapabilities } = require('./capabilityEngine');
 
 const DEFAULT_HOUSEHOLD_PERMISSIONS = Object.freeze({
   invite_members: {
@@ -54,6 +55,17 @@ const DEFAULT_HOUSEHOLD_PERMISSIONS = Object.freeze({
   },
 });
 
+const HOUSEHOLD_CAPABILITIES = createCapabilityCatalog(Object.keys(DEFAULT_HOUSEHOLD_PERMISSIONS));
+
+function resolveHouseholdCapabilities(role, config = {}) {
+  if (!isFinalRole(role)) return projectCapabilities(HOUSEHOLD_CAPABILITIES, () => false);
+  const permissions = config.permissions || DEFAULT_HOUSEHOLD_PERMISSIONS;
+  return projectCapabilities(
+    HOUSEHOLD_CAPABILITIES,
+    (capability) => permissions[capability]?.[role] === true,
+  );
+}
+
 function isFinalRole(role) {
   return FINAL_ROLES.includes(role);
 }
@@ -71,9 +83,7 @@ function getDefaultHouseholdPermissions() {
 }
 
 function canInviteMembers(role, config = {}) {
-  if (!isFinalRole(role)) return false;
-  const permissions = config.permissions || DEFAULT_HOUSEHOLD_PERMISSIONS;
-  return permissions.invite_members?.[role] === true;
+  return resolveHouseholdCapabilities(role, config).invite_members === true;
 }
 
 function canApproveMembers(role, config = {}) {
@@ -114,6 +124,8 @@ module.exports = {
   ALL_STATUSES,
   MAX_HOUSEHOLD_MEMBERSHIPS,
   DEFAULT_HOUSEHOLD_PERMISSIONS,
+  HOUSEHOLD_CAPABILITIES,
+  resolveHouseholdCapabilities,
   isFinalRole,
   isFunctionalMembershipStatus,
   isAllMembershipStatus,

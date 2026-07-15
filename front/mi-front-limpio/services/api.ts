@@ -1,4 +1,6 @@
 import { Platform } from 'react-native';
+import { createRequestControl } from './core/requestControl';
+import { resolveApiErrorMessage } from './core/apiErrorCatalog';
 
 const RAW_API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -70,7 +72,17 @@ export const createIdempotencyKey = (operation: string): string => {
   return `idem_${operation}_${Date.now()}_${random}`;
 };
 
-type RequestJsonOptions = {
+export const OPERATION_KINDS = {
+  READ_ONLY: 'READ_ONLY',
+  CREATE_IDEMPOTENT: 'CREATE_IDEMPOTENT',
+  VERSIONED_MUTATION: 'VERSIONED_MUTATION',
+  NON_VERSIONED_MUTATION: 'NON_VERSIONED_MUTATION',
+  AUTH_SESSION_MUTATION: 'AUTH_SESSION_MUTATION',
+} as const;
+
+export type OperationKind = typeof OPERATION_KINDS[keyof typeof OPERATION_KINDS];
+
+export type RequestJsonOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   accessToken?: string | null;
   body?: unknown;
@@ -85,6 +97,10 @@ type RequestJsonOptions = {
   signal?: AbortSignal | null;
   /** Timeout in milliseconds. Triggers abort if the request exceeds this duration. */
   timeoutMs?: number;
+  /** Endpoint-level policy. The transport never infers domain from the URL. */
+  operationKind?: OperationKind;
+  /** Optional scope used by the global cancellation registry. */
+  contextScope?: string | null;
 };
 
 export type AuthMeNavigation = {
@@ -257,6 +273,7 @@ export class ApiError extends Error {
   code: string | null;
   debugMessage: string | null;
   requestId: string | null;
+  details: unknown;
 
   constructor(
     message: string,
@@ -264,6 +281,7 @@ export class ApiError extends Error {
     code: string | null = null,
     debugMessage?: string | null,
     requestId?: string | null,
+    details?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -271,6 +289,7 @@ export class ApiError extends Error {
     this.code = code;
     this.debugMessage = debugMessage ?? null;
     this.requestId = requestId ?? null;
+    this.details = details ?? null;
 
     if (__DEV__ && this.debugMessage) {
       console.error('[ApiError]', this.debugMessage);
@@ -333,38 +352,20 @@ const getResponseRequestId = (payload: unknown, responseHeaders: Headers) => {
   return responseHeaders.get('x-request-id') ?? null;
 };
 
-const plannerErrorMessages: Record<string, string> = {
-  version_conflict: 'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
-  version_conflict_v2: 'La versión de la entidad cambió. Actualizá y reintentá.',
-  idempotency_in_flight: 'La operación ya está en curso. Esperá un momento e intentá de nuevo.',
-  idempotency_key_conflict: 'Esta operación ya se procesó con otros datos.',
-  idempotency_key_required: 'Idempotency-Key es obligatorio para esta mutación.',
-  mutation_id_required: 'X-Mutation-Id es obligatorio para mutaciones Planner.',
-  expected_version_required: 'If-Match (o expected_version) es obligatorio para mutaciones sobre entidades existentes.',
-  invalid_expected_version: 'Versión esperada inválida.',
-  invalid_idempotency_key: 'Clave de idempotencia inválida.',
-  task_in_trash: 'Esta tarea está en la papelera. Restaurala primero desde Papelera.',
-  event_in_trash: 'Este evento está en la papelera. Restauralo primero desde Papelera.',
-  parent_goal_in_trash: 'La meta padre está en la papelera. Restaurala primero.',
-  rls_violation: 'No tenés permiso para esta acción. Verificá tu membresía en el hogar.',
-  planner_forbidden: 'No tenés permiso para realizar esta acción.',
-  goal_not_found: 'Meta no encontrada.',
-  milestone_not_found: 'Hito no encontrado.',
-  invalid_status_transition: 'Transición de estado no permitida.',
-  cannot_verify_own_completion: 'No podés verificar tu propia completación.',
-  invalid_template_key: 'Tipo de plantilla inválido.',
-  invalid_task_priority: 'Prioridad de tarea inválida.',
-  invalid_recurrence: 'Recurrencia inválida.',
-  invalid_visibility: 'Visibilidad inválida.',
-  invalid_category: 'Categoría inválida.',
-  incompatible_progress_mode_target_type: 'Modo de progreso incompatible con el tipo de objetivo.',
-  validation_error: 'Datos inválidos. Revisá los campos e intentá de nuevo.',
-  planner_internal_error: 'Error interno.',
+const getResponseDetails = (payload: unknown) => {
+  if (!payload || typeof payload !== 'object') return null;
+  const envelope = (payload as Record<string, unknown>).error;
+  return envelope && typeof envelope === 'object'
+    ? (envelope as Record<string, unknown>).details ?? null
+    : (payload as Record<string, unknown>).details ?? null;
 };
 
-const normalizePlannerError = (code: string | null, fallbackMessage: string): string => {
-  if (!code) return fallbackMessage;
-  return plannerErrorMessages[code] ?? fallbackMessage;
+let requestIdCounter = 0;
+const generateRequestId = () => {
+  const randomUUID = globalThis.crypto?.randomUUID;
+  if (typeof randomUUID === 'function') return randomUUID.call(globalThis.crypto);
+  requestIdCounter += 1;
+  return `req_${Date.now()}_${requestIdCounter}_${Math.random().toString(36).slice(2, 10)}`;
 };
 
 export async function requestJson<T>(path: string, options: RequestJsonOptions = {}): Promise<T> {
@@ -378,12 +379,12 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
     expectedVersion,
     signal,
     timeoutMs,
+    operationKind = method === 'GET' ? OPERATION_KINDS.READ_ONLY : OPERATION_KINDS.NON_VERSIONED_MUTATION,
+    contextScope,
   } = options;
 
   const fullUrl = buildApiUrl(path);
-
-  const isPlannerGet = method === 'GET' && path.startsWith('/api/planner');
-  const isPlannerMutation = method !== 'GET' && path.startsWith('/api/planner');
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
 
   logApiDebug('request', {
     baseURL: API_BASE_URL,
@@ -394,55 +395,34 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
 
   const requestHeaders: Record<string, string> = {
     Accept: 'application/json',
-    'Content-Type': 'application/json',
-    ...(isPlannerGet ? {
+    ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
+    ...(method === 'GET' ? {
       'Cache-Control': 'no-cache',
       'Pragma': 'no-cache',
     } : {}),
+    'X-Request-Id': generateRequestId(),
     ...getBearerHeaders(accessToken),
     ...headers,
   };
 
-  // G0.2: Add mutation headers for planner mutations
-  if (isPlannerMutation) {
+  const carriesMutationIdentity = operationKind !== OPERATION_KINDS.READ_ONLY
+    && operationKind !== OPERATION_KINDS.AUTH_SESSION_MUTATION;
+  const requiresIdempotency = operationKind === OPERATION_KINDS.CREATE_IDEMPOTENT
+    || operationKind === OPERATION_KINDS.VERSIONED_MUTATION;
+
+  if (carriesMutationIdentity) {
     const mId = mutationId ?? generateMutationId();
     requestHeaders['X-Mutation-Id'] = mId;
-
-    const iKey = idempotencyKey ?? createIdempotencyKey(path.replace('/api/planner/', '').replace(/\//g, '.'));
+  }
+  if (requiresIdempotency) {
+    const iKey = idempotencyKey ?? createIdempotencyKey(path.replace(/^\/api\//, '').replace(/\//g, '.'));
     requestHeaders['Idempotency-Key'] = iKey;
-
-    if (expectedVersion !== undefined) {
-      requestHeaders['If-Match'] = String(expectedVersion);
-    }
+  }
+  if (expectedVersion !== undefined) {
+    requestHeaders['If-Match'] = String(expectedVersion);
   }
 
-  // Build final AbortSignal: external signal + timeout
-  let controller: AbortController | null = null;
-  let finalSignal: AbortSignal | undefined;
-
-  if (signal || timeoutMs != null) {
-    controller = new AbortController();
-    const signals: AbortSignal[] = controller ? [controller.signal] : [];
-
-    if (timeoutMs != null && timeoutMs > 0) {
-      const timer = setTimeout(() => controller?.abort(), timeoutMs);
-      // Timeout is a derived signal; cleanup on settle
-      const cleanup = () => clearTimeout(timer);
-      if (typeof controller.signal.addEventListener === 'function') {
-        // Modern env: attach cleanup once ANY signal fires
-        controller.signal.addEventListener('abort', cleanup, { once: true });
-      }
-      // Fallback: normal GC — the timer won't fire after the promise settles.
-    }
-
-    if (signal) {
-      signal.addEventListener('abort', () => {
-        controller?.abort();
-      });
-    }
-
-    finalSignal = controller.signal;
-  }
+  const requestControl = createRequestControl({ signal, timeoutMs, scopeId: contextScope });
 
   let response: Response;
 
@@ -450,16 +430,13 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
     response = await fetch(fullUrl, {
       method,
       headers: requestHeaders,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: finalSignal,
+      body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
+      signal: requestControl.signal,
     });
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new AbortError(path, finalSignal);
+    if (error instanceof AbortError || (error instanceof Error && error.name === 'AbortError')) {
+      throw new AbortError(path, requestControl.signal);
     }
-    // TypeScript/React Native may not expose DOMException;
-    // check AbortError by own wrapper or by message.
-    if (error instanceof AbortError) throw error;
 
     logApiDebug('network-error', {
       baseURL: API_BASE_URL,
@@ -468,6 +445,8 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
       message: error instanceof Error ? error.message : String(error),
     });
     throw error;
+  } finally {
+    requestControl.dispose();
   }
 
   const text = await response.text();
@@ -534,11 +513,12 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
     const code = getResponseCode(payload);
     const requestId = getResponseRequestId(payload, response.headers);
     throw new ApiError(
-      normalizePlannerError(code, getResponseMessage(payload, 'No pudimos completar la solicitud.')),
+      resolveApiErrorMessage(code, getResponseMessage(payload, 'No pudimos completar la solicitud.')),
       response.status,
       code,
       undefined,
       requestId,
+      getResponseDetails(payload),
     );
   }
 
@@ -551,24 +531,28 @@ export const getAuthMe = (accessToken: string) =>
 export const authRegister = (payload: AuthRegisterPayload) =>
   requestJson<AuthRegisterResponse>('/api/auth/register', {
     method: 'POST',
+    operationKind: OPERATION_KINDS.AUTH_SESSION_MUTATION,
     body: payload,
   });
 
 export const authLogin = (payload: AuthLoginPayload) =>
   requestJson<AuthLoginResponse>('/api/auth/login', {
     method: 'POST',
+    operationKind: OPERATION_KINDS.AUTH_SESSION_MUTATION,
     body: payload,
   });
 
 export const authLogout = (accessToken?: string | null) =>
   requestJson<AuthLogoutResponse>('/api/auth/logout', {
     method: 'POST',
+    operationKind: OPERATION_KINDS.AUTH_SESSION_MUTATION,
     accessToken,
   });
 
 export const createHousehold = (accessToken: string, payload: CreateHouseholdPayload) =>
   requestJson<CreateHouseholdResponse>('/api/households', {
     method: 'POST',
+    operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
     body: payload,
   });
@@ -576,6 +560,7 @@ export const createHousehold = (accessToken: string, payload: CreateHouseholdPay
 export const createInviteLink = (accessToken: string, householdId: string) =>
   requestJson<CreateInviteLinkResponse>(`/api/households/${householdId}/invite-links`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
   });
 
@@ -588,6 +573,7 @@ export const revokeInviteLink = (
     `/api/households/${householdId}/invite-links/${inviteLinkId}/revoke`,
     {
       method: 'POST',
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
       accessToken,
     },
   );
@@ -595,6 +581,7 @@ export const revokeInviteLink = (
 export const joinByToken = (accessToken: string, token: string) =>
   requestJson<JoinByTokenResponse>('/api/invite-links/join', {
     method: 'POST',
+    operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
     body: { token },
   });
@@ -614,6 +601,7 @@ export const approveJoinRequest = (
     `/api/households/${householdId}/join-requests/${membershipId}/approve`,
     {
       method: 'POST',
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
       accessToken,
       body: { role },
     },
@@ -628,6 +616,7 @@ export const rejectJoinRequest = (
     `/api/households/${householdId}/join-requests/${membershipId}/reject`,
     {
       method: 'POST',
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
       accessToken,
     },
   );
@@ -641,6 +630,7 @@ export const finalizeHouseholdMember = (
     `/api/households/${householdId}/members/${membershipId}/finalize`,
     {
       method: 'POST',
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
       accessToken,
     },
   );
@@ -672,32 +662,11 @@ export const updatePeopleAvatar = (accessToken: string, file: File) => {
   const formData = new FormData();
   formData.append('file', file);
 
-  const fullUrl = buildApiUrl('/api/people/me/avatar');
-
-  return fetch(fullUrl, {
+  return requestJson<UpdatePeopleAvatarResponse>('/api/people/me/avatar', {
     method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
+    accessToken,
     body: formData,
-  }).then(async (response) => {
-    const text = await response.text();
-
-    if (!text) {
-      throw new ApiError('No se recibio respuesta del servidor.', response.status);
-    }
-
-    const payload = JSON.parse(text) as UpdatePeopleAvatarResponse;
-
-    if (!response.ok) {
-      throw new ApiError(
-        getResponseMessage(payload, 'No pudimos actualizar el avatar.'),
-        response.status,
-        getResponseCode(payload),
-      );
-    }
-
-    return payload;
+    operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION,
   });
 };
 

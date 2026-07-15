@@ -1,4 +1,4 @@
-import { requestJson } from './api';
+import { OPERATION_KINDS, requestJson } from './api';
 import { createIdempotencyKey } from './idempotency';
 
 export type PlannerEventStatus = 'scheduled' | 'cancelled';
@@ -84,6 +84,7 @@ export const createPlannerEvent = (
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.create')
   return requestJson<PlannerEventResponse>('/api/planner/events', {
     method: 'POST',
+    operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
     body: payload,
     headers: { 'Idempotency-Key': key },
@@ -99,6 +100,7 @@ export const updatePlannerEvent = (
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.update')
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}`, {
     method: 'PATCH',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     body: payload,
     headers: { 'Idempotency-Key': key },
@@ -118,6 +120,7 @@ export const cancelPlannerEvent = (
   }
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}`, {
     method: 'DELETE',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -136,6 +139,7 @@ export const trashPlannerEvent = (
   }
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/trash`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -154,6 +158,7 @@ export const reactivatePlannerEvent = (
   }
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/reactivate`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -172,6 +177,7 @@ export const restorePlannerEvent = (
   }
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/restore`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
   });
@@ -192,6 +198,7 @@ export const createEventOccurrenceOverride = (
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.occurrences.override.create')
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/occurrences/override`, {
     method: 'POST',
+    operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
     body: payload,
     headers: { 'Idempotency-Key': key },

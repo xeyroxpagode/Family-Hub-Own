@@ -13,7 +13,7 @@ const sendError = (res, error, fallbackMessage = 'Error inesperado.') =>
   })
 
 /**
- * Build the canonical Planner V0.2 API error envelope.
+ * Build the canonical HomePlus API error envelope.
  *
  * Shape (see PLANNER_V0_ERROR_TRANSPORT_CONTRACT.md):
  *
@@ -33,7 +33,7 @@ const buildApiErrorEnvelope = (error, req) => {
   const requestId = (req && req.requestId) || null
   const isServerError = statusCode >= 500
 
-  const code = error?.code ?? (isServerError ? 'planner_internal_error' : 'planner_internal_error')
+  const code = error?.code ?? 'internal_error'
   const message = isServerError
     ? 'Error interno.'
     : (error?.message || 'Error inesperado.')
@@ -57,7 +57,7 @@ const buildApiErrorEnvelope = (error, req) => {
 }
 
 /**
- * Send a Planner V0.2 canonical error envelope on the response.
+ * Send the canonical HomePlus error envelope on the response.
  *
  * Also logs 5xx server-side with stack and details so the team can debug
  * without leaking info to the client.
@@ -67,7 +67,7 @@ const sendApiError = (res, error, req) => {
 
   if (statusCode >= 500) {
     // Keep noisy diagnostics on the server only.
-    console.error('[planner.api-error]', {
+    console.error('[homeplus.api-error]', {
       statusCode,
       code: envelope.error.code,
       message: error?.message,

@@ -1,4 +1,10 @@
 {
+  "scripts": {
+    "test:g0.3": "tsc -p scripts/tsconfig.test.json && node scripts/compiled/scripts/planner_g0_3_cache_tests.js",
+    "test:core:frontend": "tsc -p scripts/tsconfig.test.json && node scripts/compiled/scripts/homeplus_core_frontend_tests.js",
+    "test:core:backend": "node scripts/homeplus_core_contract_tests.js",
+    "test:core": "npm run test:core:backend && npm run test:core:frontend && npm run test:g0.3"
+  },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2"

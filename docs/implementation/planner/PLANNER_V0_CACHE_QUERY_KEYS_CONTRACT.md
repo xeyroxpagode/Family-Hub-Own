@@ -358,3 +358,9 @@ Run: `npx ts-node scripts/planner_g0_3_cache_tests.ts` (or compiled JS).
 ## 11. Versioning
 
 This contract is **frozen for G0.3**. Changes require a new G0.x or V1 gate.
+
+## 12. Post-G0.3.1 architecture update
+
+El contrato de keys, scopes, TTLs e invalidaciones concretas continúa siendo Planner. El storage y optimistic lifecycle genéricos ahora se delegan a `services/core/serverState.ts`; `plannerCache.ts` traduce la política Planner al Core.
+
+Prefix invalidation compara segmentos del array y todo request cacheable captura generation y usa `setForContext`, por lo que una respuesta A no puede escribir después de activar B. El comando reproducible vigente es `npm.cmd run test:g0.3` desde el root.

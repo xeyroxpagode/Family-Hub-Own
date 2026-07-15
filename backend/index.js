@@ -20,6 +20,9 @@ const usersRoutes = require('./src/routes/users');
 const peopleRoutes = require('./src/routes/people');
 const plannerRoutes = require('./src/routes/planner');
 const inventoryRoutes = require('./src/routes/inventory');
+const { requestContextMiddleware } = require('./src/middleware/requestContextMiddleware');
+const { errorEnvelopeMiddleware } = require('./src/middleware/errorEnvelopeMiddleware');
+const { sendApiError } = require('./src/lib/httpErrors');
 
 const app = express();
 
@@ -52,6 +55,10 @@ if (isProduction) {
   app.use(cors());
 }
 
+// HomePlus Core: request identity and canonical error compatibility apply to
+// JSON parser failures, health, every API domain, 404s and the final handler.
+app.use(requestContextMiddleware);
+app.use(errorEnvelopeMiddleware);
 app.use(express.json());
 
 // 5. Health check endpoint (antes de rutas)
@@ -84,7 +91,7 @@ app.get('/', (req, res) => {
 });
 
 // 7. Not found handler (404) - después de todas las rutas
-app.use((req, res, next) => {
+app.use((req, res) => {
   res.status(404).json({
     error: 'Ruta no encontrada.',
     code: 'not_found'
@@ -98,43 +105,7 @@ app.use((err, req, res, next) => {
     return next(err);
   }
 
-  // Extraer información del error respetando propiedades existentes
-  const statusCode = err.statusCode || err.status || 500;
-  const isProduction = process.env.NODE_ENV === 'production';
-
-  // Para errores 503 de Supabase (BUGFIX-002), mantener el código
-  if (err.code === 'supabase_timeout' || err.code === 'supabase_unreachable') {
-    return res.status(503).json({
-      error: 'Servicio de base de datos no disponible temporalmente.',
-      code: err.code
-    });
-  }
-
-  // Para errores 401, mantener el status
-  if (statusCode === 401) {
-    return res.status(401).json({
-      error: err.message || 'No autorizado.',
-      code: 'unauthorized'
-    });
-  }
-
-  // Error genérico
-  if (isProduction) {
-    // Producción: no exponer stack trace ni detalles sensibles
-    console.error('Error:', err.message);
-    res.status(500).json({
-      error: 'Internal server error.',
-      code: 'internal_error'
-    });
-  } else {
-    // Desarrollo: incluir detalles mínimos
-    console.error('Error:', err.message);
-    res.status(statusCode).json({
-      error: err.message || 'Internal server error.',
-      code: err.code || 'internal_error',
-      ...(err.stack && { stack: err.stack.split('\n')[0] })
-    });
-  }
+  return sendApiError(res, err, req);
 });
 
 // 9. Encender servidor

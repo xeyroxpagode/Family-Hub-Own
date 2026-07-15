@@ -269,6 +269,12 @@ function usePlannerQuery(key, fetcher, scope) {
 
 This lifecycle contract is **frozen for G0.3**. Changes require a new G0.x or V1 gate.
 
+## Post-G0.3.1 architecture update
+
+La tabla de tests anterior describe la implementación histórica. Desde G0.3.1 el cambio usa `runHouseholdSwitch` del lifecycle global: cancela requests antes de activar, completa `setActiveHousehold` y `refetchMe`, y recién entonces ejecuta cleanup post-switch. Si activar B falla, la UI conserva A y ejecuta rollback handlers.
+
+El adapter Planner limpia A y avanza una generación monótona; sign-out no vuelve a token cero. `HouseholdContext` no importa dominios concretos. Contrato global: `docs/implementation/core/HOMEPLUS_CORE_LIFECYCLE_CONTRACT.md`. Tests: `npm.cmd run test:core`.
+
 ---
 
 ## 7. Related Documents
