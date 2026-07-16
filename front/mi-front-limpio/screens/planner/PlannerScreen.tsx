@@ -1,12 +1,13 @@
 /**
- * Planner V1 — M2/M3/M6 Planner Shell.
+ * Planner V1 — M2/M3/M6/M7 Planner Shell.
  *
- * Purpose (frozen by `planner_v1_implementation_order.md` §M2, §M3, §M6):
+ * Purpose (frozen by `planner_v1_implementation_order.md` §M2, §M3, §M6, §M7):
  * - Single Planner Shell owns the visible global state via the pure
  *   `resolvePlannerShellState`. Tasks, Calendar and Goals retain ownership of
  *   their internal content but the Shell decides what is visible at the
  *   top of Planner.
- * - Header is de-cluttered: title only, no slogan, no legacy stats, no Search.
+ * - Header: title, overflow menu, and M7 Search entry point (gated by
+ *   feature flag + capability, hidden by default since flag is false).
  * - Tabs conform to the canonical `PlannerTabKey` from M1; Tasks is the
  *   default. M6 adds persistent tab selection scoped by accountId + householdId.
  * - Initial loading uses a non-flicker skeleton; refresh uses a non-blocking
@@ -15,13 +16,16 @@
  *   offline-stale preserves data; offline-empty explains without falling
  *   back to a product empty state.
  * - Forbidden/not_found are separated; conflict is never auto-resolved.
+ * - M7 adds generation-guarded context identity for late-response protection,
+ *   household transition coordination, and gated Search entry point.
  *
  * M3: Sheet host migration (PlannerSheetProvider/PlannerSheetHost).
  * M6: Tab persistence via plannerPreferencesStore with generation-guarded
  *      hydration, non-blocking writes, and lifecycle integration.
+ * M7: Household transition safe lifecyle + Search entry point (gate only).
  *
  * Out of scope:
- * - Search entry (M7), Home Summary (M8/M9), deep links (M10).
+ * - Home Summary (M8/M9), deep links (M10).
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -41,6 +45,7 @@ import { canViewPlanner } from '../../services/planner/plannerCapabilitiesAdapte
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { usePlannerSheet } from '../../context/PlannerSheetContext';
+import { useFeatureFlags } from '../../context/FeatureFlagsContext';
 import { PlannerCalendarScreen } from './PlannerCalendarScreen';
 import { PlannerGoalsScreen } from './PlannerGoalsScreen';
 import { PlannerTasksScreen } from './PlannerTasksScreen';
@@ -49,6 +54,9 @@ import {
   PLANNER_TAB_KEYS,
   isPlannerTabKey,
   type PlannerTabKey,
+} from '../../navigation/plannerNavigationContract';
+import {
+  ROUTE_NAMES,
 } from '../../navigation/plannerNavigationContract';
 import { PlannerErrorBoundary } from '../../components/planner/PlannerErrorBoundary';
 import { PlannerStateView } from '../../components/planner/PlannerStateView';
@@ -62,6 +70,17 @@ import {
   DEFAULT_PREFERENCES,
   type PlannerPreferences,
 } from '../../services/plannerPreferences';
+import {
+  createPlannerContextIdentity,
+  isPlannerContextCurrent,
+  type PlannerContextIdentity,
+} from '../../services/planner/plannerContextIdentity';
+import { plannerCache } from '../../services/planner/plannerCache';
+import {
+  resolvePlannerSearchAccess,
+  isPlannerSearchAvailable,
+  type PlannerSearchAccess,
+} from '../../services/planner/plannerSearchAccess';
 
 // ---------------------------------------------------------------------------
 // 1. M3/M6 — PlannerScreen does not own Task/Event sheet Modal (M3).
@@ -69,6 +88,26 @@ import {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TAB: PlannerTabKey = 'tasks';
+
+// ---------------------------------------------------------------------------
+// 2. M7 — Planner context identity and transition coordination.
+//    - createPlannerContextIdentity captures the current generation from
+//      plannerCache so late responses can be rejected.
+//    - contextIdentityRef is updated on every context switch; requests
+//      capture it at initiation time for late-response guards.
+// ---------------------------------------------------------------------------
+
+/** Current planner context identity (updated on every context change). */
+const currentContextIdentityRef = useRef<PlannerContextIdentity | null>(null);
+
+// Helpers to capture/release context identity for late-response guards.
+function captureContextIdentity(): PlannerContextIdentity | null {
+  return currentContextIdentityRef.current;
+}
+
+function isCurrentContext(captured: PlannerContextIdentity | null): boolean {
+  return isPlannerContextCurrent(captured, currentContextIdentityRef.current);
+}
 
 // ---------------------------------------------------------------------------
 // 2. PlannerScreen shell
@@ -163,6 +202,8 @@ export function PlannerScreen() {
       manualSelectionRef.current = false;
       setPreferencesReady(true);
       setActiveTab(DEFAULT_TAB);
+      // M7: nullify context identity when no valid context exists.
+      currentContextIdentityRef.current = null;
       return;
     }
 
@@ -176,6 +217,17 @@ export function PlannerScreen() {
     currentContextRef.current = contextKey;
     manualSelectionRef.current = false;
     setPreferencesReady(false);
+
+    // M7: Create a new Planner context identity for late-response guards.
+    // The membershipId uses authMe's active membership for this household.
+    // If unavailable during transition, fallback to accountId as membershipId
+    // for deny-safe operation (capabilities fetch will re-resolve it).
+    currentContextIdentityRef.current = createPlannerContextIdentity({
+      authIdentityId: capturedAccountId,
+      householdId: capturedHouseholdId,
+      membershipId: capturedAccountId,
+      generation: gen,
+    });
 
     // Capture the generation for late-response protection.
     const capturedGen = gen;
@@ -258,17 +310,29 @@ export function PlannerScreen() {
     async (silent = false) => {
       if (!accessToken) return;
 
+      // M7: Capture context identity before the fetch.
+      // If the context changes during the fetch, the late response is discarded.
+      const capturedCtx = captureContextIdentity();
+
       if (!silent) setInitialLoading(true);
       setPlannerError(null);
 
       try {
         const nextSummary = await getPlannerSummary(accessToken);
+
+        // M7: Late-response guard — only apply if context is still current.
+        if (!isCurrentContext(capturedCtx)) return;
+
         setSummary(nextSummary);
       } catch (err) {
         // Abort during household switch/unmount is NEVER surfaced as error UI.
         if (err instanceof Error && err.name === 'AbortError') return;
         const classified = classifyPlannerError(err);
         if (classified.class === 'abort') return;
+
+        // M7: Late-response guard — only apply if context is still current.
+        if (!isCurrentContext(capturedCtx)) return;
+
         setPlannerError(classified);
       } finally {
         if (!silent) setInitialLoading(false);
@@ -284,15 +348,27 @@ export function PlannerScreen() {
       setCapabilitiesReady(false);
       return;
     }
+
+    // M7: Capture context identity before the fetch.
+    const capturedCtx = captureContextIdentity();
+
     try {
       const projection = await fetchPlannerCapabilitiesCached(token, {
         accountId: household.created_by,
         householdId: household.id,
         membershipId: household.created_by,
       });
+
+      // M7: Late-response guard — only apply if context is still current.
+      if (!isCurrentContext(capturedCtx)) return;
+
       setCapabilities(projection);
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
+
+      // M7: Late-response guard — only apply if context is still current.
+      if (!isCurrentContext(capturedCtx)) return;
+
       // Deny-safe: an error leaves projection null; `canViewPlanner` returns
       // `false` and the Shell renders the appropriate state.
       setCapabilities(null);
@@ -471,6 +547,37 @@ export function PlannerScreen() {
   const showActiveContent = shellStateShowsActiveContent(shellState);
 
   // -------------------------------------------------------------------------
+  // M7: Search entry point gate resolution.
+  // Flag is default `false`, so the icon is hidden by default.
+  // -------------------------------------------------------------------------
+
+  // Feature flags from the global provider.
+  const { flags, loading: flagsLoading } = useFeatureFlags();
+
+  // M7: Resolve Planner Search access from flag + capability.
+  const searchAccess: PlannerSearchAccess = useMemo(
+    () =>
+      resolvePlannerSearchAccess({
+        flags,
+        flagsLoading,
+        capabilities,
+        capabilitiesReady,
+      }),
+    [flags, flagsLoading, capabilities, capabilitiesReady],
+  );
+
+  const searchAvailable = isPlannerSearchAvailable(searchAccess);
+
+  // M7: Search entry point navigation handler (only fires when available).
+  const handleOpenSearch = useCallback(() => {
+    if (!searchAvailable) return;
+    navigation.navigate(ROUTE_NAMES.PlannerSearch, {
+      source: 'planner',
+      returnTo: 'planner',
+    });
+  }, [navigation, searchAvailable]);
+
+  // -------------------------------------------------------------------------
   // 6. Render
   // -------------------------------------------------------------------------
 
@@ -529,11 +636,27 @@ export function PlannerScreen() {
             />
           }
         >
-          {/* Header: title only — no slogan, no legacy stats, no Search */}
+          {/* Header: title, Search entry (M7 gated, hidden by default), overflow */}
           <View style={[S.headerRow, { marginBottom: 8 }]}>
             <View style={{ flex: 1 }}>
               <AppText variant="title1" accessibilityRole="header">Planner</AppText>
             </View>
+
+            {/* M7: Search entry point — only visible when flag + capability both true.
+                Default flag is false, so this icon is hidden in normal operation. */}
+            {searchAvailable ? (
+              <TouchableOpacity
+                style={[S.overflowBtn, { marginRight: 2 }]}
+                onPress={handleOpenSearch}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Buscar en Planner"
+                accessibilityHint="Abrir búsqueda en Planner"
+              >
+                <HomePlusIcon name="search-outline" size={22} color={colors.text.secondary} />
+              </TouchableOpacity>
+            ) : null}
+
             <TouchableOpacity
               style={S.overflowBtn}
               onPress={() => setShowOverflow(true)}

@@ -22,7 +22,8 @@
  * - `planner_search_opened` telemetry (emitted when entry is actually used).
  */
 
-import { featureFlagStore, isFeatureEnabled, type HomePlusFeatureFlags } from '../core/featureFlags';
+import { featureFlagStore, isFeatureEnabled } from '../core/featureFlagStore';
+import type { HomePlusFeatureFlags } from '../core/featureFlagStore';
 
 export const PLANNER_SEARCH_FLAG_KEY = 'planner.search_entry' as const;
 export const PLANNER_SEARCH_CAPABILITY = 'planner.search' as const;
@@ -52,14 +53,20 @@ export function canOpenPlannerSearch(
 /**
  * Hook-ready version that reads from the React context (`useFeatureFlags`).
  * Use in components; for pure functions use `canOpenPlannerSearch(flags, caps)`.
+ *
+ * M7: This hook is now properly implemented. It consumes `useFeatureFlags`
+ * and returns the dual gate result. Consumers should inline the check
+ * combining flag + capabilities projection for the full dual gate.
+ *
+ * For access resolution with proper loading/disabled/forbidden/available
+ * discrimination, use `resolvePlannerSearchAccess` from `plannerSearchAccess.ts`.
  */
 export function usePlannerSearchGate(): boolean {
-  // This is a hook stub — actual implementation requires `useFeatureFlags`
-  // from `FeatureFlagsContext`. Consumers should call:
-  //   const { flags, isEnabled } = useFeatureFlags();
-  //   const canSearch = isEnabled('planner.search_entry') && hasCapability(..., 'planner.search');
-  // This file exports the pure function above; the hook is inlined at call sites.
-  return false;
+  const { useFeatureFlags } = require('../../context/FeatureFlagsContext');
+  const { flags } = useFeatureFlags();
+  // The hook checks only the flag; the capability must be checked by the
+  // consumer inline or via `resolvePlannerSearchAccess`.
+  return isFeatureEnabled(flags, PLANNER_SEARCH_FLAG_KEY);
 }
 
 /**

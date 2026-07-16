@@ -22,6 +22,7 @@ import { CreateGoalScreen } from '../screens/planner/CreateGoalScreen';
 import { EditGoalScreen } from '../screens/planner/EditGoalScreen';
 import { GoalDetailScreen } from '../screens/planner/GoalDetailScreen';
 import { PlannerTrashScreen } from '../screens/planner/PlannerTrashScreen';
+import { PlannerSearchScreen } from '../screens/planner/PlannerSearchScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { APP_ICONS, HomePlusIcon } from '../constants/icons';
 import { AppTopBar, HouseholdSwitcherSheet, CenterTabButton } from '../components/ui';
@@ -125,6 +126,7 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="EditGoal" component={EditGoalScreen} />
       <PlannerStack.Screen name="GoalDetail" component={GoalDetailScreen} />
       <PlannerStack.Screen name="PlannerTrash" component={PlannerTrashScreen} />
+      <PlannerStack.Screen name="PlannerSearch" component={PlannerSearchScreen} />
     </PlannerStack.Navigator>
   );
 }

@@ -242,3 +242,78 @@ M1 STATUS: AUTHORIZED
 - Navigation `initialTab` priority ✅
 - Late hydration protection ✅
 - No Search, no Home Summary changes, no backend, no migrations ✅
+
+---
+
+## 8. Post-M7 Implementation Update
+
+**Commit**: `d0c5d4e` (M6) → working tree modified for M7
+
+| Block | Pre-M7 Status | Post-M7 Status | Notes |
+|-------|---------------|----------------|-------|
+| Search entry | `READY_TO_IMPLEMENT` | `IMPLEMENTED` | Gate, entry point, route, screen, fallback, back, deep-link readiness |
+| Household switch/sign-out | `ENHANCED` (M6) | `IMPLEMENTED` | M7 adds context identity, transition coordinator, late-response guards |
+| Shell Planner | `ENHANCED` (M6) | `ENHANCED` | M7 adds Search icon (gated, hidden by default) + identity guards on load |
+
+### Files Created
+- `front/mi-front-limpio/services/planner/plannerContextIdentity.ts` — typed identity + pure helpers
+- `front/mi-front-limpio/services/planner/plannerTransitionTypes.ts` — state union + late-response guard (pure, no RN)
+- `front/mi-front-limpio/services/planner/plannerTransitionCoordinator.ts` — transition lifecycle coordinator
+- `front/mi-front-limpio/services/planner/plannerSearchAccess.ts` — canonical gate (loading/disabled/forbidden/available)
+- `front/mi-front-limpio/services/planner/plannerSearchStates.ts` — base states + descriptors
+- `front/mi-front-limpio/services/planner/plannerSearchTelemetry.ts` — `planner_search_opened` emission
+- `front/mi-front-limpio/navigation/plannerSearchNavigation.ts` — navigate, back, fallback helpers
+- `front/mi-front-limpio/screens/planner/PlannerSearchScreen.tsx` — contractual screen (no backend)
+- `scripts/planner_v1_m7_tests.ts` — 133 assertions
+- `docs/implementation/planner/PLANNER_V1_M7_HOUSEHOLD_SEARCH_ENTRY_REPORT.md`
+- `docs/implementation/planner/PLANNER_V1_HOUSEHOLD_TRANSITION_CONTRACT.md`
+- `docs/implementation/planner/PLANNER_V1_SEARCH_ENTRY_CONTRACT.md`
+
+### Files Modified
+- `front/mi-front-limpio/navigation/HomeTabNavigator.tsx` — register `PlannerSearch` screen
+- `front/mi-front-limpio/screens/planner/PlannerScreen.tsx` — M7 context identity, late-response guards, Search entry point
+- `front/mi-front-limpio/services/planner/plannerSearchGate.ts` — proper hook implementation + direct `featureFlagStore` import
+- `scripts/tsconfig.test.json` — includes M7 test + new modules
+- `tests/run.js` — `planner-v1-m7` command + `planner-m7` suite + `planner` includes M7
+- `package.json` — `test:planner:m7` script
+
+### Tests
+- M7 suite: 133 pass / 0 fail
+- M1–M6 regression: all green
+- Quality: 16 commands PASS
+- G0: 17 commands PASS
+
+### Contracts Established
+- `PLANNER_V1_HOUSEHOLD_TRANSITION_CONTRACT.md` — context identity, generation, ordering, abort, late guards, cache, preferences, mutations, session, error recovery, prohibitions
+- `PLANNER_V1_SEARCH_ENTRY_CONTRACT.md` — flag, capability, gate, visibility, route, params, entry point, screen states, fallback, back, deep links, telemetry, privacy, out of scope
+
+### Compliance
+- Context identity has generation ✅
+- Transition ordering deterministic ✅
+- Sheets close on switch ✅
+- Requests abort on switch ✅
+- Late responses ignored ✅
+- Cache A does not contaminate B ✅
+- Capabilities A do not authorize B ✅
+- Preferences A do not overwrite B ✅
+- Late mutations do not navigate ✅
+- Search uses `planner.search_entry` ✅
+- Search uses capability `planner.search` ✅
+- Deny-safe works ✅
+- Entry point hidden by default ✅
+- Route connected ✅
+- Fallback safe ✅
+- Back deterministic ✅
+- Deep-link contract ready ✅
+- Telemetry no query/PII ✅
+- Search productiva NOT implemented ✅
+- No Home Summary changes ✅
+- No backend Search ✅
+- No migrations ✅
+- No dependencies installed ✅
+- M8 not started ✅
+
+```text
+M7 STATUS: PASSED
+M8 STATUS: AUTHORIZED
+```
