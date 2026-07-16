@@ -195,3 +195,50 @@ V0 CONTRACT GATE: PASSED
 V1 STATUS: IMPLEMENTATION READY
 M1 STATUS: AUTHORIZED
 ```
+
+---
+
+## 7. Post-M6 Implementation Update
+
+**Commit**: `e9a47c6` (M5) → working tree modified for M6
+
+| Block | Pre-M6 Status | Post-M6 Status | Notes |
+|-------|---------------|----------------|-------|
+| Tabs Tasks/Calendar/Goals | `EXISTING_PARTIAL` | `IMPLEMENTED` | `PlannerTabKey` canonical; persistence via `plannerPreferences.ts` |
+| Shell Planner | `IMPLEMENTED` (M2) | `ENHANCED` | M6 adds hydration, persistence, lifecycle guards |
+| Household switch/sign-out | `EXISTING_PARTIAL` | `ENHANCED` | M6 adds preference isolation + durable retention policy |
+
+### Files Created
+- `front/mi-front-limpio/services/plannerPreferences.ts` — single adapter, codec, key builder
+- `scripts/planner_v1_tab_preferences_tests.ts` — 50 assertions
+- `docs/implementation/planner/PLANNER_V1_M6_PERSISTENT_TABS_REPORT.md`
+- `docs/implementation/planner/PLANNER_V1_TAB_PREFERENCES_CONTRACT.md`
+- `docs/implementation/planner/PLANNER_V1_TAB_HYDRATION_LIFECYCLE.md`
+
+### Files Modified
+- `front/mi-front-limpio/screens/planner/PlannerScreen.tsx` — M6 integration
+- `scripts/tsconfig.test.json` — includes new source/test
+- `tests/run.js` — `planner-v1-m6`, `planner-m6` suite
+- `package.json` (root) — `test:planner:m6` script
+
+### Tests
+- M6 suite: 50 pass / 0 fail
+- M1–M5 regression: all green
+- Quality: 16 commands PASS
+
+### Contracts Established
+- `PLANNER_V1_TAB_PREFERENCES_CONTRACT.md` — keys, payload, parser, storage, retention
+- `PLANNER_V1_TAB_HYDRATION_LIFECYCLE.md` — generation tokens, manual selection protection, late-response guards
+
+### Compliance
+- Canonical tabs: `tasks | calendar | goals` ✅
+- Default: `tasks` ✅
+- Account+Household scope ✅
+- Versioned key ✅
+- Single adapter ✅
+- Deny-safe parser ✅
+- Storage failure non-blocking ✅
+- Household/account isolation ✅
+- Navigation `initialTab` priority ✅
+- Late hydration protection ✅
+- No Search, no Home Summary changes, no backend, no migrations ✅

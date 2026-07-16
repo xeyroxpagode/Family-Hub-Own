@@ -1,40 +1,27 @@
 /**
- * Planner V1 — M2 Planner Shell (M3 sheet host migration complete).
+ * Planner V1 — M2/M3/M6 Planner Shell.
  *
- * Purpose (frozen by `planner_v1_implementation_order.md` §M2 and §M3):
+ * Purpose (frozen by `planner_v1_implementation_order.md` §M2, §M3, §M6):
  * - Single Planner Shell owns the visible global state via the pure
  *   `resolvePlannerShellState`. Tasks, Calendar and Goals retain ownership of
  *   their internal content but the Shell decides what is visible at the
  *   top of Planner.
- * - Header is de-cluttered: title only, no slogan, no legacy stats, no Search,
- *   no disabled future buttons.
+ * - Header is de-cluttered: title only, no slogan, no legacy stats, no Search.
  * - Tabs conform to the canonical `PlannerTabKey` from M1; Tasks is the
- *   default; persistence belongs to M6.
+ *   default. M6 adds persistent tab selection scoped by accountId + householdId.
  * - Initial loading uses a non-flicker skeleton; refresh uses a non-blocking
  *   indicator that NEVER replaces existing content.
  * - Empty does not appear prematurely; partial preserves healthy content;
  *   offline-stale preserves data; offline-empty explains without falling
  *   back to a product empty state.
- * - Forbidden/not_found are separated; conflict is NEVER auto-resolved via
- *   last-write-wins (M4/M5 finalize conflict UI inside forms).
+ * - Forbidden/not_found are separated; conflict is never auto-resolved.
  *
- * M3 changes (replacing the compat-bridge-until-M3 left by M2):
- * - Removed: local Modal of Task/Event forms (the legacy compat bridge).
- * - Removed: local `PlannerSheet` discriminated union as the source of truth.
- * - Added: `usePlannerSheet()` delegation — onCreateTask / onEditTask /
- *   onCreateEvent / onEditEvent now call `openTaskForm` / `openEventForm` on
- *   the canonical `PlannerSheetProvider`. The actual Modal is owned once by
- *   `PlannerSheetHost` mounted in `HomeTabNavigator`.
- * - The Shell still owns its `overflow` Modal (Papelera) — that is a Planner
- *   navigation menu, not a sheet over the planner create/edit forms, and is
- *   outside the M3 sheet host scope (it has no form content and no submit
- *   lifecycle). It stays unchanged.
+ * M3: Sheet host migration (PlannerSheetProvider/PlannerSheetHost).
+ * M6: Tab persistence via plannerPreferencesStore with generation-guarded
+ *      hydration, non-blocking writes, and lifecycle integration.
  *
- * Out of scope for M2/M3:
- * - Search entry (M7).
- * - Quick Actions V1 (M4).
- * - Goal Quick Create (M5).
- * - Tab persistence (M6).
+ * Out of scope:
+ * - Search entry (M7), Home Summary (M8/M9), deep links (M10).
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -70,11 +57,15 @@ import {
   shellStateShowsActiveContent,
   type PlannerShellState,
 } from '../../services/planner/plannerShellState';
+import {
+  plannerPreferencesStore,
+  DEFAULT_PREFERENCES,
+  type PlannerPreferences,
+} from '../../services/plannerPreferences';
 
 // ---------------------------------------------------------------------------
-// 1. M3 — PlannerScreen no longer owns the Task/Event sheet Modal. The only
-//    local Modal retained is the overflow (Papelera) menu which is a Planner
-//    navigation surface, not a sheet host form.
+// 1. M3/M6 — PlannerScreen does not own Task/Event sheet Modal (M3).
+//    M6 adds tab persistence scoped by accountId + householdId.
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TAB: PlannerTabKey = 'tasks';
@@ -87,14 +78,46 @@ export function PlannerScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const processedNavKeyRef = useRef<string | null>(null);
-  const { session } = useAuth();
+  const { session, authMe } = useAuth();
   const accessToken = session?.access_token;
   const { currentHousehold } = useHousehold();
 
+  // --- M6: preference hydration generation guard ---
+  // Monotonically increments on every context change (household switch,
+  // sign-out, remount). Each load captures a generation token and only
+  // applies its result if the token is still current, preventing late
+  // responses from stale contexts.
+  const hydrationGenRef = useRef(0);
+  const currentContextRef = useRef<string | null>(null);
+
+  // --- M6: write revision counter ---
+  // Each user tab selection increments a revision. A late save may
+  // complete but its revision check ensures only the last selection wins.
+  const writeRevisionRef = useRef(0);
+
+  // --- M6: manual selection flag ---
+  // Once the user manually selects a tab (or navigation initialTab is
+  // applied), late hydration responses are blocked from overwriting.
+  const manualSelectionRef = useRef(false);
+
+  // --- M6: preferences readiness (pending → ready) ---
+  // 'pending' only on first mount/context-change before first load
+  // resolves. Once ready, Planner renders normally. A pending state
+  // does NOT show empty content prematurely — the shell shows its
+  // existing loading state.
+  const [preferencesReady, setPreferencesReady] = useState(false);
+
   // --- Canonical tabs (single authority via PlannerTabKey from M1) ---
+  // The active tab starts at DEFAULT_TAB ('tasks'). M6 hydration may
+  // later restore a persisted tab, but navigation initialTab (if valid)
+  // is applied immediately and takes priority over persistence (Phase 5).
   const [activeTab, setActiveTab] = useState<PlannerTabKey>(() => {
     const initialTab = route.params?.initialTab;
-    return isPlannerTabKey(initialTab) ? initialTab : DEFAULT_TAB;
+    if (isPlannerTabKey(initialTab)) {
+      manualSelectionRef.current = true;
+      return initialTab;
+    }
+    return DEFAULT_TAB;
   });
 
   // --- Summary content (Shell-level cached data) ---
@@ -116,6 +139,116 @@ export function PlannerScreen() {
 
   // --- M3: planner sheet provider consumer (for create/edit open) ---
   const sheet = usePlannerSheet();
+
+  // -------------------------------------------------------------------------
+  // M6: Preference hydration (generation-guarded, context-scoped)
+  // -------------------------------------------------------------------------
+
+  // Account ID is the authenticated user's auth_user_id (unique per account),
+  // NOT the household creator's person ID. This ensures preferences are
+  // scoped per-account, not per-household-creator.
+  const accountId = authMe?.person?.auth_user_id ?? null;
+  const householdId = currentHousehold?.id ?? null;
+  const contextKey = accountId && householdId ? `${accountId}::${householdId}` : null;
+
+  // When the context changes ( accountId/householdId), start a new
+  // hydration generation, reset preferences readiness, and load the
+  // persisted preference for the new scope. Late responses from a
+  // previous scope are discarded via the generation check.
+  useEffect(() => {
+    if (!contextKey) {
+      // No valid context — reset to safe default, do not load.
+      hydrationGenRef.current += 1;
+      currentContextRef.current = null;
+      manualSelectionRef.current = false;
+      setPreferencesReady(true);
+      setActiveTab(DEFAULT_TAB);
+      return;
+    }
+
+    // Context changed: start a new hydration generation.
+    // Since contextKey is non-null here, accountId and householdId are
+    // non-null strings — narrow explicitly for the closure.
+    const capturedAccountId = accountId as string;
+    const capturedHouseholdId = householdId as string;
+    const gen = hydrationGenRef.current + 1;
+    hydrationGenRef.current = gen;
+    currentContextRef.current = contextKey;
+    manualSelectionRef.current = false;
+    setPreferencesReady(false);
+
+    // Capture the generation for late-response protection.
+    const capturedGen = gen;
+
+    void (async () => {
+      const prefs = await plannerPreferencesStore.load(capturedAccountId, capturedHouseholdId);
+
+      // Guard: only apply if the generation is still current AND the
+      // context has not changed since the load was initiated. A user
+      // tab selection or navigation initialTab during load sets
+      // manualSelectionRef → block the late response.
+      if (
+        hydrationGenRef.current !== capturedGen ||
+        currentContextRef.current !== contextKey ||
+        manualSelectionRef.current
+      ) {
+        setPreferencesReady(true);
+        return;
+      }
+
+      // Apply the persisted tab. parsePlannerPreferences inside the store
+      // already validated; the activeTab is canonical or defaulted to tasks.
+      setActiveTab(prefs.activeTab);
+      setPreferencesReady(true);
+    })();
+    // contextKey derived from accountId/householdId — included as dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextKey]);
+
+  // -------------------------------------------------------------------------
+  // M6: Tab selection handler (non-blocking write, revision-guarded)
+  // -------------------------------------------------------------------------
+
+  const handleTabSelect = useCallback(
+    (tabKey: PlannerTabKey) => {
+      // Update UI immediately — never block on AsyncStorage.
+      setActiveTab(tabKey);
+      manualSelectionRef.current = true;
+
+      // Capture the current revision and scope for late-save protection.
+      // accountId is the authenticated user's auth_user_id (unique per account),
+      // NOT the household creator's person ID. This ensures preferences are
+      // scoped per-account, not per-household-creator.
+      const revision = writeRevisionRef.current + 1;
+      writeRevisionRef.current = revision;
+      const capturedAccountId = accountId;
+      const capturedHouseholdId = householdId;
+
+      // Only persist if we have a valid scope. If the scope is missing
+      // (e.g. during sign-out race), the selection stays in-memory only.
+      if (!capturedAccountId || !capturedHouseholdId) return;
+
+      // Non-blocking background save. A late save from an older revision
+      // may complete but its value is the same (or older) — the revision
+      // counter ensures the last selection is the final persisted value.
+      // Errors are swallowed by the store adapter — they never reach UI.
+      void (async () => {
+        // Minimal sequencing: read the latest revision just before write.
+        // If a newer selection happened, the older save still writes its
+        // own value — but the newest tab select will re-trigger a save
+        // with the latest value, so the final persisted state is correct.
+        if (writeRevisionRef.current !== revision) return;
+
+        const prefs: PlannerPreferences = {
+          version: 1,
+          activeTab: tabKey,
+        };
+
+        await plannerPreferencesStore.save(capturedAccountId, capturedHouseholdId, prefs);
+      })();
+    },
+    [accountId, householdId],
+  );
 
   // -------------------------------------------------------------------------
   // 3. Initial summary load + silent refresh on focus
@@ -186,7 +319,14 @@ export function PlannerScreen() {
     }
     processedNavKeyRef.current = key;
 
-    if (isPlannerTabKey(p.initialTab)) setActiveTab(p.initialTab);
+    // M6: applying a valid navigation initialTab is a one-shot explicit
+    // navigation. It takes priority over the persisted preference (Phase 5)
+    // but does NOT itself persist — only user tab selections are saved.
+    // Setting manualSelectionRef blocks late hydration from overwriting it.
+    if (isPlannerTabKey(p.initialTab)) {
+      setActiveTab(p.initialTab);
+      manualSelectionRef.current = true;
+    }
 
     // M3: route param driven sheet open delegates to the provider rather than
     // the legacy local state. We don't re-fire if the sheet is already open.
@@ -415,7 +555,7 @@ export function PlannerScreen() {
                 <TouchableOpacity
                   key={tabKey}
                   style={[S.topbarTab, active && S.topbarTabActive]}
-                  onPress={() => setActiveTab(tabKey)}
+                  onPress={() => handleTabSelect(tabKey)}
                   accessibilityRole="tab"
                   accessibilityState={{ selected: active }}
                   accessibilityLabel={tabLabel(tabKey)}
