@@ -202,22 +202,22 @@ function runTests() {
   // 2. Goal state — deferred to M5
   // -------------------------------------------------------------------------
 
-  test('Goal — implemented=false during M4', () => {
+  test('Goal — implemented=true in M5', () => {
     const goal = plannerQuickActions.catalog.find((a) => a.key === 'create_goal')!;
-    assert(!goal.implemented, 'Goal not implemented in M4');
+    assert(goal.implemented, 'Goal implemented in M5');
   });
 
-  test('Goal — getImplemented excludes goal', () => {
+  test('Goal — getImplemented includes goal in M5', () => {
     const implemented = plannerQuickActions.getImplemented();
-    assertEqual(implemented.length, 2, 'only 2 implemented actions');
-    assert(!implemented.some((a) => a.key === 'create_goal'), 'goal not in implemented');
+    assertEqual(implemented.length, 3, '3 implemented actions');
+    assert(implemented.some((a) => a.key === 'create_goal'), 'goal in implemented');
   });
 
-  test('Goal — getVisible excludes goal even with capability', () => {
+  test('Goal — getVisible includes goal with capability', () => {
     const proj = fullProjection();
     const visible = plannerQuickActions.getVisible(proj);
-    assertEqual(visible.length, 2, 'only 2 visible actions even with goal capability');
-    assert(!visible.some((a) => a.key === 'create_goal'), 'goal not in visible');
+    assertEqual(visible.length, 3, '3 visible actions with goal capability');
+    assert(visible.some((a) => a.key === 'create_goal'), 'goal in visible');
   });
 
   // -------------------------------------------------------------------------
@@ -290,8 +290,8 @@ function runTests() {
     assert(taskEval.implemented, 'task implemented');
     assert(!eventEval.visible, 'event not visible');
     assert(!eventEval.enabled, 'event not enabled');
-    assert(!goalEval.visible, 'goal not visible (deferred)');
-    assert(!goalEval.implemented, 'goal not implemented (M5)');
+    assert(!goalEval.visible, 'goal not visible (capability denied)');
+    assert(goalEval.implemented, 'goal implemented (M5)');
   });
 
   // -------------------------------------------------------------------------
@@ -524,10 +524,10 @@ function runTests() {
     }
   });
 
-  test('Telemetry — action_type is closed enum (task | event)', () => {
-    const allowedTypes = ['task', 'event'];
-    assert(!allowedTypes.includes('goal' as any), 'goal not in telemetry action_type');
-    assertEqual(allowedTypes.length, 2, 'only 2 action types in M4');
+  test('Telemetry — action_type is closed enum (task | event | goal)', () => {
+    const allowedTypes = ['task', 'event', 'goal'];
+    assert(allowedTypes.includes('goal' as any), 'goal in telemetry action_type');
+    assertEqual(allowedTypes.length, 3, '3 action types in M5');
   });
 
   test('Telemetry — no PII in event properties', () => {
@@ -542,11 +542,12 @@ function runTests() {
   // 10. Regression — Goal not triggered, Invite absent
   // -------------------------------------------------------------------------
 
-  test('Regression — Goal Quick Create not implemented in M4', () => {
+  test('Regression — Goal Quick Create implemented in M5', () => {
     const goal = plannerQuickActions.catalog.find((a) => a.key === 'create_goal')!;
-    assert(!goal.implemented, 'Goal implemented = false');
+    assert(goal.implemented, 'Goal implemented = true');
     const implemented = plannerQuickActions.getImplemented();
-    assert(!implemented.some((a) => a.key === 'create_goal'), 'Goal not in implemented list');
+    assert(implemented.some((a) => a.key === 'create_goal'), 'Goal in implemented list');
+    assertEqual(implemented.length, 3, '3 implemented actions');
   });
 
   test('Regression — Invite permanently excluded', () => {

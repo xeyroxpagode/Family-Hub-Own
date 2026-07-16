@@ -36,6 +36,7 @@ import {
 } from './plannerErrorAdapter';
 import { createPlannerTask, type CreatePlannerTaskPayload } from '../plannerTasks';
 import { createPlannerEvent, type CreatePlannerEventPayload } from '../plannerEvents';
+import { createGoal, type CreatePlannerGoalInput, type PlannerGoal } from '../plannerGoals';
 import { plannerCache } from './plannerCache';
 import type { HouseholdScope } from './plannerKeys';
 import { ApiError } from '../api';
@@ -175,12 +176,85 @@ export function createEventIntent(): PlannerMutationIntent {
   return createPlannerMutationIntent({ kind: 'create', entityKind: 'planner.events' });
 }
 
+export function createGoalIntent(): PlannerMutationIntent {
+  return createPlannerMutationIntent({ kind: 'create', entityKind: 'planner.goals' });
+}
+
 export function cloneIntent(original: PlannerMutationIntent): PlannerMutationIntent {
   return clonePlannerMutationIntent(original);
 }
 
 // ---------------------------------------------------------------------------
-// 5. Error message resolver for user display
+// 5. Goal create adapter
+// ---------------------------------------------------------------------------
+
+export type GoalCreateSuccess = {
+  goalId: string;
+  goal: PlannerGoal;
+  version?: number;
+  mutationId: string;
+  idempotencyKey: string;
+};
+
+export async function executeGoalCreateSubmit(params: {
+  accessToken: string;
+  payload: CreatePlannerGoalInput;
+  scope: HouseholdScope;
+  sheet: PlannerSheetController;
+  intent: PlannerMutationIntent;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}): Promise<PlannerCreateSubmitResult & { success?: GoalCreateSuccess }> {
+  const { accessToken, payload, scope, sheet, intent, signal, timeoutMs } = params;
+
+  const intentId = intent.mutationId;
+
+  try {
+    sheet.beginSubmit(intentId);
+
+    const { goal } = await createGoal(accessToken, payload, {
+      idempotencyKey: intent.idempotencyKey,
+      mutationId: intent.mutationId,
+    });
+
+    plannerCache.executeInvalidation(
+      { kind: 'goal', action: 'create' },
+      scope,
+    );
+
+    const success: GoalCreateSuccess = {
+      goalId: goal.id,
+      goal,
+      version: goal.version,
+      mutationId: intent.mutationId,
+      idempotencyKey: intent.idempotencyKey ?? '',
+    };
+
+    return { status: 'success', success };
+  } catch (err: unknown) {
+    if (isPlannerAbort(err)) {
+      return { status: 'error', error: classifyPlannerError(err), retryable: false };
+    }
+
+    const plannerError = classifyPlannerError(err);
+    const retryable = isRetryable(plannerError.class);
+
+    if (err instanceof ApiError && err.status === 403) {
+      plannerCache.invalidateCapabilities({
+        accountId: '',
+        householdId: scope.householdId,
+        membershipId: '',
+      });
+    }
+
+    return { status: 'error', error: plannerError, retryable };
+  } finally {
+    sheet.endSubmit(intentId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 6. Error message resolver for user display
 // ---------------------------------------------------------------------------
 
 export function resolveCreateErrorMessage(error: PlannerError): string {

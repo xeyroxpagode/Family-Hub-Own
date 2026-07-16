@@ -120,7 +120,7 @@ const CATALOG: readonly PlannerQuickActionDefinition[] = [
     iconColor: '#3B68A0',          // colors.info.text approximate
     requiredCapabilityGuard: canCreateAnyGoal,
     destination: 'goal_form',
-    implemented: false, // deferred to M5
+    implemented: true
   },
 ];
 

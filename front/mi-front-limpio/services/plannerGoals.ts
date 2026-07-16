@@ -166,15 +166,19 @@ export const getGoalById = (accessToken: string, goalId: string) =>
 export const createGoal = (
   accessToken: string,
   payload: CreatePlannerGoalInput,
-  options?: { idempotencyKey?: string },
+  options?: { idempotencyKey?: string; mutationId?: string },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.create')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (options?.mutationId) {
+    headers['X-Mutation-Id'] = options.mutationId
+  }
   return requestJson<PlannerGoalResponse>('/api/planner/goals', {
     method: 'POST',
     operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
     body: payload,
-    headers: { 'Idempotency-Key': key },
+    headers,
   })
 }
 

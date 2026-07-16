@@ -4,6 +4,7 @@ import {
   Alert,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   TextInput,
   TouchableOpacity,
   View,
@@ -49,13 +50,26 @@ import {
   shouldShowGoalProgressBar,
 } from './plannerShared';
 
+const styles = StyleSheet.create({
+  postCreatePrompt: {
+    padding: spacing[4],
+    borderRadius: radius.xl,
+    backgroundColor: colors.surface.card,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    gap: spacing[3],
+  },
+});
+
 export function GoalDetailScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { session } = useAuth();
   const { markPlannerChanged } = useAppRefresh();
   const accessToken = session?.access_token;
-  const goalId = route.params?.goalId as string;
+  const goalId = (route.params?.entityId ?? route.params?.goalId) as string;
+  const justCreated = route.params?.justCreated === true;
+  const source = route.params?.source as string | undefined;
 
   const [goal, setGoal] = useState<PlannerGoal | null>(null);
   const [milestones, setMilestones] = useState<PlannerGoalMilestone[]>([]);
@@ -69,6 +83,10 @@ export function GoalDetailScreen() {
   const [addingMilestone, setAddingMilestone] = useState(false);
   const [editingProgress, setEditingProgress] = useState(false);
   const [progressValue, setProgressValue] = useState('');
+
+  // Post-create one-shot state
+  const [showPostCreatePrompt, setShowPostCreatePrompt] = useState(false);
+  const [postCreateActionTaken, setPostCreateActionTaken] = useState(false);
 
   const milestoneCreateKeyRef = useRef(createIdempotencyKey('planner.goals.milestones.create'));
 const goalCompleteKeyRef = useRef(createIdempotencyKey('planner.goals.complete'));
@@ -112,6 +130,13 @@ const goalCompleteKeyRef = useRef(createIdempotencyKey('planner.goals.complete')
       void load();
     }
   }, [isFocused, load]);
+
+  // Post-create one-shot: show prompt exactly once when justCreated=true
+  useEffect(() => {
+    if (justCreated && !postCreateActionTaken && !showPostCreatePrompt) {
+      setShowPostCreatePrompt(true);
+    }
+  }, [justCreated, postCreateActionTaken, showPostCreatePrompt]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -388,6 +413,107 @@ const goalCompleteKeyRef = useRef(createIdempotencyKey('planner.goals.complete')
             description={error ?? 'Meta no encontrada.'}
             onRetry={() => void load()}
           />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Post-create one-shot prompt
+  if (showPostCreatePrompt) {
+    return (
+      <SafeAreaView style={S.safe} edges={['top']}>
+        <View style={{ padding: spacing[5] }}>
+          <View style={styles.postCreatePrompt}>
+            <AppText variant="title3" weight="800" style={{ marginBottom: spacing[2] }}>
+              Meta creada
+            </AppText>
+            <AppText variant="body" tone="secondary" style={{ marginBottom: spacing[4] }}>
+              ¿Qué querés hacer ahora?
+            </AppText>
+            {progressMode === 'steps' && (
+              <TouchableOpacity
+                style={S.primaryBtn}
+                onPress={() => {
+                  setShowPostCreatePrompt(false);
+                  setPostCreateActionTaken(true);
+                }}
+              >
+                <AppText variant="bodySmall" tone="inverse" weight="800">
+                  Agregar primer paso
+                </AppText>
+              </TouchableOpacity>
+            )}
+            {progressMode === 'tasks' && (
+              <TouchableOpacity
+                style={S.primaryBtn}
+                onPress={() => {
+                  setShowPostCreatePrompt(false);
+                  setPostCreateActionTaken(true);
+                  navigation.navigate('CreateTask', {
+                    goalId: goal.id,
+                    goalTitle: goal.title,
+                    fromGoal: true,
+                    returnToGoalId: goal.id,
+                  });
+                }}
+              >
+                <AppText variant="bodySmall" tone="inverse" weight="800">
+                  Crear primera tarea
+                </AppText>
+              </TouchableOpacity>
+            )}
+            {progressMode === 'numeric' && (
+              <TouchableOpacity
+                style={S.primaryBtn}
+                onPress={() => {
+                  setShowPostCreatePrompt(false);
+                  setPostCreateActionTaken(true);
+                  setEditingProgress(true);
+                }}
+              >
+                <AppText variant="bodySmall" tone="inverse" weight="800">
+                  Registrar primer avance
+                </AppText>
+              </TouchableOpacity>
+            )}
+            {progressMode === 'boolean' && (
+              <TouchableOpacity
+                style={S.primaryBtn}
+                onPress={() => {
+                  setShowPostCreatePrompt(false);
+                  setPostCreateActionTaken(true);
+                }}
+              >
+                <AppText variant="bodySmall" tone="inverse" weight="800">
+                  Abrir meta
+                </AppText>
+              </TouchableOpacity>
+            )}
+            {(progressMode === 'none' || !['steps', 'tasks', 'numeric', 'boolean'].includes(progressMode)) && (
+              <TouchableOpacity
+                style={S.primaryBtn}
+                onPress={() => {
+                  setShowPostCreatePrompt(false);
+                  setPostCreateActionTaken(true);
+                }}
+              >
+                <AppText variant="bodySmall" tone="inverse" weight="800">
+                  Agregar nota o tarea
+                </AppText>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[S.secondaryBtn, { marginTop: spacing[3] }]}
+              onPress={() => {
+                setShowPostCreatePrompt(false);
+                setPostCreateActionTaken(true);
+              }}
+            >
+              <AppText variant="bodySmall" style={S.secondaryText} weight="800">
+                Ahora no
+              </AppText>
+            </TouchableOpacity>
+          </View>
         </View>
       </SafeAreaView>
     );

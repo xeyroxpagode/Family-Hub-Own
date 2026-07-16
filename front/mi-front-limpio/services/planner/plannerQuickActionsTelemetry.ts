@@ -21,7 +21,7 @@
 
 import { requestJson } from '../api';
 
-type QuickActionType = 'task' | 'event';
+type QuickActionType = 'task' | 'event' | 'goal';
 
 let telemetryEndpoint: string | null = null;
 

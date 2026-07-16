@@ -55,10 +55,12 @@ import {
 import {
   createTaskIntent,
   createEventIntent,
+  createGoalIntent,
   type PlannerMutationIntent,
 } from '../../services/planner/plannerSubmitAdapter';
 import { plannerCache } from '../../services/planner/plannerCache';
 import { plannerQuickActionsTelemetry } from '../../services/planner/plannerQuickActionsTelemetry';
+import { openGoalDetail } from '../../navigation/plannerNavigationHelpers';
 
 // ---------------------------------------------------------------------------
 // 1. Heading map (a11y announcement text)
@@ -120,7 +122,7 @@ function ActionsMenuHost() {
     return () => { disposed = true; };
   }, [accessToken, currentHousehold]);
 
-  const handleActionSelected = useCallback((actionType: 'task' | 'event') => {
+  const handleActionSelected = useCallback((actionType: 'task' | 'event' | 'goal') => {
     plannerQuickActionsTelemetry.selected(actionType, accessToken);
   }, [accessToken]);
 
@@ -275,13 +277,41 @@ function EventFormHost() {
 }
 
 /**
- * GoalFormSlot: the contract is defined (kind: 'goal_form') so types and the
- * host accept it, but the productive flow remains deferred to M5.
+ * GoalFormHost: full productive flow for M5 Goal Quick Create.
+ *
+ * Mirrors TaskFormHost/EventFormHost: stable mutation intent, submit lock,
+ * directed invalidation, post-create navigation via openGoalDetail with
+ * justCreated=true, and telemetry.
  */
-function GoalFormSlot() {
+function GoalFormHost() {
   const sheet = usePlannerSheet();
+  const { currentHousehold } = useHousehold();
+  const { session } = useAuth();
+  const accessToken = session?.access_token;
 
   const mold = sheet.state as PlannerSheetState & { kind: 'goal_form' };
+
+  const intentRef = useRef<PlannerMutationIntent | null>(null);
+  if (!intentRef.current && mold.mode === 'create') {
+    intentRef.current = createGoalIntent();
+  }
+  const intent = intentRef.current;
+
+  const createMutationId = intent?.mutationId;
+
+  const onSubmitBegin = useCallback(
+    (intentId: string) => {
+      sheet.beginSubmit(intentId);
+    },
+    [sheet],
+  );
+
+  const onSubmitEnd = useCallback(
+    (intentId: string) => {
+      sheet.endSubmit(intentId);
+    },
+    [sheet],
+  );
 
   const onClose = useCallback(() => {
     sheet.requestClose('user_request');
@@ -289,10 +319,25 @@ function GoalFormSlot() {
 
   const onSaved = useCallback(
     (message: string) => {
+      // Directed invalidation for goal create
+      if (currentHousehold) {
+        plannerCache.executeInvalidation(
+          { kind: 'goal', action: 'create' },
+          { householdId: currentHousehold.id },
+        );
+      }
+      plannerQuickActionsTelemetry.submitSucceeded('goal', accessToken);
       sheet.endSubmit('goal_intent');
       sheet.requestClose('success');
     },
-    [sheet],
+    [sheet, currentHousehold, accessToken],
+  );
+
+  const onError = useCallback(
+    (errorCode: string) => {
+      plannerQuickActionsTelemetry.submitFailed('goal', errorCode, accessToken);
+    },
+    [accessToken],
   );
 
   return (
@@ -302,6 +347,9 @@ function GoalFormSlot() {
       goalId={mold.goalId}
       onClose={onClose}
       onSaved={onSaved}
+      createMutationId={createMutationId}
+      onSubmitBegin={onSubmitBegin}
+      onSubmitEnd={onSubmitEnd}
     />
   );
 }
@@ -385,7 +433,7 @@ export function PlannerSheetHost() {
       case 'event_form':
         return <EventFormHost />;
       case 'goal_form':
-        return <GoalFormSlot />;
+        return <GoalFormHost />;
     }
   }, [state]);
 

@@ -45,6 +45,12 @@ type GoalFormProps = {
   goalId?: string;
   onClose?: () => void;
   onSaved?: (message: string) => void;
+  /** Stable mutation identity from sheet host (M5). */
+  createMutationId?: string;
+  /** Called before submit to acquire sheet lock (M5). */
+  onSubmitBegin?: (intentId: string) => void;
+  /** Called after submit to release sheet lock (M5). */
+  onSubmitEnd?: (intentId: string) => void;
 };
 
 const categories: PlannerGoalCategory[] = ['home', 'family', 'finance', 'health', 'education', 'other'];
@@ -132,6 +138,9 @@ export function GoalForm({
   goalId: goalIdProp,
   onClose,
   onSaved,
+  createMutationId,
+  onSubmitBegin,
+  onSubmitEnd,
 }: GoalFormProps) {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -424,9 +433,27 @@ export function GoalForm({
     const payload = validateAndBuildPayload();
     if (!payload) return;
 
-    const payloadWithVersion = mode === 'edit' && entityVersion !== null
+    // For quick-create embedded mode, strip current_value so backend defaults to 0.
+    const payloadWithVersion = mode === 'create' && createMutationId
+      ? {
+          title: payload.title,
+          description: payload.description,
+          visibility: payload.visibility,
+          category: payload.category,
+          progress_mode: payload.progress_mode,
+          target_type: payload.target_type,
+          target_value: payload.target_value,
+          unit: payload.unit,
+          starts_at: payload.starts_at,
+          ends_at: payload.ends_at,
+          current_value: undefined,
+        } as CreatePlannerGoalInput & { expected_version?: number }
+      : mode === 'edit' && entityVersion !== null
       ? { ...payload, expected_version: entityVersion }
       : payload;
+
+    const intentId = createMutationId ?? goalCreateKeyRef.current;
+    if (onSubmitBegin) onSubmitBegin(intentId);
 
     setSaving(true);
     setError(null);
@@ -435,6 +462,7 @@ export function GoalForm({
       if (mode === 'create') {
         const { goal } = await createGoal(accessToken, payloadWithVersion, {
           idempotencyKey: goalCreateKeyRef.current,
+          mutationId: createMutationId,
         });
         markPlannerChanged();
         goalCreateKeyRef.current = createIdempotencyKey('planner.goals.create');
@@ -460,6 +488,7 @@ export function GoalForm({
       setError(toFriendlyGoalError(err));
     } finally {
       setSaving(false);
+      if (onSubmitEnd) onSubmitEnd(intentId);
     }
   };
 

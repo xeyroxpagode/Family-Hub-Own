@@ -66,7 +66,7 @@ function getActionState(
 type QuickActionsMenuProps = {
   capabilities: PlannerCapabilitiesProjection | null;
   capabilitiesLoading: boolean;
-  onActionSelected?: (actionType: 'task' | 'event') => void;
+  onActionSelected?: (actionType: 'task' | 'event' | 'goal') => void;
 };
 
 export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSelected }: QuickActionsMenuProps) {
@@ -86,8 +86,9 @@ export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSe
 
   const handleOpenGoal = useCallback(() => {
     if (sheet.isSubmitting) return;
+    onActionSelected?.('goal');
     sheet.openGoalForm({ source: 'quick_action' });
-  }, [sheet]);
+  }, [sheet, onActionSelected]);
 
   const visibleActions = useMemo(() => {
     if (capabilitiesLoading || !capabilities) return [];
