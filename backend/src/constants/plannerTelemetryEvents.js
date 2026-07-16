@@ -20,6 +20,26 @@ const PLANNER_TELEMETRY_EVENTS = Object.freeze([
     properties: { action: string(), entity_kind: string({ enum: ['task', 'event', 'goal', 'milestone'] }), error_code: string() },
   },
   {
+    name: 'planner_quick_actions_opened',
+    domain: 'planner',
+    properties: { source: string() },
+  },
+  {
+    name: 'planner_quick_action_selected',
+    domain: 'planner',
+    properties: { action_type: string({ enum: ['task', 'event'] }), source: string() },
+  },
+  {
+    name: 'planner_quick_action_submit_succeeded',
+    domain: 'planner',
+    properties: { action_type: string({ enum: ['task', 'event'] }), source: string() },
+  },
+  {
+    name: 'planner_quick_action_submit_failed',
+    domain: 'planner',
+    properties: { action_type: string({ enum: ['task', 'event'] }), source: string(), error_code: string() },
+  },
+  {
     name: 'planner_search_opened',
     domain: 'planner',
     properties: { source: string() },

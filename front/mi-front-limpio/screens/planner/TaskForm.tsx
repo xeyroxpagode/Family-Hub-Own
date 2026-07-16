@@ -45,6 +45,9 @@ type TaskFormProps = {
   initialDueDate?: string;
   onClose?: () => void;
   onSaved?: (message: string) => void;
+  createMutationId?: string;
+  onSubmitBegin?: (intentId: string) => void;
+  onSubmitEnd?: (intentId: string) => void;
 };
 
 type TaskTypeId = 'general' | PlannerTaskTemplateKey | 'other';
@@ -144,6 +147,9 @@ export function TaskForm({
   initialDueDate,
   onClose,
   onSaved,
+  createMutationId,
+  onSubmitBegin,
+  onSubmitEnd,
 }: TaskFormProps) {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -419,6 +425,9 @@ export function TaskForm({
     }
 
     setSaving(true);
+    if (createMutationId && onSubmitBegin) {
+      onSubmitBegin(createMutationId);
+    }
 
     try {
       if (mode === 'edit' && taskId) {
@@ -432,7 +441,10 @@ export function TaskForm({
         }
         taskUpdateKeyRef.current = createIdempotencyKey('planner.tasks.update');
       } else {
-        await createPlannerTask(accessToken, payload, { idempotencyKey: taskCreateKeyRef.current });
+        await createPlannerTask(accessToken, payload, {
+          idempotencyKey: taskCreateKeyRef.current,
+          mutationId: createMutationId,
+        });
         markPlannerChanged();
         const successMsg = 'Tarea creada.';
         if (onSaved) {
@@ -460,6 +472,10 @@ export function TaskForm({
         }
       }
     } catch (err) {
+      // Notify host that the submit ended with error (preserve draft)
+      if (createMutationId && onSubmitEnd) {
+        onSubmitEnd(createMutationId);
+      }
       if (err instanceof ApiError && err.code === 'version_conflict') {
         Alert.alert(
           'Conflicto',

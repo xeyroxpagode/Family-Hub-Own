@@ -20,6 +20,7 @@
     "test:planner:m1": "node tests/run.js planner-m1",
     "test:planner:m2": "node tests/run.js planner-m2",
     "test:planner:m3": "node tests/run.js planner-m3",
+    "test:planner:m4": "node tests/run.js planner-m4",
     "test:g0.2": "node tests/integration/run.js --suite=g0.2",
     "test:g0.3": "node tests/run.js g0.3",
     "test:g0.4:runtime": "node tests/integration/run.js --suite=g0.4",

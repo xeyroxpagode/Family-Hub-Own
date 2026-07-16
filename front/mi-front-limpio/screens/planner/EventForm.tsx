@@ -41,6 +41,9 @@ type EventFormProps = {
   initialDate?: string;
   onClose?: () => void;
   onSaved?: (message: string) => void;
+  createMutationId?: string;
+  onSubmitBegin?: (intentId: string) => void;
+  onSubmitEnd?: (intentId: string) => void;
 };
 
 const recurrenceOptions: PlannerEventRecurrence[] = ['none', 'daily', 'weekly', 'monthly'];
@@ -98,6 +101,9 @@ export function EventForm({
   initialDate,
   onClose,
   onSaved,
+  createMutationId,
+  onSubmitBegin,
+  onSubmitEnd,
 }: EventFormProps) {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -281,6 +287,9 @@ export function EventForm({
 
     setSaving(true);
     setError(null);
+    if (createMutationId && onSubmitBegin) {
+      onSubmitBegin(createMutationId);
+    }
 
     try {
       if (mode === 'edit' && eventId) {
@@ -322,7 +331,10 @@ if (isGeneratedRecurringOccurrence) {
         }
         eventUpdateKeyRef.current = createIdempotencyKey('planner.events.update');
       } else {
-        await createPlannerEvent(accessToken, payload, { idempotencyKey: eventCreateKeyRef.current });
+        await createPlannerEvent(accessToken, payload, {
+          idempotencyKey: eventCreateKeyRef.current,
+          mutationId: createMutationId,
+        });
         markPlannerChanged();
         if (onSaved) {
           onSaved('Evento creado.');
@@ -344,6 +356,9 @@ if (isGeneratedRecurringOccurrence) {
         }
       }
     } catch (err) {
+      if (createMutationId && onSubmitEnd) {
+        onSubmitEnd(createMutationId);
+      }
       const message = err instanceof ApiError ? err.message : 'No pudimos guardar el evento.';
       setError(message);
       Alert.alert('Planner', message);

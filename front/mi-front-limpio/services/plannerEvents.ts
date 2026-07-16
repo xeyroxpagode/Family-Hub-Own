@@ -79,15 +79,19 @@ export const listPlannerEvents = (accessToken: string, filters?: PlannerEventFil
 export const createPlannerEvent = (
   accessToken: string,
   payload: CreatePlannerEventPayload,
-  options?: { idempotencyKey?: string },
+  options?: { idempotencyKey?: string; mutationId?: string },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.create')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (options?.mutationId) {
+    headers['X-Mutation-Id'] = options.mutationId
+  }
   return requestJson<PlannerEventResponse>('/api/planner/events', {
     method: 'POST',
     operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
     body: payload,
-    headers: { 'Idempotency-Key': key },
+    headers,
   })
 }
 
@@ -193,14 +197,18 @@ export const createEventOccurrenceOverride = (
   accessToken: string,
   eventId: string,
   payload: CreateOccurrenceOverridePayload,
-  options?: { idempotencyKey?: string },
+  options?: { idempotencyKey?: string; mutationId?: string },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.occurrences.override.create')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (options?.mutationId) {
+    headers['X-Mutation-Id'] = options.mutationId
+  }
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/occurrences/override`, {
     method: 'POST',
     operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
     body: payload,
-    headers: { 'Idempotency-Key': key },
+    headers,
   })
 }

@@ -1,10 +1,11 @@
 /**
- * Planner V1 — M3 PlannerSheetHost.
+ * Planner V1 — M4 PlannerSheetHost (Quick Actions final design + submit lifecycle).
  *
- * Purpose (frozen by `planner_v1_implementation_order.md` §M3):
+ * Purpose (frozen by `planner_v1_implementation_order.md` M3/M4):
  * - Single `Modal` component for all Planner sheets (actions menu, task form,
  *   event form, goal form slot).
- * - Renders content according to `PlannerSheetState.kind`.
+ * - M4 adds final Quick Actions design, capabilities-driven visibility,
+ *   mutation intent, directed invalidation, and submit lifecycle integration.
  * - Backdrop closes when permitted (not during submit).
  * - Android Back handler: close when open and not submitting, else delegate.
  * - Accessibility heading announced on open; focus managed on entry/exit.
@@ -15,12 +16,11 @@
  * - `PlannerScreen` and `QuickActionSheet` no longer own modals post-M3.
  *
  * Out of scope:
- * - Form logic (each form owns its fields and validations).
- * - Quick Actions design (belongs to M4).
  * - Goal Quick Create product flow (belongs to M5).
+ * - Search (belongs to M7).
  */
 
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BackHandler,
   Keyboard,
@@ -36,16 +36,29 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { plannerStyles as S } from '../../screens/planner/plannerShared';
 import { AppText } from '../ui/AppText';
 import { usePlannerSheet } from '../../context/PlannerSheetContext';
+import { useAuth } from '../../context/AuthContext';
+import { useHousehold } from '../../context/HouseholdContext';
 import { EventForm } from '../../screens/planner/EventForm';
 import { TaskForm } from '../../screens/planner/TaskForm';
 import { GoalForm } from '../../screens/planner/GoalForm';
-import { QuickActionSheet } from '../ui/QuickActionSheet';
+import { QuickActionsMenu } from './QuickActionsMenu';
 import type { PlannerSheetState } from '../../services/planner/plannerSheetState';
 import {
   announceSheetOpened,
   isNodeAccessible,
   attemptFocusReturn,
 } from '../../services/planner/plannerSheetFocus';
+import {
+  fetchPlannerCapabilitiesCached,
+  type PlannerCapabilitiesProjection,
+} from '../../services/plannerCapabilities';
+import {
+  createTaskIntent,
+  createEventIntent,
+  type PlannerMutationIntent,
+} from '../../services/planner/plannerSubmitAdapter';
+import { plannerCache } from '../../services/planner/plannerCache';
+import { plannerQuickActionsTelemetry } from '../../services/planner/plannerQuickActionsTelemetry';
 
 // ---------------------------------------------------------------------------
 // 1. Heading map (a11y announcement text)
@@ -59,55 +72,127 @@ const SHEET_HEADINGS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// 2. Actions menu adapter (minimal structural; design finalized in M4)
+// 2. Quick Actions menu host (M4 final design)
 // ---------------------------------------------------------------------------
 
-function ActionsMenu() {
-  const { openTaskForm, openEventForm, isSubmitting } = usePlannerSheet();
+function ActionsMenuHost() {
+  const { session } = useAuth();
+  const { currentHousehold } = useHousehold();
+  const accessToken = session?.access_token;
 
-  const handleOpenTask = useCallback(() => {
-    if (isSubmitting) return;
-    openTaskForm({ source: 'quick_action' });
-  }, [openTaskForm, isSubmitting]);
+  const [capabilities, setCapabilities] = useState<PlannerCapabilitiesProjection | null>(null);
+  const [capabilitiesLoading, setCapabilitiesLoading] = useState(true);
 
-  const handleOpenEvent = useCallback(() => {
-    if (isSubmitting) return;
-    openEventForm({ source: 'quick_action' });
-  }, [openEventForm, isSubmitting]);
+  const openedTelemetryEmitted = useRef(false);
 
-  // Reuse existing QuickActionSheet as presentational; M4 will wire real
-  // capabilities and final design. During M3 this is a structural adapter.
+  useEffect(() => {
+    let disposed = false;
+    const token = accessToken;
+    const household = currentHousehold;
+    if (!token || !household || !household.created_by) {
+      setCapabilitiesLoading(false);
+      return;
+    }
+
+    setCapabilitiesLoading(true);
+    fetchPlannerCapabilitiesCached(token, {
+      accountId: household.created_by,
+      householdId: household.id,
+      membershipId: household.created_by,
+    })
+      .then((projection) => {
+        if (!disposed) {
+          setCapabilities(projection);
+          setCapabilitiesLoading(false);
+          if (!openedTelemetryEmitted.current) {
+            openedTelemetryEmitted.current = true;
+            plannerQuickActionsTelemetry.opened(accessToken);
+          }
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setCapabilities(null);
+          setCapabilitiesLoading(false);
+        }
+      });
+
+    return () => { disposed = true; };
+  }, [accessToken, currentHousehold]);
+
+  const handleActionSelected = useCallback((actionType: 'task' | 'event') => {
+    plannerQuickActionsTelemetry.selected(actionType, accessToken);
+  }, [accessToken]);
+
   return (
-    <QuickActionSheet
-      visible
-      onRequestClose={() => {}}
-      onNavigate={(screen) => {
-        if (screen === 'CreateTask') handleOpenTask();
-        else if (screen === 'CreateEvent') handleOpenEvent();
-      }}
+    <QuickActionsMenu
+      capabilities={capabilities}
+      capabilitiesLoading={capabilitiesLoading}
+      onActionSelected={handleActionSelected}
     />
   );
 }
 
 // ---------------------------------------------------------------------------
-// 3. Form adapters (wrap existing forms with close/success + submit lock)
+// 3. Form adapters (mutation intent + sheet lock + directed invalidation)
 // ---------------------------------------------------------------------------
 
 function TaskFormHost() {
   const sheet = usePlannerSheet();
+  const { currentHousehold } = useHousehold();
+  const { session } = useAuth();
+  const accessToken = session?.access_token;
 
   const mold = sheet.state as PlannerSheetState & { kind: 'task_form' };
+
+  // Stable mutation intent for create, created once when the form opens.
+  const intentRef = useRef<PlannerMutationIntent | null>(null);
+  if (!intentRef.current && mold.mode === 'create') {
+    intentRef.current = createTaskIntent();
+  }
+  const intent = intentRef.current;
+
+  const createMutationId = intent?.mutationId;
+
+  const onSubmitBegin = useCallback(
+    (intentId: string) => {
+      sheet.beginSubmit(intentId);
+    },
+    [sheet],
+  );
+
+  const onSubmitEnd = useCallback(
+    (intentId: string) => {
+      sheet.endSubmit(intentId);
+    },
+    [sheet],
+  );
 
   const onClose = useCallback(() => {
     sheet.requestClose('user_request');
   }, [sheet]);
 
   const onSaved = useCallback(
-    (message: string) => {
+    (_message: string) => {
+      // Directed invalidation for task create
+      if (currentHousehold) {
+        plannerCache.executeInvalidation(
+          { kind: 'task', action: 'create' },
+          { householdId: currentHousehold.id },
+        );
+      }
+      plannerQuickActionsTelemetry.submitSucceeded('task', accessToken);
       sheet.endSubmit('task_intent');
       sheet.requestClose('success');
     },
-    [sheet],
+    [sheet, currentHousehold, accessToken],
+  );
+
+  const onError = useCallback(
+    (errorCode: string) => {
+      plannerQuickActionsTelemetry.submitFailed('task', errorCode, accessToken);
+    },
+    [accessToken],
   );
 
   return (
@@ -118,25 +203,60 @@ function TaskFormHost() {
       initialDueDate={mold.initialDueDate}
       onClose={onClose}
       onSaved={onSaved}
+      createMutationId={createMutationId}
+      onSubmitBegin={onSubmitBegin}
+      onSubmitEnd={onSubmitEnd}
     />
   );
 }
 
 function EventFormHost() {
   const sheet = usePlannerSheet();
+  const { currentHousehold } = useHousehold();
+  const { session } = useAuth();
+  const accessToken = session?.access_token;
 
   const mold = sheet.state as PlannerSheetState & { kind: 'event_form' };
+
+  const intentRef = useRef<PlannerMutationIntent | null>(null);
+  if (!intentRef.current && mold.mode === 'create') {
+    intentRef.current = createEventIntent();
+  }
+  const intent = intentRef.current;
+
+  const createMutationId = intent?.mutationId;
+
+  const onSubmitBegin = useCallback(
+    (intentId: string) => {
+      sheet.beginSubmit(intentId);
+    },
+    [sheet],
+  );
+
+  const onSubmitEnd = useCallback(
+    (intentId: string) => {
+      sheet.endSubmit(intentId);
+    },
+    [sheet],
+  );
 
   const onClose = useCallback(() => {
     sheet.requestClose('user_request');
   }, [sheet]);
 
   const onSaved = useCallback(
-    (message: string) => {
+    (_message: string) => {
+      if (currentHousehold) {
+        plannerCache.executeInvalidation(
+          { kind: 'event', action: 'create' },
+          { householdId: currentHousehold.id },
+        );
+      }
+      plannerQuickActionsTelemetry.submitSucceeded('event', accessToken);
       sheet.endSubmit('event_intent');
       sheet.requestClose('success');
     },
-    [sheet],
+    [sheet, currentHousehold, accessToken],
   );
 
   return (
@@ -147,6 +267,9 @@ function EventFormHost() {
       initialDate={mold.initialDate}
       onClose={onClose}
       onSaved={onSaved}
+      createMutationId={createMutationId}
+      onSubmitBegin={onSubmitBegin}
+      onSubmitEnd={onSubmitEnd}
     />
   );
 }
@@ -154,10 +277,6 @@ function EventFormHost() {
 /**
  * GoalFormSlot: the contract is defined (kind: 'goal_form') so types and the
  * host accept it, but the productive flow remains deferred to M5.
- *
- * During M3 the adapter renders GoalForm inside the host when
- * `kind === 'goal_form'`, using the same close/saved/embedded contract as
- * Task and Event. The quick action menu guards the Goal entry until M5.
  */
 function GoalFormSlot() {
   const sheet = usePlannerSheet();
@@ -260,7 +379,7 @@ export function PlannerSheetHost() {
       case 'closed':
         return null;
       case 'actions':
-        return <ActionsMenu />;
+        return <ActionsMenuHost />;
       case 'task_form':
         return <TaskFormHost />;
       case 'event_form':
@@ -362,4 +481,3 @@ export function PlannerSheetHost() {
     </Modal>
   );
 }
-

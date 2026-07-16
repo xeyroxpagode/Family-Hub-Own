@@ -123,15 +123,19 @@ export const listPlannerTasks = (accessToken: string, filters?: PlannerTaskFilte
 export const createPlannerTask = (
   accessToken: string,
   payload: CreatePlannerTaskPayload,
-  options?: { idempotencyKey?: string },
+  options?: { idempotencyKey?: string; mutationId?: string },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.create')
+  const headers: Record<string, string> = { 'Idempotency-Key': key }
+  if (options?.mutationId) {
+    headers['X-Mutation-Id'] = options.mutationId
+  }
   return requestJson<PlannerTaskResponse>('/api/planner/tasks', {
     method: 'POST',
     operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
     body: payload,
-    headers: { 'Idempotency-Key': key },
+    headers,
   })
 }
 

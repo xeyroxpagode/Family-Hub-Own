@@ -157,7 +157,7 @@ export function PlannerSheetProvider({ children }: PlannerSheetProviderProps) {
     const register = async () => {
       try {
         const { registerHouseholdLifecycle, registerSessionLifecycle } =
-          await import('../services/core/lifecycle');
+          await import('../services/core/lifecycle.js');
 
         if (disposed) return;
 
