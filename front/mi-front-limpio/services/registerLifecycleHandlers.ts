@@ -3,6 +3,7 @@ import { registerHouseholdLifecycle, registerSessionLifecycle } from './core/lif
 import { plannerCache } from './planner/plannerCache';
 import { registerPlannerErrorMessages } from './planner/plannerErrorMessages';
 import { featureFlagStore } from './core/featureFlagStore';
+import { cleanupHouseholdLocks, cleanupSessionLocks } from './planner/homeTaskOneTapCompletion';
 
 let registered = false;
 
@@ -32,6 +33,10 @@ export function registerLifecycleHandlers() {
     order: 100,
     afterSwitch: ({ fromHouseholdId }) => {
       plannerCache.cleanupHouseholdSwitch({ householdId: fromHouseholdId });
+      // Clear Home one-tap completion locks: a switch means any pending
+      // completion is stale regardless of which task; a fresh Home load
+      // must not be blocked by stale double-tap protection.
+      cleanupHouseholdLocks(fromHouseholdId);
     },
   });
 
@@ -56,6 +61,9 @@ export function registerLifecycleHandlers() {
     order: 100,
     cleanup: () => {
       plannerCache.cleanupSignOut();
+      // Clear Home one-tap completion locks on sign-out. Even after generation
+      // roll-over, leftover locks can block double-tap on the next session.
+      cleanupSessionLocks();
     },
   });
 }

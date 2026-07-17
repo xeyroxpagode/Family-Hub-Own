@@ -1,35 +1,34 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AccessibilityInfo, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { ApiError } from '../../services/api';
 import { getInventoryAlerts, type InventoryAlerts } from '../../services/inventory';
-import { listPlannerEvents, type PlannerEvent } from '../../services/plannerEvents';
-import { listGoals, type PlannerGoal } from '../../services/plannerGoals';
 import { getGoalProgressText, hasRealGoalProgress } from '../planner/plannerShared';
-import { getPlannerSummary, type PlannerSummary } from '../../services/plannerSummary';
-import { listPlannerTasks, type PlannerTask } from '../../services/plannerTasks';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
-import { useAppRefresh } from '../../context/AppRefreshContext';
+import { fetchPlannerCapabilitiesCached } from '../../services/plannerCapabilities';
 import { AppCard, AppText, ErrorState, Skeleton } from '../../components/ui';
 import { colors, radius, spacing } from '../../constants/theme';
 import { APP_ICONS, HomePlusIcon } from '../../constants/icons';
+import { useHomePlannerSummary } from '../../services/planner/useHomePlannerSummary';
+import { type HomeSummaryTask } from '../../services/planner/homeSummaryTypes';
+import { resolveOneTapEligibility } from '../../services/planner/homeTaskOneTapEligibility';
+import {
+  completeTaskFromHome,
+  activeCompletionForTask,
+  tryAcquireCompletionLock,
+  releaseCompletionLock,
+  type CompletionOutcome,
+} from '../../services/planner/homeTaskOneTapCompletion';
+import { createPlannerVersionedMutationIntent } from '../../services/planner/plannerMutationIntent';
+import type { PlannerCapabilitiesProjection } from '../../services/plannerCapabilities';
 
 type Props = {
   variant?: 'light' | 'dark';
 };
 
-const toDateOnly = (date: Date) => {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
-};
-
-const addDays = (date: Date, days: number) => {
-  const copy = new Date(date);
-  copy.setDate(copy.getDate() + days);
-  return copy;
-};
+// ---------------------------------------------------------------------------
+// Format helpers (kept from previous implementation; pure)
+// ---------------------------------------------------------------------------
 
 const formatDate = (value?: string | null) => {
   if (!value) return 'Sin fecha';
@@ -42,36 +41,28 @@ const formatTime = (value?: string | null) => {
   return new Date(value).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 };
 
-const taskStatusLabel: Record<PlannerTask['status'], string> = {
+const taskStatusLabel: Record<HomeSummaryTask['status'], string> = {
   pending: 'Pendiente',
   awaiting_verification: 'Por verificar',
-  completed: 'Completada',
-  verified: 'Verificada',
-  cancelled: 'Cancelada',
 };
 
-const sortHomeTasks = (tasks: PlannerTask[], myMembershipId: string, limit = 5) => {
-  const today = toDateOnly(new Date());
-
-  return [...tasks]
-    .filter((task) => ['pending', 'awaiting_verification'].includes(task.status))
-    .sort((left, right) => {
-      const score = (task: PlannerTask) => {
-        if (task.status === 'awaiting_verification') return 0;
-        if (task.due_date && task.due_date < today) return 1;
-        if (task.due_date === today) return 2;
-        if (myMembershipId && task.assigned_to_member_id === myMembershipId) return 3;
-        if (task.due_date) return 4;
-        return 5;
-      };
-
-      const scoreDiff = score(left) - score(right);
-      if (scoreDiff !== 0) return scoreDiff;
-
-      return (left.due_date ?? '9999-12-31').localeCompare(right.due_date ?? '9999-12-31');
-    })
-    .slice(0, limit);
+const completionMessageForOutcome: Record<CompletionOutcome['kind'], string> = {
+  success: 'Tarea completada.',
+  conflict: 'La tarea fue modificada por otra persona. Refresca para ver el estado actual.',
+  forbidden: 'No tienes permiso para completar esta tarea.',
+  not_found: 'La tarea ya no existe.',
+  validation: 'No se puede completar: estado inválido.',
+  conflict_other: 'Hubo un conflicto. Refresca e intentalo de nuevo.',
+  timeout: 'La conexión tardó demasiado. Intentalo nuevamente.',
+  offline: 'Sin conexión. Intentalo más tarde.',
+  server: 'Error del servidor. Intentalo más tarde.',
+  abort: '',
+  unknown_error: 'No pudimos completar la tarea.',
 };
+
+// ---------------------------------------------------------------------------
+// Inventory urgency card (unchanged)
+// ---------------------------------------------------------------------------
 
 function InventoryUrgencyCard({
   alerts,
@@ -97,8 +88,8 @@ function InventoryUrgencyCard({
   const headline = firstOut
     ? `Sin stock: ${firstOut.name}`
     : firstLow
-      ? `Stock critico: ${firstLow.name}`
-      : `${alerts.pending_restock_requests_count} reposicion pendiente`;
+      ? `Stock crítico: ${firstLow.name}`
+      : `${alerts.pending_restock_requests_count} reposición pendiente`;
 
   return (
     <AppCard variant="warning" padding="default" highlighted style={styles.card} onPress={onPress}>
@@ -152,24 +143,43 @@ function useHomeInventoryAlerts() {
   return { alerts, loading, refresh };
 }
 
-export function useHomePlannerData() {
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export function HomePlannerSections({ variant = 'light' }: Props) {
+  const navigation = useNavigation<any>();
   const { session, authMe } = useAuth();
-  const { members } = useHousehold();
-  const { plannerChangedAt } = useAppRefresh();
-  const accessToken = session?.access_token;
-  const [summary, setSummary] = useState<PlannerSummary | null>(null);
-  const [tasks, setTasks] = useState<PlannerTask[]>([]);
-  const [events, setEvents] = useState<PlannerEvent[]>([]);
-  const [goals, setGoals] = useState<PlannerGoal[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { currentHousehold, members } = useHousehold();
+  const { state, refresh } = useHomePlannerSummary();
+  const { alerts: inventoryAlerts } = useHomeInventoryAlerts();
+  const accessToken = session?.access_token ?? null;
+  const householdId = currentHousehold?.id ?? null;
+  const dark = variant === 'dark';
+  const cardVariant = dark ? 'glass' : 'default';
+
+  // Capability projection for one-tap eligibility (cached; fresh on switch).
+  const [capabilities, setCapabilities] = useState<PlannerCapabilitiesProjection | null>(null);
+  useEffect(() => {
+    if (!accessToken || !householdId || !authMe) return;
+    let cancelled = false;
+    fetchPlannerCapabilitiesCached(accessToken, {
+      accountId: authMe.person?.auth_user_id ?? '',
+      householdId,
+      membershipId: authMe.memberships.find(m => m.household_id === householdId && m.status === 'active')?.id ?? '',
+    }).then((caps) => {
+      if (!cancelled) setCapabilities(caps);
+    }).catch(() => {
+      if (!cancelled) setCapabilities(null);
+    });
+    return () => { cancelled = true; };
+  }, [accessToken, householdId, authMe]);
 
   const myMembershipId = useMemo(() => {
-    const householdId = authMe?.active_household?.id;
     return authMe?.memberships.find(
       (membership) => membership.household_id === householdId && membership.status === 'active',
     )?.id ?? '';
-  }, [authMe?.active_household?.id, authMe?.memberships]);
+  }, [authMe?.memberships, householdId]);
 
   const memberNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -177,76 +187,65 @@ export function useHomePlannerData() {
     return map;
   }, [members]);
 
-  const refresh = useCallback(async () => {
-    if (!accessToken) return;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const now = new Date();
-      const [nextSummary, tasksResponse, eventsResponse, goalsResponse] = await Promise.all([
-        getPlannerSummary(accessToken),
-        listPlannerTasks(accessToken, { include_cancelled: false, limit: 100 }),
-        listPlannerEvents(accessToken, {
-          from: now.toISOString(),
-          to: addDays(now, 14).toISOString(),
-          include_recurring: true,
-        }),
-        listGoals(accessToken, { status: 'active', limit: 20 }),
-      ]);
-
-      setSummary(nextSummary);
-      setTasks(sortHomeTasks(tasksResponse.tasks, myMembershipId, 3));
-      setEvents((eventsResponse.events.length > 0 ? eventsResponse.events : nextSummary.upcoming_events).slice(0, 3));
-      setGoals(goalsResponse.goals ?? []);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No pudimos cargar datos del Planner.');
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken, myMembershipId]);
-
-  useFocusEffect(
-    useCallback(() => {
-      void refresh();
-    }, [refresh]),
-  );
-
-  useEffect(() => {
-    if (!loading && plannerChangedAt > 0) {
-      void refresh();
-    }
-  }, [plannerChangedAt]);
-
-  return {
-    error,
-    events,
-    goals,
-    loading,
-    memberNameById,
-    refresh,
-    summary,
-    tasks,
-  };
-}
-
-export function HomePlannerSections({ variant = 'light' }: Props) {
-  const navigation = useNavigation<any>();
-  const { error, events, goals, loading, memberNameById, summary, tasks } = useHomePlannerData();
-  const { alerts: inventoryAlerts } = useHomeInventoryAlerts();
-  const dark = variant === 'dark';
-  const cardVariant = dark ? 'glass' : 'default';
-
-  const openPlanner = (initialTab: 'tasks' | 'calendar') => {
+  const openPlanner = useCallback((initialTab: 'tasks' | 'calendar') => {
     navigation.navigate('PlannerTab', {
       screen: 'PlannerHome',
-      params: {
-        initialTab,
-        refreshKey: Date.now(),
-      },
+      params: { initialTab, refreshKey: Date.now() },
     });
-  };
+  }, [navigation]);
+
+  const { summary, partialErrors, status, refreshing } = state;
+  const hasPartial = partialErrors.length > 0;
+
+  // -------------------------------------------------------------------------
+  // One-tap completion handler
+  // -------------------------------------------------------------------------
+  const handleCompleteTask = useCallback(async (task: HomeSummaryTask) => {
+    if (!accessToken || !householdId || !myMembershipId) return;
+    if (!tryAcquireCompletionLock(task.id)) return; // double-tap guard
+
+    // Re-check eligibility at tap time (capability might have changed).
+    const eligibility = resolveOneTapEligibility({
+      projection: capabilities,
+      actorMembershipId: myMembershipId,
+      task,
+      hasPendingMutation: false,
+    });
+    if (!eligibility.eligible) {
+      releaseCompletionLock(task.id);
+      return;
+    }
+
+    // Build intent and completion options.
+    const intent = createPlannerVersionedMutationIntent({
+      kind: 'versioned',
+      entityKind: 'planner.tasks',
+      entityVersion: task.version,
+    });
+
+    const result = await completeTaskFromHome({
+      accessToken,
+      scope: { householdId },
+      taskId: task.id,
+      version: task.version,
+      existingIntent: intent,
+    });
+
+    if (result.ok) {
+      // Announce completion for screen readers.
+      AccessibilityInfo.announceForAccessibility(completionMessageForOutcome[result.outcome.kind] || 'Tarea completada.');
+      // The cache invalidation is handled inside completeTaskFromHome;
+      // the hook's plannerChangedAt will fire and re-fetch Summary.
+    } else {
+      // Error: show accessible toast / inline message.
+      const msg = completionMessageForOutcome[result.outcome.kind] || 'No pudimos completar la tarea.';
+      AccessibilityInfo.announceForAccessibility(msg);
+    }
+  }, [accessToken, householdId, myMembershipId, capabilities]);
+
+  // -------------------------------------------------------------------------
+  // Render sections
+  // -------------------------------------------------------------------------
 
   return (
     <View style={styles.container}>
@@ -256,60 +255,50 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
         onPress={() => navigation.navigate('Inventory')}
       />
 
-      {error ? (
-        <ErrorState title="No pudimos cargar Planner" description={error} style={styles.stateCard} />
+      {/* Global error state */}
+      {status === 'recoverable_error' || status === 'forbidden' ? (
+        <ErrorState
+          title={status === 'forbidden' ? 'Sin permiso' : 'No pudimos cargar Planner'}
+          description={state.errorCode === 'planner_forbidden'
+            ? 'No tienes permiso para ver el Planner.'
+            : 'Error al cargar el resumen. Puedes reintentar.'}
+          style={styles.stateCard}
+          onRetry={refresh}
+        />
       ) : null}
 
-      {summary && (summary.overdue_tasks_count > 0 || summary.awaiting_verification_count > 0) ? (
+      {/* "Atención requerida" from legacy counts (kept for UX continuity) */}
+      {summary && (summary.counts.tasks > 0 || summary.counts.events > 0) ? (
         <AppCard variant="warning" padding="default" highlighted style={styles.card}>
           <View style={styles.cardHeaderIcon}>
             <HomePlusIcon name="alert-circle" color={colors.warning.base} size={18} />
           </View>
           <AppText variant="title3" tone="warning">
-            Atencion requerida
+            Atención requerida
           </AppText>
-          {summary.overdue_tasks_count > 0 ? (
+          {summary.counts.tasks > 0 ? (
             <AppText variant="bodySmall" tone="secondary">
-              {summary.overdue_tasks_count} tareas vencidas
+              {summary.counts.tasks} tareas pendientes
             </AppText>
           ) : null}
-          {summary.awaiting_verification_count > 0 ? (
+          {summary.counts.events > 0 ? (
             <AppText variant="bodySmall" tone="secondary">
-              {summary.awaiting_verification_count} por verificar
+              {summary.counts.events} eventos próximos
             </AppText>
           ) : null}
         </AppCard>
       ) : null}
 
-      {!loading && goals.length > 0 ? (
+      {/* Goal card — singular, max 1, backend-selected */}
+      {status !== 'initial_loading' && status !== 'refreshing' && summary?.goal ? (
         (() => {
-          const today = new Date();
-          const atRisk = goals.filter((g) => {
-            if (!g.ends_at || g.status !== 'active') return false;
-            if (!hasRealGoalProgress(g)) return false;
-            const end = new Date(g.ends_at);
-            const diff = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-            return diff <= 7 && (g.progress_percentage ?? 0) < 40;
-          });
-          const highlight = atRisk.length > 0 ? atRisk[0] : goals.sort((a, b) => {
-            const pa = hasRealGoalProgress(a) ? (a.progress_percentage ?? 0) : 100;
-            const pb = hasRealGoalProgress(b) ? (b.progress_percentage ?? 0) : 100;
-            if (a.ends_at && b.ends_at) {
-              const diffA = Math.ceil((new Date(a.ends_at).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-              const diffB = Math.ceil((new Date(b.ends_at).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-              if (diffA <= 14 && diffB <= 14 && pa < 60 && pb < 60) return pa - pb;
-            }
-            return (a.ends_at ?? '9999') < (b.ends_at ?? '9999') ? -1 : 1;
-          })[0];
-
-          if (!highlight) return null;
-
-          const hasProgress = hasRealGoalProgress(highlight);
-          const progressPct = hasProgress ? Math.round(highlight.progress_percentage!) : 0;
-          const isAtRisk = atRisk.length > 0;
-          const progressText = getGoalProgressText(highlight, {
-            taskCount: highlight.tasks_total ?? 0,
-            milestoneCount: highlight.milestones_total ?? 0,
+          const goal = summary.goal;
+          const hasProgress = hasRealGoalProgress(goal as any);
+          const progressPct = hasProgress ? Math.round(goal.progress_percentage ?? 0) : 0;
+          const isAtRisk = goal.ends_at && progressPct < 40 && goal.status === 'active';
+          const progressText = getGoalProgressText(goal as unknown as any, {
+            taskCount: (goal as any).tasks_total ?? 0,
+            milestoneCount: (goal as any).milestones_total ?? 0,
           });
           const iconColor = isAtRisk ? colors.warning.base : colors.sage[500];
           const titleTone = isAtRisk ? 'warning' : 'success';
@@ -327,10 +316,11 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
                   onPress={() =>
                     navigation.navigate('PlannerTab', {
                       screen: 'GoalDetail',
-                      params: { goalId: highlight.id },
+                      params: { goalId: goal.id },
                     })
                   }
                   accessibilityRole="button"
+                  accessibilityLabel={`Ver meta ${goal.title}`}
                 >
                   <AppText variant="caption" tone="warning" weight="700">
                     Ver
@@ -338,11 +328,11 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
                 </TouchableOpacity>
               </View>
               <AppText variant="bodySmall" tone={dark ? 'inverse' : 'secondary'} weight="700">
-                {highlight.title}
+                {goal.title}
               </AppText>
               {hasProgress ? (
                 <AppText variant="caption" tone={dark ? 'tertiary' : 'tertiary'}>
-                  Progreso: {progressPct}%{isAtRisk && highlight.ends_at ? ' · Limite: ' + formatDate(highlight.ends_at) : ''}
+                  Progreso: {progressPct}%{isAtRisk && goal.ends_at ? ' · Límite: ' + formatDate(goal.ends_at) : ''}
                 </AppText>
               ) : progressText ? (
                 <AppText variant="caption" tone={dark ? 'tertiary' : 'tertiary'}>
@@ -354,6 +344,7 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
         })()
       ) : null}
 
+      {/* Tasks card — max 3, backend order */}
       <AppCard variant={cardVariant} padding="default" style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.cardHeaderIcon}>
@@ -362,24 +353,37 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
           <AppText variant="title3" tone={dark ? 'inverse' : 'primary'}>
             Tareas del hogar
           </AppText>
-          <TouchableOpacity onPress={() => openPlanner('tasks')} accessibilityRole="button">
+          <TouchableOpacity
+            onPress={() => openPlanner('tasks')}
+            accessibilityRole="button"
+            accessibilityLabel="Ver todas las tareas"
+          >
             <AppText variant="caption" tone="warning" weight="700">
               Ver tareas
             </AppText>
           </TouchableOpacity>
-        </View>
-        {loading ? (
+</View>
+
+        {status === 'initial_loading' || status === 'refreshing' ? (
           <Skeleton variant="paragraph" lines={3} style={styles.skeletonBlock} />
-        ) : tasks.length === 0 ? (
+        ) : summary && summary.tasks.length === 0 ? (
           <View style={styles.emptyInline}>
             <AppText variant="bodySmall" tone={dark ? 'inverse' : 'secondary'}>
               Sin tareas pendientes.
             </AppText>
           </View>
-        ) : tasks.map((task) => {
+        ) : summary?.tasks.map((task) => {
           const assignedName = task.assigned_to_member_id
-            ? memberNameById.get(task.assigned_to_member_id) ?? task.assigned_member?.display_name ?? 'Miembro'
+            ? memberNameById.get(task.assigned_to_member_id) ?? 'Miembro'
             : 'Sin asignar';
+          const lock = activeCompletionForTask(task.id);
+          const eligibility = resolveOneTapEligibility({
+            projection: capabilities,
+            actorMembershipId: myMembershipId,
+            task,
+            hasPendingMutation: !!lock,
+          });
+          const showComplete = eligibility.eligible;
 
           return (
             <TouchableOpacity
@@ -387,13 +391,14 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
               style={styles.itemRow}
               onPress={() => openPlanner('tasks')}
               accessibilityRole="button"
+              accessibilityLabel={`Tarea ${task.title}, ${taskStatusLabel[task.status]}, vencimiento ${formatDate(task.due_date)}, asignada a ${assignedName}`}
             >
               <View style={{ flex: 1 }}>
                 <AppText variant="bodySmall" tone={dark ? 'inverse' : 'primary'} weight="700">
                   {task.title}
                 </AppText>
                 <AppText variant="caption" tone={dark ? 'tertiary' : 'secondary'}>
-                  {task.category || task.template_key || 'Sin categoria'} - {formatDate(task.due_date)} - {assignedName}
+                  {task.category || 'Sin categoría'} - {formatDate(task.due_date)} - {assignedName}
                 </AppText>
               </View>
               <View style={styles.statusPill}>
@@ -401,55 +406,95 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
                   {taskStatusLabel[task.status]}
                 </AppText>
               </View>
+              {showComplete && (
+                <TouchableOpacity
+                  onPress={() => handleCompleteTask(task)}
+                  disabled={!!lock}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Completar ${task.title}`}
+                  accessibilityState={{ busy: !!lock }}
+                  style={styles.completeButton}
+                >
+                  <HomePlusIcon
+                    name="checkmark-circle"
+                    color={lock ? colors.text.tertiary : colors.success.base}
+                    size={20}
+                  />
+                </TouchableOpacity>
+              )}
             </TouchableOpacity>
           );
         })}
       </AppCard>
 
+      {/* Events card — max 3, backend order */}
       <AppCard variant={cardVariant} padding="default" style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.cardHeaderIcon}>
             <HomePlusIcon name={APP_ICONS.home.schedule} color={dark ? colors.text.inverse : colors.terracotta[500]} size={18} />
           </View>
           <AppText variant="title3" tone={dark ? 'inverse' : 'primary'}>
-            Proximos eventos
+            Próximos eventos
           </AppText>
-          <TouchableOpacity onPress={() => openPlanner('calendar')} accessibilityRole="button">
+          <TouchableOpacity
+            onPress={() => openPlanner('calendar')}
+            accessibilityRole="button"
+            accessibilityLabel="Ver calendario"
+          >
             <AppText variant="caption" tone="warning" weight="700">
               Ver calendario
             </AppText>
           </TouchableOpacity>
         </View>
-        {loading ? (
+        {status === 'initial_loading' || status === 'refreshing' ? (
           <Skeleton variant="paragraph" lines={3} style={styles.skeletonBlock} />
-        ) : events.length === 0 ? (
+        ) : summary && summary.events.length === 0 ? (
           <View style={styles.emptyInline}>
             <AppText variant="bodySmall" tone={dark ? 'inverse' : 'secondary'}>
-              Sin eventos proximos.
+              Sin eventos próximos.
             </AppText>
           </View>
-        ) : events.map((event) => (
+        ) : summary?.events.map((event) => (
           <TouchableOpacity
             key={event.id}
             style={styles.itemRow}
             onPress={() => openPlanner('calendar')}
             accessibilityRole="button"
+            accessibilityLabel={`Evento ${event.title}, ${formatDate(event.starts_at)} ${event.all_day ? 'todo el día' : formatTime(event.starts_at)}${event.location_name ? ` en ${event.location_name}` : ''}`}
           >
             <View style={{ flex: 1 }}>
               <AppText variant="bodySmall" tone={dark ? 'inverse' : 'primary'} weight="700">
                 {event.title}
               </AppText>
               <AppText variant="caption" tone={dark ? 'tertiary' : 'secondary'}>
-                {formatDate(event.starts_at)} {event.all_day ? 'Todo el dia' : formatTime(event.starts_at)}
+                {formatDate(event.starts_at)} {event.all_day ? 'Todo el día' : formatTime(event.starts_at)}
                 {event.location_name ? ` - ${event.location_name}` : ''}
               </AppText>
             </View>
           </TouchableOpacity>
         ))}
       </AppCard>
+
+      {/* Partial error fallbacks (rendered inline below affected sections) */}
+      {hasPartial && partialErrors.map((err) => (
+        <AppCard variant="quiet" padding="default" style={styles.partialErrorCard} key={err.section}>
+          <AppText variant="bodySmall" tone={dark ? 'inverse' : 'warning'} weight="600">
+            {err.section === 'tasks' ? 'No se pudieron cargar las tareas' :
+             err.section === 'events' ? 'No se pudieron cargar los eventos' :
+             'No se pudo cargar la meta'}
+          </AppText>
+          <AppText variant="caption" tone={dark ? 'tertiary' : 'tertiary'}>
+            {err.code} · {refreshing ? 'Desliza para reintentar' : 'Cargando...'}
+          </AppText>
+        </AppCard>
+      ))}
     </View>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   container: { gap: spacing[3] },
@@ -467,36 +512,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  briefingCard: {
-    backgroundColor: colors.warning.soft,
-    marginBottom: spacing[3],
-  },
-  briefingHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  cardLabelSmall: {
-    fontSize: 11,
-    letterSpacing: 0.8,
-    color: colors.text.tertiary,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  briefingText: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 8,
-  },
-  demoLabel: {
-    fontSize: 11,
-    color: colors.text.tertiary,
-    marginBottom: 8,
-  },
-  briefingCta: {
-    paddingTop: 4,
-  },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -512,18 +527,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[2],
     paddingVertical: spacing[1],
   },
+  completeButton: {
+    padding: spacing[1],
+    minWidth: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   emptyInline: {
     minHeight: 44,
     justifyContent: 'center',
     paddingTop: spacing[2],
   },
   skeletonBlock: { paddingVertical: spacing[2] },
-  goalAtRisk: {
-    backgroundColor: colors.warning.soft,
-    borderColor: colors.warning.base,
-  },
-  goalHighlight: {
-    backgroundColor: colors.sage[50],
-    borderColor: colors.sage[100],
+  partialErrorCard: {
+    marginTop: spacing[2],
+    borderLeftWidth: 3,
+    borderLeftColor: colors.warning.base,
   },
 });
