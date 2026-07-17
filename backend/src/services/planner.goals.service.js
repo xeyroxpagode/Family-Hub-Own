@@ -1165,4 +1165,5 @@ module.exports = {
   trashMilestone,
   updateGoal,
   updateMilestone,
+  attachProgress,
 }

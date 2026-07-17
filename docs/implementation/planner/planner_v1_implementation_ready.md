@@ -317,3 +317,79 @@ M1 STATUS: AUTHORIZED
 M7 STATUS: PASSED
 M8 STATUS: AUTHORIZED
 ```
+
+---
+
+## Post-M8 Implementation Update
+
+**Date**: 2026-07-16 (America/Buenos_Aires)
+**Branch**: `v1`
+**Commit**: not created (per instructions — no commit, no push)
+
+### M8 Completion Evidence
+
+| Test Suite | Result |
+|------------|--------|
+| `test:planner:m8` (hermetic unit/contract) | **PASS** (115 assertions) |
+| `test:integration --suite=m8` (runtime on Supabase local) | **PASS** (86 assertions: isolation, privacy, limits 3/3/1, counts, determinism, exclusions, cleanup) |
+| `test:planner` (full M1–M8 regression) | **PASS** (724 assertions across 9 suites) |
+| `test:backend` | **PASS** (27 assertions) |
+| `test:contracts` | **PASS** (56 assertions) |
+| `test:core` | **PASS** (46 assertions) |
+| `typecheck` (frontend + test TS) | **PASS** |
+| `lint` (backend + frontend ESLint) | **PASS** |
+| `quality` (full gate) | **PASS** |
+| `test:db` | **PASS** (migration parity 33/33, lint 0) |
+| `test:secrets` | **PASS** (636 paths) |
+| `git diff --check` | **PASS** |
+
+### M8 Files
+
+| File | Action |
+|------|--------|
+| `backend/src/services/planner.summary.service.js` | **REPLACE** — selectors, loaders, counts, partial errors, legacy compat |
+| `backend/src/controllers/planner.summary.controller.js` | **REPLACE** — canonical envelope, `planner.view` capability, telemetry |
+| `backend/src/constants/plannerTelemetryEvents.js` | **MODIFY** — 3 summary events registered |
+| `scripts/planner_v1_m8_tests.js` | **NEW** — 115 hermetic assertions |
+| `tests/run.js` | **MODIFY** — `planner-v1-m8` command + `planner-m8` + `planner` aggregate |
+| `package.json` | **MODIFY** — `test:planner:m8` script |
+| `docs/implementation/planner/PLANNER_V1_M8_HOME_SUMMARY_BACKEND_REPORT.md` | **NEW** |
+| `docs/implementation/planner/PLANNER_V1_HOME_SUMMARY_API_CONTRACT.md` | **NEW** |
+| `docs/implementation/planner/PLANNER_V1_HOME_SUMMARY_SELECTION_CONTRACT.md` | **NEW** |
+
+### V1 Home Summary Backend (M8)
+
+- **Endpoint**: `GET /api/planner/summary` (unchanged)
+- **Projection version**: `planner.home_summary.v1`
+- **Backend is single authority** for selection (3 Tasks / 3 Events / 1 Goal)
+- **Selection deterministic**: stable tie-breakers per section (documented in Selection Contract)
+- **Counts**: `counts.{tasks,events,goals}` = eligible pool sizes (plural keys, not capped)
+- **Partial errors**: `partial_errors[]` array with `section: 'tasks'|'events'|'goals'` entries
+- **Visibility**: personal goals hidden from non-owners; tasks/events household-wide
+- **Capabilities**: endpoint guarded by `planner.view` (deny-safe)
+- **Legacy compat**: V0 fields emitted until M9 removes them
+- **Telemetry**: 3 events (`planner_summary_loaded/partial/failed`) with allowlisted tech props only
+- **Read-only**: no mutation headers required
+
+### Constraints Verified
+
+- No frontend Home modified ✓
+- No one-tap ✓
+- No M9 ✓
+- No Search productive ✓
+- No endpoint Summary alternative ✓
+- No migrations ✓
+- No new dependencies ✓
+- No secrets ✓
+- 3/3/1 ✓
+- `counts` present ✓
+- `generated_at` present ✓
+- `projection_version` present ✓
+- `partial_errors` format correct ✓ (plural section keys)
+- Household/personal isolation ✓ (selectors enforce)
+- M1–M7 regression green ✓
+
+```text
+M8 STATUS: PASSED
+M9 STATUS: AUTHORIZED
+```

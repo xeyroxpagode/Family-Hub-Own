@@ -45,6 +45,39 @@ const PLANNER_TELEMETRY_EVENTS = Object.freeze([
     properties: { source: string() },
     reserved: true,
   },
+  {
+    name: 'planner_summary_loaded',
+    domain: 'planner',
+    properties: {
+      result: string({ enum: ['success'] }),
+      has_partial_errors: boolean,
+      task_count_bucket: string({ enum: ['0', '1-3', '4-10', '11+'] }),
+      event_count_bucket: string({ enum: ['0', '1-3', '4-10', '11+'] }),
+      goal_count_bucket: string({ enum: ['0', '1-3', '4-10', '11+'] }),
+      latency_bucket: string({ enum: ['<100ms', '100-300ms', '300ms-1s', '>1s'] }),
+    },
+  },
+  {
+    name: 'planner_summary_partial',
+    domain: 'planner',
+    properties: {
+      result: string({ enum: ['partial'] }),
+      failed_sections: string({ maxLength: 32 }),
+      task_count_bucket: string({ enum: ['0', '1-3', '4-10', '11+'] }),
+      event_count_bucket: string({ enum: ['0', '1-3', '4-10', '11+'] }),
+      goal_count_bucket: string({ enum: ['0', '1-3', '4-10', '11+'] }),
+      latency_bucket: string({ enum: ['<100ms', '100-300ms', '300ms-1s', '>1s'] }),
+    },
+  },
+  {
+    name: 'planner_summary_failed',
+    domain: 'planner',
+    properties: {
+      result: string({ enum: ['failure'] }),
+      error_code: string(),
+      latency_bucket: string({ enum: ['<100ms', '100-300ms', '300ms-1s', '>1s'] }),
+    },
+  },
 ]);
 
 module.exports = { PLANNER_TELEMETRY_EVENTS };

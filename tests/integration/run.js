@@ -82,9 +82,37 @@ async function runG04(runId) {
   });
 }
 
+async function runM8(environment, runId) {
+  const cleanup = new CleanupStack();
+  const port = await freePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, ['index.js'], {
+    cwd: path.join(repositoryRoot, 'backend'),
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOMEPLUS_ENVIRONMENT: 'test',
+      HOMEPLUS_TELEMETRY_SINK: 'noop',
+      HOMEPLUS_TEST_RUN_ID: runId,
+    },
+    stdio: ['ignore', 'ignore', 'inherit'],
+    windowsHide: true,
+  });
+  cleanup.defer(() => stopChild(child));
+  try {
+    await waitForHealth(child, baseUrl);
+    runCommand('M8 runtime contracts', 'node', ['scripts/planner_v1_m8_runtime_runner.js'], {
+      env: { ...process.env, API_BASE_URL: baseUrl, HOMEPLUS_TEST_RUN_ID: runId },
+    });
+  } finally {
+    await cleanup.run();
+    environment.cleanup();
+  }
+}
+
 async function main() {
   const suite = selectedSuite();
-  if (!['all', 'g0.2', 'g0.4'].includes(suite)) throw new Error(`unknown integration suite: ${suite}`);
+  if (!['all', 'g0.2', 'g0.4', 'm8'].includes(suite)) throw new Error(`unknown integration suite: ${suite}`);
   const environment = loadTestEnvironment({
     required: ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'],
   });
@@ -95,6 +123,7 @@ async function main() {
   try {
     if (suite === 'all' || suite === 'g0.2') await runG02(environment, runId);
     if (suite === 'all' || suite === 'g0.4') await runG04(runId);
+    if (suite === 'all' || suite === 'm8') await runM8(environment, runId);
     console.log('FIXTURES_CLEANUP=PASS');
     console.log(`HOMEPLUS INTEGRATION: PASSED (${suite})`);
   } finally {
