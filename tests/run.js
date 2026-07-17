@@ -65,6 +65,11 @@ const commands = {
     'node',
     ['scripts/planner_v1_m9_tests.js'],
   ),
+  'runtime-smoke': () => runCommand(
+    'Frontend runtime smoke',
+    'node',
+    ['scripts/runtime_smoke_test.js'],
+  ),
   'g0.4-contracts': () => runCommand('G0.4 feature/telemetry/outbox contracts', 'node', ['scripts/homeplus_g0_4_contract_tests.js']),
   'g0.4-db': () => runCommand('G0.4 database contracts', 'node', ['scripts/homeplus_g0_4_database_tests.js']),
   'integration-g0.4': () => runCommand('G0.4 runtime integration', 'node', ['tests/integration/run.js', '--suite=g0.4']),
@@ -104,7 +109,7 @@ const suites = {
   quality: [
     'frontend-typecheck', 'test-typecheck', 'backend-syntax', 'backend-eslint', 'frontend-lint',
     'testing-core', 'core-backend', 'compile-frontend-tests', 'core-frontend', 'g0.3',
-    'g0.4-contracts', 'db', 'coverage', 'secrets', 'ci-syntax', 'whitespace',
+    'g0.4-contracts', 'runtime-smoke', 'db', 'coverage', 'secrets', 'ci-syntax', 'whitespace',
   ],
   g0: [
     'frontend-typecheck', 'test-typecheck', 'backend-syntax', 'backend-eslint', 'frontend-lint',

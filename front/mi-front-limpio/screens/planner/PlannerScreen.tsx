@@ -97,18 +97,6 @@ const DEFAULT_TAB: PlannerTabKey = 'tasks';
 //      capture it at initiation time for late-response guards.
 // ---------------------------------------------------------------------------
 
-/** Current planner context identity (updated on every context change). */
-const currentContextIdentityRef = useRef<PlannerContextIdentity | null>(null);
-
-// Helpers to capture/release context identity for late-response guards.
-function captureContextIdentity(): PlannerContextIdentity | null {
-  return currentContextIdentityRef.current;
-}
-
-function isCurrentContext(captured: PlannerContextIdentity | null): boolean {
-  return isPlannerContextCurrent(captured, currentContextIdentityRef.current);
-}
-
 // ---------------------------------------------------------------------------
 // 2. PlannerScreen shell
 // ---------------------------------------------------------------------------
@@ -117,6 +105,8 @@ export function PlannerScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const processedNavKeyRef = useRef<string | null>(null);
+  /** Current planner context identity (updated on every context change). */
+  const currentContextIdentityRef = useRef<PlannerContextIdentity | null>(null);
   const { session, authMe } = useAuth();
   const accessToken = session?.access_token;
   const { currentHousehold } = useHousehold();
@@ -312,7 +302,7 @@ export function PlannerScreen() {
 
       // M7: Capture context identity before the fetch.
       // If the context changes during the fetch, the late response is discarded.
-      const capturedCtx = captureContextIdentity();
+      const capturedCtx = currentContextIdentityRef.current;
 
       if (!silent) setInitialLoading(true);
       setPlannerError(null);
@@ -321,7 +311,7 @@ export function PlannerScreen() {
         const nextSummary = await getPlannerSummary(accessToken);
 
         // M7: Late-response guard — only apply if context is still current.
-        if (!isCurrentContext(capturedCtx)) return;
+        if (!isPlannerContextCurrent(capturedCtx, currentContextIdentityRef.current)) return;
 
         setSummary(nextSummary);
       } catch (err) {
@@ -331,7 +321,7 @@ export function PlannerScreen() {
         if (classified.class === 'abort') return;
 
         // M7: Late-response guard — only apply if context is still current.
-        if (!isCurrentContext(capturedCtx)) return;
+        if (!isPlannerContextCurrent(capturedCtx, currentContextIdentityRef.current)) return;
 
         setPlannerError(classified);
       } finally {
@@ -350,7 +340,7 @@ export function PlannerScreen() {
     }
 
     // M7: Capture context identity before the fetch.
-    const capturedCtx = captureContextIdentity();
+    const capturedCtx = currentContextIdentityRef.current;
 
     try {
       const projection = await fetchPlannerCapabilitiesCached(token, {
@@ -360,14 +350,14 @@ export function PlannerScreen() {
       });
 
       // M7: Late-response guard — only apply if context is still current.
-      if (!isCurrentContext(capturedCtx)) return;
+      if (!isPlannerContextCurrent(capturedCtx, currentContextIdentityRef.current)) return;
 
       setCapabilities(projection);
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
 
       // M7: Late-response guard — only apply if context is still current.
-      if (!isCurrentContext(capturedCtx)) return;
+      if (!isPlannerContextCurrent(capturedCtx, currentContextIdentityRef.current)) return;
 
       // Deny-safe: an error leaves projection null; `canViewPlanner` returns
       // `false` and the Shell renders the appropriate state.
