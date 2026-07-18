@@ -23,11 +23,14 @@ import { EditGoalScreen } from '../screens/planner/EditGoalScreen';
 import { GoalDetailScreen } from '../screens/planner/GoalDetailScreen';
 import { PlannerTrashScreen } from '../screens/planner/PlannerTrashScreen';
 import { PlannerSearchScreen } from '../screens/planner/PlannerSearchScreen';
+import { TaskDetailScreen } from '../screens/planner/TaskDetailScreen';
+import { EventDetailScreen } from '../screens/planner/EventDetailScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { APP_ICONS, HomePlusIcon } from '../constants/icons';
 import { AppTopBar, HouseholdSwitcherSheet, CenterTabButton } from '../components/ui';
 import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
 import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
+import { PlannerDeepLinkProvider } from '../services/planner/plannerDeepLinkProvider';
 import { colors, spacing } from '../constants/theme';
 
 const Tab = createBottomTabNavigator<HomeTabParamList>();
@@ -127,6 +130,8 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="GoalDetail" component={GoalDetailScreen} />
       <PlannerStack.Screen name="PlannerTrash" component={PlannerTrashScreen} />
       <PlannerStack.Screen name="PlannerSearch" component={PlannerSearchScreen} />
+      <PlannerStack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <PlannerStack.Screen name="EventDetail" component={EventDetailScreen} />
     </PlannerStack.Navigator>
   );
 }
@@ -202,7 +207,8 @@ export function HomeTabNavigator() {
         onHouseholdPress={handleHouseholdPress}
       />
 
-      <PlannerSheetProvider>
+      <PlannerDeepLinkProvider>
+        <PlannerSheetProvider>
         <Tab.Navigator
           screenOptions={{
             headerShown: false,
@@ -288,6 +294,7 @@ export function HomeTabNavigator() {
             the legacy compat-bridge Modal in PlannerScreen. */}
         <PlannerSheetHost />
       </PlannerSheetProvider>
+      </PlannerDeepLinkProvider>
 
       <HouseholdSwitcherSheet
         visible={showHouseholdSwitcher}

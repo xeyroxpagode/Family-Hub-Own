@@ -340,6 +340,11 @@ const getTaskOrThrow = async (client, householdId, taskId) => {
   return data
 }
 
+const getTaskById = async (context, taskId) => {
+  const task = await getTaskOrThrow(context.client, context.householdId, taskId)
+  return { task }
+}
+
 const getTaskForTrashOperation = async (client, householdId, taskId) => {
   const { data, error } = await client
     .from('planner_tasks')
@@ -935,6 +940,7 @@ module.exports = {
   cancelTask,
   completeTask,
   createTask,
+  getTaskById,
   getTaskOrThrow,
   listTasks,
   reactivateTask,

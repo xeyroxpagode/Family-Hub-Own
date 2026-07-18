@@ -81,6 +81,7 @@ import {
   isPlannerSearchAvailable,
   type PlannerSearchAccess,
 } from '../../services/planner/plannerSearchAccess';
+import { getActiveDeepLinkCoordinator } from '../../services/planner/plannerDeepLinkCoordinator';
 
 // ---------------------------------------------------------------------------
 // 1. M3/M6 — PlannerScreen does not own Task/Event sheet Modal (M3).
@@ -371,6 +372,14 @@ export function PlannerScreen() {
     void loadSummary();
     void loadCapabilities();
   }, [loadSummary, loadCapabilities]);
+
+  // M10: Relay capabilities to the deep-link coordinator once loaded.
+  useEffect(() => {
+    const coordinator = getActiveDeepLinkCoordinator();
+    if (coordinator && capabilitiesReady) {
+      coordinator.setCapabilities(capabilities, true);
+    }
+  }, [capabilities, capabilitiesReady]);
 
   // Pop route params on first mount (canonical tab from deep links etc).
   useEffect(() => {

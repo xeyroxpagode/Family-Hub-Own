@@ -28,6 +28,7 @@
     "test:planner:m7": "node tests/run.js planner-m7",
     "test:planner:m8": "node tests/run.js planner-m8",
     "test:planner:m9": "node tests/run.js planner-m9",
+    "test:planner:m10": "node tests/run.js planner-m10",
     "test:runtime-smoke": "node scripts/runtime_smoke_test.js",
     "test:home": "node tests/run.js home",
     "test:g0.2": "node tests/integration/run.js --suite=g0.2",

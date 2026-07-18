@@ -39,6 +39,18 @@ const listTasks = async (req, res) => {
   }
 };
 
+const getTaskById = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'planner.view');
+    const payload = await tasksService.getTaskById(context, req.params.id);
+    return res.status(200).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
 const createTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req);
@@ -310,6 +322,7 @@ module.exports = {
   cancelTask,
   completeTask,
   createTask,
+  getTaskById,
   listTasks,
   reactivateTask,
   restoreTask,

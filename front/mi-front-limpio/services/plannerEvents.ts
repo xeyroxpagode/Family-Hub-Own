@@ -76,6 +76,9 @@ const toQueryString = (filters?: PlannerEventFilters) => {
 export const listPlannerEvents = (accessToken: string, filters?: PlannerEventFilters) =>
   requestJson<PlannerEventsResponse>(`/api/planner/events${toQueryString(filters)}`, { accessToken });
 
+export const getEventById = (accessToken: string, eventId: string) =>
+  requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}`, { accessToken });
+
 export const createPlannerEvent = (
   accessToken: string,
   payload: CreatePlannerEventPayload,

@@ -95,6 +95,11 @@ const getEventOrThrow = async (client, householdId, eventId) => {
   return data
 }
 
+const getEventById = async (context, eventId) => {
+  const event = await getEventOrThrow(context.client, context.householdId, eventId)
+  return { event }
+}
+
 const getEventForTrashOperation = async (client, householdId, eventId) => {
   const { data, error } = await client
     .from('planner_events')
@@ -579,6 +584,7 @@ module.exports = {
   createEvent,
   createOccurrenceOverride,
   eventOverlapsRange,
+  getEventById,
   getEventOrThrow,
   listEvents,
   reactivateEvent,

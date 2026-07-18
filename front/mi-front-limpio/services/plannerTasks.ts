@@ -120,6 +120,9 @@ const toQueryString = (filters?: PlannerTaskFilters) => {
 export const listPlannerTasks = (accessToken: string, filters?: PlannerTaskFilters) =>
   requestJson<PlannerTasksResponse>(`/api/planner/tasks${toQueryString(filters)}`, { accessToken });
 
+export const getTaskById = (accessToken: string, taskId: string) =>
+  requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}`, { accessToken });
+
 export const createPlannerTask = (
   accessToken: string,
   payload: CreatePlannerTaskPayload,

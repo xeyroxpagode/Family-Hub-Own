@@ -34,6 +34,18 @@ const listEvents = async (req, res) => {
   }
 };
 
+const getEventById = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'planner.view');
+    const payload = await eventsService.getEventById(context, req.params.id);
+    return res.status(200).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
 const createEvent = async (req, res) => {
   try {
     const context = await getPlannerContext(req);
@@ -257,6 +269,7 @@ module.exports = {
   cancelEvent,
   createEvent,
   createOccurrenceOverride,
+  getEventById,
   listEvents,
   reactivateEvent,
   restoreEvent,

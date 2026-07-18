@@ -36,6 +36,7 @@ router.get('/activity', activityController.listActivity)
 
 router.get('/trash', trashController.getTrash)
 
+router.get('/tasks/:id', tasksController.getTaskById)
 router.get('/tasks', tasksController.listTasks)
 router.post('/tasks', tasksController.createTask)
 router.patch('/tasks/:id', tasksController.updateTask)
@@ -46,6 +47,7 @@ router.post('/tasks/:id/reactivate', tasksController.reactivateTask)
 router.post('/tasks/:id/complete', tasksController.completeTask)
 router.post('/tasks/:id/verify', tasksController.verifyTask)
 
+router.get('/events/:id', eventsController.getEventById)
 router.get('/events', eventsController.listEvents)
 router.post('/events', eventsController.createEvent)
 router.patch('/events/:id', eventsController.updateEvent)
