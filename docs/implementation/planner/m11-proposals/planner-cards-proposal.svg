@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="840" viewBox="0 0 1440 840" role="img" aria-labelledby="title desc">
+  <title id="title">M11 Planner rows — Task, Event y Goal</title>
+  <desc id="desc">Propuesta de jerarquía visual diferenciada, con estados normales silenciosos y excepciones visibles.</desc>
+  <defs><style>
+    .bg{fill:#FBFAF8}.panel{fill:#fff;stroke:#E8E1DC;stroke-width:2}.h{font:700 27px system-ui,sans-serif;fill:#2C2623}.t{font:700 21px system-ui,sans-serif;fill:#2C2623}.b{font:500 17px system-ui,sans-serif;fill:#5F5752}.m{font:500 15px system-ui,sans-serif;fill:#746A64}.x{font:700 14px system-ui,sans-serif;fill:#A54839}.accent{fill:#C17F59}.soft{fill:#F5E9E1}.warn{fill:#FFF1DF;stroke:#D47B19;stroke-width:2}.line{stroke:#E4DDD8;stroke-width:2}
+  </style></defs>
+  <rect class="bg" width="1440" height="840"/><text class="h" x="60" y="58">Planner · tres objetos, tres jerarquías</text>
+  <g transform="translate(60 96)"><rect class="panel" width="420" height="660" rx="28"/><text class="h" x="28" y="48">Task · acción primero</text>
+    <g transform="translate(26 90)"><circle cx="28" cy="28" r="22" fill="#fff" stroke="#C17F59" stroke-width="3"/><text class="t" x="66" y="25">Comprar medicación</text><text class="m" x="66" y="52">Hoy · Gabriel</text><text class="m" x="338" y="36">•••</text><line class="line" x1="0" y1="78" x2="368" y2="78"/>
+      <circle cx="28" cy="122" r="22" fill="#fff" stroke="#D47B19" stroke-width="3"/><text class="t" x="66" y="116">Pagar el seguro</text><text class="x" x="66" y="144">Vencida ayer</text><text class="m" x="338" y="126">•••</text><line class="line" x1="0" y1="172" x2="368" y2="172"/>
+      <circle cx="28" cy="216" r="22" class="soft"/><path d="M17 216l8 8 15-17" fill="none" stroke="#6B7F68" stroke-width="4"/><text class="t" x="66" y="210">Revisar presupuesto</text><text class="x" x="66" y="238">Esperando verificación</text><text class="m" x="338" y="220">•••</text>
+    </g>
+    <text class="b" x="28" y="420">Normal: título + fecha/responsable.</text><text class="b" x="28" y="454">Alta prioridad: solo si es alta.</text><text class="b" x="28" y="488">Estado: solo excepción.</text><text class="b" x="28" y="522">Completar/verificar: affordance leading.</text><text class="b" x="28" y="556">Editar/cancelar/trash: overflow/detail.</text>
+  </g>
+  <g transform="translate(510 96)"><rect class="panel" width="420" height="660" rx="28"/><text class="h" x="28" y="48">Event · tiempo primero</text>
+    <g transform="translate(26 90)"><text class="t" x="0" y="24">18:30</text><text class="t" x="90" y="24">Cena familiar</text><text class="m" x="90" y="50">1 h 30 · Casa</text><text class="m" x="338" y="30">•••</text><line class="line" x1="0" y1="78" x2="368" y2="78"/>
+      <text class="t" x="0" y="118">Todo el día</text><text class="t" x="120" y="118">Cumple de Ana</text><text class="m" x="120" y="144">↻ anual</text><text class="m" x="338" y="124">•••</text><line class="line" x1="0" y1="172" x2="368" y2="172"/>
+      <text class="t" x="0" y="212" fill="#887E78">09:00</text><text class="t" x="90" y="212" fill="#887E78">Turno médico</text><text class="x" x="90" y="240">Cancelado</text><text class="m" x="338" y="220">•••</text>
+    </g>
+    <text class="b" x="28" y="420">Hora es el ancla, no un checkbox.</text><text class="b" x="28" y="454">Duración y ubicación en línea secundaria.</text><text class="b" x="28" y="488">Recurrencia como icono + texto.</text><text class="b" x="28" y="522">Cancelado es excepcional y atenuado.</text><text class="b" x="28" y="556">Editar/cancelar/trash nunca inline juntos.</text>
+  </g>
+  <g transform="translate(960 96)"><rect class="panel" width="420" height="660" rx="28"/><text class="h" x="28" y="48">Goal · dirección primero</text>
+    <g transform="translate(26 92)"><text class="t" x="0" y="22">Ahorrar para vacaciones</text><text class="m" x="338" y="22">•••</text><rect x="0" y="58" width="368" height="10" rx="5" fill="#EEE7E2"/><rect x="0" y="58" width="221" height="10" rx="5" class="accent"/><text class="b" x="0" y="104">60% · próximo: reservar hotel</text><text class="m" x="0" y="136">Objetivo 30 sep</text><line class="line" x1="0" y1="170" x2="368" y2="170"/>
+      <text class="t" x="0" y="216">Ordenar el depósito</text><rect x="0" y="250" width="368" height="10" rx="5" fill="#EEE7E2"/><rect x="0" y="250" width="74" height="10" rx="5" class="accent"/><text class="b" x="0" y="296">2 de 10 hitos</text><text class="m" x="0" y="328">Sin fecha objetivo</text></g>
+    <text class="b" x="28" y="466">Progreso domina sobre status/categoría.</text><text class="b" x="28" y="500">Próximo milestone cuando existe.</text><text class="b" x="28" y="534">Scope solo si cambia la interpretación.</text><text class="b" x="28" y="568">Complete/closed: resumen, no chips apilados.</text><text class="b" x="28" y="602">Acción: actualizar progreso o milestone.</text>
+  </g>
+</svg>
