@@ -119,7 +119,7 @@ export function PlannerTrashScreen() {
           await restorePlannerEvent(accessToken, item.id, item.version);
           break;
         case 'goal':
-          await restoreGoal(accessToken, item.id, undefined);
+          await restoreGoal(accessToken, item.id, item.version);
           break;
         case 'milestone':
           if (!item.parent) {
@@ -130,7 +130,7 @@ export function PlannerTrashScreen() {
             await load(true);
             return;
           }
-          await restoreGoalMilestone(accessToken, item.parent.id, item.id, undefined);
+          await restoreGoalMilestone(accessToken, item.parent.id, item.id, item.version);
           break;
       }
       setItems((prev) => prev.filter((i) => i.id !== item.id));

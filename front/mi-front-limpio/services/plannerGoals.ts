@@ -239,13 +239,13 @@ export const trashGoal = (
 export const restoreGoal = (
   accessToken: string,
   goalId: string,
-  expectedVersion?: number,
+  expectedVersion: number,
   options?: { idempotencyKey?: string },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.restore')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
+  const headers: Record<string, string> = {
+    'Idempotency-Key': key,
+    'If-Match': String(expectedVersion),
   }
   return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/restore`, {
     method: 'POST',
@@ -428,13 +428,13 @@ export const restoreGoalMilestone = (
   accessToken: string,
   goalId: string,
   milestoneId: string,
-  expectedVersion?: number,
+  expectedVersion: number,
   options?: { idempotencyKey?: string },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.milestones.restore')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
+  const headers: Record<string, string> = {
+    'Idempotency-Key': key,
+    'If-Match': String(expectedVersion),
   }
   return requestJson<PlannerGoalMilestoneResponse>(
     `/api/planner/goals/${goalId}/milestones/${milestoneId}/restore`,

@@ -1,5 +1,6 @@
 const { createHttpError } = require('../lib/httpErrors')
 const { assertExpectedVersion } = require('../lib/versionHelpers')
+const { resolveCapabilities, assertCapability, hasCapability } = require('../lib/plannerCapabilities')
 const {
   TASK_PRIORITIES,
   TASK_STATUS_ORDER,
@@ -17,7 +18,74 @@ const ALLOWED_ORIGIN_MODULES = Object.freeze([
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
+const PROTECTED_TASK_CREATE_FIELDS = Object.freeze([
+  'status',
+  'completed_by_member_id',
+  'completed_by_person_id',
+  'completed_at',
+  'verified_by_member_id',
+  'verified_by_person_id',
+  'verified_at',
+  'cancelled_at',
+  'cancelled_by_member_id',
+  'cancelled_reason',
+  'cancelled_from_status',
+  'trashed_at',
+  'trashed_by_member_id',
+  'version',
+])
+
+const assertTaskCreateBody = (body) => {
+  const protectedField = PROTECTED_TASK_CREATE_FIELDS.find((field) => hasOwn(body, field))
+  if (protectedField) {
+    throw createHttpError(
+      400,
+      'La creaciÃ³n de tareas no acepta estado ni metadata de lifecycle.',
+      'protected_task_lifecycle_field',
+    )
+  }
+}
+
+const resolveContextCapabilities = (context) => resolveCapabilities({
+  role: context.membership?.role,
+  membershipStatus: context.membership?.status,
+  household: context.household,
+})
+
+const assertTaskCompletionCapabilities = (context, completionAuth) => {
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+
+  let allowed = false
+  if (completionAuth.assignmentKind === 'legacy_unassigned') {
+    allowed = hasCapability(capabilities, 'task.complete_unassigned')
+      || hasCapability(capabilities, 'task.complete_any')
+  } else if (completionAuth.assignmentKind === 'anyone' || completionAuth.isAssignee) {
+    allowed = hasCapability(capabilities, 'task.complete_assigned')
+  } else {
+    allowed = hasCapability(capabilities, 'task.complete_any')
+  }
+
+  if (!allowed) assertCapability(capabilities, 'task.complete_any')
+}
+
+const assertTaskVerificationCapabilities = (context) => {
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+  assertCapability(capabilities, 'task.verify')
+}
 const throwSupabaseError = (error) => {
+  if (
+    error?.message === 'assignment_history_requires_explicit_transition'
+    || error?.details === 'assignment_history_requires_explicit_transition'
+  ) {
+    throw createHttpError(
+      409,
+      'La asignación tiene historial y requiere una transición explícita.',
+      'assignment_history_requires_explicit_transition',
+    )
+  }
+
   const isRlsViolation =
     error.code === '42501' ||
     error.code === 'PGRST301' ||
@@ -440,6 +508,16 @@ const listTasks = async (context, query) => {
 }
 
 const createTask = async (context, body) => {
+  assertTaskCreateBody(body)
+
+  if (body?.visibility === 'personal') {
+    throw createHttpError(
+      400,
+      'Las tareas personales todavía no están disponibles.',
+      'personal_tasks_not_supported',
+    )
+  }
+
   const title = normalizeString(body?.title)
 
   if (!title) {
@@ -502,6 +580,37 @@ const createTask = async (context, body) => {
   }).catch(() => {})
 
   return { task: data }
+}
+
+const getTaskCompletionAuthorization = async (context, taskId) => {
+  await getTaskOrThrow(context.client, context.householdId, taskId)
+
+  const { data: config, error: configError } = await context.client
+    .from('planner_task_assignment_configs')
+    .select('assignment_kind, fulfillment_mode')
+    .eq('task_id', taskId)
+    .eq('household_id', context.householdId)
+    .maybeSingle()
+
+  if (configError) throwSupabaseError(configError)
+  if (!config) {
+    throw createHttpError(500, 'La tarea no tiene una asignación canónica.', 'task_assignment_missing')
+  }
+
+  const { data: assignee, error: assigneeError } = await context.client
+    .from('planner_task_assignees')
+    .select('id')
+    .eq('task_id', taskId)
+    .eq('member_id', context.membershipId)
+    .is('revoked_at', null)
+    .maybeSingle()
+
+  if (assigneeError) throwSupabaseError(assigneeError)
+  return {
+    assignmentKind: config.assignment_kind,
+    fulfillmentMode: config.fulfillment_mode,
+    isAssignee: Boolean(assignee),
+  }
 }
 
 const buildTaskPatch = async (context, body) => {
@@ -738,6 +847,9 @@ const reactivateTask = async (context, taskId, expectedVersion) => {
 }
 
 const completeTask = async (context, taskId, expectedVersion, correlation = {}) => {
+  const completionAuth = await getTaskCompletionAuthorization(context, taskId)
+  assertTaskCompletionCapabilities(context, completionAuth)
+
   const { data, error } = await context.client.rpc('complete_planner_task_with_audit', {
     p_household_id: context.householdId,
     p_task_id: taskId,
@@ -832,6 +944,46 @@ const verifyTask = async (context, taskId, expectedVersion) => {
 
   const hydrated = await hydrateMembers(context.client, [data])
   return { task: hydrated[0] }
+}
+
+const verifyTaskViaFulfillment = async (context, taskId, expectedVersion, correlation = {}) => {
+  assertTaskVerificationCapabilities(context)
+
+  const { data, error } = await context.client.rpc('verify_planner_task_fulfillment_with_audit', {
+    p_household_id: context.householdId,
+    p_task_id: taskId,
+    p_expected_version: expectedVersion,
+    p_request_id: correlation.requestId ?? null,
+    p_mutation_id: correlation.mutationId ?? null,
+  })
+
+  if (error) throwSupabaseError(error)
+  if (data?.outcome === 'not_found') {
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
+  }
+  if (data?.outcome === 'version_conflict') {
+    throw createHttpError(
+      412,
+      'La version de la entidad cambio. Actualiza y reintenta.',
+      'version_conflict_v2',
+      { current: Number(data.current_version), expected: Number(expectedVersion) },
+    )
+  }
+  if (data?.outcome === 'invalid_state') {
+    throw createHttpError(409, 'La task no esta awaiting_verification.', 'task_not_awaiting_verification')
+  }
+  if (data?.outcome === 'self_verification') {
+    throw createHttpError(409, 'La misma persona no puede verificar su completion.', 'cannot_verify_own_completion')
+  }
+  if (!data?.task) {
+    throw createHttpError(500, 'Respuesta transaccional invalida.', 'planner_audit_transaction_failed')
+  }
+
+  const hydrated = await hydrateMembers(context.client, [data.task])
+  return {
+    task: hydrated[0],
+    correlation: { audit_event_id: data.audit_event_id ?? null },
+  }
 }
 
 const trashTask = async (context, taskId, expectedVersion) => {
@@ -937,9 +1089,13 @@ const restoreTask = async (context, taskId, expectedVersion) => {
 }
 
 module.exports = {
+  assertTaskCompletionCapabilities,
+  assertTaskCreateBody,
+  assertTaskVerificationCapabilities,
   cancelTask,
   completeTask,
   createTask,
+  getTaskCompletionAuthorization,
   getTaskById,
   getTaskOrThrow,
   listTasks,
@@ -947,5 +1103,5 @@ module.exports = {
   restoreTask,
   trashTask,
   updateTask,
-  verifyTask,
+  verifyTask: verifyTaskViaFulfillment,
 }

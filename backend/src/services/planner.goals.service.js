@@ -640,7 +640,6 @@ const restoreMilestone = async (context, goalId, milestoneId, expectedVersion) =
       p_goal_id: goalId,
       p_milestone_id: milestoneId,
       p_expected_version: expectedVersion ?? null,
-      p_member_id: context.membershipId,
     }
   )
 
@@ -740,7 +739,6 @@ const restoreGoal = async (context, goalId, expectedVersion) => {
     {
       p_goal_id: goalId,
       p_expected_version: expectedVersion ?? null,
-      p_member_id: context.membershipId,
     }
   )
 

@@ -11,8 +11,8 @@ const {
   hashIdempotencyRequest,
   withIdempotency,
 } = require('../lib/plannerIdempotencyAdapter');
-const { resolveCapabilities, assertCapability } = require('../lib/plannerCapabilities');
-const { sendApiError } = require('../lib/httpErrors');
+const { resolveCapabilities, assertCapability, hasCapability } = require('../lib/plannerCapabilities');
+const { createHttpError, sendApiError } = require('../lib/httpErrors');
 const { telemetry } = require('../config/telemetry');
 
 /**
@@ -55,10 +55,16 @@ const createTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req);
     const capabilities = buildCapabilities(context);
+    tasksService.assertTaskCreateBody(req.body ?? {});
 
-    const isPersonal = req.body?.visibility === 'personal';
-    const requiredCap = isPersonal ? 'task.create_personal' : 'task.create_household';
-    assertCapability(capabilities, requiredCap);
+    if (req.body?.visibility === 'personal') {
+      throw createHttpError(
+        400,
+        'Las tareas personales todavía no están disponibles.',
+        'personal_tasks_not_supported',
+      );
+    }
+    assertCapability(capabilities, 'task.create_household');
 
     const operation = 'planner.tasks.create';
     const mutationId = requireMutationId(req);
@@ -89,8 +95,11 @@ const updateTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req);
     const capabilities = buildCapabilities(context);
-    assertCapability(capabilities, 'task.edit_own');
-    // Note: task.edit_any is enforced by the service via RLS/ownership check
+    const task = await tasksService.getTaskOrThrow(context.client, context.householdId, req.params.id);
+    assertCapability(
+      capabilities,
+      task.created_by_member_id === context.membershipId ? 'task.edit_own' : 'task.edit_any',
+    );
 
     const operation = 'planner.tasks.update';
     const mutationId = requireMutationId(req);
@@ -121,7 +130,11 @@ const cancelTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req);
     const capabilities = buildCapabilities(context);
-    assertCapability(capabilities, 'task.cancel_own');
+    const task = await tasksService.getTaskOrThrow(context.client, context.householdId, req.params.id);
+    assertCapability(
+      capabilities,
+      task.created_by_member_id === context.membershipId ? 'task.cancel_own' : 'task.cancel_any',
+    );
 
     const operation = 'planner.tasks.cancel';
     const mutationId = requireMutationId(req);
@@ -153,7 +166,20 @@ const completeTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req);
     const capabilities = buildCapabilities(context);
-    assertCapability(capabilities, 'task.complete_assigned');
+    assertCapability(capabilities, 'planner.view');
+    const completionAuth = await tasksService.getTaskCompletionAuthorization(context, req.params.id);
+    let completionAllowed = false;
+    if (completionAuth.assignmentKind === 'legacy_unassigned') {
+      completionAllowed = hasCapability(capabilities, 'task.complete_unassigned')
+        || hasCapability(capabilities, 'task.complete_any');
+    } else if (completionAuth.assignmentKind === 'anyone' || completionAuth.isAssignee) {
+      completionAllowed = hasCapability(capabilities, 'task.complete_assigned');
+    } else {
+      completionAllowed = hasCapability(capabilities, 'task.complete_any');
+    }
+    if (!completionAllowed) {
+      assertCapability(capabilities, 'task.complete_any');
+    }
 
     const operation = 'planner.tasks.complete';
     const mutationId = requireMutationId(req);
@@ -197,6 +223,7 @@ const verifyTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req);
     const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'planner.view');
     assertCapability(capabilities, 'task.verify');
 
     const operation = 'planner.tasks.verify';
@@ -214,7 +241,10 @@ const verifyTask = async (req, res) => {
     const result = await withIdempotency(
       context,
       { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => tasksService.verifyTask(context, req.params.id, expectedVersion),
+      () => tasksService.verifyTask(context, req.params.id, expectedVersion, {
+        requestId: req.requestId,
+        mutationId,
+      }),
     );
 
     res.set('X-Mutation-Id', mutationId);
@@ -290,7 +320,11 @@ const reactivateTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req);
     const capabilities = buildCapabilities(context);
-    assertCapability(capabilities, 'task.cancel_own');
+    const task = await tasksService.getTaskOrThrow(context.client, context.householdId, req.params.id);
+    assertCapability(
+      capabilities,
+      task.created_by_member_id === context.membershipId ? 'task.cancel_own' : 'task.cancel_any',
+    );
 
     const operation = 'planner.tasks.reactivate';
     const mutationId = requireMutationId(req);
