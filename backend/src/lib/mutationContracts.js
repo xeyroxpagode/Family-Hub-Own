@@ -141,6 +141,40 @@ function assertExpectedVersionMatches(currentVersion, expectedVersion) {
   }
 }
 
+// ── V2 canonical error codes ──
+
+const CANONICAL_ERROR_CODES = Object.freeze({
+  MUTATION_ID_REQUIRED: 'mutation_id_required',
+  IDEMPOTENCY_KEY_REQUIRED: 'idempotency_key_required',
+  EXPECTED_VERSION_REQUIRED: 'expected_version_required',
+  INVALID_EXPECTED_VERSION: 'invalid_expected_version',
+  IDEMPOTENCY_CONFLICT: 'idempotency_conflict',
+  IDEMPOTENCY_IN_FLIGHT: 'idempotency_in_flight',
+  VERSION_CONFLICT_V2: 'version_conflict_v2',
+  INTERNAL_ERROR: 'internal_error',
+});
+
+// Legacy aliases recognized internally by bridge mappers
+const LEGACY_ERROR_ALIASES = Object.freeze({
+  idempotency_key_conflict: CANONICAL_ERROR_CODES.IDEMPOTENCY_CONFLICT,
+  version_conflict: CANONICAL_ERROR_CODES.VERSION_CONFLICT_V2,
+});
+
+function normalizeErrorCode(code) {
+  if (!code) return CANONICAL_ERROR_CODES.INTERNAL_ERROR;
+  return LEGACY_ERROR_ALIASES[code] || code;
+}
+
+function createIdempotencyConflictError(message, details) {
+  return createHttpError(409, message || 'La operacion ya fue procesada con otros datos.',
+    CANONICAL_ERROR_CODES.IDEMPOTENCY_CONFLICT, details || null);
+}
+
+function createIdempotencyInFlightError(message, retryAfter) {
+  return createHttpError(409, message || 'La operacion ya se esta procesando. Reintentá en unos segundos.',
+    CANONICAL_ERROR_CODES.IDEMPOTENCY_IN_FLIGHT, retryAfter ? { retry_after: retryAfter } : null);
+}
+
 module.exports = {
   MUTATION_ID_HEADER,
   IDEMPOTENCY_KEY_HEADER,
@@ -148,6 +182,8 @@ module.exports = {
   SAFE_CORRELATION_ID_RE,
   OPERATION_KINDS,
   OPERATION_POLICIES,
+  CANONICAL_ERROR_CODES,
+  LEGACY_ERROR_ALIASES,
   sanitizeCorrelationId,
   readMutationId,
   requireMutationId,
@@ -157,4 +193,7 @@ module.exports = {
   parseRequiredExpectedVersion,
   requireMutationContract,
   assertExpectedVersionMatches,
+  normalizeErrorCode,
+  createIdempotencyConflictError,
+  createIdempotencyInFlightError,
 };

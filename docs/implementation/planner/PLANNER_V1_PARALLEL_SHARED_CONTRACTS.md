@@ -4,7 +4,9 @@
 **Module:** Planner V1
 **Purpose:** Technical coordination contract for parallel implementation
 **Product authority:** `PLANNER_V1_M11_FUNCTIONAL_FREEZE.md`
-**Status:** ACTIVE — activated 2026-07-22 after exact common-base and repository-contract verification
+**Status:** ACTIVE — M11.INT-01 Phase 2 R2B Integration validation complete; fresh independent QA pending
+**Resolution authority:** `M11_SHARED_IDEMPOTENCY_RESOLUTION_REPORT.md`
+**Phase 2 implementation report:** `M11_INT_01_PHASE_2_SHARED_FOUNDATION_IMPLEMENTATION_REPORT.md`
 **Does not redefine product:** This document only freezes shared technical conventions.
 
 ---
@@ -123,11 +125,19 @@ Rules:
 - household entities belong to exactly one household;
 - authenticated actor identity is always derived from auth context;
 - actor IDs supplied by clients are never authority;
-- Tasks personales remain unsupported until their approved submilestone and must be rejected consistently, not emulated as household Tasks.
+- personal mutation authority is `auth.uid()` plus
+  `public.current_person_id()` and owner-person equality; it never requires a
+  household or membership;
+- household mutation authority additionally requires
+  `public.current_household_member_id(household_id)`, `planner.view`, and the
+  exact action capability;
+- a domain not yet authorized to expose personal creation must reject it
+  consistently until its submilestone; it must never emulate personal scope as
+  household scope.
 
 ---
 
-## 5. Version and concurrency envelope
+## 5. Version, idempotency and concurrency envelope
 
 All mutable domain entities use optimistic versioning.
 
@@ -144,10 +154,18 @@ Transport conventions:
 - `X-Mutation-Id` is the stable operation/correlation ID. Backend parser: `requireMutationId(req)` in `backend/src/lib/mutationContracts.js`; response middleware echoes it;
 - `Idempotency-Key` is the canonical idempotency key. Backend parser: `requireIdempotencyKey(req)`; persistence adapter: `hashIdempotencyRequest(...)` + `withIdempotency(...)` in `backend/src/lib/plannerIdempotencyAdapter.js`;
 - the canonical request hash covers `method`, `operation`, sorted `params`, sorted `body` and `expected_version`;
-- persistence uses `reserve_planner_idempotency_key` and `complete_planner_idempotency_key` over `planner_idempotency_keys`;
+- `planner_idempotency_keys` remains the only replay store, but M11.INT-01
+  supersedes direct generic reserve/complete as public mutation authority;
+- every public mutation is an operation-specific authenticated RPC that derives
+  actor/scope, validates authority, invokes Integration-owned private
+  reservation helpers, mutates, audits, and completes the replay result in one
+  transaction;
+- `audit_events` is never an idempotency store;
 - `If-Match` is the canonical expected-version header for existing entities. `parseRequiredExpectedVersion(req)` accepts body field `expected_version` only as the existing compatibility fallback, and the header wins when both are present;
 - missing expected version is `422 expected_version_required`; invalid version is `400 invalid_expected_version`; canonical stale detection is `412 version_conflict_v2` with sanitized `details: { current, expected }`;
-- idempotency conflicts use the existing stable code `idempotency_key_conflict`; in-flight operations use `idempotency_in_flight`;
+- idempotency conflicts use `idempotency_conflict`; the deprecated
+  `idempotency_key_conflict` may be recognized only by internal bridge mappers;
+  bounded legacy/concurrent lease waits use `idempotency_in_flight`;
 - no lane may introduce a second competing operation-ID or idempotency mechanism;
 - new mutation-heavy lanes must use `OPERATION_KINDS.CREATE_IDEMPOTENT` or `OPERATION_KINDS.VERSIONED_MUTATION` through the existing mutation-contract helpers.
 
@@ -157,7 +175,7 @@ Results:
 same operation + same payload
 → replay / noop with the canonical current result
 
-same operation + different payload
+same operation + different payload or mutation binding
 → idempotency_conflict
 
 stale non-equivalent mutation
@@ -165,6 +183,50 @@ stale non-equivalent mutation
 ```
 
 A retry must not duplicate data, audit, recurrence, children or side effects.
+
+### 5.1 Canonical identity
+
+The durable uniqueness identity is:
+
+```text
+(actor_person_id, scope_type, scope_id, operation, idempotency_key)
+```
+
+The row also binds validated `actor_account_id`, one stable `mutation_id`, the
+operation class, and a server-recomputed canonical payload hash. Personal scope
+uses `scope_id = actor_person_id`; household scope uses
+`scope_id = household_id`. Membership is current authorization/audit
+attribution, not durable idempotency identity.
+
+### 5.2 Required ordering
+
+```text
+transport syntax
+→ authenticated account/person
+→ scope/visibility and payload validation
+→ planner.view + exact action authority
+→ atomic reservation/replay
+→ expected version
+→ lifecycle/business checks
+→ noop
+→ mutation + audit + response completion
+```
+
+Unauthorized or malformed requests never reserve. Replay revalidates current
+visibility and authority. Noop occurs only after authority and version.
+
+### 5.3 Reservation and recovery
+
+Private reservation uses `INSERT ... ON CONFLICT DO NOTHING` followed by a
+locked read. States are `in_flight`, `completed`, `failed_stable`, and
+`abandoned`. New operation RPCs do not commit `in_flight` independently from
+their domain transaction. Domain effect, success/failed audit, and response
+completion commit or roll back together. Existing stranded rows use a bounded
+lease: reconcile a proven effect, otherwise reclaim after expiry; ambiguous
+evidence fails closed. Raw `23505` and raw SQL diagnostics are never public.
+
+Supported deterministic post-authorization 4xx/412 results are stored and
+replayed. 5xx results are never stable replay values.
 
 ---
 
@@ -219,6 +281,12 @@ wrong_household
 member_not_active
 validation_error
 ```
+
+For new Planner mutations, canonical stale detection is
+`version_conflict_v2`; `version_conflict` is a compatibility input only and is
+not emitted by new public paths. Canonical idempotency mismatch is
+`idempotency_conflict`. No raw SQLSTATE, constraint name, SQL message, hint, or
+stack may be copied into the public envelope.
 
 Domain-specific codes may be added, but:
 
@@ -362,6 +430,12 @@ metadata_version
 metadata
 ```
 
+M11.INT-01 additively extends this shared authority with
+`actor_person_id`, `scope_type`, and `scope_id`, and permits `household_id` to
+be null only for canonical personal scope. Personal audit uses a person/account
+with no household/member; household audit records all four actor/scope
+dimensions.
+
 The approved M11.1A RPCs are
 `complete_planner_task_with_audit(...)` and
 `verify_planner_task_fulfillment_with_audit(...)`; their current actions are
@@ -373,6 +447,9 @@ Rules:
 
 - audits are exactly once per effective operation;
 - replay/noop does not duplicate audit;
+- noop creates zero effective-operation audit rows;
+- an allowlisted stable post-authorization business failure creates exactly
+  one `result=failed` audit row and is never projected as Activity;
 - autosave and technical synchronization noise are not Activity;
 - each lane owns its event names;
 - Integration maintains the global event registry.
@@ -426,6 +503,21 @@ SQL
   public.current_person_id()
   public.current_household_member_id(household_id)
 ```
+
+### 14.2 Mutation authority and grants
+
+The final authenticated surface is SELECT under RLS plus reviewed
+operation-specific mutation RPCs. Authenticated direct INSERT/UPDATE/DELETE on
+canonical Planner mutation tables is forbidden. Generic idempotency
+reserve/complete functions and Integration-owned private V2 helpers are not
+executable by PUBLIC, anon, or authenticated. Operation RPCs are SECURITY
+DEFINER with `search_path = pg_catalog, public`, derive actor identity, validate
+scope/payload/capability/version, and own idempotency/audit atomically.
+
+V0 routes retain their HTTP/DTO contract while their services migrate to these
+RPCs. Lockdown occurs only after directed V0 compatibility tests prove every
+live call site has moved; the temporary direct-write window is not an approved
+final authority.
 
 ---
 

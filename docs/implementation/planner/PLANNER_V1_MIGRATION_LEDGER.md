@@ -44,6 +44,19 @@
 
 No lane may use another range.
 
+M11.INT-01 reserves this Integration subrange:
+
+| ID/subrange | Owner | Intended scope |
+|---|---|---|
+| `20260722090000` | Integration | Shared actor/scope idempotency foundation, private atomic helpers, personal audit scope, legacy-row backfill |
+| `20260722090010` | Integration | Mutation-authority lockdown after Task/Event V0 bridge proof |
+| `20260722090000–20260722090019` | Integration | Exclusive M11 shared mutation-authority reservation; unused IDs remain unavailable to other lanes |
+
+These are reservations and filenames/plans, not implemented migrations. Tasks
+and Events keep operation-specific RPC changes in their own ranges and declare
+a dependency on the foundation. No domain migration may alter the shared
+idempotency/audit schema or grants independently.
+
 Repository scan at activation found no duplicate 14-digit migration IDs in the
 approved Integration baseline. The uncommitted M11.1B ID `20260722020000` is
 inside the Tasks reservation and does not collide with a baseline migration.
@@ -162,5 +175,7 @@ No migration may be deployed remotely until Integration + QA record:
 |---|---|---|---|---|
 | `20260722010000` | Tasks | APPROVED / IMMUTABLE BASE | Functional freeze; base commit `fb4efc81b1debf5932580ef2e16cedf4afb6bb45` | M11.1A R2 final audit PASS |
 | `20260722020000` | Tasks | IMPLEMENTED / UNCOMMITTED | `20260722010000`; Tasks worktree only | Independent audit pending |
+| `20260722090000` | Integration | IMPLEMENTED / UNCOMMITTED / R2C CORRECTION COMPLETE / QA PENDING | `IR-SHARED-IDEMP-003` P2 foundation; additive; legacy-row backfill; R2 hash/grant correction candidate preserved after scope drift; R2C array-object JS canonicalizer correction | R2C fresh evidence: contract 95 assertions exit 0; DB suite 325 assertions exit 0; QA R2B probe all 271 assertions exit 0 via read-only wrapper; runner exit 0; cleanup sensitivity demonstrated; `migration list` exactly-once; `20260722090010` absent; `db lint --level error` exit 0; no independent QA PASS implied |
+| `20260722090010` | Integration | RESERVED / NOT IMPLEMENTED / GATED | `20260722090000`; all Task/Event V0/V1 mutation call sites bridged | Must not run before compatibility and grant-catalog gate |
 
 Integration adds entries before activating Events, Plans, Presets or Reliability.

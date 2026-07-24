@@ -1,7 +1,7 @@
 # Planner V1 — Parallel Ownership Matrix
 
 **Purpose:** Prevent two parallel lanes from owning the same implementation surface.
-**Status:** ACTIVE — base and exact repository paths verified 2026-07-22.
+**Status:** ACTIVE - base and exact repository paths verified 2026-07-22; M11.INT-01 Phase 2 R2B Integration validation complete, fresh independent QA pending.
 **Rule:** One production file has one owner at a time.
 
 ---
@@ -185,6 +185,23 @@ integration queue
 global integration tests
 ```
 
+M11.INT-01 makes the following ownership explicit:
+
+```text
+backend/src/lib/plannerIdempotencyAdapter.js
+backend/src/lib/mutationContracts.js
+backend/src/lib/plannerMutationContracts.js
+backend/src/lib/httpErrors.js
+backend/src/services/planner.context.service.js  // shared context composition
+Integration-range idempotency/audit scope migrations
+private shared reservation/completion/recovery SQL helpers
+shared hash-parity, poisoning, grant, concurrency and failure-path tests
+```
+
+Domain operation RPCs remain domain-owned and call the private shared helper.
+Tasks and Events must consume one Integration implementation; neither may hand
+off or retain a divergent copy of the shared adapter/helper.
+
 ### QA
 
 Owned patterns:
@@ -246,6 +263,24 @@ M11.1B currently has an uncommitted edit to shared
 requires Integration review through `IR-TASK-ROUTE-001` before the M11.1B
 handoff can be integrated. This does not block Tasks from completing its
 independent audit on its own branch.
+
+Tasks also has a local change to
+`backend/src/lib/plannerIdempotencyAdapter.js`. `IR-TASK-IDEMP-001` is
+superseded as an independent implementation by `IR-SHARED-IDEMP-003`; the
+shared-file delta must not be copied as the canonical fix. Integration owns the
+single implementation, while Tasks keeps only Task-specific consumers/RPCs.
+
+Events correctly kept its V1 route registration out of the shared router.
+`IR-EVENT-ROUTE-001` remains an Integration-owned handoff after the Event lane
+passes the shared correction and independent audit.
+
+### 5.2 V0 compatibility ownership
+
+Task and Event lanes own changes inside their existing V0/V1 domain
+controllers, services, and operation RPC migrations. Integration owns the
+shared foundation and final grant/RLS lockdown. No temporary production-file
+ownership transfer is required. The lockdown cannot be integrated until both
+domain owners prove their unchanged V0 routes/DTOs use the atomic RPC boundary.
 
 ---
 

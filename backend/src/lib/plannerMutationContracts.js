@@ -15,9 +15,12 @@ const PLANNER_MUTATION_POLICIES = Object.freeze({
   existingEntity: core.OPERATION_POLICIES[core.OPERATION_KINDS.VERSIONED_MUTATION],
 });
 
+const V2_CANONICAL_ERROR_CODES = core.CANONICAL_ERROR_CODES;
+
 module.exports = {
   ...core,
   PLANNER_MUTATION_POLICIES,
+  V2_CANONICAL_ERROR_CODES,
   sanitizeMutationId: core.sanitizeCorrelationId,
   assertRequiredExpectedVersionMatches: core.assertExpectedVersionMatches,
 };
