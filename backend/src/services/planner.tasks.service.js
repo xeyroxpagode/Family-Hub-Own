@@ -74,6 +74,61 @@ const assertTaskVerificationCapabilities = (context) => {
   assertCapability(capabilities, 'planner.view')
   assertCapability(capabilities, 'task.verify')
 }
+
+const V1_ASSIGNMENT_KINDS = Object.freeze(['anyone', 'members'])
+const V1_FULFILLMENT_MODES = Object.freeze(['shared_once', 'each_person'])
+const V1_FULFILLMENT_ACTIONS = Object.freeze([
+  'complete',
+  'verify',
+  'request_correction',
+  'resubmit',
+  'revert',
+  'reopen',
+])
+const V1_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+const assertV1Uuid = (value, fieldName) => {
+  if (typeof value !== 'string' || !V1_UUID_RE.test(value)) {
+    throw createHttpError(400, `${fieldName} debe ser un UUID válido.`, 'validation_error')
+  }
+}
+
+const mapV1Outcome = (data, expectedVersion) => {
+  const outcome = data?.outcome
+  if (outcome === 'updated' || outcome === 'noop' || outcome === 'replay') return data
+
+  const definitions = {
+    not_found: [404, 'Tarea no encontrada.', 'task_not_found'],
+    invalid_assignment: [400, 'La configuraciÃ³n de asignaciÃ³n no es vÃ¡lida.', 'invalid_assignment'],
+    assignment_member_not_active: [400, 'Una persona asignada no es miembro activo.', 'assignment_member_not_active'],
+    assignment_member_wrong_household: [400, 'Una persona asignada pertenece a otro hogar.', 'assignment_member_wrong_household'],
+    assignment_history_requires_explicit_transition: [409, 'La asignaciÃ³n tiene historial y requiere confirmaciÃ³n explÃ­cita.', 'assignment_history_requires_explicit_transition'],
+    legacy_assignment_requires_explicit_resolution: [409, 'La asignaciÃ³n legacy requiere resoluciÃ³n explÃ­cita.', 'legacy_assignment_requires_explicit_resolution'],
+    already_claimed: [409, 'Otra persona ya tomÃ³ esta tarea.', 'already_claimed'],
+    fulfillment_not_current: [409, 'El cumplimiento ya no es una obligaciÃ³n actual.', 'fulfillment_not_current'],
+    fulfillment_not_responsible: [403, 'No sos responsable de este cumplimiento.', 'fulfillment_not_responsible'],
+    fulfillment_invalid_transition: [409, 'La transiciÃ³n de cumplimiento no es vÃ¡lida.', 'fulfillment_invalid_transition'],
+    self_verification_not_allowed: [409, 'La misma persona no puede verificar su cumplimiento.', 'self_verification_not_allowed'],
+    task_not_operational: [409, 'La tarea no estÃ¡ operativa.', 'task_not_operational'],
+    planner_forbidden: [403, 'No tenés permiso para realizar esta acción.', 'planner_forbidden'],
+    idempotency_conflict: [409, 'La operación ya fue procesada con otros datos.', 'idempotency_conflict'],
+    idempotency_context_required: [422, 'Falta el contexto canónico de idempotencia.', 'idempotency_context_required'],
+    expected_version_required: [422, 'If-Match es obligatorio.', 'expected_version_required'],
+  }
+
+  if (outcome === 'version_conflict') {
+    throw createHttpError(412, 'La versiÃ³n cambiÃ³. ActualizÃ¡ y reintentÃ¡.', 'version_conflict', {
+      current: Number(data.current_version),
+      expected: Number(expectedVersion),
+    })
+  }
+
+  const definition = definitions[outcome]
+  if (!definition) {
+    throw createHttpError(500, 'Respuesta transaccional invÃ¡lida.', 'planner_task_v1_transaction_failed')
+  }
+  throw createHttpError(definition[0], definition[1], definition[2])
+}
 const throwSupabaseError = (error) => {
   if (
     error?.message === 'assignment_history_requires_explicit_transition'
@@ -95,7 +150,8 @@ const throwSupabaseError = (error) => {
     throw createHttpError(403, 'No tenes permiso para realizar esta accion sobre tareas.', 'rls_violation')
   }
 
-  const httpError = createHttpError(500, error.message, error.code ?? 'internal_error')
+  const httpError = createHttpError(500, 'Error interno.', 'internal_error')
+  httpError.internalCode = error.code ?? null
   httpError.details = error.details
   httpError.hint = error.hint
   throw httpError
@@ -1088,6 +1144,331 @@ const restoreTask = async (context, taskId, expectedVersion) => {
   return { task: data }
 }
 
+const getV1Foundation = async (context, taskId, options = {}) => {
+  let taskQuery = context.client
+    .from('planner_tasks')
+    .select('*')
+    .eq('id', taskId)
+    .eq('household_id', context.householdId)
+  if (!options.includeTrashed) taskQuery = taskQuery.is('trashed_at', null)
+
+  const [taskResult, configResult, assigneeResult, fulfillmentResult] = await Promise.all([
+    taskQuery.maybeSingle(),
+    context.client
+      .from('planner_task_assignment_configs')
+      .select('*')
+      .eq('task_id', taskId)
+      .eq('household_id', context.householdId)
+      .maybeSingle(),
+    context.client
+      .from('planner_task_assignees')
+      .select('*')
+      .eq('task_id', taskId)
+      .eq('household_id', context.householdId)
+      .is('revoked_at', null)
+      .order('created_at', { ascending: true }),
+    context.client
+      .from('planner_task_fulfillments')
+      .select('*')
+      .eq('task_id', taskId)
+      .eq('household_id', context.householdId)
+      .order('created_at', { ascending: true }),
+  ])
+
+  for (const result of [taskResult, configResult, assigneeResult, fulfillmentResult]) {
+    if (result.error) throwSupabaseError(result.error)
+  }
+  if (!taskResult.data || !configResult.data) {
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
+  }
+  return {
+    task: taskResult.data,
+    config: configResult.data,
+    assignees: assigneeResult.data ?? [],
+    fulfillments: fulfillmentResult.data ?? [],
+  }
+}
+
+const loadV1MemberMap = async (context, foundation) => {
+  const ids = [...new Set([
+    ...foundation.assignees.map((item) => item.member_id),
+    ...foundation.fulfillments.flatMap((item) => [
+      item.responsible_member_id,
+      item.completed_by_member_id,
+      item.verified_by_member_id,
+      item.correction_requested_by_member_id,
+      item.resubmitted_by_member_id,
+    ]),
+  ].filter(Boolean))]
+  if (ids.length === 0) return new Map()
+
+  const { data, error } = await context.client
+    .from('household_members')
+    .select('id, person_id, role, status, people(id, display_name, avatar_url)')
+    .eq('household_id', context.householdId)
+    .in('id', ids)
+  if (error) throwSupabaseError(error)
+
+  return new Map((data ?? []).map((member) => [member.id, {
+    id: member.id,
+    personId: member.person_id,
+    displayName: member.people?.display_name ?? null,
+    avatarUrl: member.people?.avatar_url ?? null,
+    role: member.role,
+    status: member.status,
+  }]))
+}
+
+const buildV1Aggregate = (fulfillments) => {
+  const current = fulfillments.filter((item) => !item.retired_at && !item.inactive_at)
+  const counts = {
+    total: current.length,
+    pending: 0,
+    completed: 0,
+    awaitingVerification: 0,
+    correctionRequested: 0,
+    verified: 0,
+  }
+  current.forEach((item) => {
+    if (item.status === 'pending') counts.pending += 1
+    else if (item.status === 'completed') counts.completed += 1
+    else if (item.status === 'awaiting_verification') counts.awaitingVerification += 1
+    else if (item.status === 'correction_requested') counts.correctionRequested += 1
+    else if (item.status === 'verified') counts.verified += 1
+  })
+
+  let state = 'pending'
+  if (counts.correctionRequested > 0) state = 'correction_requested'
+  else if (counts.total === 0 || counts.pending === counts.total) state = 'pending'
+  else if (counts.pending > 0) state = 'partially_completed'
+  else if (counts.awaitingVerification > 0) state = 'awaiting_verification'
+  else if (counts.verified === counts.total) state = 'verified'
+  else if (counts.completed + counts.verified === counts.total) state = 'completed'
+
+  return { state, ...counts }
+}
+
+const canCompleteV1Fulfillment = (context, foundation, fulfillment, capabilities) => {
+  const isAssignee = foundation.assignees.some((item) => item.member_id === context.membershipId)
+  if (foundation.config.assignment_kind === 'legacy_unassigned') {
+    return hasCapability(capabilities, 'task.complete_unassigned') || hasCapability(capabilities, 'task.complete_any')
+  }
+  if (fulfillment.fulfillment_scope === 'individual' && fulfillment.responsible_member_id === context.membershipId) {
+    return hasCapability(capabilities, 'task.complete_assigned')
+  }
+  if (fulfillment.fulfillment_scope === 'shared' && foundation.config.assignment_kind === 'anyone') {
+    return hasCapability(capabilities, 'task.complete_assigned')
+  }
+  if (fulfillment.fulfillment_scope === 'shared' && isAssignee) {
+    return hasCapability(capabilities, 'task.complete_assigned')
+  }
+  return hasCapability(capabilities, 'task.complete_any')
+}
+
+const buildV1AvailableActions = (context, foundation) => {
+  const capabilities = resolveContextCapabilities(context)
+  const actions = []
+  const operational = !foundation.task.trashed_at && foundation.task.status !== 'cancelled'
+  if (!operational) return actions
+
+  const editCapability = foundation.task.created_by_member_id === context.membershipId
+    ? 'task.edit_own'
+    : 'task.edit_any'
+  if (hasCapability(capabilities, editCapability)) actions.push({ action: 'change_assignment' })
+
+  const current = foundation.fulfillments.filter((item) => !item.retired_at && !item.inactive_at)
+  if (
+    foundation.config.assignment_kind === 'anyone'
+    && current.some((item) => item.fulfillment_scope === 'shared' && item.status === 'pending')
+    && hasCapability(capabilities, 'task.complete_assigned')
+  ) actions.push({ action: 'claim' })
+
+  current.forEach((fulfillment) => {
+    const target = { fulfillmentId: fulfillment.id }
+    const canComplete = canCompleteV1Fulfillment(context, foundation, fulfillment, capabilities)
+    const canManageOwn = fulfillment.responsible_member_id === context.membershipId
+      || fulfillment.completed_by_member_id === context.membershipId
+      || hasCapability(capabilities, 'task.complete_any')
+    const canVerify = hasCapability(capabilities, 'task.verify')
+      && fulfillment.completed_by_member_id !== context.membershipId
+
+    if (fulfillment.status === 'pending' && canComplete) actions.push({ action: 'complete', ...target })
+    if (fulfillment.status === 'awaiting_verification' && canVerify) {
+      actions.push({ action: 'verify', ...target }, { action: 'request_correction', ...target })
+    }
+    if (fulfillment.status === 'correction_requested' && canManageOwn) actions.push({ action: 'resubmit', ...target })
+    if (fulfillment.status === 'completed' && canManageOwn) actions.push({ action: 'revert', ...target })
+    if (fulfillment.status === 'verified' && hasCapability(capabilities, 'task.verify')) {
+      actions.push({ action: 'reopen', ...target })
+    }
+  })
+  return actions
+}
+
+const getTaskFulfillmentV1 = async (context, taskId) => {
+  assertV1Uuid(taskId, 'taskId')
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+  const foundation = await getV1Foundation(context, taskId)
+  const members = await loadV1MemberMap(context, foundation)
+  const member = (id) => (id ? members.get(id) ?? null : null)
+
+  return {
+    task: {
+      taskId: foundation.task.id,
+      taskVersion: foundation.task.version,
+      assignment: {
+        kind: foundation.config.assignment_kind,
+        mode: foundation.config.fulfillment_mode,
+        version: foundation.config.version,
+        legacyResolutionRequired: foundation.config.assignment_kind === 'legacy_unassigned',
+        assignees: foundation.assignees.map((item) => member(item.member_id)).filter(Boolean),
+      },
+      fulfillments: foundation.fulfillments.map((item) => ({
+        id: item.id,
+        scope: item.fulfillment_scope,
+        responsibleMember: member(item.responsible_member_id),
+        status: item.status,
+        version: item.version,
+        completedBy: member(item.completed_by_member_id),
+        completedAt: item.completed_at,
+        verifiedBy: member(item.verified_by_member_id),
+        verifiedAt: item.verified_at,
+        correctionRequestedBy: member(item.correction_requested_by_member_id),
+        correctionRequestedAt: item.correction_requested_at,
+        correctionComment: item.correction_comment,
+        resubmittedBy: member(item.resubmitted_by_member_id),
+        resubmittedAt: item.resubmitted_at,
+        resubmissionNote: item.resubmission_note,
+        inactiveAt: item.inactive_at,
+        retiredAt: item.retired_at,
+      })),
+      aggregate: buildV1Aggregate(foundation.fulfillments),
+      availableActions: buildV1AvailableActions(context, foundation),
+    },
+  }
+}
+
+const assertV1EditCapability = async (context, taskId) => {
+  const task = await getTaskOrThrow(context.client, context.householdId, taskId)
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+  assertCapability(capabilities, task.created_by_member_id === context.membershipId ? 'task.edit_own' : 'task.edit_any')
+}
+
+const updateTaskAssignmentV1 = async (context, taskId, body, expectedVersion, correlation = {}) => {
+  assertV1Uuid(taskId, 'taskId')
+  const kind = body?.assignmentKind ?? body?.kind
+  const mode = body?.fulfillmentMode ?? body?.mode
+  const memberIds = body?.memberIds ?? body?.member_ids ?? []
+  if (
+    !V1_ASSIGNMENT_KINDS.includes(kind)
+    || !V1_FULFILLMENT_MODES.includes(mode)
+    || !Array.isArray(memberIds)
+    || memberIds.some((memberId) => typeof memberId !== 'string' || !V1_UUID_RE.test(memberId))
+    || new Set(memberIds).size !== memberIds.length
+  ) {
+    throw createHttpError(400, 'La configuraciÃ³n de asignaciÃ³n no es vÃ¡lida.', 'invalid_assignment')
+  }
+
+  await assertV1EditCapability(context, taskId)
+
+  const { data, error } = await context.client.rpc('update_planner_task_assignment_v1', {
+    p_household_id: context.householdId,
+    p_task_id: taskId,
+    p_expected_version: expectedVersion,
+    p_assignment_kind: kind,
+    p_fulfillment_mode: mode,
+    p_member_ids: memberIds,
+    p_confirm_historical_transition: body?.confirmHistoricalTransition === true,
+    p_confirm_legacy_resolution: body?.confirmLegacyResolution === true,
+    p_request_id: correlation.requestId ?? null,
+    p_operation_id: correlation.mutationId ?? null,
+    p_idempotency_key: correlation.idempotencyKey ?? null,
+    p_idempotency_operation: correlation.idempotencyOperation ?? null,
+    p_request_hash: correlation.requestHash ?? null,
+  })
+  if (error) throwSupabaseError(error)
+  mapV1Outcome(data, expectedVersion)
+  return getTaskFulfillmentV1(context, taskId)
+}
+
+const claimTaskV1 = async (context, taskId, expectedVersion, correlation = {}) => {
+  assertV1Uuid(taskId, 'taskId')
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+  assertCapability(capabilities, 'task.complete_assigned')
+  const { data, error } = await context.client.rpc('claim_planner_task_v1', {
+    p_household_id: context.householdId,
+    p_task_id: taskId,
+    p_expected_version: expectedVersion,
+    p_request_id: correlation.requestId ?? null,
+    p_operation_id: correlation.mutationId ?? null,
+    p_idempotency_key: correlation.idempotencyKey ?? null,
+    p_idempotency_operation: correlation.idempotencyOperation ?? null,
+    p_request_hash: correlation.requestHash ?? null,
+  })
+  if (error) throwSupabaseError(error)
+  if (data?.outcome === 'already_claimed') {
+    const current = await getTaskFulfillmentV1(context, taskId)
+    throw createHttpError(409, 'Otra persona ya tomó esta tarea.', 'already_claimed', {
+      current: current.task,
+    })
+  }
+  mapV1Outcome(data, expectedVersion)
+  return getTaskFulfillmentV1(context, taskId)
+}
+
+const assertV1FulfillmentCapability = async (context, taskId, fulfillmentId, action) => {
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+  const foundation = await getV1Foundation(context, taskId)
+  const fulfillment = foundation.fulfillments.find((item) => item.id === fulfillmentId)
+  if (!fulfillment || fulfillment.retired_at || fulfillment.inactive_at) {
+    throw createHttpError(409, 'El cumplimiento ya no es una obligaciÃ³n actual.', 'fulfillment_not_current')
+  }
+  if (['verify', 'request_correction', 'reopen'].includes(action)) {
+    assertCapability(capabilities, 'task.verify')
+  } else if (action === 'complete') {
+    if (!canCompleteV1Fulfillment(context, foundation, fulfillment, capabilities)) {
+      throw createHttpError(403, 'No sos responsable de este cumplimiento.', 'fulfillment_not_responsible')
+    }
+  } else {
+    const responsible = fulfillment.responsible_member_id === context.membershipId
+      || fulfillment.completed_by_member_id === context.membershipId
+      || hasCapability(capabilities, 'task.complete_any')
+    if (!responsible) {
+      throw createHttpError(403, 'No sos responsable de este cumplimiento.', 'fulfillment_not_responsible')
+    }
+  }
+}
+
+const mutateTaskFulfillmentV1 = async (context, taskId, fulfillmentId, action, body, expectedVersion, correlation = {}) => {
+  assertV1Uuid(taskId, 'taskId')
+  assertV1Uuid(fulfillmentId, 'fulfillmentId')
+  if (!V1_FULFILLMENT_ACTIONS.includes(action)) {
+    throw createHttpError(409, 'La transiciÃ³n de cumplimiento no es vÃ¡lida.', 'fulfillment_invalid_transition')
+  }
+  await assertV1FulfillmentCapability(context, taskId, fulfillmentId, action)
+  const { data, error } = await context.client.rpc('mutate_planner_task_fulfillment_v1', {
+    p_household_id: context.householdId,
+    p_task_id: taskId,
+    p_fulfillment_id: fulfillmentId,
+    p_action: action,
+    p_expected_version: expectedVersion,
+    p_comment: body?.comment ?? null,
+    p_note: body?.note ?? null,
+    p_request_id: correlation.requestId ?? null,
+    p_operation_id: correlation.mutationId ?? null,
+    p_idempotency_key: correlation.idempotencyKey ?? null,
+    p_idempotency_operation: correlation.idempotencyOperation ?? null,
+    p_request_hash: correlation.requestHash ?? null,
+  })
+  if (error) throwSupabaseError(error)
+  mapV1Outcome(data, expectedVersion)
+  return getTaskFulfillmentV1(context, taskId)
+}
+
 module.exports = {
   assertTaskCompletionCapabilities,
   assertTaskCreateBody,
@@ -1104,4 +1485,8 @@ module.exports = {
   trashTask,
   updateTask,
   verifyTask: verifyTaskViaFulfillment,
+  claimTaskV1,
+  getTaskFulfillmentV1,
+  mutateTaskFulfillmentV1,
+  updateTaskAssignmentV1,
 }

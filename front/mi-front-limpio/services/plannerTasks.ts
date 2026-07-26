@@ -96,12 +96,92 @@ export type PlannerTaskFilters = {
   goal_id?: string;
 };
 
+export type PlannerTaskAssignmentKindV1 = 'anyone' | 'members' | 'legacy_unassigned';
+export type PlannerTaskFulfillmentModeV1 = 'shared_once' | 'each_person';
+export type PlannerTaskFulfillmentStatusV1 =
+  | 'pending'
+  | 'completed'
+  | 'awaiting_verification'
+  | 'correction_requested'
+  | 'verified';
+export type PlannerTaskAggregateStateV1 =
+  | 'pending'
+  | 'partially_completed'
+  | 'completed'
+  | 'awaiting_verification'
+  | 'correction_requested'
+  | 'verified';
+
+export type PlannerTaskMemberV1 = {
+  id: string;
+  personId: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  role?: string | null;
+  status?: string | null;
+};
+
+export type PlannerTaskFulfillmentV1 = {
+  id: string;
+  scope: 'shared' | 'individual';
+  responsibleMember: PlannerTaskMemberV1 | null;
+  status: PlannerTaskFulfillmentStatusV1;
+  version: number;
+  completedBy: PlannerTaskMemberV1 | null;
+  completedAt: string | null;
+  verifiedBy: PlannerTaskMemberV1 | null;
+  verifiedAt: string | null;
+  correctionRequestedBy: PlannerTaskMemberV1 | null;
+  correctionRequestedAt: string | null;
+  correctionComment: string | null;
+  resubmittedBy?: PlannerTaskMemberV1 | null;
+  resubmittedAt?: string | null;
+  resubmissionNote?: string | null;
+  inactiveAt: string | null;
+  retiredAt: string | null;
+};
+
+export type PlannerTaskFulfillmentDtoV1 = {
+  taskId: string;
+  taskVersion: number;
+  assignment: {
+    kind: PlannerTaskAssignmentKindV1;
+    mode: PlannerTaskFulfillmentModeV1;
+    version: number;
+    legacyResolutionRequired: boolean;
+    assignees: PlannerTaskMemberV1[];
+  };
+  fulfillments: PlannerTaskFulfillmentV1[];
+  aggregate: {
+    state: PlannerTaskAggregateStateV1;
+    total: number;
+    pending: number;
+    completed: number;
+    awaitingVerification: number;
+    correctionRequested: number;
+    verified: number;
+  };
+  availableActions: Array<{ action: string; fulfillmentId?: string }>;
+};
+
+export type UpdatePlannerTaskAssignmentV1Payload = {
+  assignmentKind: 'anyone' | 'members';
+  fulfillmentMode: PlannerTaskFulfillmentModeV1;
+  memberIds: string[];
+  confirmHistoricalTransition?: boolean;
+  confirmLegacyResolution?: boolean;
+};
+
 type PlannerTaskResponse = {
   task: PlannerTask;
 };
 
 type PlannerTasksResponse = {
   tasks: PlannerTask[];
+};
+
+type PlannerTaskFulfillmentResponseV1 = {
+  task: PlannerTaskFulfillmentDtoV1;
 };
 
 const toQueryString = (filters?: PlannerTaskFilters) => {
@@ -275,6 +355,114 @@ export const restorePlannerTask = (
     headers,
   });
 };
+
+type PlannerTaskV1MutationOptions = {
+  idempotencyKey?: string;
+  mutationId?: string;
+};
+
+const requestPlannerTaskV1Mutation = (
+  accessToken: string,
+  path: string,
+  operation: string,
+  expectedVersion: number,
+  body: Record<string, unknown> | undefined,
+  options?: PlannerTaskV1MutationOptions,
+  method: 'POST' | 'PUT' = 'POST',
+) => {
+  const idempotencyKey = options?.idempotencyKey ?? createIdempotencyKey(operation);
+  return requestJson<PlannerTaskFulfillmentResponseV1>(path, {
+    method,
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
+    accessToken,
+    body,
+    mutationId: options?.mutationId,
+    headers: {
+      'Idempotency-Key': idempotencyKey,
+      'If-Match': String(expectedVersion),
+    },
+  });
+};
+
+export const getPlannerTaskFulfillmentV1 = (accessToken: string, taskId: string) =>
+  requestJson<PlannerTaskFulfillmentResponseV1>(`/api/planner/v1/tasks/${taskId}/fulfillment`, { accessToken });
+
+export const updatePlannerTaskAssignmentV1 = (
+  accessToken: string,
+  taskId: string,
+  expectedAssignmentVersion: number,
+  payload: UpdatePlannerTaskAssignmentV1Payload,
+  options?: PlannerTaskV1MutationOptions,
+) => requestPlannerTaskV1Mutation(
+  accessToken,
+  `/api/planner/v1/tasks/${taskId}/assignment`,
+  'planner.v1.tasks.assignment.update',
+  expectedAssignmentVersion,
+  payload,
+  options,
+  'PUT',
+);
+
+export const claimPlannerTaskV1 = (
+  accessToken: string,
+  taskId: string,
+  expectedAssignmentVersion: number,
+  options?: PlannerTaskV1MutationOptions,
+) => requestPlannerTaskV1Mutation(
+  accessToken,
+  `/api/planner/v1/tasks/${taskId}/claim`,
+  'planner.v1.tasks.claim',
+  expectedAssignmentVersion,
+  undefined,
+  options,
+);
+
+const mutatePlannerTaskFulfillmentV1 = (
+  accessToken: string,
+  taskId: string,
+  fulfillmentId: string,
+  action: 'complete' | 'verify' | 'request-correction' | 'resubmit' | 'revert' | 'reopen',
+  expectedFulfillmentVersion: number,
+  body?: Record<string, unknown>,
+  options?: PlannerTaskV1MutationOptions,
+) => requestPlannerTaskV1Mutation(
+  accessToken,
+  `/api/planner/v1/tasks/${taskId}/fulfillments/${fulfillmentId}/${action}`,
+  `planner.v1.tasks.fulfillments.${action.replace('-', '_')}`,
+  expectedFulfillmentVersion,
+  body,
+  options,
+);
+
+export const completePlannerTaskFulfillmentV1 = (
+  accessToken: string, taskId: string, fulfillmentId: string, expectedVersion: number,
+  options?: PlannerTaskV1MutationOptions,
+) => mutatePlannerTaskFulfillmentV1(accessToken, taskId, fulfillmentId, 'complete', expectedVersion, undefined, options);
+
+export const verifyPlannerTaskFulfillmentV1 = (
+  accessToken: string, taskId: string, fulfillmentId: string, expectedVersion: number,
+  options?: PlannerTaskV1MutationOptions,
+) => mutatePlannerTaskFulfillmentV1(accessToken, taskId, fulfillmentId, 'verify', expectedVersion, undefined, options);
+
+export const requestPlannerTaskCorrectionV1 = (
+  accessToken: string, taskId: string, fulfillmentId: string, expectedVersion: number,
+  comment?: string, options?: PlannerTaskV1MutationOptions,
+) => mutatePlannerTaskFulfillmentV1(accessToken, taskId, fulfillmentId, 'request-correction', expectedVersion, { comment }, options);
+
+export const resubmitPlannerTaskFulfillmentV1 = (
+  accessToken: string, taskId: string, fulfillmentId: string, expectedVersion: number,
+  note?: string, options?: PlannerTaskV1MutationOptions,
+) => mutatePlannerTaskFulfillmentV1(accessToken, taskId, fulfillmentId, 'resubmit', expectedVersion, { note }, options);
+
+export const revertPlannerTaskFulfillmentV1 = (
+  accessToken: string, taskId: string, fulfillmentId: string, expectedVersion: number,
+  options?: PlannerTaskV1MutationOptions,
+) => mutatePlannerTaskFulfillmentV1(accessToken, taskId, fulfillmentId, 'revert', expectedVersion, undefined, options);
+
+export const reopenPlannerTaskFulfillmentV1 = (
+  accessToken: string, taskId: string, fulfillmentId: string, expectedVersion: number,
+  options?: PlannerTaskV1MutationOptions,
+) => mutatePlannerTaskFulfillmentV1(accessToken, taskId, fulfillmentId, 'reopen', expectedVersion, undefined, options);
 
 /**
  * G0.3 vertical proof — optimistic complete with cache integration.

@@ -219,6 +219,105 @@ const completeTask = async (req, res) => {
   }
 };
 
+const getTaskFulfillmentV1 = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'planner.view');
+    const payload = await tasksService.getTaskFulfillmentV1(context, req.params.taskId);
+    return res.status(200).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
+const runTaskV1Mutation = async (req, res, options) => {
+  try {
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'planner.view');
+
+    const mutationId = requireMutationId(req);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const expectedVersion = parseRequiredExpectedVersion(req);
+    const body = req.body ?? {};
+    const requestHash = hashIdempotencyRequest({
+      method: req.method,
+      operation: options.operation,
+      params: {
+        taskId: req.params.taskId,
+        ...(req.params.fulfillmentId ? { fulfillmentId: req.params.fulfillmentId } : {}),
+      },
+      body,
+      expectedVersion,
+    });
+
+    const result = await withIdempotency(
+      context,
+      {
+        req,
+        operation: options.operation,
+        idempotencyKey,
+        requestHash,
+        successStatus: 200,
+        recoverInFlight: true,
+      },
+      () => options.execute(context, body, expectedVersion, {
+        requestId: req.requestId,
+        mutationId,
+        idempotencyKey,
+        idempotencyOperation: options.operation,
+        requestHash,
+      }),
+    );
+    res.set('X-Mutation-Id', mutationId);
+    return res.status(result.status).json(result.body);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
+const updateTaskAssignmentV1 = (req, res) => runTaskV1Mutation(req, res, {
+  operation: 'planner.v1.tasks.assignment.update',
+  execute: (context, body, expectedVersion, correlation) => tasksService.updateTaskAssignmentV1(
+    context,
+    req.params.taskId,
+    body,
+    expectedVersion,
+    correlation,
+  ),
+});
+
+const claimTaskV1 = (req, res) => runTaskV1Mutation(req, res, {
+  operation: 'planner.v1.tasks.claim',
+  execute: (context, _body, expectedVersion, correlation) => tasksService.claimTaskV1(
+    context,
+    req.params.taskId,
+    expectedVersion,
+    correlation,
+  ),
+});
+
+const taskFulfillmentActionV1 = (action, operation) => (req, res) => runTaskV1Mutation(req, res, {
+  operation,
+  execute: (context, body, expectedVersion, correlation) => tasksService.mutateTaskFulfillmentV1(
+    context,
+    req.params.taskId,
+    req.params.fulfillmentId,
+    action,
+    body,
+    expectedVersion,
+    correlation,
+  ),
+});
+
+const completeTaskFulfillmentV1 = taskFulfillmentActionV1('complete', 'planner.v1.tasks.fulfillments.complete');
+const verifyTaskFulfillmentV1 = taskFulfillmentActionV1('verify', 'planner.v1.tasks.fulfillments.verify');
+const requestTaskCorrectionV1 = taskFulfillmentActionV1('request_correction', 'planner.v1.tasks.fulfillments.request_correction');
+const resubmitTaskFulfillmentV1 = taskFulfillmentActionV1('resubmit', 'planner.v1.tasks.fulfillments.resubmit');
+const revertTaskFulfillmentV1 = taskFulfillmentActionV1('revert', 'planner.v1.tasks.fulfillments.revert');
+const reopenTaskFulfillmentV1 = taskFulfillmentActionV1('reopen', 'planner.v1.tasks.fulfillments.reopen');
+
 const verifyTask = async (req, res) => {
   try {
     const context = await getPlannerContext(req);
@@ -363,4 +462,13 @@ module.exports = {
   trashTask,
   updateTask,
   verifyTask,
+  claimTaskV1,
+  completeTaskFulfillmentV1,
+  getTaskFulfillmentV1,
+  reopenTaskFulfillmentV1,
+  requestTaskCorrectionV1,
+  resubmitTaskFulfillmentV1,
+  revertTaskFulfillmentV1,
+  updateTaskAssignmentV1,
+  verifyTaskFulfillmentV1,
 };

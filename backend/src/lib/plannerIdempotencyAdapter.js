@@ -1,7 +1,7 @@
 /** Planner persistence adapter over HomePlus Core idempotency header parsing. */
 const crypto = require('crypto')
 
-const { createHttpError } = require('./httpErrors')
+const { buildApiErrorEnvelope, createHttpError } = require('./httpErrors')
 const {
   parseIdempotencyKey,
   requireIdempotencyKey,
@@ -168,13 +168,16 @@ const withIdempotency = async (context, options, mutationFn) => {
     }
   }
 
-  // Already in flight: client should retry shortly.
+  // M11.1B operations can reconcile an uncertain prior execution by operation
+  // ID. Other Planner operations retain the established wait-and-retry policy.
   if (reservation?.status === 'in_flight') {
-    throw createHttpError(
-      409,
-      'La operacion ya se esta procesando. Reintentá en unos segundos.',
-      CANONICAL_ERROR_CODES.IDEMPOTENCY_IN_FLIGHT,
-    )
+    if (!options.recoverInFlight) {
+      throw createHttpError(
+        409,
+        'La operacion ya se esta procesando. Reintentá en unos segundos.',
+        CANONICAL_ERROR_CODES.IDEMPOTENCY_IN_FLIGHT,
+      )
+    }
   }
 
   // Reserved -> run mutationFn.
@@ -184,26 +187,22 @@ const withIdempotency = async (context, options, mutationFn) => {
     body = await mutationFn()
     responseStatus = options.successStatus
   } catch (error) {
-    // Handle version_conflict (409) - store and replay this error response.
-    if (error?.statusCode === 409 && error?.code === 'version_conflict') {
-      responseStatus = 409
-      body = { error: error.message, code: 'version_conflict' }
+    // Deterministic client results are part of the idempotency contract. Store
+    // the same safe HomePlus envelope emitted by the controller, including 412.
+    if (error?.statusCode >= 400 && error?.statusCode < 500) {
+      responseStatus = error.statusCode
+      body = buildApiErrorEnvelope(error, options.req).envelope
       try {
         await callCompleteRpc(context, options, responseStatus, body)
       } catch (storeError) {
         if (process.env.NODE_ENV !== 'production') {
-          console.error('[idempotency] complete_planner_idempotency_key failed (version_conflict)', {
+          console.error('[idempotency] deterministic response persistence failed', {
             operation: options.operation,
             message: storeError?.message,
             code: storeError?.code,
           })
         }
       }
-      throw error
-    }
-
-    // Other 4xx: do NOT store, rethrow normally.
-    if (error?.statusCode >= 400 && error?.statusCode < 500) {
       throw error
     }
 
