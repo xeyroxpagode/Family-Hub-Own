@@ -4,6 +4,7 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { Client } = require('../backend/node_modules/pg');
+const { hashIdempotencyRequestV2 } = require('../backend/src/lib/plannerIdempotencyAdapter');
 
 const DATABASE_URL = process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
 const parsed = new URL(DATABASE_URL);
@@ -38,24 +39,7 @@ async function rpcAs(accountId, functionName, args) {
   try {
     return await runAs(client, accountId, async () => {
       const rpcArgs = { ...args };
-      const skipReservation = rpcArgs.__skip_reservation === true;
       delete rpcArgs.__skip_reservation;
-      if (
-        !skipReservation
-        && ['update_planner_task_assignment_v1', 'claim_planner_task_v1', 'mutate_planner_task_fulfillment_v1'].includes(functionName)
-      ) {
-        const actor = await client.query('select public.current_household_member_id($1) as id', [rpcArgs.p_household_id]);
-        await client.query(
-          `select public.reserve_planner_idempotency_key($1,$2,$3,$4,$5,86400)`,
-          [
-            rpcArgs.p_household_id,
-            actor.rows[0].id,
-            rpcArgs.p_idempotency_key,
-            rpcArgs.p_idempotency_operation,
-            rpcArgs.p_request_hash,
-          ],
-        );
-      }
       const names = Object.keys(rpcArgs);
       const values = Object.values(rpcArgs);
       const placeholders = names.map((name, index) => `${name} => $${index + 1}`).join(', ');
@@ -118,47 +102,113 @@ async function task(client, fixture, title, requiresVerification = false) {
   return taskId;
 }
 
-const assignmentArgs = (fixture, taskId, version, kind, mode, memberIds, flags = {}) => ({
-  p_household_id: fixture.householdId,
-  p_task_id: taskId,
-  p_expected_version: version,
-  p_assignment_kind: kind,
-  p_fulfillment_mode: mode,
-  p_member_ids: memberIds,
-  p_confirm_historical_transition: flags.history === true,
-  p_confirm_legacy_resolution: flags.legacy === true,
-  p_request_id: `m11-1b-req-${uuid()}`,
-  p_operation_id: `m11-1b-op-${uuid()}`,
-  p_idempotency_key: `m11-1b-idem-${uuid()}`,
-  p_idempotency_operation: 'planner.v1.tasks.assignment.update',
-  p_request_hash: crypto.createHash('sha256').update(uuid()).digest('hex'),
-});
+const withPayloadHash = ({ operation, scopeId, targetId, payload, expectedVersion, mutationId }) =>
+  hashIdempotencyRequestV2({
+    operation,
+    scopeType: 'household',
+    scopeId,
+    targetId,
+    payload,
+    expectedVersion,
+    mutationId,
+  });
+
+const assignmentArgs = (fixture, taskId, version, kind, mode, memberIds, flags = {}) => {
+  const operation = 'planner.v1.tasks.assignment.update';
+  const mutationId = `m11-1b-op-${uuid()}`;
+  const payload = {
+    assignmentKind: kind,
+    fulfillmentMode: mode,
+    memberIds,
+    confirmHistoricalTransition: flags.history === true,
+    confirmLegacyResolution: flags.legacy === true,
+  };
+  return {
+    p_household_id: fixture.householdId,
+    p_task_id: taskId,
+    p_expected_version: version,
+    p_assignment_kind: kind,
+    p_fulfillment_mode: mode,
+    p_member_ids: memberIds,
+    p_confirm_historical_transition: payload.confirmHistoricalTransition,
+    p_confirm_legacy_resolution: payload.confirmLegacyResolution,
+    p_request_id: `m11-1b-req-${uuid()}`,
+    p_mutation_id: mutationId,
+    p_idempotency_key: `m11-1b-idem-${uuid()}`,
+    p_operation: operation,
+    p_payload_hash: withPayloadHash({ operation, scopeId: fixture.householdId, targetId: taskId, payload, expectedVersion: version, mutationId }),
+  };
+};
 
 const claimArgs = (fixture, taskId, version) => ({
   p_household_id: fixture.householdId,
   p_task_id: taskId,
   p_expected_version: version,
   p_request_id: `m11-1b-req-${uuid()}`,
-  p_operation_id: `m11-1b-op-${uuid()}`,
+  p_mutation_id: `m11-1b-op-${uuid()}`,
   p_idempotency_key: `m11-1b-idem-${uuid()}`,
-  p_idempotency_operation: 'planner.v1.tasks.claim',
-  p_request_hash: crypto.createHash('sha256').update(uuid()).digest('hex'),
+  p_operation: 'planner.v1.tasks.claim',
+  get p_payload_hash() {
+    return withPayloadHash({
+      operation: this.p_operation,
+      scopeId: fixture.householdId,
+      targetId: taskId,
+      payload: null,
+      expectedVersion: version,
+      mutationId: this.p_mutation_id,
+    });
+  },
 });
 
-const fulfillmentArgs = (fixture, taskId, fulfillmentId, action, version, extra = {}) => ({
-  p_household_id: fixture.householdId,
-  p_task_id: taskId,
-  p_fulfillment_id: fulfillmentId,
-  p_action: action,
-  p_expected_version: version,
-  p_comment: extra.comment ?? null,
-  p_note: extra.note ?? null,
-  p_request_id: `m11-1b-req-${uuid()}`,
-  p_operation_id: `m11-1b-op-${uuid()}`,
-  p_idempotency_key: `m11-1b-idem-${uuid()}`,
-  p_idempotency_operation: `planner.v1.tasks.fulfillments.${action}`,
-  p_request_hash: crypto.createHash('sha256').update(uuid()).digest('hex'),
-});
+const fulfillmentArgs = (fixture, taskId, fulfillmentId, action, version, extra = {}) => {
+  const operation = `planner.v1.tasks.fulfillments.${action}`;
+  const mutationId = `m11-1b-op-${uuid()}`;
+  const payload = {
+    action,
+    comment: extra.comment ?? null,
+    note: extra.note ?? null,
+  };
+  return {
+    p_household_id: fixture.householdId,
+    p_task_id: taskId,
+    p_fulfillment_id: fulfillmentId,
+    p_action: action,
+    p_expected_version: version,
+    p_comment: payload.comment,
+    p_note: payload.note,
+    p_request_id: `m11-1b-req-${uuid()}`,
+    p_mutation_id: mutationId,
+    p_idempotency_key: `m11-1b-idem-${uuid()}`,
+    p_operation: operation,
+    p_payload_hash: withPayloadHash({ operation, scopeId: fixture.householdId, targetId: fulfillmentId, payload, expectedVersion: version, mutationId }),
+  };
+};
+
+const v0Args = (fixture, taskId, action, version, payload = {}) => {
+  const operation = `planner.tasks.${action}`;
+  const mutationId = `m11-1b-v0-op-${uuid()}`;
+  const targetId = action === 'create' ? null : taskId;
+  const expectedVersion = action === 'create' ? null : version;
+  return {
+    p_household_id: fixture.householdId,
+    p_task_id: targetId,
+    p_action: action,
+    p_expected_version: expectedVersion,
+    p_payload: payload,
+    p_request_id: `m11-1b-v0-req-${uuid()}`,
+    p_mutation_id: mutationId,
+    p_idempotency_key: `m11-1b-v0-idem-${uuid()}`,
+    p_operation: operation,
+    p_payload_hash: withPayloadHash({
+      operation,
+      scopeId: fixture.householdId,
+      targetId,
+      payload,
+      expectedVersion,
+      mutationId,
+    }),
+  };
+};
 
 async function currentFoundation(client, taskId) {
   const config = (await client.query('select * from public.planner_task_assignment_configs where task_id=$1', [taskId])).rows[0];
@@ -241,12 +291,77 @@ async function main() {
     const outsiderMemberId = await member(admin, otherHouseholdId, outsider, 'coordinator');
     fixture = { owner, personA, personB, outsider, householdId, otherHouseholdId, ownerMemberId, memberAId, memberBId, inactiveMemberId, outsiderMemberId };
 
+    const v0CreatePayload = {
+      title: 'M11.1B V0 bridge create',
+      description: 'Created through shared mutation authority',
+      priority: 'normal',
+      template_key: 'shopping',
+      category: 'Compras',
+      assigned_to_member_id: memberAId,
+      goal_id: null,
+      due_date: null,
+      due_time: null,
+      requires_verification: false,
+      origin_module: 'inventory',
+      origin_entity_type: 'inventory_item',
+      origin_entity_id: uuid(),
+      origin_reason: 'database_gate',
+    };
+    const v0CreateArgs = v0Args(fixture, null, 'create', null, v0CreatePayload);
+    let result = await rpcAs(owner.accountId, 'mutate_planner_task_v0', v0CreateArgs);
+    check(result.outcome === 'created' && result.task.title === v0CreatePayload.title, 'V0 create runs through shared mutation authority');
+    ids.tasks.push(result.task.id);
+    let foundation = await currentFoundation(admin, result.task.id);
+    check(
+      foundation.config.assignment_kind === 'members'
+        && foundation.config.fulfillment_mode === 'shared_once'
+        && foundation.assignees.some((assignee) => assignee.member_id === memberAId)
+        && foundation.fulfillments.length === 1
+        && foundation.fulfillments[0].fulfillment_scope === 'shared',
+      'V0 create bootstraps canonical assigned shared_once rows',
+    );
+    const v0Replay = await rpcAs(owner.accountId, 'mutate_planner_task_v0', v0CreateArgs);
+    check(v0Replay.outcome === 'replay' && v0Replay.task.id === result.task.id, 'V0 create replays from shared idempotency');
+    const v0Noop = await rpcAs(owner.accountId, 'mutate_planner_task_v0', v0Args(
+      fixture, result.task.id, 'update', foundation.task.version, {},
+    ));
+    check(v0Noop.outcome === 'noop' && v0Noop.task.version === foundation.task.version, 'V0 empty update is a SQL-side noop after version check');
+    const v0Updated = await rpcAs(owner.accountId, 'mutate_planner_task_v0', v0Args(
+      fixture, result.task.id, 'update', foundation.task.version, { title: 'M11.1B V0 bridge updated' },
+    ));
+    check(v0Updated.outcome === 'updated' && v0Updated.task.title === 'M11.1B V0 bridge updated', 'V0 update writes through shared mutation authority');
+    foundation = await currentFoundation(admin, result.task.id);
+    result = await rpcAs(personA.accountId, 'mutate_planner_task_v0', v0Args(
+      fixture, result.task.id, 'complete', foundation.task.version, {},
+    ));
+    check(result.outcome === 'updated' && result.task.status === 'completed', 'V0 complete writes through shared mutation authority');
+
+    const v0VerifyPayload = {
+      ...v0CreatePayload,
+      title: 'M11.1B V0 verify bridge',
+      assigned_to_member_id: ownerMemberId,
+      requires_verification: true,
+      origin_entity_id: uuid(),
+    };
+    result = await rpcAs(owner.accountId, 'mutate_planner_task_v0', v0Args(fixture, null, 'create', null, v0VerifyPayload));
+    ids.tasks.push(result.task.id);
+    foundation = await currentFoundation(admin, result.task.id);
+    result = await rpcAs(owner.accountId, 'mutate_planner_task_v0', v0Args(
+      fixture, result.task.id, 'complete', foundation.task.version, {},
+    ));
+    check(result.outcome === 'updated' && result.task.status === 'awaiting_verification', 'V0 complete preserves verification requirement');
+    foundation = await currentFoundation(admin, result.task.id);
+    result = await rpcAs(personA.accountId, 'mutate_planner_task_v0', v0Args(
+      fixture, result.task.id, 'verify', foundation.task.version, {},
+    ));
+    check(result.outcome === 'updated' && result.task.status === 'verified', 'V0 verify writes through shared mutation authority');
+
     const singleSharedTask = await task(admin, fixture, 'single member shared');
-    let foundation = await currentFoundation(admin, singleSharedTask);
+    foundation = await currentFoundation(admin, singleSharedTask);
     let fulfillment;
     const singleConfigVersion = foundation.config.version;
     const singleTaskVersion = foundation.task.version;
-    let result = await rpcAs(owner.accountId, 'update_planner_task_assignment_v1', assignmentArgs(
+    result = await rpcAs(owner.accountId, 'update_planner_task_assignment_v1', assignmentArgs(
       fixture, singleSharedTask, singleConfigVersion, 'members', 'shared_once', [memberAId],
     ));
     check(result.outcome === 'updated', 'one member + shared_once assignment succeeds');
@@ -458,7 +573,7 @@ async function main() {
     foundation = await currentFoundation(admin, noContextTask);
     check(foundation.fulfillments[0].status === 'pending' && foundation.task.version === 1, 'missing direct idempotency context changes no canonical state');
 
-    const mismatchedPayload = { ...operationArgs, __skip_reservation: true, p_request_hash: crypto.createHash('sha256').update('different-payload').digest('hex') };
+    const mismatchedPayload = { ...operationArgs, __skip_reservation: true, p_payload_hash: crypto.createHash('sha256').update('different-payload').digest('hex') };
     const directConflict = await rpcAs(owner.accountId, 'mutate_planner_task_fulfillment_v1', mismatchedPayload);
     check(directConflict.outcome === 'idempotency_conflict', 'direct RPC payload mismatch returns stable idempotency_conflict outcome');
 

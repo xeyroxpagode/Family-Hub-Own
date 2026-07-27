@@ -553,7 +553,13 @@ const approveRestockRequest = async (context, requestId, body = {}) => {
     origin_reason: restockRequest.item?.quantity <= 0 ? 'out_of_stock' : 'low_stock',
   }
 
-  const { task } = await plannerTasksService.createTask(context, taskPayload)
+  const taskOperationId = `inventory-restock-${restockRequest.id}-planner-task`
+  const { task } = await plannerTasksService.createTask(context, taskPayload, {
+    requestId: null,
+    mutationId: taskOperationId,
+    idempotencyKey: taskOperationId,
+    operation: 'inventory.restock_requests.approve.task.create',
+  })
 
   const assignedMember = body.assigned_to_member_id
     ? await context.client

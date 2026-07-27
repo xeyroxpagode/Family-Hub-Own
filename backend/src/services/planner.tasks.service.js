@@ -1,12 +1,11 @@
 const { createHttpError } = require('../lib/httpErrors')
-const { assertExpectedVersion } = require('../lib/versionHelpers')
 const { resolveCapabilities, assertCapability, hasCapability } = require('../lib/plannerCapabilities')
+const { hashIdempotencyRequestV2 } = require('../lib/plannerIdempotencyAdapter')
 const {
   TASK_PRIORITIES,
   TASK_STATUS_ORDER,
   TASK_TEMPLATE_KEYS,
 } = require('../constants/planner.constants')
-const { pickTaskActivityState, recordPlannerActivity } = require('./planner.activity.service')
 
 const ALLOWED_ORIGIN_MODULES = Object.freeze([
   'inventory',
@@ -85,6 +84,7 @@ const V1_FULFILLMENT_ACTIONS = Object.freeze([
   'revert',
   'reopen',
 ])
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const V1_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const assertV1Uuid = (value, fieldName) => {
@@ -117,7 +117,7 @@ const mapV1Outcome = (data, expectedVersion) => {
   }
 
   if (outcome === 'version_conflict') {
-    throw createHttpError(412, 'La versiÃ³n cambiÃ³. ActualizÃ¡ y reintentÃ¡.', 'version_conflict', {
+    throw createHttpError(412, 'La versiÃ³n cambiÃ³. ActualizÃ¡ y reintentÃ¡.', 'version_conflict_v2', {
       current: Number(data.current_version),
       expected: Number(expectedVersion),
     })
@@ -130,6 +130,12 @@ const mapV1Outcome = (data, expectedVersion) => {
   throw createHttpError(definition[0], definition[1], definition[2])
 }
 const throwSupabaseError = (error) => {
+  if (error?.code === 'P0008') {
+    throw createHttpError(409, 'La operación ya fue procesada con otros datos.', 'idempotency_conflict')
+  }
+  if (error?.code === 'P0009') {
+    throw createHttpError(409, 'La operación ya se está procesando. Reintentá en unos segundos.', 'idempotency_in_flight')
+  }
   if (
     error?.message === 'assignment_history_requires_explicit_transition'
     || error?.details === 'assignment_history_requires_explicit_transition'
@@ -563,7 +569,95 @@ const listTasks = async (context, query) => {
   return { tasks: hydrated }
 }
 
-const createTask = async (context, body) => {
+const normalizeNullableUuid = (value, fieldName) => {
+  if (value === undefined || value === null || value === '') return null
+  if (!UUID_RE.test(String(value))) {
+    throw createHttpError(400, `${fieldName} debe ser un uuid valido.`, 'validation_error')
+  }
+  return String(value)
+}
+
+const mapV0Outcome = (data, expectedVersion) => {
+  const outcome = data?.outcome
+  if (['created', 'updated', 'noop', 'replay'].includes(outcome)) return data
+
+  const definitions = {
+    not_found: [404, 'Tarea no encontrada.', 'task_not_found'],
+    planner_forbidden: [403, 'No tenes permiso para realizar esta accion sobre tareas.', 'planner_forbidden'],
+    forbidden: [403, 'No tenes permiso para realizar esta accion sobre tareas.', 'planner_forbidden'],
+    validation_error: [400, 'Payload de tarea invalido.', 'validation_error'],
+    invalid_transition: [409, 'Transicion de tarea invalida.', 'task_invalid_transition'],
+    invalid_state: [409, 'La task no esta awaiting_verification.', 'task_not_awaiting_verification'],
+    self_verification: [409, 'La misma persona no puede verificar su completion.', 'cannot_verify_own_completion'],
+    task_not_operational: [409, 'La tarea no esta operativa.', 'task_not_operational'],
+    task_in_trash: [409, 'La tarea esta en la papelera. Restaurala desde alli.', 'task_in_trash'],
+    idempotency_conflict: [409, 'La operacion ya fue procesada con otros datos.', 'idempotency_conflict'],
+    idempotency_context_required: [422, 'Falta el contexto canonico de idempotencia.', 'idempotency_context_required'],
+    expected_version_required: [422, 'If-Match es obligatorio.', 'expected_version_required'],
+  }
+
+  if (outcome === 'version_conflict') {
+    throw createHttpError(412, 'La version de la entidad cambio. Actualiza y reintenta.', 'version_conflict_v2', {
+      current: Number(data.current_version),
+      expected: Number(expectedVersion),
+    })
+  }
+
+  const definition = definitions[outcome]
+  if (!definition) {
+    throw createHttpError(500, 'Respuesta transaccional invalida.', 'planner_task_v0_transaction_failed')
+  }
+  throw createHttpError(definition[0], definition[1], definition[2])
+}
+
+const invokeTaskV0AtomicMutation = async (context, {
+  action,
+  taskId,
+  expectedVersion,
+  payload,
+  correlation,
+}) => {
+  const operation = correlation.operation
+  const payloadHash = hashIdempotencyRequestV2({
+    operation,
+    scopeType: 'household',
+    scopeId: context.householdId,
+    targetId: taskId ?? null,
+    payload,
+    expectedVersion: expectedVersion ?? null,
+    mutationId: correlation.mutationId,
+  })
+
+  const { data, error } = await context.client.rpc('mutate_planner_task_v0', {
+    p_household_id: context.householdId,
+    p_task_id: taskId ?? null,
+    p_action: action,
+    p_expected_version: expectedVersion ?? null,
+    p_payload: payload ?? {},
+    p_request_id: correlation.requestId ?? null,
+    p_mutation_id: correlation.mutationId,
+    p_idempotency_key: correlation.idempotencyKey,
+    p_operation: operation,
+    p_payload_hash: payloadHash,
+  })
+
+  if (error) throwSupabaseError(error)
+  return data
+}
+
+const hydrateTaskResult = async (context, data, expectedVersion) => {
+  const mapped = mapV0Outcome(data, expectedVersion)
+  if (!mapped?.task) {
+    throw createHttpError(500, 'Respuesta transaccional invalida.', 'planner_task_v0_transaction_failed')
+  }
+  const hydrated = await hydrateMembers(context.client, [mapped.task])
+  return {
+    task: hydrated[0],
+    correlation: { audit_event_id: mapped.audit_event_id ?? null },
+  }
+}
+
+const createTask = async (context, body, correlation = {}) => {
   assertTaskCreateBody(body)
 
   if (body?.visibility === 'personal') {
@@ -580,20 +674,7 @@ const createTask = async (context, body) => {
     throw createHttpError(400, 'title es obligatorio.', 'validation_error')
   }
 
-  const assignedToMemberId = await validateAssignment(
-    context.client,
-    context.householdId,
-    body?.assigned_to_member_id,
-  )
-
-  const goalId = await validateGoalId(
-    context.client,
-    context.householdId,
-    body?.goal_id,
-  )
-
   const payload = {
-    household_id: context.householdId,
     title,
     description: hasOwn(body, 'description') ? normalizeString(body.description) || null : null,
     priority: validatePriority(body?.priority),
@@ -602,10 +683,8 @@ const createTask = async (context, body) => {
     due_date: validateNullableDate(body?.due_date, 'due_date'),
     due_time: validateNullableTime(body?.due_time, 'due_time'),
     requires_verification: Boolean(body?.requires_verification),
-    created_by_member_id: context.membershipId,
-    created_by_person_id: context.personId,
-    assigned_to_member_id: assignedToMemberId,
-    goal_id: goalId,
+    assigned_to_member_id: normalizeNullableUuid(body?.assigned_to_member_id, 'assigned_to_member_id'),
+    goal_id: normalizeNullableUuid(body?.goal_id, 'goal_id'),
   }
 
   const originModule = validateOriginModule(body?.origin_module)
@@ -617,25 +696,14 @@ const createTask = async (context, body) => {
     payload.origin_reason = validateOriginReason(body?.origin_reason)
   }
 
-  const { data, error } = await context.client
-    .from('planner_tasks')
-    .insert(payload)
-    .select('*')
-    .single()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'task',
-    entityId: data.id,
-    action: 'task.created',
-    previousState: null,
-    nextState: pickTaskActivityState(data),
-  }).catch(() => {})
-
-  return { task: data }
+  const data = await invokeTaskV0AtomicMutation(context, {
+    action: 'create',
+    taskId: null,
+    expectedVersion: null,
+    payload,
+    correlation,
+  })
+  return hydrateTaskResult(context, data, null)
 }
 
 const getTaskCompletionAuthorization = async (context, taskId) => {
@@ -711,11 +779,13 @@ const buildTaskPatch = async (context, body) => {
   }
 
   if (hasOwn(body, 'assigned_to_member_id')) {
-    patch.assigned_to_member_id = await validateAssignment(
-      context.client,
-      context.householdId,
-      body.assigned_to_member_id,
-    )
+    if (body.assigned_to_member_id === undefined || body.assigned_to_member_id === null || body.assigned_to_member_id === '') {
+      patch.assigned_to_member_id = null
+    } else if (!UUID_RE.test(String(body.assigned_to_member_id))) {
+      throw createHttpError(400, 'assigned_to_member_id invalido.', 'validation_error')
+    } else {
+      patch.assigned_to_member_id = String(body.assigned_to_member_id)
+    }
   }
 
   if (hasOwn(body, 'requires_verification')) {
@@ -723,425 +793,100 @@ const buildTaskPatch = async (context, body) => {
   }
 
   if (hasOwn(body, 'goal_id')) {
-    patch.goal_id = await validateGoalId(
-      context.client,
-      context.householdId,
-      body.goal_id,
-    )
+    if (body.goal_id === undefined || body.goal_id === null || body.goal_id === '') {
+      patch.goal_id = null
+    } else if (!UUID_RE.test(String(body.goal_id))) {
+      throw createHttpError(400, 'goal_id debe ser un uuid valido.', 'validation_error')
+    } else {
+      patch.goal_id = String(body.goal_id)
+    }
   }
 
   return patch
 }
 
-const updateTask = async (context, taskId, body, expectedVersion) => {
-  const task = await getTaskOrThrow(context.client, context.householdId, taskId)
-  assertExpectedVersion(task.version, expectedVersion)
+const updateTask = async (context, taskId, body, expectedVersion, correlation = {}) => {
   const patch = await buildTaskPatch(context, body ?? {})
-
-  if (Object.keys(patch).length === 0) {
-    return { task: await getTaskOrThrow(context.client, context.householdId, taskId) }
-  }
-
-  const previousState = pickTaskActivityState(task)
-
-  let query = context.client
-    .from('planner_tasks')
-    .update(patch)
-    .eq('id', taskId)
-    .eq('household_id', context.householdId)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query = query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(
-        409,
-        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
-        'version_conflict',
-      )
-    }
-    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'task',
-    entityId: data.id,
-    action: 'task.updated',
-    previousState,
-    nextState: pickTaskActivityState(data),
-  }).catch(() => {})
-
-  return { task: data }
+  const data = await invokeTaskV0AtomicMutation(context, {
+    action: 'update',
+    taskId,
+    expectedVersion,
+    payload: patch,
+    correlation,
+  })
+  return hydrateTaskResult(context, data, expectedVersion)
 }
 
-const cancelTask = async (context, taskId, expectedVersion, body = {}) => {
-  const task = await getTaskOrThrow(context.client, context.householdId, taskId)
-  assertExpectedVersion(task.version, expectedVersion)
-
-  if (task.status === 'cancelled') {
-    return { task }
+const cancelTask = async (context, taskId, expectedVersion, body = {}, correlation = {}) => {
+  const payload = {
+    reason: hasOwn(body, 'reason') ? normalizeString(body.reason) || null : null,
   }
-
-  const previousStatus = task.status
-  const previousState = pickTaskActivityState(task)
-
-  let query = context.client
-    .from('planner_tasks')
-    .update({
-      status: 'cancelled',
-      cancelled_at: new Date().toISOString(),
-      cancelled_by_member_id: context.membershipId,
-      cancelled_reason: body?.reason ?? null,
-      cancelled_from_status: previousStatus,
-    })
-    .eq('id', taskId)
-    .eq('household_id', context.householdId)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query = query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(
-        409,
-        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
-        'version_conflict',
-      )
-    }
-    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'task',
-    entityId: data.id,
-    action: 'task.cancelled',
-    previousState,
-    nextState: pickTaskActivityState(data),
-    metadata: body?.reason ? { reason: body.reason } : null,
-  }).catch(() => {})
-
-  return { task: data }
+  const data = await invokeTaskV0AtomicMutation(context, {
+    action: 'cancel',
+    taskId,
+    expectedVersion,
+    payload,
+    correlation,
+  })
+  return hydrateTaskResult(context, data, expectedVersion)
 }
 
-const reactivateTask = async (context, taskId, expectedVersion) => {
-  const task = await getTaskForTrashOperation(context.client, context.householdId, taskId)
-  assertExpectedVersion(task.version, expectedVersion)
-
-  if (task.trashed_at !== null) {
-    throw createHttpError(409, 'La tarea está en la papelera. Restáurala desde allí.', 'task_in_trash')
-  }
-
-  if (task.status !== 'cancelled') {
-    return { task }
-  }
-
-  const previousState = pickTaskActivityState(task)
-
-  const nextStatus = task.cancelled_from_status && task.cancelled_from_status !== 'cancelled'
-    ? task.cancelled_from_status
-    : 'pending'
-
-  let query = context.client
-    .from('planner_tasks')
-    .update({
-      status: nextStatus,
-      cancelled_at: null,
-      cancelled_by_member_id: null,
-      cancelled_reason: null,
-      cancelled_from_status: null,
-    })
-    .eq('id', taskId)
-    .eq('household_id', context.householdId)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query = query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(
-        409,
-        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
-        'version_conflict',
-      )
-    }
-    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'task',
-    entityId: data.id,
-    action: 'task.reactivated',
-    previousState,
-    nextState: pickTaskActivityState(data),
-    metadata: { cancelled_from: task.cancelled_from_status ?? null },
-  }).catch(() => {})
-
-  const hydrated = await hydrateMembers(context.client, [data])
-  return { task: hydrated[0] }
+const reactivateTask = async (context, taskId, expectedVersion, correlation = {}) => {
+  const data = await invokeTaskV0AtomicMutation(context, {
+    action: 'reactivate',
+    taskId,
+    expectedVersion,
+    payload: {},
+    correlation,
+  })
+  return hydrateTaskResult(context, data, expectedVersion)
 }
 
 const completeTask = async (context, taskId, expectedVersion, correlation = {}) => {
   const completionAuth = await getTaskCompletionAuthorization(context, taskId)
   assertTaskCompletionCapabilities(context, completionAuth)
-
-  const { data, error } = await context.client.rpc('complete_planner_task_with_audit', {
-    p_household_id: context.householdId,
-    p_task_id: taskId,
-    p_expected_version: expectedVersion,
-    p_actor_membership_id: context.membershipId,
-    p_actor_account_id: context.accountId,
-    p_request_id: correlation.requestId ?? null,
-    p_mutation_id: correlation.mutationId ?? null,
+  const data = await invokeTaskV0AtomicMutation(context, {
+    action: 'complete',
+    taskId,
+    expectedVersion,
+    payload: {},
+    correlation,
   })
-
-  if (error) throwSupabaseError(error)
-  if (data?.outcome === 'not_found') {
-    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
-  }
-  if (data?.outcome === 'version_conflict') {
-    throw createHttpError(
-      412,
-      'La versión de la entidad cambió. Actualizá y reintentá.',
-      'version_conflict_v2',
-      { current: Number(data.current_version), expected: Number(expectedVersion) },
-    )
-  }
-  if (!data?.task) throw createHttpError(500, 'Respuesta transaccional inválida.', 'planner_audit_transaction_failed')
-
-  const hydrated = await hydrateMembers(context.client, [data.task])
-  return {
-    task: hydrated[0],
-    correlation: { audit_event_id: data.audit_event_id ?? null },
-  }
-}
-
-const verifyTask = async (context, taskId, expectedVersion) => {
-  const task = await getTaskOrThrow(context.client, context.householdId, taskId)
-  assertExpectedVersion(task.version, expectedVersion)
-
-  if (task.status !== 'awaiting_verification') {
-    throw createHttpError(409, 'La task no esta awaiting_verification.', 'task_not_awaiting_verification')
-  }
-
-  const previousState = pickTaskActivityState(task)
-
-  const completedByMemberId = task.completed_by_member_id ?? null
-  const completedByPersonId = task.completed_by_person_id ?? null
-
-  if (completedByMemberId !== null) {
-    if (completedByMemberId === context.membershipId) {
-      throw createHttpError(409, 'La misma persona no puede verificar su completion.', 'cannot_verify_own_completion')
-    }
-  } else if (completedByPersonId !== null && completedByPersonId === context.personId) {
-    throw createHttpError(409, 'La misma persona no puede verificar su completion.', 'cannot_verify_own_completion')
-  }
-
-  let query = context.client
-    .from('planner_tasks')
-    .update({
-      status: 'verified',
-      verified_by_member_id: context.membershipId,
-      verified_by_person_id: context.personId,
-      verified_at: new Date().toISOString(),
-    })
-    .eq('id', taskId)
-    .eq('household_id', context.householdId)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query = query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(
-        409,
-        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
-        'version_conflict',
-      )
-    }
-    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'task',
-    entityId: data.id,
-    action: 'task.verified',
-    previousState,
-    nextState: pickTaskActivityState(data),
-  }).catch(() => {})
-
-  const hydrated = await hydrateMembers(context.client, [data])
-  return { task: hydrated[0] }
+  return hydrateTaskResult(context, data, expectedVersion)
 }
 
 const verifyTaskViaFulfillment = async (context, taskId, expectedVersion, correlation = {}) => {
   assertTaskVerificationCapabilities(context)
-
-  const { data, error } = await context.client.rpc('verify_planner_task_fulfillment_with_audit', {
-    p_household_id: context.householdId,
-    p_task_id: taskId,
-    p_expected_version: expectedVersion,
-    p_request_id: correlation.requestId ?? null,
-    p_mutation_id: correlation.mutationId ?? null,
+  const data = await invokeTaskV0AtomicMutation(context, {
+    action: 'verify',
+    taskId,
+    expectedVersion,
+    payload: {},
+    correlation,
   })
-
-  if (error) throwSupabaseError(error)
-  if (data?.outcome === 'not_found') {
-    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
-  }
-  if (data?.outcome === 'version_conflict') {
-    throw createHttpError(
-      412,
-      'La version de la entidad cambio. Actualiza y reintenta.',
-      'version_conflict_v2',
-      { current: Number(data.current_version), expected: Number(expectedVersion) },
-    )
-  }
-  if (data?.outcome === 'invalid_state') {
-    throw createHttpError(409, 'La task no esta awaiting_verification.', 'task_not_awaiting_verification')
-  }
-  if (data?.outcome === 'self_verification') {
-    throw createHttpError(409, 'La misma persona no puede verificar su completion.', 'cannot_verify_own_completion')
-  }
-  if (!data?.task) {
-    throw createHttpError(500, 'Respuesta transaccional invalida.', 'planner_audit_transaction_failed')
-  }
-
-  const hydrated = await hydrateMembers(context.client, [data.task])
-  return {
-    task: hydrated[0],
-    correlation: { audit_event_id: data.audit_event_id ?? null },
-  }
+  return hydrateTaskResult(context, data, expectedVersion)
 }
 
-const trashTask = async (context, taskId, expectedVersion) => {
-  const task = await getTaskForTrashOperation(context.client, context.householdId, taskId)
-  assertExpectedVersion(task.version, expectedVersion)
-
-  if (task.trashed_at !== null) {
-    return { task: await getTaskForTrashOperation(context.client, context.householdId, taskId) }
-  }
-
-  const previousState = pickTaskActivityState(task)
-
-  let query = context.client
-    .from('planner_tasks')
-    .update({
-      trashed_at: new Date().toISOString(),
-      trashed_by_member_id: context.membershipId,
-    })
-    .eq('id', taskId)
-    .eq('household_id', context.householdId)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query = query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(
-        409,
-        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
-        'version_conflict',
-      )
-    }
-    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'task',
-    entityId: data.id,
-    action: 'task.trashed',
-    previousState,
-    nextState: pickTaskActivityState(data),
-  }).catch(() => {})
-
-  return { task: data }
+const trashTask = async (context, taskId, expectedVersion, correlation = {}) => {
+  const data = await invokeTaskV0AtomicMutation(context, {
+    action: 'trash',
+    taskId,
+    expectedVersion,
+    payload: {},
+    correlation,
+  })
+  return hydrateTaskResult(context, data, expectedVersion)
 }
 
-const restoreTask = async (context, taskId, expectedVersion) => {
-  const task = await getTaskForTrashOperation(context.client, context.householdId, taskId)
-  assertExpectedVersion(task.version, expectedVersion)
-
-  if (task.trashed_at === null) {
-    return { task }
-  }
-
-  const previousState = pickTaskActivityState(task)
-
-  let query = context.client
-    .from('planner_tasks')
-    .update({
-      trashed_at: null,
-      trashed_by_member_id: null,
-    })
-    .eq('id', taskId)
-    .eq('household_id', context.householdId)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query = query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(
-        409,
-        'Este elemento cambió en otro dispositivo. Actualizá y volvé a intentar.',
-        'version_conflict',
-      )
-    }
-    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'task',
-    entityId: data.id,
-    action: 'task.restored',
-    previousState,
-    nextState: pickTaskActivityState(data),
-  }).catch(() => {})
-
-  return { task: data }
+const restoreTask = async (context, taskId, expectedVersion, correlation = {}) => {
+  const data = await invokeTaskV0AtomicMutation(context, {
+    action: 'restore',
+    taskId,
+    expectedVersion,
+    payload: {},
+    correlation,
+  })
+  return hydrateTaskResult(context, data, expectedVersion)
 }
 
 const getV1Foundation = async (context, taskId, options = {}) => {
@@ -1349,6 +1094,31 @@ const getTaskFulfillmentV1 = async (context, taskId) => {
   }
 }
 
+const invokeTaskV1AtomicMutation = async (context, {
+  operation,
+  targetId,
+  expectedVersion,
+  payload,
+  correlation,
+  rpc,
+}) => {
+  const payloadHash = hashIdempotencyRequestV2({
+    operation,
+    scopeType: 'household',
+    scopeId: context.householdId,
+    targetId,
+    payload,
+    expectedVersion,
+    mutationId: correlation.mutationId,
+  })
+  return rpc({
+    payloadHash,
+    operation,
+    mutationId: correlation.mutationId,
+    idempotencyKey: correlation.idempotencyKey,
+  })
+}
+
 const assertV1EditCapability = async (context, taskId) => {
   const task = await getTaskOrThrow(context.client, context.householdId, taskId)
   const capabilities = resolveContextCapabilities(context)
@@ -1373,22 +1143,39 @@ const updateTaskAssignmentV1 = async (context, taskId, body, expectedVersion, co
 
   await assertV1EditCapability(context, taskId)
 
-  const { data, error } = await context.client.rpc('update_planner_task_assignment_v1', {
-    p_household_id: context.householdId,
-    p_task_id: taskId,
-    p_expected_version: expectedVersion,
-    p_assignment_kind: kind,
-    p_fulfillment_mode: mode,
-    p_member_ids: memberIds,
-    p_confirm_historical_transition: body?.confirmHistoricalTransition === true,
-    p_confirm_legacy_resolution: body?.confirmLegacyResolution === true,
-    p_request_id: correlation.requestId ?? null,
-    p_operation_id: correlation.mutationId ?? null,
-    p_idempotency_key: correlation.idempotencyKey ?? null,
-    p_idempotency_operation: correlation.idempotencyOperation ?? null,
-    p_request_hash: correlation.requestHash ?? null,
+  const payload = {
+    assignmentKind: kind,
+    fulfillmentMode: mode,
+    memberIds,
+    confirmHistoricalTransition: body?.confirmHistoricalTransition === true,
+    confirmLegacyResolution: body?.confirmLegacyResolution === true,
+  }
+  const data = await invokeTaskV1AtomicMutation(context, {
+    operation: correlation.operation,
+    targetId: taskId,
+    expectedVersion,
+    payload,
+    correlation,
+    rpc: async (call) => {
+      const { data: rpcData, error } = await context.client.rpc('update_planner_task_assignment_v1', {
+        p_household_id: context.householdId,
+        p_task_id: taskId,
+        p_expected_version: expectedVersion,
+        p_assignment_kind: kind,
+        p_fulfillment_mode: mode,
+        p_member_ids: memberIds,
+        p_confirm_historical_transition: payload.confirmHistoricalTransition,
+        p_confirm_legacy_resolution: payload.confirmLegacyResolution,
+        p_request_id: correlation.requestId ?? null,
+        p_mutation_id: call.mutationId,
+        p_idempotency_key: call.idempotencyKey,
+        p_operation: call.operation,
+        p_payload_hash: call.payloadHash,
+      })
+      if (error) throwSupabaseError(error)
+      return rpcData
+    },
   })
-  if (error) throwSupabaseError(error)
   mapV1Outcome(data, expectedVersion)
   return getTaskFulfillmentV1(context, taskId)
 }
@@ -1398,17 +1185,27 @@ const claimTaskV1 = async (context, taskId, expectedVersion, correlation = {}) =
   const capabilities = resolveContextCapabilities(context)
   assertCapability(capabilities, 'planner.view')
   assertCapability(capabilities, 'task.complete_assigned')
-  const { data, error } = await context.client.rpc('claim_planner_task_v1', {
-    p_household_id: context.householdId,
-    p_task_id: taskId,
-    p_expected_version: expectedVersion,
-    p_request_id: correlation.requestId ?? null,
-    p_operation_id: correlation.mutationId ?? null,
-    p_idempotency_key: correlation.idempotencyKey ?? null,
-    p_idempotency_operation: correlation.idempotencyOperation ?? null,
-    p_request_hash: correlation.requestHash ?? null,
+  const data = await invokeTaskV1AtomicMutation(context, {
+    operation: correlation.operation,
+    targetId: taskId,
+    expectedVersion,
+    payload: null,
+    correlation,
+    rpc: async (call) => {
+      const { data: rpcData, error } = await context.client.rpc('claim_planner_task_v1', {
+        p_household_id: context.householdId,
+        p_task_id: taskId,
+        p_expected_version: expectedVersion,
+        p_request_id: correlation.requestId ?? null,
+        p_mutation_id: call.mutationId,
+        p_idempotency_key: call.idempotencyKey,
+        p_operation: call.operation,
+        p_payload_hash: call.payloadHash,
+      })
+      if (error) throwSupabaseError(error)
+      return rpcData
+    },
   })
-  if (error) throwSupabaseError(error)
   if (data?.outcome === 'already_claimed') {
     const current = await getTaskFulfillmentV1(context, taskId)
     throw createHttpError(409, 'Otra persona ya tomó esta tarea.', 'already_claimed', {
@@ -1450,21 +1247,36 @@ const mutateTaskFulfillmentV1 = async (context, taskId, fulfillmentId, action, b
     throw createHttpError(409, 'La transiciÃ³n de cumplimiento no es vÃ¡lida.', 'fulfillment_invalid_transition')
   }
   await assertV1FulfillmentCapability(context, taskId, fulfillmentId, action)
-  const { data, error } = await context.client.rpc('mutate_planner_task_fulfillment_v1', {
-    p_household_id: context.householdId,
-    p_task_id: taskId,
-    p_fulfillment_id: fulfillmentId,
-    p_action: action,
-    p_expected_version: expectedVersion,
-    p_comment: body?.comment ?? null,
-    p_note: body?.note ?? null,
-    p_request_id: correlation.requestId ?? null,
-    p_operation_id: correlation.mutationId ?? null,
-    p_idempotency_key: correlation.idempotencyKey ?? null,
-    p_idempotency_operation: correlation.idempotencyOperation ?? null,
-    p_request_hash: correlation.requestHash ?? null,
+  const payload = {
+    action,
+    comment: body?.comment ?? null,
+    note: body?.note ?? null,
+  }
+  const data = await invokeTaskV1AtomicMutation(context, {
+    operation: correlation.operation,
+    targetId: fulfillmentId,
+    expectedVersion,
+    payload,
+    correlation,
+    rpc: async (call) => {
+      const { data: rpcData, error } = await context.client.rpc('mutate_planner_task_fulfillment_v1', {
+        p_household_id: context.householdId,
+        p_task_id: taskId,
+        p_fulfillment_id: fulfillmentId,
+        p_action: action,
+        p_expected_version: expectedVersion,
+        p_comment: payload.comment,
+        p_note: payload.note,
+        p_request_id: correlation.requestId ?? null,
+        p_mutation_id: call.mutationId,
+        p_idempotency_key: call.idempotencyKey,
+        p_operation: call.operation,
+        p_payload_hash: call.payloadHash,
+      })
+      if (error) throwSupabaseError(error)
+      return rpcData
+    },
   })
-  if (error) throwSupabaseError(error)
   mapV1Outcome(data, expectedVersion)
   return getTaskFulfillmentV1(context, taskId)
 }

@@ -165,7 +165,7 @@ function testRuntimeWiring() {
   const goalFrontend = read('front/mi-front-limpio/services/plannerGoals.ts');
   const trashScreen = read('front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx');
 
-  check(taskService.includes("rpc('verify_planner_task_fulfillment_with_audit'"), 'V0 verify delegates to canonical fulfillment RPC');
+  check(taskService.includes("rpc('mutate_planner_task_v0'") && taskService.includes("action: 'verify'"), 'V0 verify delegates through the shared mutation RPC');
   check(taskController.includes('requestId: req.requestId') && taskController.includes('mutationId,'), 'verify passes request and mutation correlation');
   check(!/restore_goal_rpc[\s\S]{0,180}p_member_id/.test(goalService), 'Goal restore backend does not send actor member id');
   check(!/restore_milestone_rpc[\s\S]{0,220}p_member_id/.test(goalService), 'Milestone restore backend does not send actor member id');

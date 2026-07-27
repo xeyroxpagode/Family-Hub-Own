@@ -8,8 +8,6 @@ const {
 } = require('../lib/plannerMutationContracts');
 const {
   requireIdempotencyKey,
-  hashIdempotencyRequest,
-  withIdempotency,
 } = require('../lib/plannerIdempotencyAdapter');
 const { resolveCapabilities, assertCapability, hasCapability } = require('../lib/plannerCapabilities');
 const { createHttpError, sendApiError } = require('../lib/httpErrors');
@@ -69,23 +67,16 @@ const createTask = async (req, res) => {
     const operation = 'planner.tasks.create';
     const mutationId = requireMutationId(req);
     const idempotencyKey = requireIdempotencyKey(req);
-    const requestHash = hashIdempotencyRequest({
-      method: 'POST',
+    const payload = await tasksService.createTask(context, req.body ?? {}, {
+      requestId: req.requestId,
+      mutationId,
+      idempotencyKey,
       operation,
-      params: {},
-      body: req.body ?? {},
-      expectedVersion: null,
     });
-
-    const result = await withIdempotency(
-      context,
-      { req, operation, idempotencyKey, requestHash, successStatus: 201 },
-      () => tasksService.createTask(context, req.body ?? {}),
-    );
 
     // Echo mutation ID on success for correlation
     res.set('X-Mutation-Id', mutationId);
-    return res.status(result.status).json(result.body);
+    return res.status(201).json(payload);
   } catch (error) {
     return sendApiError(res, error, req);
   }
@@ -105,22 +96,15 @@ const updateTask = async (req, res) => {
     const mutationId = requireMutationId(req);
     const idempotencyKey = requireIdempotencyKey(req);
     const expectedVersion = parseRequiredExpectedVersion(req);
-    const requestHash = hashIdempotencyRequest({
-      method: 'PATCH',
+    const payload = await tasksService.updateTask(context, req.params.id, req.body ?? {}, expectedVersion, {
+      requestId: req.requestId,
+      mutationId,
+      idempotencyKey,
       operation,
-      params: { id: req.params.id },
-      body: req.body ?? {},
-      expectedVersion,
     });
 
-    const result = await withIdempotency(
-      context,
-      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => tasksService.updateTask(context, req.params.id, req.body ?? {}, expectedVersion),
-    );
-
     res.set('X-Mutation-Id', mutationId);
-    return res.status(result.status).json(result.body);
+    return res.status(200).json(payload);
   } catch (error) {
     return sendApiError(res, error, req);
   }
@@ -141,22 +125,15 @@ const cancelTask = async (req, res) => {
     const idempotencyKey = requireIdempotencyKey(req);
     const expectedVersion = parseRequiredExpectedVersion(req);
     const body = req.body ?? {};
-    const requestHash = hashIdempotencyRequest({
-      method: 'DELETE',
+    const payload = await tasksService.cancelTask(context, req.params.id, expectedVersion, body, {
+      requestId: req.requestId,
+      mutationId,
+      idempotencyKey,
       operation,
-      params: { id: req.params.id },
-      body,
-      expectedVersion,
     });
 
-    const result = await withIdempotency(
-      context,
-      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => tasksService.cancelTask(context, req.params.id, expectedVersion, body),
-    );
-
     res.set('X-Mutation-Id', mutationId);
-    return res.status(result.status).json(result.body);
+    return res.status(200).json(payload);
   } catch (error) {
     return sendApiError(res, error, req);
   }
@@ -185,30 +162,20 @@ const completeTask = async (req, res) => {
     const mutationId = requireMutationId(req);
     const idempotencyKey = requireIdempotencyKey(req);
     const expectedVersion = parseRequiredExpectedVersion(req);
-    const requestHash = hashIdempotencyRequest({
-      method: 'POST',
+    const payload = await tasksService.completeTask(context, req.params.id, expectedVersion, {
+      requestId: req.requestId,
+      mutationId,
+      idempotencyKey,
       operation,
-      params: { id: req.params.id },
-      body: {},
-      expectedVersion,
     });
-
-    const result = await withIdempotency(
-      context,
-      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => tasksService.completeTask(context, req.params.id, expectedVersion, {
-        requestId: req.requestId,
-        mutationId,
-      }),
-    );
 
     await telemetry.track('planner_mutation_succeeded', {
       action: 'task.complete',
       entity_kind: 'task',
-      audited: Boolean(result.body?.correlation?.audit_event_id),
+      audited: Boolean(payload?.correlation?.audit_event_id),
     }, { requestId: req.requestId, mutationId }).catch(() => {});
     res.set('X-Mutation-Id', mutationId);
-    return res.status(result.status).json(result.body);
+    return res.status(200).json(payload);
   } catch (error) {
     await telemetry.track('planner_mutation_failed', {
       action: 'task.complete',
@@ -241,37 +208,20 @@ const runTaskV1Mutation = async (req, res, options) => {
     const idempotencyKey = requireIdempotencyKey(req);
     const expectedVersion = parseRequiredExpectedVersion(req);
     const body = req.body ?? {};
-    const requestHash = hashIdempotencyRequest({
-      method: req.method,
-      operation: options.operation,
-      params: {
-        taskId: req.params.taskId,
-        ...(req.params.fulfillmentId ? { fulfillmentId: req.params.fulfillmentId } : {}),
-      },
+
+    const payload = await options.execute(
+      context,
       body,
       expectedVersion,
-    });
-
-    const result = await withIdempotency(
-      context,
       {
-        req,
-        operation: options.operation,
         idempotencyKey,
-        requestHash,
-        successStatus: 200,
-        recoverInFlight: true,
-      },
-      () => options.execute(context, body, expectedVersion, {
-        requestId: req.requestId,
         mutationId,
-        idempotencyKey,
-        idempotencyOperation: options.operation,
-        requestHash,
-      }),
+        operation: options.operation,
+        requestId: req.requestId,
+      },
     );
     res.set('X-Mutation-Id', mutationId);
-    return res.status(result.status).json(result.body);
+    return res.status(200).json(payload);
   } catch (error) {
     return sendApiError(res, error, req);
   }
@@ -329,25 +279,15 @@ const verifyTask = async (req, res) => {
     const mutationId = requireMutationId(req);
     const idempotencyKey = requireIdempotencyKey(req);
     const expectedVersion = parseRequiredExpectedVersion(req);
-    const requestHash = hashIdempotencyRequest({
-      method: 'POST',
+    const payload = await tasksService.verifyTask(context, req.params.id, expectedVersion, {
+      requestId: req.requestId,
+      mutationId,
+      idempotencyKey,
       operation,
-      params: { id: req.params.id },
-      body: {},
-      expectedVersion,
     });
 
-    const result = await withIdempotency(
-      context,
-      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => tasksService.verifyTask(context, req.params.id, expectedVersion, {
-        requestId: req.requestId,
-        mutationId,
-      }),
-    );
-
     res.set('X-Mutation-Id', mutationId);
-    return res.status(result.status).json(result.body);
+    return res.status(200).json(payload);
   } catch (error) {
     return sendApiError(res, error, req);
   }
@@ -363,22 +303,15 @@ const trashTask = async (req, res) => {
     const mutationId = requireMutationId(req);
     const idempotencyKey = requireIdempotencyKey(req);
     const expectedVersion = parseRequiredExpectedVersion(req);
-    const requestHash = hashIdempotencyRequest({
-      method: 'POST',
+    const payload = await tasksService.trashTask(context, req.params.id, expectedVersion, {
+      requestId: req.requestId,
+      mutationId,
+      idempotencyKey,
       operation,
-      params: { id: req.params.id },
-      body: {},
-      expectedVersion,
     });
 
-    const result = await withIdempotency(
-      context,
-      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => tasksService.trashTask(context, req.params.id, expectedVersion),
-    );
-
     res.set('X-Mutation-Id', mutationId);
-    return res.status(result.status).json(result.body);
+    return res.status(200).json(payload);
   } catch (error) {
     return sendApiError(res, error, req);
   }
@@ -394,22 +327,15 @@ const restoreTask = async (req, res) => {
     const mutationId = requireMutationId(req);
     const idempotencyKey = requireIdempotencyKey(req);
     const expectedVersion = parseRequiredExpectedVersion(req);
-    const requestHash = hashIdempotencyRequest({
-      method: 'POST',
+    const payload = await tasksService.restoreTask(context, req.params.id, expectedVersion, {
+      requestId: req.requestId,
+      mutationId,
+      idempotencyKey,
       operation,
-      params: { id: req.params.id },
-      body: {},
-      expectedVersion,
     });
 
-    const result = await withIdempotency(
-      context,
-      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => tasksService.restoreTask(context, req.params.id, expectedVersion),
-    );
-
     res.set('X-Mutation-Id', mutationId);
-    return res.status(result.status).json(result.body);
+    return res.status(200).json(payload);
   } catch (error) {
     return sendApiError(res, error, req);
   }
@@ -429,23 +355,15 @@ const reactivateTask = async (req, res) => {
     const mutationId = requireMutationId(req);
     const idempotencyKey = requireIdempotencyKey(req);
     const expectedVersion = parseRequiredExpectedVersion(req);
-    const body = req.body ?? {};
-    const requestHash = hashIdempotencyRequest({
-      method: 'POST',
+    const payload = await tasksService.reactivateTask(context, req.params.id, expectedVersion, {
+      requestId: req.requestId,
+      mutationId,
+      idempotencyKey,
       operation,
-      params: { id: req.params.id },
-      body,
-      expectedVersion,
     });
 
-    const result = await withIdempotency(
-      context,
-      { req, operation, idempotencyKey, requestHash, successStatus: 200 },
-      () => tasksService.reactivateTask(context, req.params.id, expectedVersion),
-    );
-
     res.set('X-Mutation-Id', mutationId);
-    return res.status(result.status).json(result.body);
+    return res.status(200).json(payload);
   } catch (error) {
     return sendApiError(res, error, req);
   }

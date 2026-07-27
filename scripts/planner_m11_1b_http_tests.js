@@ -26,39 +26,11 @@ const check = (condition, message) => {
   console.log(`PASS: ${message}`);
 };
 
-const records = new Map();
-let completeFailures = 0;
 let typedRpcError = null;
 const rpcCalls = [];
-
 const client = {
   async rpc(name, args) {
     rpcCalls.push({ name, args });
-    if (name === 'reserve_planner_idempotency_key') {
-      const key = `${args.p_household_id}:${args.p_actor_member_id}:${args.p_operation}:${args.p_idempotency_key}`;
-      const existing = records.get(key);
-      if (!existing) {
-        records.set(key, { hash: args.p_request_hash, status: 0, body: { __inflight: true } });
-        return { data: { status: 'reserved' }, error: null };
-      }
-      if (existing.hash !== args.p_request_hash) return { data: null, error: { code: '40007' } };
-      if (existing.status === 0) return { data: { status: 'in_flight' }, error: null };
-      return {
-        data: { status: 'replay', response_status: existing.status, response_body: existing.body },
-        error: null,
-      };
-    }
-    if (name === 'complete_planner_idempotency_key') {
-      if (completeFailures > 0) {
-        completeFailures -= 1;
-        return { data: null, error: { code: 'XX999', message: 'simulated response persistence failure' } };
-      }
-      const key = `${args.p_household_id}:${args.p_actor_member_id}:${args.p_operation}:${args.p_idempotency_key}`;
-      const existing = records.get(key);
-      existing.status = args.p_response_status;
-      existing.body = args.p_response_body;
-      return { data: null, error: null };
-    }
     if (name === 'claim_planner_task_v1' && typedRpcError) {
       return { data: null, error: typedRpcError };
     }
@@ -84,6 +56,16 @@ const controller = require(controllerPath);
 const service = require(servicePath);
 const originalClaim = service.claimTaskV1;
 const originalUpdateAssignment = service.updateTaskAssignmentV1;
+const originalCreateTask = service.createTask;
+const originalUpdateTask = service.updateTask;
+const originalCancelTask = service.cancelTask;
+const originalCompleteTask = service.completeTask;
+const originalVerifyTask = service.verifyTask;
+const originalTrashTask = service.trashTask;
+const originalRestoreTask = service.restoreTask;
+const originalReactivateTask = service.reactivateTask;
+const originalGetTaskOrThrow = service.getTaskOrThrow;
+const originalGetTaskCompletionAuthorization = service.getTaskCompletionAuthorization;
 
 const response = () => ({
   statusCode: null,
@@ -135,67 +117,71 @@ const dto = (version = 2) => ({ task: {
   availableActions: [],
 } });
 
-async function main() {
-  records.clear(); rpcCalls.length = 0;
-  let calls = 0;
-  service.claimTaskV1 = async () => { calls += 1; return dto(); };
-  const success1 = await invoke({ key: 'idem-success' });
-  const success2 = await invoke({ key: 'idem-success' });
-  check(success1.statusCode === 200 && success2.statusCode === 200, 'success and replay keep HTTP 200');
-  check(calls === 1, 'success replay executes the service once');
-  check(JSON.stringify(success1.body) === JSON.stringify(success2.body), 'success replay preserves the response body');
+const v0Task = (version = 2) => ({ task: { id: TASK_ID, version }, correlation: { audit_event_id: 'audit-v0' } });
 
-  records.clear(); calls = 0;
+async function invokeV0(controllerName, options = {}) {
+  const req = {
+    method: options.method ?? 'POST',
+    params: { id: options.id ?? TASK_ID },
+    body: options.body ?? {},
+    headers: {
+      'idempotency-key': options.key ?? 'idem-v0',
+      'x-mutation-id': options.mutationId ?? 'mut-v0',
+    },
+    requestId: options.requestId ?? 'req-v0',
+    user: { id: ACCOUNT_ID },
+    accessToken: 'test-token',
+  };
+  if (options.version !== null) req.headers['if-match'] = String(options.version ?? 1);
+  if (options.withoutIdempotency) delete req.headers['idempotency-key'];
+  if (options.withoutMutationId) delete req.headers['x-mutation-id'];
+  const res = response();
+  await controller[controllerName](req, res);
+  return res;
+}
+
+async function main() {
+  rpcCalls.length = 0;
+  let calls = 0;
+  let observedCorrelation = null;
+  service.claimTaskV1 = async (_context, _taskId, _version, correlation) => {
+    calls += 1;
+    observedCorrelation = correlation;
+    return dto();
+  };
+  const success = await invoke({ key: 'idem-success' });
+  check(success.statusCode === 200, 'success keeps HTTP 200');
+  check(calls === 1, 'controller delegates V1 mutation to service once');
+  check(success.headers['X-Mutation-Id'] === 'mut-r1', 'controller echoes X-Mutation-Id');
+  check(observedCorrelation.idempotencyKey === 'idem-success', 'controller forwards Idempotency-Key');
+  check(observedCorrelation.operation === 'planner.v1.tasks.claim', 'controller forwards stable operation name');
+
+  calls = 0;
   service.claimTaskV1 = async () => {
     calls += 1;
-    throw createHttpError(412, 'La versión cambió.', 'version_conflict', { current: 2, expected: 1 });
+    throw createHttpError(412, 'La version cambio.', 'version_conflict_v2', { current: 2, expected: 1 });
   };
-  const stale1 = await invoke({ key: 'idem-stale' });
-  const stale2 = await invoke({ key: 'idem-stale' });
-  check(stale1.statusCode === 412 && stale2.statusCode === 412, 'HTTP 412 is replayed as 412');
-  check(stale2.body.error.code === 'version_conflict' && stale2.body.error.details.current === 2, '412 replay preserves safe code and details');
-  check(calls === 1, '412 replay does not execute the service twice');
+  const stale = await invoke({ key: 'idem-stale' });
+  check(stale.statusCode === 412, 'HTTP 412 is mapped as 412');
+  check(stale.body.error.code === 'version_conflict_v2' && stale.body.error.details.current === 2, '412 preserves canonical safe code and details');
 
-  records.clear(); calls = 0;
+  calls = 0;
   const current = dto(3).task;
   service.claimTaskV1 = async () => {
     calls += 1;
-    throw createHttpError(409, 'Otra persona ya tomó esta tarea.', 'already_claimed', { current });
+    throw createHttpError(409, 'Otra persona ya tomo esta tarea.', 'already_claimed', { current });
   };
-  const claimed1 = await invoke({ key: 'idem-claimed' });
-  const claimed2 = await invoke({ key: 'idem-claimed' });
-  check(claimed1.statusCode === 409 && claimed2.statusCode === 409, 'already_claimed is replayed as HTTP 409');
-  check(claimed2.body.error.details.current.taskId === TASK_ID, 'already_claimed replay contains the authorized current DTO');
-  check(calls === 1, 'already_claimed replay does not execute claim twice');
+  const claimed = await invoke({ key: 'idem-claimed' });
+  check(claimed.statusCode === 409, 'already_claimed maps to HTTP 409');
+  check(claimed.body.error.details.current.taskId === TASK_ID, 'already_claimed contains the authorized current DTO');
 
-  records.clear(); calls = 0;
-  service.claimTaskV1 = async () => { calls += 1; return dto(); };
-  await invoke({ key: 'idem-mismatch', body: { marker: 'A' } });
-  const mismatch = await invoke({ key: 'idem-mismatch', body: { marker: 'B' } });
-  check(mismatch.statusCode === 409 && mismatch.body.error.code === 'idempotency_conflict', 'payload mismatch uses canonical idempotency_conflict');
-  check(calls === 1, 'payload mismatch never executes a second mutation');
-
-  records.clear(); calls = 0; completeFailures = 1;
-  let effects = 0;
-  service.claimTaskV1 = async () => {
-    calls += 1;
-    if (calls === 1) effects += 1;
-    return dto();
-  };
-  const lost1 = await invoke({ key: 'idem-lost', mutationId: 'mut-lost' });
-  const lost2 = await invoke({ key: 'idem-lost', mutationId: 'mut-lost' });
-  const lost3 = await invoke({ key: 'idem-lost', mutationId: 'mut-lost' });
-  check(lost1.statusCode === 200 && lost2.statusCode === 200 && lost3.statusCode === 200, 'lost response reservation is recovered and then replayed');
-  check(effects === 1, 'lost response recovery preserves one effective mutation');
-  check(calls === 2, 'lost response invokes one reconciliation and later uses stored replay');
-
-  records.clear(); rpcCalls.length = 0;
+  rpcCalls.length = 0;
   service.claimTaskV1 = originalClaim;
   const invalid = await invoke({ key: 'idem-invalid-uuid', taskId: 'not-a-uuid' });
   check(invalid.statusCode === 400 && invalid.body.error.code === 'validation_error', 'invalid task UUID returns safe HTTP validation_error');
   check(!rpcCalls.some((call) => call.name === 'claim_planner_task_v1'), 'invalid task UUID never reaches the typed mutation RPC');
 
-  records.clear(); rpcCalls.length = 0;
+  rpcCalls.length = 0;
   service.updateTaskAssignmentV1 = originalUpdateAssignment;
   const invalidMember = await invokeAssignment({
     key: 'idem-invalid-member-uuid',
@@ -204,7 +190,7 @@ async function main() {
   check(invalidMember.statusCode === 400 && invalidMember.body.error.code === 'invalid_assignment', 'invalid member UUID returns stable invalid_assignment');
   check(!rpcCalls.some((call) => call.name === 'update_planner_task_assignment_v1'), 'invalid member UUID never reaches the typed mutation RPC');
 
-  records.clear(); rpcCalls.length = 0;
+  rpcCalls.length = 0;
   service.claimTaskV1 = originalClaim;
   typedRpcError = { code: 'XX999', message: 'sensitive PostgreSQL internals' };
   const internal = await invoke({ key: 'idem-safe-internal' });
@@ -212,7 +198,6 @@ async function main() {
   check(internal.statusCode === 500 && internal.body.error.code === 'internal_error', 'unexpected SQL error maps to stable internal_error');
   check(!JSON.stringify(internal.body).includes('XX999') && !JSON.stringify(internal.body).includes('sensitive PostgreSQL'), 'unexpected SQLSTATE and SQL message are not exposed');
 
-  records.clear();
   for (const [code, status] of [
     ['assignment_history_requires_explicit_transition', 409],
     ['legacy_assignment_requires_explicit_resolution', 409],
@@ -221,10 +206,58 @@ async function main() {
   ]) {
     calls = 0;
     service.claimTaskV1 = async () => { calls += 1; throw createHttpError(status, code, code); };
-    const first = await invoke({ key: `idem-${code}` });
-    const replay = await invoke({ key: `idem-${code}` });
-    check(first.body.error.code === code && replay.body.error.code === code && calls === 1, `${code} is a deterministic replayable business result`);
+    const result = await invoke({ key: `idem-${code}` });
+    check(result.body.error.code === code && calls === 1, `${code} is a deterministic business result envelope`);
   }
+
+  const v0Cases = [
+    ['createTask', 'createTask', 'planner.tasks.create', 201, null, ['body', 'correlation']],
+    ['updateTask', 'updateTask', 'planner.tasks.update', 200, 1, ['id', 'body', 'version', 'correlation']],
+    ['cancelTask', 'cancelTask', 'planner.tasks.cancel', 200, 1, ['id', 'version', 'body', 'correlation']],
+    ['completeTask', 'completeTask', 'planner.tasks.complete', 200, 1, ['id', 'version', 'correlation']],
+    ['verifyTask', 'verifyTask', 'planner.tasks.verify', 200, 1, ['id', 'version', 'correlation']],
+    ['trashTask', 'trashTask', 'planner.tasks.trash', 200, 1, ['id', 'version', 'correlation']],
+    ['restoreTask', 'restoreTask', 'planner.tasks.restore', 200, 1, ['id', 'version', 'correlation']],
+    ['reactivateTask', 'reactivateTask', 'planner.tasks.reactivate', 200, 1, ['id', 'version', 'correlation']],
+  ];
+
+  service.getTaskOrThrow = async () => ({ id: TASK_ID, created_by_member_id: MEMBER_ID, version: 1 });
+  service.getTaskCompletionAuthorization = async () => ({
+    assignmentKind: 'legacy_unassigned',
+    fulfillmentMode: 'shared_once',
+    isAssignee: false,
+  });
+
+  for (const [controllerName, serviceName, operation, status, version, shape] of v0Cases) {
+    calls = 0;
+    observedCorrelation = null;
+    service[serviceName] = async (...args) => {
+      calls += 1;
+      observedCorrelation = args[args.length - 1];
+      check(observedCorrelation.idempotencyKey === 'idem-v0', `${operation} forwards Idempotency-Key`);
+      check(observedCorrelation.mutationId === 'mut-v0', `${operation} forwards mutation ID`);
+      check(observedCorrelation.operation === operation, `${operation} forwards stable operation`);
+      if (shape.includes('version')) {
+        const versionArg = serviceName === 'updateTask' ? args[3] : args[2];
+        check(versionArg === 1, `${operation} forwards expected version`);
+      }
+      return v0Task();
+    };
+    const result = await invokeV0(controllerName, {
+      method: controllerName === 'updateTask' ? 'PATCH' : 'POST',
+      body: controllerName === 'createTask' ? { title: 'Comprar leche' } : {},
+      version,
+    });
+    check(result.statusCode === status, `${operation} returns HTTP ${status}`);
+    check(result.headers['X-Mutation-Id'] === 'mut-v0', `${operation} echoes X-Mutation-Id`);
+    check(calls === 1, `${operation} delegates exactly once`);
+  }
+
+  calls = 0;
+  service.updateTask = async () => { calls += 1; return v0Task(); };
+  const missingIdempotency = await invokeV0('updateTask', { withoutIdempotency: true });
+  check(missingIdempotency.statusCode === 422 && missingIdempotency.body.error.code === 'idempotency_key_required', 'V0 mutation rejects missing Idempotency-Key before service write');
+  check(calls === 0, 'missing Idempotency-Key never delegates to V0 service');
 
   console.log(`\nM11.1B HTTP/IDEMPOTENCY TESTS: PASS (${assertions} assertions)`);
 }
@@ -237,6 +270,16 @@ main()
   .finally(() => {
     service.claimTaskV1 = originalClaim;
     service.updateTaskAssignmentV1 = originalUpdateAssignment;
+    service.createTask = originalCreateTask;
+    service.updateTask = originalUpdateTask;
+    service.cancelTask = originalCancelTask;
+    service.completeTask = originalCompleteTask;
+    service.verifyTask = originalVerifyTask;
+    service.trashTask = originalTrashTask;
+    service.restoreTask = originalRestoreTask;
+    service.reactivateTask = originalReactivateTask;
+    service.getTaskOrThrow = originalGetTaskOrThrow;
+    service.getTaskCompletionAuthorization = originalGetTaskCompletionAuthorization;
     typedRpcError = null;
     contextModule.getPlannerContext = originalGetPlannerContext;
   });
