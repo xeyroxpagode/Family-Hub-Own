@@ -79,10 +79,10 @@ function testMigrationContract() {
   check(migration.includes('Semantic noop detection'), 'Plan update documents the semantic noop intent');
   check((migration.match(/is not distinct from/g) || []).length >= 4, 'semantic comparison uses NULL-safe IS NOT DISTINCT FROM across families');
   check(migration.includes("if p_action = 'update' then"), 'Plan update branch is present');
-  check(migration.includes("v_outcome := 'noop';\n            else\n              update public.planner_plan_milestones"), 'Milestone noop comparison guards the UPDATE');
-  check(migration.includes("v_outcome := 'noop';\n            else\n              update public.planner_plan_measurements"), 'Measurement noop comparison guards the UPDATE');
-  check(migration.includes("v_outcome := 'noop';\n            else\n              update public.planner_plan_requirements"), 'Requirement noop comparison guards the UPDATE');
-  check(migration.includes("v_outcome := 'noop';\n            else\n              update public.planner_plan_manual_conditions"), 'manual condition noop comparison guards the UPDATE');
+  check(/v_outcome := 'noop';\s*else\s*update public\.planner_plan_milestones set/.test(migration), 'Milestone noop comparison guards the UPDATE');
+  check(/v_outcome := 'noop';\s*else\s*update public\.planner_plan_measurements set/.test(migration), 'Measurement noop comparison guards the UPDATE');
+  check(/v_outcome := 'noop';\s*else\s*update public\.planner_plan_requirements set/.test(migration), 'Requirement noop comparison guards the UPDATE');
+  check(/v_outcome := 'noop';\s*else\s*update public\.planner_plan_manual_conditions set/.test(migration), 'manual condition noop comparison guards the UPDATE');
   check(migration.includes("if p_entity_type <> 'plan' and v_outcome <> 'noop' then"), 'structural Plan graph version advances only on effective child mutations');
   // REAUD-01 must remain Integration-owned: no Plans-side reservation takeover,
   // no extra idempotency mechanism, no raw 23505 swallowing inside Plans SQL.
@@ -119,6 +119,7 @@ function testRuntimeBoundary() {
   const controller = read('backend/src/controllers/planner.plans.controller.js');
   const service = read('backend/src/services/planner.plans.service.js');
   const dto = read('front/mi-front-limpio/types/PlannerPlan.ts');
+  const router = read('backend/src/routes/planner.js');
 
   check(controller.includes('getAuthenticatedPerson'), 'Plan controller supports personal context without active household');
   check(controller.includes('requireActiveMembership'), 'household Plan controller requires active membership');
@@ -138,6 +139,9 @@ function testRuntimeBoundary() {
   check(dto.includes('completedMilestoneCount') && dto.includes('reachedMeasurementCount'), 'DTO exposes separate real indicators');
   check(dto.includes("bindingState: 'pending_integration'"), 'DTO publishes the future external requirement boundary');
   check(dto.includes('operationalChildrenPublished: false'), 'DTO publishes Draft isolation metadata');
+  check(router.includes('planner.plans.controller'), 'Integration router imports Plan controller');
+  check(router.includes("router.get('/plans/:id'"), 'Integration router exposes Plan graph read route');
+  check(router.includes("router.post('/plans/:id/mutations'"), 'Integration router exposes Plan graph mutation route');
 }
 
 function testDtoMapper() {

@@ -416,7 +416,8 @@ function testArchitecture() {
   check(!presetService.includes(".from('planner_tasks'") && !draftService.includes(".from('planner_tasks'"), 'services do not write Task tables');
   check(!presetService.includes(".from('planner_events'") && !draftService.includes(".from('planner_events'"), 'services do not write Event tables');
   check(!presetService.includes(".from('planner_goals'") && !draftService.includes(".from('planner_goals'"), 'services do not write Plan tables');
-  check(!routerGlobal.includes('planner.presets-drafts'), 'global Planner router is not modified');
+  check(routerGlobal.includes("require('./planner.presets-drafts')"), 'Integration router imports Presets/Drafts subrouter');
+  check(routerGlobal.includes('router.use(presetsDraftsRouter)'), 'Integration router mounts Presets/Drafts subrouter');
   check(migration.includes('20260722050000') || migration.includes('M11.4A'), 'migration is inside Presets/Drafts range');
   check(migration.includes('planner_drafts_owner_client_key_uidx'), 'client draft key uniqueness is owner scoped');
   check(migration.includes('planner_preset_revisions_one_open_draft_uidx'), 'one-open-draft-revision constraint exists');

@@ -2,12 +2,15 @@ const express = require('express')
 const authFinalMiddleware = require('../middleware/authFinalMiddleware')
 const tasksController = require('../controllers/planner.tasks.controller')
 const eventsController = require('../controllers/planner.events.controller')
+const eventsV1Controller = require('../controllers/planner.events.v1.controller')
 const calendarController = require('../controllers/planner.calendar.controller')
 const summaryController = require('../controllers/planner.summary.controller')
 const goalsController = require('../controllers/planner.goals.controller')
+const plansController = require('../controllers/planner.plans.controller')
 const trashController = require('../controllers/planner.trash.controller')
 const activityController = require('../controllers/planner.activity.controller')
 const capabilitiesController = require('../controllers/planner.capabilities.controller')
+const presetsDraftsRouter = require('./planner.presets-drafts')
 const { plannerObservabilityMiddleware } = require('../lib/plannerObservability')
 
 const router = express.Router()
@@ -36,6 +39,12 @@ router.get('/activity', activityController.listActivity)
 
 router.get('/trash', trashController.getTrash)
 
+router.get('/plans/legacy-compatibility-report', plansController.getLegacyCompatibilityReport)
+router.get('/plans/:id', plansController.getPlanGraph)
+router.get('/plans', plansController.listPlans)
+router.post('/plans', plansController.writePlanGraph)
+router.post('/plans/:id/mutations', plansController.writePlanGraph)
+
 router.get('/tasks/:id', tasksController.getTaskById)
 router.get('/tasks', tasksController.listTasks)
 router.post('/tasks', tasksController.createTask)
@@ -46,6 +55,12 @@ router.post('/tasks/:id/restore', tasksController.restoreTask)
 router.post('/tasks/:id/reactivate', tasksController.reactivateTask)
 router.post('/tasks/:id/complete', tasksController.completeTask)
 router.post('/tasks/:id/verify', tasksController.verifyTask)
+
+router.get('/v1/events/:id', eventsV1Controller.getEventV1)
+router.get('/v1/events', eventsV1Controller.listEventsV1)
+router.post('/v1/events', eventsV1Controller.createEventV1)
+router.post('/v1/events/:id/mutations', eventsV1Controller.mutateEventV1)
+router.post('/v1/events/:id/participants/mutations', eventsV1Controller.mutateParticipantV1)
 
 router.get('/events/:id', eventsController.getEventById)
 router.get('/events', eventsController.listEvents)
@@ -78,5 +93,7 @@ router.patch('/goals/:goalId/milestones/:milestoneId', goalsController.updateMil
 router.delete('/goals/:goalId/milestones/:milestoneId', goalsController.deleteMilestone)
 router.post('/goals/:goalId/milestones/:milestoneId/trash', goalsController.trashMilestone)
 router.post('/goals/:goalId/milestones/:milestoneId/restore', goalsController.restoreMilestone)
+
+router.use(presetsDraftsRouter)
 
 module.exports = router

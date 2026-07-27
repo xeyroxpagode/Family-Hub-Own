@@ -97,13 +97,17 @@ async function main() {
 
   const changed = execFileSync('git', ['status', '--short'], { cwd: ROOT, encoding: 'utf8' });
   for (const protectedPath of [
-    'backend/src/routes/planner.js',
     'backend/src/lib/plannerCapabilities.js',
     'backend/src/controllers/planner.events.controller.js',
     'front/mi-front-limpio/services/plannerEvents.ts',
   ]) {
     check(!changed.includes(protectedPath), `${protectedPath} remains untouched for V0/shared ownership`);
   }
+  const plannerRouter = source('backend/src/routes/planner.js');
+  check(plannerRouter.includes('planner.events.v1.controller'), 'Integration router imports Event V1 controller');
+  check(plannerRouter.includes("router.get('/v1/events/:id'"), 'Integration router exposes Event V1 get route before V0 routes');
+  check(plannerRouter.includes("router.post('/v1/events/:id/mutations'"), 'Integration router exposes Event V1 mutation route');
+  check(plannerRouter.includes("router.post('/v1/events/:id/participants/mutations'"), 'Integration router exposes Event V1 participant mutation route');
   check(!changed.includes('PlannerCalendar'), 'combined Calendar files remain untouched');
   check(!changed.includes('planner.plans'), 'Plan files remain untouched');
 

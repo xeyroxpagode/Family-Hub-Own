@@ -37,6 +37,22 @@ async function main() {
   const householdId = crypto.randomUUID();
   const membershipId = crypto.randomUUID();
   const aggregateId = crypto.randomUUID();
+  const runId = crypto.randomUUID();
+  const ids = {
+    completionRequest: `req-complete-${runId}`,
+    completionMutation: `mut-complete-${runId}`,
+    auditRequest: `req-db-${runId}`,
+    auditMutation: `mut-db-${runId}`,
+    outboxRequest: `req-outbox-${runId}`,
+    outboxMutation: `mut-outbox-${runId}`,
+    outboxDedupe: `dedupe-contract-${runId}`,
+    rollbackRequest: `req-rollback-${runId}`,
+    rollbackMutation: `mut-rollback-${runId}`,
+    rollbackDedupe: `dedupe-rollback-${runId}`,
+    crashRequest: `req-crash-${runId}`,
+    crashMutation: `mut-crash-${runId}`,
+    crashDedupe: `dedupe-crash-${runId}`,
+  };
   try {
     await client.query('begin');
     await client.query(
@@ -77,8 +93,8 @@ async function main() {
     await client.query(`select set_config('request.jwt.claim.sub', $1, true)`, [accountId]);
     await client.query('set local role authenticated');
     const completion = await client.query(
-      `select public.complete_planner_task_with_audit($1,$2,1,$3,$4,'req-complete-1','mut-complete-1') as result`,
-      [householdId, completionTaskId, membershipId, accountId],
+      `select public.complete_planner_task_with_audit($1,$2,1,$3,$4,$5,$6) as result`,
+      [householdId, completionTaskId, membershipId, accountId, ids.completionRequest, ids.completionMutation],
     );
     await client.query('reset role');
     const completionResult = completion.rows[0].result;
@@ -87,8 +103,8 @@ async function main() {
     const completionCorrelation = await client.query(
       `select request_id, mutation_id from public.audit_events where id=$1`, [completionResult.audit_event_id],
     );
-    check(completionCorrelation.rows[0].request_id === 'req-complete-1' && completionCorrelation.rows[0].mutation_id === 'mut-complete-1', 'Planner audit preserves request and mutation correlation');
-    check((await client.query(`select count(*)::int as count from public.outbox_events where mutation_id='mut-complete-1'`)).rows[0].count === 0, 'Planner completion emits no fictitious outbox side effect');
+    check(completionCorrelation.rows[0].request_id === ids.completionRequest && completionCorrelation.rows[0].mutation_id === ids.completionMutation, 'Planner audit preserves request and mutation correlation');
+    check((await client.query(`select count(*)::int as count from public.outbox_events where mutation_id=$1`, [ids.completionMutation])).rows[0].count === 0, 'Planner completion emits no fictitious outbox side effect');
 
     await client.query(
       `insert into public.feature_flag_overrides
@@ -110,9 +126,9 @@ async function main() {
       `insert into public.audit_events (
         household_id, actor_membership_id, actor_account_id, domain, action,
         aggregate_type, aggregate_id, result, request_id, mutation_id, metadata_version, metadata
-      ) values ($1,$2,$3,'planner','task.updated','task',$4,'succeeded','req-db-1','mut-db-1',1,'{"field_count":1}'::jsonb)
+      ) values ($1,$2,$3,'planner','task.updated','task',$4,'succeeded',$5,$6,1,'{"field_count":1}'::jsonb)
       returning id`,
-      [householdId, membershipId, accountId, aggregateId],
+      [householdId, membershipId, accountId, aggregateId, ids.auditRequest, ids.auditMutation],
     );
     const auditId = audit.rows[0].id;
     check(Boolean(auditId), 'durable audit append returns an id');
@@ -125,8 +141,8 @@ async function main() {
 
     const recordArgs = [
       householdId, membershipId, accountId, 'core', 'contract.side_effect', 'contract', aggregateId,
-      'succeeded', 'req-outbox-1', 'mut-outbox-1', 1, { outcome: 'queued' },
-      'core.contract_test', 1, { contract_case: 'success' }, 'dedupe-contract-1',
+      'succeeded', ids.outboxRequest, ids.outboxMutation, 1, { outcome: 'queued' },
+      'core.contract_test', 1, { contract_case: 'success' }, ids.outboxDedupe,
     ];
     const recorded = await client.query(
       `select * from public.record_audit_and_enqueue_outbox(
@@ -139,14 +155,14 @@ async function main() {
       `select o.request_id, o.mutation_id, o.audit_event_id, a.request_id as audit_request_id, a.mutation_id as audit_mutation_id
        from public.outbox_events o join public.audit_events a on a.id=o.audit_event_id where o.id=$1`, [outboxId],
     );
-    check(correlated.rows[0].request_id === 'req-outbox-1' && correlated.rows[0].audit_mutation_id === 'mut-outbox-1', 'request/mutation/audit/outbox correlation is preserved');
+    check(correlated.rows[0].request_id === ids.outboxRequest && correlated.rows[0].audit_mutation_id === ids.outboxMutation, 'request/mutation/audit/outbox correlation is preserved');
 
     await client.query(
       `select * from public.record_audit_and_enqueue_outbox(
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15::jsonb,$16
       )`, recordArgs,
     );
-    check((await client.query(`select count(*)::int as count from public.outbox_events where dedupe_key='dedupe-contract-1'`)).rows[0].count === 1, 'outbox dedupe key prevents duplicate delivery rows');
+    check((await client.query(`select count(*)::int as count from public.outbox_events where dedupe_key=$1`, [ids.outboxDedupe])).rows[0].count === 1, 'outbox dedupe key prevents duplicate delivery rows');
     await expectSqlFailure(client,
       `insert into public.outbox_events (household_id, domain, event_type, aggregate_type, aggregate_id, payload, dedupe_key)
        values ($1,'core','core.contract_test','contract',$2,'{"access_token":"secret"}'::jsonb,'unsafe-1')`,
@@ -160,14 +176,14 @@ async function main() {
     );
     await client.query(
       `select * from public.record_audit_and_enqueue_outbox(
-        $1,$2,$3,'planner','task.contract_created','task',$4,'succeeded','req-rollback','mut-rollback',1::smallint,
-        '{"outcome":"created"}'::jsonb,'core.contract_test',1::smallint,'{"contract_case":"rollback"}'::jsonb,'dedupe-rollback'
-      )`, [householdId, membershipId, accountId, atomicTaskId],
+        $1,$2,$3,'planner','task.contract_created','task',$4,'succeeded',$5,$6,1::smallint,
+        '{"outcome":"created"}'::jsonb,'core.contract_test',1::smallint,'{"contract_case":"rollback"}'::jsonb,$7
+      )`, [householdId, membershipId, accountId, atomicTaskId, ids.rollbackRequest, ids.rollbackMutation, ids.rollbackDedupe],
     );
     await client.query('rollback to savepoint atomic_rollback');
     check((await client.query('select count(*)::int as count from public.planner_tasks where id=$1', [atomicTaskId])).rows[0].count === 0, 'rolling back domain mutation removes the mutation');
-    check((await client.query(`select count(*)::int as count from public.outbox_events where mutation_id='mut-rollback'`)).rows[0].count === 0, 'rolling back domain mutation also removes outbox');
-    check((await client.query(`select count(*)::int as count from public.audit_events where mutation_id='mut-rollback'`)).rows[0].count === 0, 'rolling back domain mutation also removes audit');
+    check((await client.query(`select count(*)::int as count from public.outbox_events where mutation_id=$1`, [ids.rollbackMutation])).rows[0].count === 0, 'rolling back domain mutation also removes outbox');
+    check((await client.query(`select count(*)::int as count from public.audit_events where mutation_id=$1`, [ids.rollbackMutation])).rows[0].count === 0, 'rolling back domain mutation also removes audit');
 
     const claim1 = await client.query(`select id, attempts, locked_by from public.claim_outbox_events('worker-db-1', 10, 60)`);
     check(claim1.rows.some((row) => row.id === outboxId && row.attempts === 1), 'worker safely claims pending outbox event');
@@ -177,9 +193,9 @@ async function main() {
 
     const crashRecord = await client.query(
       `select * from public.record_audit_and_enqueue_outbox(
-        $1,$2,$3,'core','contract.crash','contract',$4,'succeeded','req-crash','mut-crash',1::smallint,
-        '{"outcome":"queued"}'::jsonb,'core.contract_test',1::smallint,'{"contract_case":"crash"}'::jsonb,'dedupe-crash'
-      )`, [householdId, membershipId, accountId, crypto.randomUUID()],
+        $1,$2,$3,'core','contract.crash','contract',$4,'succeeded',$5,$6,1::smallint,
+        '{"outcome":"queued"}'::jsonb,'core.contract_test',1::smallint,'{"contract_case":"crash"}'::jsonb,$7
+      )`, [householdId, membershipId, accountId, crypto.randomUUID(), ids.crashRequest, ids.crashMutation, ids.crashDedupe],
     );
     const crashId = crashRecord.rows[0].outbox_event_id;
     await client.query(`select id from public.claim_outbox_events('worker-crashed', 10, 60)`);
