@@ -140,12 +140,11 @@ async function write(client, actor, input) {
   });
   const result = await runAs(client, actor.accountId, () => client.query(
     `select public.write_planner_plan_graph_rpc(
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11
     ) as result`,
     [operationId, idempotencyKey, requestHash, input.entityType, input.action, input.planId ?? null,
       input.entityId ?? null, input.expectedVersion ?? null, expectedPlanVersion,
-      JSON.stringify(input.payload ?? {}), `req-${operationId}`, false,
-      `planner.plans.${input.entityType}.${input.action}`],
+      JSON.stringify(input.payload ?? {}), `req-${operationId}`],
   ));
   return { ...result.rows[0].result, operationId, idempotencyKey, requestHash };
 }

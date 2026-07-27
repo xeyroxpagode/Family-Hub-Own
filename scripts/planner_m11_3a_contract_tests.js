@@ -9,6 +9,7 @@ process.env.SUPABASE_URL ||= 'http://127.0.0.1:54321';
 process.env.SUPABASE_ANON_KEY ||= 'm11-3a-contract-placeholder';
 
 const plansService = require('../backend/src/services/planner.plans.service');
+const plannerIdempotencyAdapter = require('../backend/src/lib/plannerIdempotencyAdapter');
 
 const ROOT = path.resolve(__dirname, '..');
 let assertions = 0;
@@ -25,6 +26,7 @@ function check(condition, message) {
 
 function testMigrationContract() {
   const migration = read('supabase/migrations/20260722040000_m11_3a_plan_graph_foundation.sql');
+  const migrationV2 = read('supabase/migrations/20260722049000_m11_3a_consume_shared_mutation_authority.sql');
   check(migration.includes('create table public.planner_plans'), 'canonical Plan container is additive');
   check(migration.includes('create table public.planner_plan_milestones'), 'canonical Milestone table exists');
   check(migration.includes('create table public.planner_plan_measurements'), 'multiple Measurement table exists');
@@ -87,6 +89,16 @@ function testMigrationContract() {
   check(!/takeover|expire.*reservation|recover.*reservation/i.test(migration), 'Plans SQL does not add shared-reservation takeover/recovery');
   check(migration.includes("raise exception 'canonical idempotency reservation required'"), 'canonical shared reservation remains authoritative and unmodified');
   check(!/when\s+sqlstate\s*=\s*'23505'\s*then\s+v_outcome\s*:=\s*'noop'/.test(migration), 'Plans SQL does not translate raw 23505 into a local noop');
+
+  // V2 Consumption (OLA 2) - new migration 20260722049000
+  check(migrationV2.includes('planner_v2_reserve_idempotency('), 'V2 migration consumes planner_v2_reserve_idempotency');
+  check(migrationV2.includes('planner_v2_complete_idempotency('), 'V2 migration consumes planner_v2_complete_idempotency');
+  check(migrationV2.includes('planner_v2_append_audit('), 'V2 migration consumes planner_v2_append_audit');
+  check(!migrationV2.includes('p_canonical_reserved'), 'V2 migration removes pre-reservation parameter');
+  check(!migrationV2.includes('withIdempotency'), 'V2 migration does not reference legacy withIdempotency');
+  check(migrationV2.includes("v_error_code:='idempotency_conflict'"), 'V2 migration normalizes to canonical idempotency_conflict');
+  check(!migrationV2.includes('reserve_planner_idempotency_key('), 'V2 migration removes legacy reserve RPC call');
+  check(!migrationV2.includes('complete_planner_idempotency_key('), 'V2 migration removes legacy complete RPC call');
 }
 
 function testRunnerContract() {
@@ -116,7 +128,8 @@ function testRuntimeBoundary() {
   check(!controller.includes("require('../services/planner.events"), 'Plan controller does not import Event production service');
   check(service.includes("rpc('write_planner_plan_graph_rpc'"), 'backend delegates writes to one atomic graph RPC');
   check(service.includes("rpc('read_planner_plan_graph_rpc'"), 'backend consumes the canonical graph read DTO');
-  check(controller.includes('withIdempotency('), 'household controller consumes the canonical idempotency adapter');
+  check(!controller.includes('withIdempotency('), 'household controller does NOT use legacy split reservation');
+  check(controller.includes('hashIdempotencyRequestV2'), 'controller uses V2 canonical payload hash');
   check(controller.includes('expectedPlanVersion'), 'controller publishes expected Plan graph version');
   check(service.includes('p_expected_plan_version'), 'service forwards expected Plan graph version');
   check(dto.includes('expectedPlanVersion'), 'mutation DTO exposes expected Plan graph version');

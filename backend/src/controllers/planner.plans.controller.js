@@ -4,8 +4,8 @@ const { createSupabaseForToken } = require('../config/supabase');
 const { getAuthenticatedPerson, requireActiveMembership } = require('../lib/householdMembers.service');
 const { resolveCapabilities, assertCapability } = require('../lib/plannerCapabilities');
 const { createHttpError, sendApiError } = require('../lib/httpErrors');
-const { OPERATION_KINDS, requireMutationContract } = require('../lib/mutationContracts');
-const { hashIdempotencyRequest, withIdempotency } = require('../lib/plannerIdempotencyAdapter');
+const { OPERATION_KINDS, requireMutationContract, CANONICAL_ERROR_CODES } = require('../lib/mutationContracts');
+const { hashIdempotencyRequestV2 } = require('../lib/plannerIdempotencyAdapter');
 const plansService = require('../services/planner.plans.service');
 
 async function getPlanActorContext(req) {
@@ -127,45 +127,23 @@ async function writePlanGraph(req, res) {
     plansService.assertGraphWriteInput(input);
     const authorization = await assertBackendWriteAuthorization(context, input);
     const operation = `planner.plans.${entityType}.${action}`;
-    input.payloadHash = hashIdempotencyRequest({
-      method: req.method,
+    const scopeId = authorization.scope === 'household'
+      ? authorization.householdId
+      : context.personId;
+    input.payloadHash = hashIdempotencyRequestV2({
       operation,
-      params: { planId: input.planId, entityId: input.entityId },
-      body: req.body ?? {},
+      scopeType: authorization.scope,
+      scopeId,
+      targetId: input.entityId ?? input.planId,
+      payload: input.payload,
       expectedVersion: input.expectedVersion,
+      mutationId: contract.mutationId,
     });
-    let response;
-    if (authorization.scope === 'household') {
-      const idempotencyContext = {
-        ...context,
-        householdId: authorization.householdId,
-        membershipId: authorization.membershipId,
-      };
-      input.canonicalReserved = true;
-      input.canonicalOperation = operation;
-      response = await withIdempotency(
-        idempotencyContext,
-        {
-          req,
-          operation,
-          idempotencyKey: contract.idempotencyKey,
-          requestHash: input.payloadHash,
-          successStatus: isCreate ? 201 : 200,
-        },
-        () => plansService.writePlanGraph(context, input),
-      );
-      if (response.replay && response.status >= 200 && response.status < 300
-        && response.body && typeof response.body === 'object') {
-        response.body = { ...response.body, outcome: 'replay' };
-      }
-    } else {
-      response = {
-        status: isCreate ? 201 : 200,
-        body: await plansService.writePlanGraph(context, input),
-      };
-    }
+    input.canonicalReserved = false;
+    input.canonicalOperation = operation;
+    const result = await plansService.writePlanGraph(context, input);
     res.set('X-Mutation-Id', contract.mutationId);
-    return res.status(response.status).json(response.body);
+    return res.status(isCreate ? 201 : 200).json(result);
   } catch (error) {
     if (error?.storedEnvelope && error?.statusCode) {
       return res

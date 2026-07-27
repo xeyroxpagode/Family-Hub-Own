@@ -1,6 +1,7 @@
 'use strict';
 
 const { createHttpError } = require('../lib/httpErrors');
+const { CANONICAL_ERROR_CODES } = require('../lib/mutationContracts');
 
 const PLAN_GRAPH_ENTITIES = Object.freeze([
   'plan',
@@ -40,10 +41,10 @@ function mapPlanRpcError(error) {
     );
   }
   if (code === 'P0008') {
-    return createHttpError(409, 'La operacion ya fue usada con otros datos.', 'idempotency_key_conflict');
+    return createHttpError(409, 'La operacion ya fue usada con otros datos.', CANONICAL_ERROR_CODES.IDEMPOTENCY_CONFLICT);
   }
   if (code === 'P0009') {
-    return createHttpError(409, 'La operacion todavia se esta procesando.', 'idempotency_in_flight');
+    return createHttpError(409, 'La operacion todavia se esta procesando.', CANONICAL_ERROR_CODES.IDEMPOTENCY_IN_FLIGHT);
   }
   if (code === 'P0002') {
     return createHttpError(404, 'Plan o elemento no encontrado.', 'not_found');
