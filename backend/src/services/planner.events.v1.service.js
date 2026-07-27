@@ -67,47 +67,9 @@ async function getEventMutationIdentity(context, eventId) {
   return data;
 }
 
-function createEventV1(context, payload, mutation) {
-  return rpc(context, 'create_planner_event_v1', {
-    p_payload: payload,
-    p_request_id: mutation.requestId,
-    p_mutation_id: mutation.mutationId,
-  });
-}
-
-function mutateEventV1(context, eventId, action, editScope, patch, expectedVersion, expectedSeriesVersion, mutation) {
-  return rpc(context, 'mutate_planner_event_v1', {
-    p_event_id: eventId,
-    p_action: action,
-    p_edit_scope: editScope ?? 'this_occurrence',
-    p_patch: patch ?? {},
-    p_expected_version: expectedVersion,
-    p_expected_series_version: expectedSeriesVersion ?? null,
-    p_request_id: mutation.requestId,
-    p_mutation_id: mutation.mutationId,
-  });
-}
-
-function mutateParticipantV1(context, eventId, input, expectedEventVersion, mutation) {
-  return rpc(context, 'mutate_planner_event_participant_v1', {
-    p_event_id: eventId,
-    p_action: input.action,
-    p_person_id: input.personId,
-    p_member_id: input.memberId ?? null,
-    p_value: input.value ?? null,
-    p_expected_event_version: expectedEventVersion,
-    p_expected_participant_version: input.expectedParticipantVersion ?? null,
-    p_request_id: mutation.requestId,
-    p_mutation_id: mutation.mutationId,
-  });
-}
-
 module.exports = {
-  createEventV1,
-  getEventV1,
   getEventMutationIdentity,
+  getEventV1,
   listEventsV1,
   mapEventV1DatabaseError,
-  mutateEventV1,
-  mutateParticipantV1,
 };

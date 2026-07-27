@@ -49,7 +49,8 @@ async function main() {
   check(migration.includes('occurrence_key'), 'concrete occurrence identity is persisted');
   check(['this_occurrence', 'this_and_following', 'whole_series'].every((value) => migration.includes(value)), 'all required edit scopes are implemented');
   check(migration.includes('series cannot be split safely at this occurrence'), 'unsafe series split is rejected');
-  check(controller.includes('withIdempotency'), 'controller consumes the canonical shared idempotency adapter');
+  check(controller.includes('invokeAtomicPlannerMutationV2'), 'controller consumes V2 atomic mutation frontier');
+  check(controller.includes('rpcAdapter'), 'controller uses custom RPC adapter for operation-specific V2 RPCs');
   check(!migration.includes('audit_events_event_idempotency_uidx'), 'audit_events is not used as an idempotency store');
   check(!migration.includes('planner_event_replay_metadata'), 'Event-specific audit replay store was removed');
   check(migration.includes('planner_event_time_zone_is_valid'), 'IANA time zones are validated against PostgreSQL authority');
@@ -58,6 +59,7 @@ async function main() {
   check(migration.includes("set lifecycle = trashed_from_lifecycle"), 'restore consumes the preserved lifecycle');
   check(migration.includes("revoke insert, update, delete on public.planner_event_participants"), 'direct participant mutations are revoked');
   check(migration.includes("revoke insert, update, delete on public.planner_event_series"), 'direct series mutations are revoked');
+  check(migration.includes("revoke insert, update, delete on public.planner_events"), 'direct planner_events mutations are revoked (RLS + RPC only)');
   check(migration.includes("v_non_temporal_patch := (p_patch - 'recurrenceRule') - 'scheduling'"), 'series scheduling uses an explicit non-temporal patch');
   check(migration.includes('v_start_delta'), 'timed series edits calculate a relative delta');
   check(migration.includes('v_date_delta'), 'all-day series edits calculate a semantic date delta');
@@ -73,11 +75,11 @@ async function main() {
   check(controller.includes('requireMutationId'), 'V1 controller requires canonical mutation identity');
   check(controller.includes('requireIdempotencyKey'), 'V1 controller requires canonical idempotency key');
   check(controller.includes('parseRequiredExpectedVersion'), 'V1 existing-entity mutations require expected version');
-  check(controller.includes('hashIdempotencyRequest'), 'V1 controller uses canonical request hashing');
+  check(controller.includes('hashIdempotencyRequestV2'), 'V1 controller uses V2 canonical request hashing');
   check(service.includes("'version_conflict_v2'"), 'V1 service maps stale versions to canonical error code');
   check(service.includes("'idempotency_key_conflict'"), 'V1 service maps idempotency conflicts');
   check(context.includes('does not require an active household'), 'personal read context is independent from active household');
-  check(controller.includes('personal_idempotency_contract_unavailable'), 'personal mutation blocker is explicit until shared support exists');
+  check(!controller.includes('personal_idempotency_contract_unavailable'), 'personal mutation blocker removed - personal scope now supported');
   check(controller.includes('requireUuid'), 'controller validates UUID inputs before RPC calls');
 
   for (const required of [
@@ -97,7 +99,6 @@ async function main() {
   for (const protectedPath of [
     'backend/src/routes/planner.js',
     'backend/src/lib/plannerCapabilities.js',
-    'backend/src/services/planner.events.service.js',
     'backend/src/controllers/planner.events.controller.js',
     'front/mi-front-limpio/services/plannerEvents.ts',
   ]) {
@@ -111,9 +112,9 @@ async function main() {
   check(v0Service.includes('createOccurrenceOverride,'), 'V0 occurrence override export remains available');
   check(v0Service.includes('cancelEvent,'), 'V0 cancel service export remains available');
 
-  check(service.includes('createEventV1,'), 'V1 create service export is available');
-  check(service.includes('mutateEventV1,'), 'V1 Event mutation service export is available');
-  check(service.includes('mutateParticipantV1,'), 'V1 participant mutation service export is available');
+  check(service.includes('getEventV1,'), 'V1 get event service export is available');
+  check(service.includes('listEventsV1,'), 'V1 list events service export is available');
+  check(service.includes('getEventMutationIdentity,'), 'V1 mutation identity helper is available');
 
   const { mapEventV1DatabaseError } = require('../backend/src/services/planner.events.v1.service');
   const { buildApiErrorEnvelope } = require('../backend/src/lib/httpErrors');

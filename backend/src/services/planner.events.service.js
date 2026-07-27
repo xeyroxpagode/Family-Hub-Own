@@ -1,7 +1,11 @@
+'use strict';
+
 const { createHttpError } = require('../lib/httpErrors')
 const { assertExpectedVersion } = require('../lib/versionHelpers')
 const { EVENT_RECURRENCES } = require('../constants/planner.constants')
 const { pickEventActivityState, recordPlannerActivity } = require('./planner.activity.service')
+const { hashIdempotencyRequestV2, canonicalizeV2Value } = require('../lib/plannerIdempotencyAdapter')
+const crypto = require('crypto')
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
@@ -75,55 +79,19 @@ const defaultEventsRange = () => {
   return { from, to }
 }
 
-const getEventOrThrow = async (client, householdId, eventId) => {
-  const { data, error } = await client
-    .from('planner_events')
-    .select('*')
-    .eq('id', eventId)
-    .eq('household_id', householdId)
-    .is('trashed_at', null)
-    .maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
-  }
-
-  return data
-}
-
-const getEventById = async (context, eventId) => {
-  const event = await getEventOrThrow(context.client, context.householdId, eventId)
-  return { event }
-}
-
-const getEventForTrashOperation = async (client, householdId, eventId) => {
-  const { data, error } = await client
-    .from('planner_events')
-    .select('*')
-    .eq('id', eventId)
-    .eq('household_id', householdId)
-    .maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
-  }
-
-  return data
-}
-
 const eventOverlapsRange = (event, from, to) => {
   const startsAt = new Date(event.starts_at)
   const endsAt = event.ends_at ? new Date(event.ends_at) : startsAt
 
   return startsAt <= to && endsAt >= from
+}
+
+function canonicalMutationId(operation, targetId, salt) {
+  return crypto.randomUUID()
+}
+
+function canonicalIdempotencyKey(operation, targetId, payload) {
+  return crypto.randomUUID()
 }
 
 const listEvents = async (context, query) => {
@@ -168,6 +136,12 @@ const listEvents = async (context, query) => {
   return { events }
 }
 
+async function callV2Rpc(context, rpcName, params) {
+  const { data, error } = await context.client.rpc(rpcName, params)
+  if (error) throwSupabaseError(error)
+  return data
+}
+
 const createEvent = async (context, body) => {
   const title = normalizeString(body?.title)
 
@@ -193,25 +167,39 @@ const createEvent = async (context, body) => {
     created_by_person_id: context.personId,
   }
 
-  const { data, error } = await context.client
-    .from('planner_events')
-    .insert(payload)
-    .select('*')
-    .single()
+  const operation = 'planner.events.v0.create'
+  const mutationId = canonicalMutationId(operation, 'create', crypto.randomUUID())
+  const idempotencyKey = canonicalIdempotencyKey(operation, 'create', payload)
 
-  if (error) {
-    throwSupabaseError(error)
-  }
+  const result = await callV2Rpc(context, 'create_planner_event_v1', {
+    p_payload: payload,
+    p_request_id: mutationId,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_actor_account_id: context.accountId,
+    p_actor_person_id: context.personId,
+    p_scope_type: 'household',
+    p_scope_id: context.householdId,
+    p_payload_hash: hashIdempotencyRequestV2({
+      operation,
+      scopeType: 'household',
+      scopeId: context.householdId,
+      payload,
+      mutationId,
+    }),
+    p_operation: operation,
+  })
 
+  const event = result?.body?.data?.event ?? result
   recordPlannerActivity(context, {
     entityType: 'event',
-    entityId: data.id,
+    entityId: event.id,
     action: 'event.created',
     previousState: null,
-    nextState: pickEventActivityState(data),
+    nextState: pickEventActivityState(event),
   }).catch(() => {})
 
-  return { event: data }
+  return { event }
 }
 
 const buildEventPatch = (body) => {
@@ -275,38 +263,46 @@ const updateEvent = async (context, eventId, body, expectedVersion) => {
   const endsAt = effectiveEndsAt ? new Date(effectiveEndsAt) : null
   validateEventDates({ startsAt, endsAt })
 
-  const query = context.client
-    .from('planner_events')
-    .update(patch)
-    .eq('id', eventId)
-    .eq('household_id', context.householdId)
+  const operation = 'planner.events.v0.update'
+  const mutationId = canonicalMutationId(operation, eventId, crypto.randomUUID())
+  const idempotencyKey = canonicalIdempotencyKey(operation, eventId, patch)
 
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query.eq('version', expectedVersion)
-  }
+  const result = await callV2Rpc(context, 'mutate_planner_event_v1', {
+    p_event_id: eventId,
+    p_action: 'update',
+    p_edit_scope: 'this_occurrence',
+    p_patch: patch,
+    p_expected_version: expectedVersion,
+    p_expected_series_version: null,
+    p_request_id: mutationId,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_actor_account_id: context.accountId,
+    p_actor_person_id: context.personId,
+    p_scope_type: 'household',
+    p_scope_id: context.householdId,
+    p_payload_hash: hashIdempotencyRequestV2({
+      operation,
+      scopeType: 'household',
+      scopeId: context.householdId,
+      targetId: eventId,
+      payload: patch,
+      expectedVersion,
+      mutationId,
+    }),
+    p_operation: operation,
+  })
 
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
-    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
-  }
-
+  const event = result?.body?.data?.event ?? result
   recordPlannerActivity(context, {
     entityType: 'event',
-    entityId: data.id,
+    entityId: event.id,
     action: 'event.updated',
     previousState,
-    nextState: pickEventActivityState(data),
+    nextState: pickEventActivityState(event),
   }).catch(() => {})
 
-  return { event: data }
+  return { event }
 }
 
 const cancelEvent = async (context, eventId, expectedVersion, body = {}) => {
@@ -317,48 +313,38 @@ const cancelEvent = async (context, eventId, expectedVersion, body = {}) => {
     return { event: current }
   }
 
-  const previousStatus = current.status
-  const previousState = pickEventActivityState(current)
+  const operation = 'planner.events.v0.cancel'
+  const mutationId = canonicalMutationId(operation, eventId, crypto.randomUUID())
+  const idempotencyKey = canonicalIdempotencyKey(operation, eventId, { reason: body?.reason ?? null })
 
-  const query = context.client
-    .from('planner_events')
-    .update({
-      status: 'cancelled',
-      cancelled_at: new Date().toISOString(),
-      cancelled_by_member_id: context.membershipId,
-      cancelled_reason: body?.reason ?? null,
-      cancelled_from_status: previousStatus,
-    })
-    .eq('id', eventId)
-    .eq('household_id', context.householdId)
+  const result = await callV2Rpc(context, 'mutate_planner_event_v1', {
+    p_event_id: eventId,
+    p_action: 'cancel',
+    p_edit_scope: 'this_occurrence',
+    p_patch: { reason: body?.reason ?? null },
+    p_expected_version: expectedVersion,
+    p_expected_series_version: null,
+    p_request_id: mutationId,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_actor_account_id: context.accountId,
+    p_actor_person_id: context.personId,
+    p_scope_type: 'household',
+    p_scope_id: context.householdId,
+    p_payload_hash: hashIdempotencyRequestV2({
+      operation,
+      scopeType: 'household',
+      scopeId: context.householdId,
+      targetId: eventId,
+      payload: { reason: body?.reason ?? null },
+      expectedVersion,
+      mutationId,
+    }),
+    p_operation: operation,
+  })
 
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
-    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'event',
-    entityId: data.id,
-    action: 'event.cancelled',
-    previousState,
-    nextState: pickEventActivityState(data),
-    metadata: body?.reason ? { reason: body.reason } : null,
-  }).catch(() => {})
-
-  return { event: data }
+  const event = result?.body?.data?.event ?? result
+  return { event }
 }
 
 const reactivateEvent = async (context, eventId, expectedVersion) => {
@@ -373,51 +359,38 @@ const reactivateEvent = async (context, eventId, expectedVersion) => {
     return { event: current }
   }
 
-  const previousState = pickEventActivityState(current)
+  const operation = 'planner.events.v0.reactivate'
+  const mutationId = canonicalMutationId(operation, eventId, crypto.randomUUID())
+  const idempotencyKey = canonicalIdempotencyKey(operation, eventId, {})
 
-  const nextStatus = current.cancelled_from_status && current.cancelled_from_status !== 'cancelled'
-    ? current.cancelled_from_status
-    : 'scheduled'
+  const result = await callV2Rpc(context, 'mutate_planner_event_v1', {
+    p_event_id: eventId,
+    p_action: 'reactivate',
+    p_edit_scope: 'this_occurrence',
+    p_patch: {},
+    p_expected_version: expectedVersion,
+    p_expected_series_version: null,
+    p_request_id: mutationId,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_actor_account_id: context.accountId,
+    p_actor_person_id: context.personId,
+    p_scope_type: 'household',
+    p_scope_id: context.householdId,
+    p_payload_hash: hashIdempotencyRequestV2({
+      operation,
+      scopeType: 'household',
+      scopeId: context.householdId,
+      targetId: eventId,
+      payload: {},
+      expectedVersion,
+      mutationId,
+    }),
+    p_operation: operation,
+  })
 
-  const query = context.client
-    .from('planner_events')
-    .update({
-      status: nextStatus,
-      cancelled_at: null,
-      cancelled_by_member_id: null,
-      cancelled_reason: null,
-      cancelled_from_status: null,
-    })
-    .eq('id', eventId)
-    .eq('household_id', context.householdId)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
-    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'event',
-    entityId: data.id,
-    action: 'event.reactivated',
-    previousState,
-    nextState: pickEventActivityState(data),
-    metadata: { cancelled_from: current.cancelled_from_status ?? null },
-  }).catch(() => {})
-
-  return { event: data }
+  const event = result?.body?.data?.event ?? result
+  return { event }
 }
 
 const trashEvent = async (context, eventId, expectedVersion) => {
@@ -425,46 +398,42 @@ const trashEvent = async (context, eventId, expectedVersion) => {
   assertExpectedVersion(current.version, expectedVersion)
 
   if (current.trashed_at !== null) {
-    return { event: await getEventForTrashOperation(context.client, context.householdId, eventId) }
+    const existing = await getEventForTrashOperation(context.client, context.householdId, eventId)
+    return { event: existing }
   }
 
-  const previousState = pickEventActivityState(current)
+  const operation = 'planner.events.v0.trash'
+  const mutationId = canonicalMutationId(operation, eventId, crypto.randomUUID())
+  const idempotencyKey = canonicalIdempotencyKey(operation, eventId, {})
 
-  const query = context.client
-    .from('planner_events')
-    .update({
-      trashed_at: new Date().toISOString(),
-      trashed_by_member_id: context.membershipId,
-    })
-    .eq('id', eventId)
-    .eq('household_id', context.householdId)
+  const result = await callV2Rpc(context, 'mutate_planner_event_v1', {
+    p_event_id: eventId,
+    p_action: 'trash',
+    p_edit_scope: 'this_occurrence',
+    p_patch: {},
+    p_expected_version: expectedVersion,
+    p_expected_series_version: null,
+    p_request_id: mutationId,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_actor_account_id: context.accountId,
+    p_actor_person_id: context.personId,
+    p_scope_type: 'household',
+    p_scope_id: context.householdId,
+    p_payload_hash: hashIdempotencyRequestV2({
+      operation,
+      scopeType: 'household',
+      scopeId: context.householdId,
+      targetId: eventId,
+      payload: {},
+      expectedVersion,
+      mutationId,
+    }),
+    p_operation: operation,
+  })
 
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
-    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'event',
-    entityId: data.id,
-    action: 'event.trashed',
-    previousState,
-    nextState: pickEventActivityState(data),
-  }).catch(() => {})
-
-  return { event: data }
+  const event = result?.body?.data?.event ?? result
+  return { event }
 }
 
 const restoreEvent = async (context, eventId, expectedVersion) => {
@@ -475,43 +444,82 @@ const restoreEvent = async (context, eventId, expectedVersion) => {
     return { event: current }
   }
 
-  const previousState = pickEventActivityState(current)
+  const operation = 'planner.events.v0.restore'
+  const mutationId = canonicalMutationId(operation, eventId, crypto.randomUUID())
+  const idempotencyKey = canonicalIdempotencyKey(operation, eventId, {})
 
-  const query = context.client
+  const result = await callV2Rpc(context, 'mutate_planner_event_v1', {
+    p_event_id: eventId,
+    p_action: 'restore',
+    p_edit_scope: 'this_occurrence',
+    p_patch: {},
+    p_expected_version: expectedVersion,
+    p_expected_series_version: null,
+    p_request_id: mutationId,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_actor_account_id: context.accountId,
+    p_actor_person_id: context.personId,
+    p_scope_type: 'household',
+    p_scope_id: context.householdId,
+    p_payload_hash: hashIdempotencyRequestV2({
+      operation,
+      scopeType: 'household',
+      scopeId: context.householdId,
+      targetId: eventId,
+      payload: {},
+      expectedVersion,
+      mutationId,
+    }),
+    p_operation: operation,
+  })
+
+  const event = result?.body?.data?.event ?? result
+  return { event }
+}
+
+const getEventForTrashOperation = async (client, householdId, eventId) => {
+  const { data, error } = await client
     .from('planner_events')
-    .update({
-      trashed_at: null,
-      trashed_by_member_id: null,
-    })
+    .select('*')
     .eq('id', eventId)
-    .eq('household_id', context.householdId)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
+    .eq('household_id', householdId)
+    .maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
   }
 
   if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(409, 'Este evento cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
     throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
   }
 
-  recordPlannerActivity(context, {
-    entityType: 'event',
-    entityId: data.id,
-    action: 'event.restored',
-    previousState,
-    nextState: pickEventActivityState(data),
-  }).catch(() => {})
+  return data
+}
 
-  return { event: data }
+const getEventOrThrow = async (client, householdId, eventId) => {
+  const { data, error } = await client
+    .from('planner_events')
+    .select('*')
+    .eq('id', eventId)
+    .eq('household_id', householdId)
+    .is('trashed_at', null)
+    .maybeSingle()
+
+  if (error) {
+    throwSupabaseError(error)
+  }
+
+  if (!data) {
+    throw createHttpError(404, 'Evento no encontrado.', 'event_not_found')
+  }
+
+  return data
+}
+
+const getEventById = async (context, eventId) => {
+  const event = await getEventOrThrow(context.client, context.householdId, eventId)
+  return { event }
 }
 
 const createOccurrenceOverride = async (context, eventId, payload) => {
@@ -557,26 +565,40 @@ const createOccurrenceOverride = async (context, eventId, payload) => {
     created_by_person_id: context.personId,
   }
 
-  const { data, error } = await context.client
-    .from('planner_events')
-    .insert(overridePayload)
-    .select('*')
-    .single()
+  const operation = 'planner.events.v0.override_create'
+  const mutationId = canonicalMutationId(operation, eventId, crypto.randomUUID())
+  const idempotencyKey = canonicalIdempotencyKey(operation, eventId, overridePayload)
 
-  if (error) {
-    throwSupabaseError(error)
-  }
+  const result = await callV2Rpc(context, 'create_planner_event_v1', {
+    p_payload: overridePayload,
+    p_request_id: mutationId,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_actor_account_id: context.accountId,
+    p_actor_person_id: context.personId,
+    p_scope_type: 'household',
+    p_scope_id: context.householdId,
+    p_payload_hash: hashIdempotencyRequestV2({
+      operation,
+      scopeType: 'household',
+      scopeId: context.householdId,
+      payload: overridePayload,
+      mutationId,
+    }),
+    p_operation: operation,
+  })
 
+  const event = result?.body?.data?.event ?? result
   recordPlannerActivity(context, {
     entityType: 'event',
-    entityId: data.id,
+    entityId: event.id,
     action: 'event.override_created',
     previousState: null,
-    nextState: pickEventActivityState(data),
+    nextState: pickEventActivityState(event),
     metadata: { parent_event_id: eventId },
   }).catch(() => {})
 
-  return { event: data }
+  return { event }
 }
 
 module.exports = {

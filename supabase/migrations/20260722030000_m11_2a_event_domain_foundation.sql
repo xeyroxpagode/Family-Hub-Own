@@ -6,10 +6,14 @@
 begin;
 
 -- --------------------------------------------------------------------------
--- Canonical Event V1 extension columns. household_id remains NOT NULL because
--- V0 and audit_events require it. For personal events it is a compatibility /
--- audit anchor only; authorization is exclusively owner_person_id based.
+-- Canonical Event V1 extension columns. household_id becomes nullable so
+-- personal Events can exist without a household anchor. The
+-- planner_events_v1_owner_check constraint added below enforces that household
+-- Events still carry a household_id and personal Events never do.
 -- --------------------------------------------------------------------------
+
+alter table public.planner_events
+  alter column household_id drop not null;
 
 alter table public.planner_events
   add column if not exists scope text not null default 'household',
@@ -130,8 +134,8 @@ alter table public.planner_events
     check (scope in ('personal', 'household')),
   add constraint planner_events_v1_owner_check
     check (
-      (scope = 'personal' and owner_person_id is not null)
-      or (scope = 'household' and owner_person_id is null)
+      (scope = 'personal' and owner_person_id is not null and household_id is null)
+      or (scope = 'household' and owner_person_id is null and household_id is not null)
     ),
   add constraint planner_events_v1_lifecycle_check
     check (lifecycle in ('draft', 'scheduled', 'cancelled', 'trash')),
@@ -224,7 +228,7 @@ create table public.planner_event_series (
   id uuid primary key default gen_random_uuid(),
   scope text not null,
   owner_person_id uuid null references public.people(id) on delete cascade,
-  household_id uuid not null references public.households(id) on delete cascade,
+  household_id uuid null references public.households(id) on delete cascade,
   created_by_person_id uuid not null references public.people(id) on delete restrict,
   created_by_member_id uuid null references public.household_members(id) on delete set null,
   lifecycle text not null default 'active',
@@ -241,8 +245,8 @@ create table public.planner_event_series (
   updated_at timestamptz not null default now(),
   constraint planner_event_series_scope_check check (scope in ('personal', 'household')),
   constraint planner_event_series_owner_check check (
-    (scope = 'personal' and owner_person_id is not null)
-    or (scope = 'household' and owner_person_id is null)
+    (scope = 'personal' and owner_person_id is not null and household_id is null)
+    or (scope = 'household' and owner_person_id is null and household_id is not null)
   ),
   constraint planner_event_series_lifecycle_check
     check (lifecycle in ('active', 'paused', 'finalized', 'trash')),
@@ -442,8 +446,13 @@ declare
   v_parent_schedule_type text;
   v_parent_time_zone text;
 begin
-  select coalesce(h.timezone, 'UTC') into v_zone
-  from public.households h where h.id = new.household_id;
+  -- Resolve household timezone only when the row has a household anchor.
+  -- Personal Events have household_id null and use UTC for the legacy
+  -- starts_at/ends_at compatibility projection.
+  if new.household_id is not null then
+    select coalesce(h.timezone, 'UTC') into v_zone
+    from public.households h where h.id = new.household_id;
+  end if;
   v_zone := coalesce(v_zone, 'UTC');
 
   if tg_op = 'INSERT' then
@@ -455,6 +464,7 @@ begin
         raise exception 'event creator spoofing rejected' using errcode = '42501';
       end if;
       new.created_by_member_id := null;
+      new.household_id := null;
     else
       v_member_id := public.current_household_member_id(new.household_id);
       if v_person_id is not null and (
@@ -466,44 +476,46 @@ begin
       end if;
     end if;
   else
+    -- UPDATE: enforce ownership immutability. INSERT already validated creator/member
+    -- bindings; UPDATE must not allow scope/owner/household/creator drift.
     if new.scope is distinct from old.scope
-      or new.owner_person_id is distinct from old.owner_person_id
-      or new.household_id is distinct from old.household_id
-      or new.created_by_person_id is distinct from old.created_by_person_id
-      or new.created_by_member_id is distinct from old.created_by_member_id
-    then
-      raise exception 'event ownership is immutable' using errcode = '42501';
-    end if;
+        or new.owner_person_id is distinct from old.owner_person_id
+        or new.household_id is distinct from old.household_id
+        or new.created_by_person_id is distinct from old.created_by_person_id
+        or new.created_by_member_id is distinct from old.created_by_member_id
+      then
+        raise exception 'event ownership is immutable' using errcode = '42501';
+      end if;
 
-    if new.trashed_at is distinct from old.trashed_at then
-      if new.trashed_at is not null then
-        new.trashed_from_lifecycle := case when old.lifecycle = 'trash'
-          then old.trashed_from_lifecycle else old.lifecycle end;
-        new.lifecycle := 'trash';
-      elsif old.lifecycle = 'trash' then
-        new.lifecycle := old.trashed_from_lifecycle;
-        new.trashed_from_lifecycle := null;
+      if new.trashed_at is distinct from old.trashed_at then
+        if new.trashed_at is not null then
+          new.trashed_from_lifecycle := case when old.lifecycle = 'trash'
+            then old.trashed_from_lifecycle else old.lifecycle end;
+          new.lifecycle := 'trash';
+        elsif old.lifecycle = 'trash' then
+          new.lifecycle := old.trashed_from_lifecycle;
+          new.trashed_from_lifecycle := null;
+        end if;
+      elsif new.status is distinct from old.status then
+        if old.lifecycle <> 'trash' then
+          new.lifecycle := case when new.status = 'cancelled' then 'cancelled' else 'scheduled' end;
+          if new.status <> 'cancelled' then new.trashed_at := null; end if;
+        end if;
+      elsif new.lifecycle is distinct from old.lifecycle then
+        if new.lifecycle = 'trash' then
+          new.trashed_at := coalesce(new.trashed_at, now());
+          new.trashed_from_lifecycle := case when old.lifecycle = 'trash'
+            then old.trashed_from_lifecycle else old.lifecycle end;
+        elsif new.lifecycle = 'cancelled' then
+          new.status := 'cancelled';
+          new.trashed_at := null;
+          new.trashed_from_lifecycle := null;
+        else
+          new.status := 'scheduled';
+          new.trashed_at := null;
+          new.trashed_from_lifecycle := null;
+        end if;
       end if;
-    elsif new.status is distinct from old.status then
-      if old.lifecycle <> 'trash' then
-        new.lifecycle := case when new.status = 'cancelled' then 'cancelled' else 'scheduled' end;
-        if new.status <> 'cancelled' then new.trashed_at := null; end if;
-      end if;
-    elsif new.lifecycle is distinct from old.lifecycle then
-      if new.lifecycle = 'trash' then
-        new.trashed_at := coalesce(new.trashed_at, now());
-        new.trashed_from_lifecycle := case when old.lifecycle = 'trash'
-          then old.trashed_from_lifecycle else old.lifecycle end;
-      elsif new.lifecycle = 'cancelled' then
-        new.status := 'cancelled';
-        new.trashed_at := null;
-        new.trashed_from_lifecycle := null;
-      else
-        new.status := 'scheduled';
-        new.trashed_at := null;
-        new.trashed_from_lifecycle := null;
-      end if;
-    end if;
   end if;
 
   if new.all_day then new.schedule_type := 'all_day'; end if;
@@ -781,6 +793,9 @@ alter table public.planner_event_participants enable row level security;
 drop policy if exists "planner_events_select_active_household" on public.planner_events;
 drop policy if exists "planner_events_insert_active_household" on public.planner_events;
 drop policy if exists "planner_events_update_active_household" on public.planner_events;
+drop policy if exists "planner_events_select_v1_scope" on public.planner_events;
+drop policy if exists "planner_events_insert_v1_scope" on public.planner_events;
+drop policy if exists "planner_events_update_v1_scope" on public.planner_events;
 
 create policy "planner_events_select_v1_scope"
   on public.planner_events for select to authenticated
@@ -792,29 +807,10 @@ create policy "planner_events_select_v1_scope"
     )
   );
 
-create policy "planner_events_insert_v1_scope"
-  on public.planner_events for insert to authenticated
-  with check (
-    created_by_person_id = public.current_person_id()
-    and scope = 'household'
-    and owner_person_id is null
-    and created_by_member_id = public.current_household_member_id(household_id)
-    and public.planner_event_actor_has_capability(household_id, 'planner.view')
-    and public.planner_event_actor_has_capability(household_id, 'event.create_household')
-  );
-
-create policy "planner_events_update_v1_scope"
-  on public.planner_events for update to authenticated
-  using (
-    (scope = 'personal' and owner_person_id = public.current_person_id())
-    or public.planner_event_can_mutate(id, 'event.edit_own', 'event.edit_any')
-    or public.planner_event_can_mutate(id, 'event.cancel_own', 'event.cancel_any')
-  )
-  with check (
-    (scope = 'personal' and owner_person_id = public.current_person_id())
-    or public.planner_event_can_mutate(id, 'event.edit_own', 'event.edit_any')
-    or public.planner_event_can_mutate(id, 'event.cancel_own', 'event.cancel_any')
-  );
+-- Direct INSERT/UPDATE/DELETE on planner_events revoked for authenticated role.
+-- All mutations must go through V2 atomic RPCs (create_planner_event_v1,
+-- mutate_planner_event_v1, mutate_planner_event_participant_v1) which enforce
+-- idempotency, audit, scope authorization, and RLS via security definer.
 
 create policy "planner_event_series_select_v1"
   on public.planner_event_series for select to authenticated
@@ -883,10 +879,10 @@ create policy "planner_event_participants_update_v1"
 
 revoke insert, update, delete on public.planner_event_series from authenticated;
 revoke insert, update, delete on public.planner_event_participants from authenticated;
-revoke delete on public.planner_events from authenticated;
-grant select on public.planner_event_series to authenticated;
+revoke insert, update, delete on public.planner_events from authenticated;
+grant select on public.planner_event_series, public.planner_events to authenticated;
 grant select on public.planner_event_participants to authenticated;
-grant all on public.planner_event_series, public.planner_event_participants to service_role;
+grant all on public.planner_event_series, public.planner_event_participants, public.planner_events to service_role;
 
 -- --------------------------------------------------------------------------
 -- Canonical DTO projection and exactly-once Event audit/idempotency lookup.
@@ -1047,7 +1043,14 @@ grant execute on function public.planner_event_v1_dto(uuid) to authenticated, se
 create or replace function public.create_planner_event_v1(
   p_payload jsonb,
   p_request_id text,
-  p_mutation_id text
+  p_mutation_id text,
+  p_idempotency_key text default null,
+  p_actor_account_id uuid default null,
+  p_actor_person_id uuid default null,
+  p_scope_type text default null,
+  p_scope_id uuid default null,
+  p_payload_hash text default null,
+  p_operation text default null
 )
 returns jsonb
 language plpgsql
@@ -1055,11 +1058,19 @@ security definer
 set search_path = pg_catalog, public
 as $$
 declare
-  v_actor_account_id uuid := auth.uid();
-  v_actor_person_id uuid := public.current_person_id();
+  v_actor_account_id uuid := coalesce(p_actor_account_id, auth.uid());
+  v_actor_person_id uuid := coalesce(p_actor_person_id, public.current_person_id());
   v_household_id uuid;
   v_actor_member_id uuid;
-  v_scope text := coalesce(p_payload ->> 'scope', 'household');
+  v_scope text := coalesce(p_scope_type, p_payload ->> 'scope', 'household');
+  v_scope_id uuid := coalesce(p_scope_id, case when v_scope = 'household'
+    then coalesce((p_payload ->> 'householdId')::uuid,
+    (select active_household_id from public.people where id = v_actor_person_id)) end);
+  v_idempotency_key text := coalesce(p_idempotency_key, p_request_id);
+  v_mutation_id text := coalesce(p_mutation_id, p_request_id);
+  v_operation text := coalesce(p_operation, 'planner.events.v1.create');
+  v_payload_hash text;
+  v_reservation jsonb;
   v_lifecycle text := coalesce(p_payload ->> 'lifecycle', 'scheduled');
   v_schedule_type text := p_payload #>> '{scheduling,type}';
   v_start_date date;
@@ -1082,26 +1093,47 @@ begin
     raise exception 'authenticated actor required' using errcode = '42501';
   end if;
   if p_request_id is null or p_request_id !~ '^[A-Za-z0-9._:-]{1,128}$'
-    or p_mutation_id is null or p_mutation_id !~ '^[A-Za-z0-9._:-]{1,128}$'
+    or v_mutation_id is null or v_mutation_id !~ '^[A-Za-z0-9._:-]{1,128}$'
+    or coalesce(v_idempotency_key, v_mutation_id) !~ '^[A-Za-z0-9._:-]{1,128}$'
   then raise exception 'invalid mutation contract' using errcode = '22023'; end if;
 
+  -- Personal scope uses the authenticated person as owner; household scope
+  -- requires an active membership and event.create_household capability.
   if v_scope = 'personal' then
-    raise exception 'canonical personal idempotency contract unavailable' using errcode = '55000';
+    v_scope_id := v_actor_person_id;
+    v_household_id := null;
+    v_actor_member_id := null;
+  else
+    begin v_household_id := (p_payload ->> 'householdId')::uuid;
+    exception when others then raise exception 'invalid householdId' using errcode = '22023'; end;
+    if v_household_id is null then
+      select active_household_id into v_household_id
+      from public.people where id = v_actor_person_id;
+    end if;
+    if v_household_id is null then
+      raise exception 'a household is required for household scope' using errcode = '42501';
+    end if;
+    v_scope_id := v_household_id;
+    v_actor_member_id := public.current_household_member_id(v_household_id);
+    if v_actor_member_id is null
+      or not public.planner_event_actor_has_capability(v_household_id, 'planner.view')
+      or not public.planner_event_actor_has_capability(v_household_id, 'event.create_household')
+    then raise exception 'event creation forbidden' using errcode = '42501'; end if;
   end if;
 
-  begin v_household_id := (p_payload ->> 'householdId')::uuid;
-  exception when others then raise exception 'invalid householdId' using errcode = '22023'; end;
-  if v_household_id is null then
-    select active_household_id into v_household_id from public.people where id = v_actor_person_id;
+  -- Canonical payload hash recomputed server-side using the resolved scope.
+  v_payload_hash := coalesce(p_payload_hash, public.planner_canonical_request_hash_v2(
+    v_operation, v_scope, v_scope_id, null, p_payload, null, v_mutation_id));
+
+  -- V2 atomic reservation. Returns replay body if previously completed.
+  v_reservation := public.planner_v2_reserve_idempotency(
+    v_actor_account_id, v_actor_person_id,
+    v_scope, v_scope_id, v_operation, 'CREATE_IDEMPOTENT',
+    coalesce(v_idempotency_key, v_mutation_id), v_mutation_id, v_payload_hash, 30);
+
+  if (v_reservation ->> 'outcome') = 'replay' then
+    return (v_reservation -> 'response_body') || jsonb_build_object('outcome', 'replay');
   end if;
-  if v_household_id is null then
-    raise exception 'a compatibility household anchor is required' using errcode = '42501';
-  end if;
-  v_actor_member_id := public.current_household_member_id(v_household_id);
-  if v_actor_member_id is null
-    or not public.planner_event_actor_has_capability(v_household_id, 'planner.view')
-    or not public.planner_event_actor_has_capability(v_household_id, 'event.create_household')
-  then raise exception 'event creation forbidden' using errcode = '42501'; end if;
 
   if v_scope not in ('personal', 'household') then
     raise exception 'invalid event scope' using errcode = '22023';
@@ -1196,31 +1228,34 @@ begin
     v_actor_person_id, case when v_scope = 'household' then v_actor_member_id else null end
   ) returning * into v_event;
 
-  insert into public.audit_events (
-    household_id, actor_membership_id, actor_account_id, domain, action,
-    aggregate_type, aggregate_id, result, request_id, mutation_id,
-    metadata_version, metadata
-  ) values (
-    v_household_id, v_actor_member_id, v_actor_account_id, 'planner', 'event.created',
-    'event', v_event.id, 'succeeded', p_request_id, p_mutation_id, 1,
-    jsonb_build_object(
-      'entity_id', v_event.id, 'scope', v_scope
-    )
-  ) returning id into v_audit_id;
+  v_audit_id := public.planner_v2_append_audit(
+    v_actor_account_id, v_actor_person_id, v_scope, v_scope_id,
+    'planner', 'event.created', 'event', v_event.id, 'succeeded',
+    v_actor_member_id, p_request_id, v_mutation_id,
+    jsonb_build_object('entity_id', v_event.id, 'scope', v_scope));
 
-  -- Include the audit id in metadata for compact replay correlation.
   v_response := jsonb_build_object(
     'data', jsonb_build_object('event', public.planner_event_v1_dto(v_event.id)),
     'outcome', 'created', 'version', v_event.version,
     'operationId', p_mutation_id, 'auditEventId', v_audit_id
   );
+
+  perform public.planner_v2_complete_idempotency(
+    (v_reservation ->> 'idempotency_id')::uuid,
+    (v_reservation ->> 'lease_token')::uuid,
+    v_mutation_id, v_payload_hash, v_actor_account_id,
+    201, v_response, 'completed');
+
   return v_response;
 end;
 $$;
 
-revoke all on function public.create_planner_event_v1(jsonb, text, text) from public, anon;
-grant execute on function public.create_planner_event_v1(jsonb, text, text)
-  to authenticated, service_role;
+revoke all on function public.create_planner_event_v1(
+  jsonb, text, text, text, uuid, uuid, text, uuid, text, text
+) from public, anon;
+grant execute on function public.create_planner_event_v1(
+  jsonb, text, text, text, uuid, uuid, text, uuid, text, text
+) to authenticated, service_role;
 
 create or replace function public.apply_planner_event_patch_v1(
   p_event_id uuid,
@@ -1287,6 +1322,7 @@ begin
       description = case when p_patch ? 'description' then nullif(btrim(p_patch ->> 'description'), '') else description end,
       attendance_required = case when p_patch ? 'attendanceRequired'
         then (p_patch ->> 'attendanceRequired')::boolean else attendance_required end,
+      recurrence = case when p_patch ? 'recurrence' then nullif(btrim(p_patch ->> 'recurrence'), 'none') else recurrence end,
       schedule_type = case when v_schedule is not null then v_schedule_type else schedule_type end,
       all_day = case when v_schedule is not null then v_schedule_type = 'all_day' else all_day end,
       starts_at = case when v_schedule is not null then v_starts_at else starts_at end,
@@ -1325,7 +1361,14 @@ create or replace function public.mutate_planner_event_v1(
   p_expected_version integer,
   p_expected_series_version integer,
   p_request_id text,
-  p_mutation_id text
+  p_mutation_id text,
+  p_idempotency_key text default null,
+  p_actor_account_id uuid default null,
+  p_actor_person_id uuid default null,
+  p_scope_type text default null,
+  p_scope_id uuid default null,
+  p_payload_hash text default null,
+  p_operation text default null
 )
 returns jsonb
 language plpgsql
@@ -1333,8 +1376,8 @@ security definer
 set search_path = pg_catalog, public
 as $$
 declare
-  v_actor_account_id uuid := auth.uid();
-  v_actor_person_id uuid := public.current_person_id();
+  v_actor_account_id uuid := coalesce(p_actor_account_id, auth.uid());
+  v_actor_person_id uuid := coalesce(p_actor_person_id, public.current_person_id());
   v_actor_member_id uuid;
   v_event public.planner_events%rowtype;
   v_updated public.planner_events%rowtype;
@@ -1357,6 +1400,17 @@ declare
   v_new_day_span integer;
   v_non_temporal_patch jsonb;
   v_can_mutate boolean := false;
+  v_scope text;
+  v_scope_id uuid;
+  v_household_anchor_id uuid;
+  v_idempotency_key text := coalesce(p_idempotency_key, p_request_id);
+  v_mutation_id text := coalesce(p_mutation_id, p_request_id);
+  v_operation text := coalesce(p_operation, 'planner.events.v1.mutate');
+  v_payload_hash text;
+  v_reservation jsonb;
+  v_response jsonb;
+  v_new_version integer;
+  v_is_noop boolean := false;
 begin
   if v_actor_account_id is null or v_actor_person_id is null then
     raise exception 'authenticated actor required' using errcode = '42501';
@@ -1369,8 +1423,30 @@ begin
     raise exception 'invalid event edit scope' using errcode = '22023';
   end if;
   if p_request_id is null or p_request_id !~ '^[A-Za-z0-9._:-]{1,128}$'
-    or p_mutation_id is null or p_mutation_id !~ '^[A-Za-z0-9._:-]{1,128}$'
+    or v_mutation_id is null or v_mutation_id !~ '^[A-Za-z0-9._:-]{1,128}$'
+    or coalesce(v_idempotency_key, v_mutation_id) !~ '^[A-Za-z0-9._:-]{1,128}$'
   then raise exception 'invalid mutation contract' using errcode = '22023'; end if;
+
+  select * into v_event from public.planner_events where id = p_event_id for update;
+  if not found or not public.planner_event_can_view(p_event_id) then
+    raise exception 'event not found' using errcode = 'P0002';
+  end if;
+
+  -- Resolve scope from the event row. Personal events authorize by ownership;
+  -- household events require an active membership with the right capability.
+  v_scope := v_event.scope;
+  if v_scope = 'personal' then
+    v_scope_id := v_event.owner_person_id;
+    v_household_anchor_id := null;
+    v_actor_member_id := null;
+    if v_event.owner_person_id <> v_actor_person_id then
+      raise exception 'personal event mutation forbidden' using errcode = '42501';
+    end if;
+  else
+    v_scope_id := v_event.household_id;
+    v_household_anchor_id := v_event.household_id;
+    v_actor_member_id := public.current_household_member_id(v_event.household_id);
+  end if;
 
   v_audit_action := case
     when p_edit_scope = 'this_and_following' then 'event.series_split'
@@ -1382,45 +1458,74 @@ begin
       when 'reactivate' then 'reactivated' when 'trash' then 'trashed' when 'restore' then 'restored' end
   end;
 
-  select * into v_event from public.planner_events where id = p_event_id for update;
-  if not found or not public.planner_event_can_view(p_event_id) then
-    raise exception 'event not found' using errcode = 'P0002';
+  -- Canonical payload hash recomputed server-side from the resolved scope.
+  v_payload_hash := coalesce(p_payload_hash, public.planner_canonical_request_hash_v2(
+    v_operation, v_scope, v_scope_id, null, p_patch, null, v_mutation_id));
+
+  -- V2 atomic reservation. Returns replay body if previously completed.
+  -- CRITICAL: this must happen BEFORE the version check so that genuine replays
+  -- (same mutation_id + same payload hash) return the stored response even when
+  -- the event version has advanced since the first execution.
+  v_reservation := public.planner_v2_reserve_idempotency(
+    v_actor_account_id, v_actor_person_id,
+    v_scope, v_scope_id, v_operation, 'VERSIONED_MUTATION',
+    coalesce(v_idempotency_key, v_mutation_id), v_mutation_id, v_payload_hash, 30);
+
+  if (v_reservation ->> 'outcome') = 'replay' then
+    return (v_reservation -> 'response_body') || jsonb_build_object('outcome', 'replay');
   end if;
+
+  -- Fresh reservation: enforce version, authorization and lifecycle.
   if v_event.version <> p_expected_version then
     raise exception 'version conflict current=% expected=%', v_event.version, p_expected_version
       using errcode = '40001';
   end if;
 
-  if v_event.scope = 'personal' then
-    raise exception 'canonical personal idempotency contract unavailable' using errcode = '55000';
+  if v_scope = 'household' then
+    if p_action in ('update', 'schedule') then
+      v_can_mutate := public.planner_event_can_mutate(p_event_id, 'event.edit_own', 'event.edit_any');
+    else
+      v_can_mutate := public.planner_event_can_mutate(p_event_id, 'event.cancel_own', 'event.cancel_any');
+    end if;
+    if not v_can_mutate then raise exception 'event mutation forbidden' using errcode = '42501'; end if;
   end if;
-
-  v_actor_member_id := public.current_household_member_id(v_event.household_id);
-  if p_action in ('update', 'schedule') then
-    v_can_mutate := public.planner_event_can_mutate(p_event_id, 'event.edit_own', 'event.edit_any');
-  else
-    v_can_mutate := public.planner_event_can_mutate(p_event_id, 'event.cancel_own', 'event.cancel_any');
-  end if;
-  if not v_can_mutate then raise exception 'event mutation forbidden' using errcode = '42501'; end if;
 
   if p_edit_scope = 'this_occurrence' then
     if p_action = 'update' and v_event.lifecycle not in ('draft', 'scheduled') then
       raise exception 'event is not editable' using errcode = '55000';
     elsif p_action = 'schedule' and v_event.lifecycle = 'scheduled' then
-      return jsonb_build_object('data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
+      v_response := jsonb_build_object('data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
         'outcome', 'noop', 'version', v_event.version, 'operationId', p_mutation_id);
+      perform public.planner_v2_complete_idempotency(
+        (v_reservation ->> 'idempotency_id')::uuid,
+        (v_reservation ->> 'lease_token')::uuid,
+        v_mutation_id, v_payload_hash, v_actor_account_id,
+        200, v_response, 'completed');
+      return v_response;
     elsif p_action = 'schedule' and v_event.lifecycle <> 'draft' then
       raise exception 'only draft events can be scheduled' using errcode = '55000';
     elsif p_action = 'cancel' and v_event.lifecycle = 'cancelled' then
-      return jsonb_build_object('data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
+      v_response := jsonb_build_object('data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
         'outcome', 'noop', 'version', v_event.version, 'operationId', p_mutation_id);
+      perform public.planner_v2_complete_idempotency(
+        (v_reservation ->> 'idempotency_id')::uuid,
+        (v_reservation ->> 'lease_token')::uuid,
+        v_mutation_id, v_payload_hash, v_actor_account_id,
+        200, v_response, 'completed');
+      return v_response;
     elsif p_action = 'cancel' and v_event.lifecycle <> 'scheduled' then
       raise exception 'only scheduled events can be cancelled' using errcode = '55000';
     elsif p_action = 'reactivate' and v_event.lifecycle <> 'cancelled' then
       raise exception 'only cancelled events can be reactivated' using errcode = '55000';
     elsif p_action = 'trash' and v_event.lifecycle = 'trash' then
-      return jsonb_build_object('data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
+      v_response := jsonb_build_object('data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
         'outcome', 'noop', 'version', v_event.version, 'operationId', p_mutation_id);
+      perform public.planner_v2_complete_idempotency(
+        (v_reservation ->> 'idempotency_id')::uuid,
+        (v_reservation ->> 'lease_token')::uuid,
+        v_mutation_id, v_payload_hash, v_actor_account_id,
+        200, v_response, 'completed');
+      return v_response;
     elsif p_action = 'restore' and v_event.lifecycle <> 'trash' then
       raise exception 'only trashed events can be restored' using errcode = '55000';
     end if;
@@ -1676,39 +1781,51 @@ begin
 
   select * into v_updated from public.planner_events where id = p_event_id;
   if p_edit_scope = 'this_occurrence' and v_updated.version = v_event.version then
-    return jsonb_build_object(
+    v_response := jsonb_build_object(
       'data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
       'outcome', 'noop', 'version', v_updated.version, 'operationId', p_mutation_id
     );
+    perform public.planner_v2_complete_idempotency(
+      (v_reservation ->> 'idempotency_id')::uuid,
+      (v_reservation ->> 'lease_token')::uuid,
+      v_mutation_id, v_payload_hash, v_actor_account_id,
+      200, v_response, 'completed');
+    return v_response;
   end if;
-  insert into public.audit_events (
-    household_id, actor_membership_id, actor_account_id, domain, action,
-    aggregate_type, aggregate_id, result, request_id, mutation_id,
-    metadata_version, metadata
-  ) values (
-    v_event.household_id, v_actor_member_id, v_actor_account_id, 'planner', v_audit_action,
-    v_aggregate_type, v_aggregate_id, 'succeeded', p_request_id, p_mutation_id, 1,
+  v_audit_id := public.planner_v2_append_audit(
+    v_actor_account_id, v_actor_person_id, v_scope, v_scope_id,
+    'planner', v_audit_action, v_aggregate_type, v_aggregate_id, 'succeeded',
+    v_actor_member_id, p_request_id, v_mutation_id,
     jsonb_build_object(
       'entity_id', p_event_id, 'action', p_action,
       'edit_scope', p_edit_scope,
       'new_series_id', v_new_series_id
-    )
-  ) returning id into v_audit_id;
+    ));
 
-  return jsonb_build_object(
+  v_response := jsonb_build_object(
     'data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
     'outcome', case when v_updated.version = v_event.version then 'noop' else 'updated' end,
     'version', v_updated.version, 'operationId', p_mutation_id,
     'auditEventId', v_audit_id
   );
+
+  perform public.planner_v2_complete_idempotency(
+    (v_reservation ->> 'idempotency_id')::uuid,
+    (v_reservation ->> 'lease_token')::uuid,
+    v_mutation_id, v_payload_hash, v_actor_account_id,
+    200, v_response, 'completed');
+
+  return v_response;
 end;
 $$;
 
 revoke all on function public.apply_planner_event_patch_v1(uuid, jsonb) from public, anon, authenticated;
-revoke all on function public.mutate_planner_event_v1(uuid, text, text, jsonb, integer, integer, text, text)
-  from public, anon;
-grant execute on function public.mutate_planner_event_v1(uuid, text, text, jsonb, integer, integer, text, text)
-  to authenticated, service_role;
+revoke all on function public.mutate_planner_event_v1(
+  uuid, text, text, jsonb, integer, integer, text, text, text, uuid, uuid, text, uuid, text, text
+) from public, anon;
+grant execute on function public.mutate_planner_event_v1(
+  uuid, text, text, jsonb, integer, integer, text, text, text, uuid, uuid, text, uuid, text, text
+) to authenticated, service_role;
 
 create or replace function public.mutate_planner_event_participant_v1(
   p_event_id uuid,
@@ -1719,7 +1836,14 @@ create or replace function public.mutate_planner_event_participant_v1(
   p_expected_event_version integer,
   p_expected_participant_version integer,
   p_request_id text,
-  p_mutation_id text
+  p_mutation_id text,
+  p_idempotency_key text default null,
+  p_actor_account_id uuid default null,
+  p_actor_person_id uuid default null,
+  p_scope_type text default null,
+  p_scope_id uuid default null,
+  p_payload_hash text default null,
+  p_operation text default null
 )
 returns jsonb
 language plpgsql
@@ -1727,8 +1851,8 @@ security definer
 set search_path = pg_catalog, public
 as $$
 declare
-  v_actor_account_id uuid := auth.uid();
-  v_actor_person_id uuid := public.current_person_id();
+  v_actor_account_id uuid := coalesce(p_actor_account_id, auth.uid());
+  v_actor_person_id uuid := coalesce(p_actor_person_id, public.current_person_id());
   v_actor_member_id uuid;
   v_event public.planner_events%rowtype;
   v_participant public.planner_event_participants%rowtype;
@@ -1736,6 +1860,15 @@ declare
   v_audit_id uuid;
   v_can_manage boolean;
   v_event_version integer;
+  v_scope text;
+  v_scope_id uuid;
+  v_household_anchor_id uuid;
+  v_idempotency_key text := coalesce(p_idempotency_key, p_request_id);
+  v_mutation_id text := coalesce(p_mutation_id, p_request_id);
+  v_operation text := coalesce(p_operation, 'planner.events.v1.mutate_participant');
+  v_payload_hash text;
+  v_reservation jsonb;
+  v_response jsonb;
 begin
   if v_actor_account_id is null or v_actor_person_id is null then
     raise exception 'authenticated actor required' using errcode = '42501';
@@ -1747,26 +1880,61 @@ begin
     raise exception 'invalid participant action' using errcode = '22023';
   end if;
   if p_request_id is null or p_request_id !~ '^[A-Za-z0-9._:-]{1,128}$'
-    or p_mutation_id is null or p_mutation_id !~ '^[A-Za-z0-9._:-]{1,128}$'
+    or v_mutation_id is null or v_mutation_id !~ '^[A-Za-z0-9._:-]{1,128}$'
+    or coalesce(v_idempotency_key, v_mutation_id) !~ '^[A-Za-z0-9._:-]{1,128}$'
   then raise exception 'invalid mutation contract' using errcode = '22023'; end if;
 
   v_audit_action := case p_action when 'add' then 'event.participant_added'
     when 'rsvp' then 'event.rsvp_recorded' else 'event.attendance_recorded' end;
+
   select * into v_event from public.planner_events where id = p_event_id for update;
   if not found or not public.planner_event_can_view(p_event_id) then
     raise exception 'event not found' using errcode = 'P0002';
   end if;
+
+  -- Resolve scope from the event row. Personal events authorize by ownership;
+  -- household events require an active membership with manage_participants.
+  v_scope := v_event.scope;
+  if v_scope = 'personal' then
+    v_scope_id := v_event.owner_person_id;
+    v_household_anchor_id := null;
+    v_actor_member_id := null;
+    if v_event.owner_person_id <> v_actor_person_id then
+      raise exception 'personal event participant mutation forbidden' using errcode = '42501';
+    end if;
+    v_can_manage := true;
+  else
+    v_scope_id := v_event.household_id;
+    v_household_anchor_id := v_event.household_id;
+    v_actor_member_id := public.current_household_member_id(v_event.household_id);
+    v_can_manage := public.planner_event_can_mutate(p_event_id, 'event.manage_participants', 'event.manage_participants');
+  end if;
+
+  -- V2 payload hash + atomic reservation. Replay returns prior response.
+  v_payload_hash := coalesce(p_payload_hash, public.planner_canonical_request_hash_v2(
+    v_operation, v_scope, v_scope_id, null,
+    jsonb_build_object(
+      'eventId', p_event_id, 'action', p_action, 'personId', p_person_id,
+      'value', p_value, 'expectedEventVersion', p_expected_event_version,
+      'expectedParticipantVersion', p_expected_participant_version),
+    null, v_mutation_id));
+
+  -- CRITICAL: reserve BEFORE version check so genuine replays return stored
+  -- response even when the event version has advanced since first execution.
+  v_reservation := public.planner_v2_reserve_idempotency(
+    v_actor_account_id, v_actor_person_id,
+    v_scope, v_scope_id, v_operation, 'VERSIONED_MUTATION',
+    coalesce(v_idempotency_key, v_mutation_id), v_mutation_id, v_payload_hash, 30);
+
+  if (v_reservation ->> 'outcome') = 'replay' then
+    return (v_reservation -> 'response_body') || jsonb_build_object('outcome', 'replay');
+  end if;
+
+  -- Fresh reservation: enforce version on event.
   if v_event.version <> p_expected_event_version then
     raise exception 'version conflict current=% expected=%', v_event.version, p_expected_event_version
       using errcode = '40001';
   end if;
-  if v_event.scope = 'personal' then
-    raise exception 'canonical personal idempotency contract unavailable' using errcode = '55000';
-  end if;
-
-  v_actor_member_id := public.current_household_member_id(v_event.household_id);
-  v_can_manage := (v_event.scope = 'personal' and v_event.owner_person_id = v_actor_person_id)
-    or public.planner_event_can_mutate(p_event_id, 'event.manage_participants', 'event.manage_participants');
 
   select * into v_participant
   from public.planner_event_participants
@@ -1776,10 +1944,16 @@ begin
   if p_action = 'add' then
     if not v_can_manage then raise exception 'participant management forbidden' using errcode = '42501'; end if;
     if found then
-      return jsonb_build_object(
+      v_response := jsonb_build_object(
         'data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
-        'outcome', 'noop', 'version', v_event.version, 'operationId', p_mutation_id
+        'outcome', 'noop', 'version', v_event.version, 'operationId', v_mutation_id
       );
+      perform public.planner_v2_complete_idempotency(
+        (v_reservation ->> 'idempotency_id')::uuid,
+        (v_reservation ->> 'lease_token')::uuid,
+        v_mutation_id, v_payload_hash, v_actor_account_id,
+        200, v_response, 'completed');
+      return v_response;
     end if;
     insert into public.planner_event_participants (
       event_id, person_id, member_id, rsvp_status, attendance_status,
@@ -1803,10 +1977,16 @@ begin
       raise exception 'invalid RSVP' using errcode = '22023';
     end if;
     if v_participant.rsvp_status = p_value then
-      return jsonb_build_object(
+      v_response := jsonb_build_object(
         'data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
-        'outcome', 'noop', 'version', v_event.version, 'operationId', p_mutation_id
+        'outcome', 'noop', 'version', v_event.version, 'operationId', v_mutation_id
       );
+      perform public.planner_v2_complete_idempotency(
+        (v_reservation ->> 'idempotency_id')::uuid,
+        (v_reservation ->> 'lease_token')::uuid,
+        v_mutation_id, v_payload_hash, v_actor_account_id,
+        200, v_response, 'completed');
+      return v_response;
     end if;
     update public.planner_event_participants set rsvp_status = p_value
     where id = v_participant.id returning * into v_participant;
@@ -1826,10 +2006,16 @@ begin
       raise exception 'invalid attendance' using errcode = '22023';
     end if;
     if v_participant.attendance_status = p_value then
-      return jsonb_build_object(
+      v_response := jsonb_build_object(
         'data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
-        'outcome', 'noop', 'version', v_event.version, 'operationId', p_mutation_id
+        'outcome', 'noop', 'version', v_event.version, 'operationId', v_mutation_id
       );
+      perform public.planner_v2_complete_idempotency(
+        (v_reservation ->> 'idempotency_id')::uuid,
+        (v_reservation ->> 'lease_token')::uuid,
+        v_mutation_id, v_payload_hash, v_actor_account_id,
+        200, v_response, 'completed');
+      return v_response;
     end if;
     update public.planner_event_participants set attendance_status = p_value
     where id = v_participant.id returning * into v_participant;
@@ -1838,32 +2024,36 @@ begin
   -- Participant changes are part of the Event aggregate and advance its version.
   update public.planner_events set updated_at = now() where id = p_event_id returning version into v_event_version;
 
-  insert into public.audit_events (
-    household_id, actor_membership_id, actor_account_id, domain, action,
-    aggregate_type, aggregate_id, result, request_id, mutation_id,
-    metadata_version, metadata
-  ) values (
-    v_event.household_id, v_actor_member_id, v_actor_account_id, 'planner', v_audit_action,
-    'event_participant', v_participant.id, 'succeeded', p_request_id, p_mutation_id, 1,
+  v_audit_id := public.planner_v2_append_audit(
+    v_actor_account_id, v_actor_person_id, v_scope, v_scope_id,
+    'planner', v_audit_action, 'event_participant', v_participant.id, 'succeeded',
+    v_actor_member_id, p_request_id, v_mutation_id,
     jsonb_build_object(
       'entity_id', p_event_id, 'participant_id', v_participant.id,
       'participant_action', p_action
-    )
-  ) returning id into v_audit_id;
+    ));
 
-  return jsonb_build_object(
+  v_response := jsonb_build_object(
     'data', jsonb_build_object('event', public.planner_event_v1_dto(p_event_id)),
     'outcome', 'updated', 'version', v_event_version,
-    'operationId', p_mutation_id, 'auditEventId', v_audit_id
+    'operationId', v_mutation_id, 'auditEventId', v_audit_id
   );
+
+  perform public.planner_v2_complete_idempotency(
+    (v_reservation ->> 'idempotency_id')::uuid,
+    (v_reservation ->> 'lease_token')::uuid,
+    v_mutation_id, v_payload_hash, v_actor_account_id,
+    200, v_response, 'completed');
+
+  return v_response;
 end;
 $$;
 
 revoke all on function public.mutate_planner_event_participant_v1(
-  uuid, text, uuid, uuid, text, integer, integer, text, text
+  uuid, text, uuid, uuid, text, integer, integer, text, text, text, uuid, uuid, text, uuid, text, text
 ) from public, anon;
 grant execute on function public.mutate_planner_event_participant_v1(
-  uuid, text, uuid, uuid, text, integer, integer, text, text
+  uuid, text, uuid, uuid, text, integer, integer, text, text, text, uuid, uuid, text, uuid, text, text
 ) to authenticated, service_role;
 
 -- --------------------------------------------------------------------------

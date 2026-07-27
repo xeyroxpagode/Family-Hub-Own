@@ -11,8 +11,8 @@ const {
 } = require('../lib/plannerMutationContracts');
 const {
   requireIdempotencyKey,
-  hashIdempotencyRequest,
-  withIdempotency,
+  hashIdempotencyRequestV2,
+  invokeAtomicPlannerMutationV2,
 } = require('../lib/plannerIdempotencyAdapter');
 const { createHttpError, sendApiError } = require('../lib/httpErrors');
 
@@ -25,34 +25,19 @@ function requireUuid(value, field = 'id') {
   return value;
 }
 
-function rejectPersonalCanonicalIdempotencyGap() {
-  throw createHttpError(
-    503,
-    'Las mutaciones de eventos personales están temporalmente no disponibles.',
-    'personal_idempotency_contract_unavailable',
-  );
-}
-
 function canonicalMutationBody(result) {
   return result.replay && result.body && typeof result.body === 'object'
     ? { ...result.body, outcome: 'replay' }
     : result.body;
 }
 
-function mutationContract(req, operation, expectedVersion = null) {
+function mutationContractV2(req, operation) {
   const mutationId = requireMutationId(req);
   const idempotencyKey = requireIdempotencyKey(req);
   return {
     mutationId,
     idempotencyKey,
     requestId: req.requestId ?? mutationId,
-    requestHash: hashIdempotencyRequest({
-      method: req.method,
-      operation,
-      params: req.params ?? {},
-      body: req.body ?? {},
-      expectedVersion,
-    }),
   };
 }
 
@@ -78,23 +63,42 @@ async function createEventV1(req, res) {
   try {
     const context = await getEventV1Context(req);
     const operation = 'planner.events.v1.create';
-    const mutation = mutationContract(req, operation);
-    if (req.body?.scope === 'personal') rejectPersonalCanonicalIdempotencyGap();
-    const householdContext = await getEventV1HouseholdMutationContext(
-      context,
-      req.body?.householdId ?? context.householdId,
-    );
-    const result = await withIdempotency(
-      householdContext,
-      {
-        req,
-        operation,
-        idempotencyKey: mutation.idempotencyKey,
-        requestHash: mutation.requestHash,
-        successStatus: 201,
-      },
-      () => eventsV1.createEventV1(householdContext, req.body ?? {}, mutation),
-    );
+    const mutation = mutationContractV2(req, operation);
+    const scopeType = req.body?.scope ?? 'household';
+    const scopeId = scopeType === 'personal' ? context.personId : (req.body?.householdId ?? context.householdId);
+    if (!scopeId) throw createHttpError(400, 'scopeId required', 'validation_error');
+
+    const rpcAdapter = async (client) => {
+      const { data, error } = await client.rpc('create_planner_event_v1', {
+        p_payload: req.body ?? {},
+        p_request_id: mutation.requestId,
+        p_mutation_id: mutation.mutationId,
+        p_idempotency_key: mutation.idempotencyKey,
+        p_actor_account_id: context.accountId,
+        p_actor_person_id: context.personId,
+        p_scope_type: scopeType,
+        p_scope_id: scopeId,
+        p_payload_hash: null,
+        p_operation: operation,
+      });
+      if (error) throw error;
+      return data;
+    };
+
+    const result = await invokeAtomicPlannerMutationV2(context, {
+      idempotencyKey: mutation.idempotencyKey,
+      mutationId: mutation.mutationId,
+      operation,
+      operationClass: 'CREATE_IDEMPOTENT',
+      scopeType,
+      scopeId,
+      rpcAdapter,
+      payload: req.body ?? {},
+      expectedVersion: null,
+      targetId: null,
+      requestId: mutation.requestId,
+    });
+
     res.set('X-Mutation-Id', mutation.mutationId);
     return res.status(result.status).json(canonicalMutationBody(result));
   } catch (error) {
@@ -107,32 +111,53 @@ async function mutateEventV1(req, res) {
     const context = await getEventV1Context(req);
     const eventId = requireUuid(req.params.id);
     const identity = await eventsV1.getEventMutationIdentity(context, eventId);
-    if (identity.scope === 'personal') rejectPersonalCanonicalIdempotencyGap();
-    const householdContext = await getEventV1HouseholdMutationContext(context, identity.household_id);
+    const operation = `planner.events.v1.${req.body?.action ?? 'unknown'}`;
+    const mutation = mutationContractV2(req, operation);
     const expectedVersion = parseRequiredExpectedVersion(req);
     const action = req.body?.action;
-    const operation = `planner.events.v1.${action ?? 'unknown'}`;
-    const mutation = mutationContract(req, operation, expectedVersion);
-    const result = await withIdempotency(
-      householdContext,
-      {
-        req,
-        operation,
-        idempotencyKey: mutation.idempotencyKey,
-        requestHash: mutation.requestHash,
-        successStatus: 200,
-      },
-      () => eventsV1.mutateEventV1(
-        householdContext,
-        eventId,
-        action,
-        req.body?.edit_scope ?? 'this_occurrence',
-        req.body?.patch ?? {},
-        expectedVersion,
-        req.body?.expected_series_version ?? null,
-        mutation,
-      ),
-    );
+    const editScope = req.body?.edit_scope ?? 'this_occurrence';
+    const patch = req.body?.patch ?? {};
+    const expectedSeriesVersion = req.body?.expected_series_version ?? null;
+
+    const scopeType = identity.scope;
+    const scopeId = scopeType === 'personal' ? identity.owner_person_id : identity.household_id;
+
+    const rpcAdapter = async (client) => {
+      const { data, error } = await client.rpc('mutate_planner_event_v1', {
+        p_event_id: eventId,
+        p_action: action,
+        p_edit_scope: editScope,
+        p_patch: patch,
+        p_expected_version: expectedVersion,
+        p_expected_series_version: expectedSeriesVersion,
+        p_request_id: mutation.requestId,
+        p_mutation_id: mutation.mutationId,
+        p_idempotency_key: mutation.idempotencyKey,
+        p_actor_account_id: context.accountId,
+        p_actor_person_id: context.personId,
+        p_scope_type: scopeType,
+        p_scope_id: scopeId,
+        p_payload_hash: null,
+        p_operation: operation,
+      });
+      if (error) throw error;
+      return data;
+    };
+
+    const result = await invokeAtomicPlannerMutationV2(context, {
+      idempotencyKey: mutation.idempotencyKey,
+      mutationId: mutation.mutationId,
+      operation,
+      operationClass: 'UPDATE_IDEMPOTENT',
+      scopeType,
+      scopeId,
+      rpcAdapter,
+      payload: { action, editScope, patch, expectedVersion, expectedSeriesVersion },
+      expectedVersion,
+      targetId: eventId,
+      requestId: mutation.requestId,
+    });
+
     res.set('X-Mutation-Id', mutation.mutationId);
     return res.status(result.status).json(canonicalMutationBody(result));
   } catch (error) {
@@ -145,30 +170,53 @@ async function mutateParticipantV1(req, res) {
     const context = await getEventV1Context(req);
     const eventId = requireUuid(req.params.id);
     const identity = await eventsV1.getEventMutationIdentity(context, eventId);
-    if (identity.scope === 'personal') rejectPersonalCanonicalIdempotencyGap();
-    const householdContext = await getEventV1HouseholdMutationContext(context, identity.household_id);
-    const expectedVersion = parseRequiredExpectedVersion(req);
     const operation = `planner.events.v1.participants.${req.body?.action ?? 'unknown'}`;
-    const mutation = mutationContract(req, operation, expectedVersion);
+    const mutation = mutationContractV2(req, operation);
+    const expectedVersion = parseRequiredExpectedVersion(req);
+    const action = req.body?.action;
     requireUuid(req.body?.personId, 'personId');
     if (req.body?.memberId != null) requireUuid(req.body.memberId, 'memberId');
-    const result = await withIdempotency(
-      householdContext,
-      {
-        req,
-        operation,
-        idempotencyKey: mutation.idempotencyKey,
-        requestHash: mutation.requestHash,
-        successStatus: 200,
-      },
-      () => eventsV1.mutateParticipantV1(
-        householdContext,
-        eventId,
-        req.body ?? {},
-        expectedVersion,
-        mutation,
-      ),
-    );
+
+    const scopeType = identity.scope;
+    const scopeId = scopeType === 'personal' ? identity.owner_person_id : identity.household_id;
+
+    const rpcAdapter = async (client) => {
+      const { data, error } = await client.rpc('mutate_planner_event_participant_v1', {
+        p_event_id: eventId,
+        p_action: action,
+        p_person_id: req.body?.personId,
+        p_member_id: req.body?.memberId ?? null,
+        p_value: req.body?.value ?? null,
+        p_expected_event_version: expectedVersion,
+        p_expected_participant_version: req.body?.expected_participant_version ?? null,
+        p_request_id: mutation.requestId,
+        p_mutation_id: mutation.mutationId,
+        p_idempotency_key: mutation.idempotencyKey,
+        p_actor_account_id: context.accountId,
+        p_actor_person_id: context.personId,
+        p_scope_type: scopeType,
+        p_scope_id: scopeId,
+        p_payload_hash: null,
+        p_operation: operation,
+      });
+      if (error) throw error;
+      return data;
+    };
+
+    const result = await invokeAtomicPlannerMutationV2(context, {
+      idempotencyKey: mutation.idempotencyKey,
+      mutationId: mutation.mutationId,
+      operation,
+      operationClass: 'UPDATE_IDEMPOTENT',
+      scopeType,
+      scopeId,
+      rpcAdapter,
+      payload: { action, personId: req.body?.personId, value: req.body?.value, expectedVersion },
+      expectedVersion,
+      targetId: eventId,
+      requestId: mutation.requestId,
+    });
+
     res.set('X-Mutation-Id', mutation.mutationId);
     return res.status(result.status).json(canonicalMutationBody(result));
   } catch (error) {

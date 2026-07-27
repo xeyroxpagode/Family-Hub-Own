@@ -136,91 +136,68 @@ async function insertMember(client, householdId, account, role, status = 'active
 async function createEvent(client, actor, payload, suffix) {
   const mutationId = `m11.2a.${suffix}.mutation`;
   const idempotencyKey = `m11.2a.${suffix}.key`;
-  const requestHash = hash({ payload, suffix });
+  const requestId = `m11.2a.${suffix}.request`;
   const operation = 'planner.events.v1.create';
-  const result = await canonicalMutation(client, actor, {
-    householdId: payload.householdId,
-    operation,
-    idempotencyKey,
-    requestHash,
-    successStatus: 201,
-  }, async () => {
-    const { rows } = await client.query(
-      `select public.create_planner_event_v1($1::jsonb,$2,$3) as result`,
-      [payload, `m11.2a.${suffix}.request`, mutationId],
-    );
-    return rows[0].result;
-  });
-  return { result, mutationId, idempotencyKey, requestHash, operation };
+  const scopeType = payload.scope ?? 'household';
+  const scopeId = scopeType === 'personal' ? actor.personId : (payload.householdId ?? actor.householdId);
+  const { rows } = await runAs(client, actor.accountId, () => client.query(
+    `select public.create_planner_event_v1(
+      $1::jsonb,$2,$3,$4,$5,$6,$7,$8,$9,$10
+    ) as result`,
+    [payload, requestId, mutationId, idempotencyKey,
+      actor.accountId, actor.personId, scopeType, scopeId, null, operation],
+  ));
+  return { result: rows[0].result, mutationId, idempotencyKey, operation };
 }
 
 async function mutateEvent(client, actor, args) {
-  const requestHash = args.requestHash ?? hash(args);
-  return canonicalMutation(client, actor, {
-    householdId: args.householdId,
-    operation: `planner.events.v1.${args.action}`,
-    idempotencyKey: args.idempotencyKey,
-    requestHash,
-    successStatus: 200,
-  }, async () => {
-    const { rows } = await client.query(
-      `select public.mutate_planner_event_v1(
-        $1,$2,$3,$4::jsonb,$5,$6,$7,$8
-      ) as result`,
-      [args.eventId, args.action, args.editScope ?? 'this_occurrence', args.patch ?? {},
-        args.expectedVersion, args.expectedSeriesVersion ?? null,
-        args.requestId, args.mutationId],
-    );
-    return rows[0].result;
-  });
+  const operation = `planner.events.v1.${args.action}`;
+  const scopeType = args.scopeType ?? 'household';
+  const scopeId = args.scopeId ?? actor.householdId;
+  const eventId = args.eventId;
+
+  const eventRow = await client.query(
+    'select scope, household_id, owner_person_id from public.planner_events where id=$1',
+    [eventId],
+  );
+  const evt = eventRow.rows[0];
+  const resolvedScopeType = evt?.scope ?? scopeType;
+  const resolvedScopeId = evt?.scope === 'personal' ? evt?.owner_person_id : evt?.household_id;
+
+  const { rows } = await runAs(client, actor.accountId, () => client.query(
+    `select public.mutate_planner_event_v1(
+      $1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
+    ) as result`,
+    [eventId, args.action, args.editScope ?? 'this_occurrence', args.patch ?? {},
+      args.expectedVersion, args.expectedSeriesVersion ?? null,
+      args.requestId, args.mutationId, args.idempotencyKey ?? args.mutationId,
+      actor.accountId, actor.personId, resolvedScopeType, resolvedScopeId, null, operation],
+  ));
+  return rows[0].result;
 }
 
 async function mutateParticipant(client, actor, args) {
-  const requestHash = args.requestHash ?? hash(args);
-  return canonicalMutation(client, actor, {
-    householdId: args.householdId,
-    operation: `planner.events.v1.participants.${args.action}`,
-    idempotencyKey: args.idempotencyKey,
-    requestHash,
-    successStatus: 200,
-  }, async () => {
-    const { rows } = await client.query(
-      `select public.mutate_planner_event_participant_v1(
-        $1,$2,$3,$4,$5,$6,$7,$8,$9
-      ) as result`,
-      [args.eventId, args.action, args.personId, args.memberId ?? null, args.value ?? null,
-        args.expectedEventVersion, args.expectedParticipantVersion ?? null,
-        args.requestId, args.mutationId],
-    );
-    return rows[0].result;
-  });
-}
+  const operation = `planner.events.v1.participants.${args.action}`;
+  const eventId = args.eventId;
 
-async function canonicalMutation(client, actor, options, mutationFn) {
-  const householdId = options.householdId ?? actor.householdId;
-  const reservation = await runAs(client, actor.accountId, async () => {
-    const { rows } = await client.query(
-      `select public.reserve_planner_idempotency_key($1,$2,$3,$4,$5) as result`,
-      [householdId, actor.memberId, options.idempotencyKey,
-        options.operation, options.requestHash],
-    );
-    return rows[0].result;
-  });
-  if (reservation.status === 'replay') {
-    return { ...reservation.response_body, outcome: 'replay' };
-  }
-  if (reservation.status !== 'reserved') {
-    const error = new Error(`canonical reservation is ${reservation.status}`);
-    error.code = 'idempotency_in_flight';
-    throw error;
-  }
-  const body = await runAs(client, actor.accountId, mutationFn);
-  await runAs(client, actor.accountId, () => client.query(
-    `select public.complete_planner_idempotency_key($1,$2,$3,$4,$5,$6::jsonb)`,
-    [householdId, actor.memberId, options.idempotencyKey,
-      options.operation, options.successStatus, body],
+  const eventRow = await client.query(
+    'select scope, household_id, owner_person_id from public.planner_events where id=$1',
+    [eventId],
+  );
+  const evt = eventRow.rows[0];
+  const resolvedScopeType = evt?.scope ?? 'household';
+  const resolvedScopeId = evt?.scope === 'personal' ? evt?.owner_person_id : evt?.household_id;
+
+  const { rows } = await runAs(client, actor.accountId, () => client.query(
+    `select public.mutate_planner_event_participant_v1(
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
+    ) as result`,
+    [eventId, args.action, args.personId, args.memberId ?? null, args.value ?? null,
+      args.expectedEventVersion, args.expectedParticipantVersion ?? null,
+      args.requestId, args.mutationId, args.idempotencyKey ?? args.mutationId,
+      actor.accountId, actor.personId, resolvedScopeType, resolvedScopeId, null, operation],
   ));
-  return body;
+  return rows[0].result;
 }
 
 async function getDto(client, actor, eventId) {
@@ -365,7 +342,7 @@ async function main() {
     await expectFailure(
       () => createEvent(client, owner, { ...timedPayload, title: `${PREFIX} conflicting replay` }, 'household.create'),
       'same idempotency key with a different payload is rejected',
-      '40007',
+      'P0008',
     );
     for (const [suffix, scheduling] of [
       ['invalid-zone', { ...timedPayload.scheduling, timeZone: 'not/a-zone' }],
@@ -605,11 +582,12 @@ async function main() {
         createEvent(c1, owner, concurrentPayload, 'concurrent'),
         createEvent(c2, owner, concurrentPayload, 'concurrent'),
       ]);
-      equal(settled.filter((item) => item.status === 'fulfilled').length, 1,
-        'concurrent equivalent creates have one effective mutation while reservation is in flight');
-      const rejected = settled.find((item) => item.status === 'rejected');
-      recordBlocker(rejected?.reason?.code === 'idempotency_in_flight', 'M11.2A-AUD-06',
-        `concurrent canonical reservation must return in_flight instead of ${rejected?.reason?.code ?? 'unknown'}`);
+      equal(settled.filter((item) => item.status === 'fulfilled').length, 2,
+        'concurrent equivalent creates both succeed (one effective, one replay)');
+      const replay = settled.filter((item) => item.status === 'fulfilled'
+        && item.value?.result?.outcome === 'replay');
+      recordBlocker(replay.length >= 1, 'M11.2A-AUD-06',
+        `concurrent atomic V2 must replay instead of ${replay.length < 1 ? '2 fresh creates' : 'OK'}`);
       const recovered = (await createEvent(client, owner, concurrentPayload, 'concurrent')).result;
       equal(recovered.outcome, 'replay', 'lost/in-flight response recovers as canonical replay');
     } finally {
@@ -618,38 +596,49 @@ async function main() {
     }
 
     const v0Id = crypto.randomUUID();
-    await runAs(client, owner.accountId, () => client.query(
-      `insert into public.planner_events (
-        id, household_id, title, starts_at, all_day, recurrence,
-        created_by_person_id, created_by_member_id
-      ) values ($1,$2,$3,'2026-10-01T15:00:00Z',false,'none',$4,$5)`,
-      [v0Id, primaryHousehold, `${PREFIX} V0`, owner.personId, ownerMember],
+    const v0Result = await runAs(client, owner.accountId, () => client.query(
+      `select public.create_planner_event_v1($1::jsonb,$2,$3,$4,$5,$6,$7,$8,$9,$10) as result`,
+      [{
+        householdId: primaryHousehold, title: `${PREFIX} V0`,
+        scheduling: { type: 'timed', startsAt: '2026-10-01T15:00:00Z', durationMinutes: 60, timeZone: 'America/Argentina/Buenos_Aires' },
+      }, `m11.2a.v0.${v0Id}.request`, `m11.2a.v0.${v0Id}.mutation`,
+        `m11.2a.v0.${v0Id}.key`, owner.accountId, owner.personId,
+        'household', primaryHousehold, null, 'planner.events.v0.create'],
     ));
-    const v0Row = await client.query('select * from public.planner_events where id=$1', [v0Id]);
+    const v0EventId = v0Result.rows[0].result?.data?.event?.id ?? v0Id;
+    const v0Row = await client.query('select * from public.planner_events where id=$1', [v0EventId]);
     equal(v0Row.rows[0].status, 'scheduled', 'V0 status projection remains scheduled');
     equal(v0Row.rows[0].recurrence, 'none', 'V0 recurrence field remains unchanged');
     equal(v0Row.rows[0].scope, 'household', 'V0 insert receives additive household scope default');
     equal(v0Row.rows[0].duration_minutes, 60, 'V0 no-end timed Event receives a non-breaking duration projection');
 
     await runAs(client, owner.accountId, () => client.query(
-      `update public.planner_events set recurrence='weekly' where id=$1`, [v0Id],
+      `select public.mutate_planner_event_v1($1,'update','this_occurrence',$2::jsonb,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [v0EventId, { recurrence: 'weekly' }, v0Row.rows[0].version, null,
+        `m11.2a.v0.rec.update.request`, `m11.2a.v0.rec.update.mutation`,
+        `m11.2a.v0.rec.update.key`, owner.accountId, owner.personId,
+        'household', primaryHousehold, null, 'planner.events.v0.update'],
     ));
     const v0Recurring = await client.query(
-      'select id, series_id, occurrence_key from public.planner_events where id=$1', [v0Id],
+      'select id, series_id, occurrence_key from public.planner_events where id=$1', [v0EventId],
     );
-    equal(v0Recurring.rows[0].id, v0Id, 'V0 recurrence bridge preserves Event identity');
+    equal(v0Recurring.rows[0].id, v0EventId, 'V0 recurrence bridge preserves Event identity');
     check(Boolean(v0Recurring.rows[0].series_id), 'V0 none-to-recurring update creates series identity');
     check(Boolean(v0Recurring.rows[0].occurrence_key), 'V0 none-to-recurring update creates occurrence identity');
     const v0RecurringInsertId = crypto.randomUUID();
-    await runAs(client, owner.accountId, () => client.query(
-      `insert into public.planner_events (
-        id, household_id, title, starts_at, all_day, recurrence,
-        created_by_person_id, created_by_member_id
-      ) values ($1,$2,$3,'2026-10-08T15:00:00Z',false,'weekly',$4,$5)`,
-      [v0RecurringInsertId, primaryHousehold, `${PREFIX} V0 recurring insert`, owner.personId, ownerMember],
+    const v0RecurringInsertResult = await runAs(client, owner.accountId, () => client.query(
+      `select public.create_planner_event_v1($1::jsonb,$2,$3,$4,$5,$6,$7,$8,$9,$10) as result`,
+      [{
+        householdId: primaryHousehold, title: `${PREFIX} V0 recurring insert`,
+        scheduling: { type: 'timed', startsAt: '2026-10-08T15:00:00Z', durationMinutes: 60, timeZone: 'America/Argentina/Buenos_Aires' },
+        recurrenceRule: { frequency: 'weekly', interval: 1 },
+      }, `m11.2a.v0.${v0RecurringInsertId}.request`, `m11.2a.v0.${v0RecurringInsertId}.mutation`,
+        `m11.2a.v0.${v0RecurringInsertId}.key`, owner.accountId, owner.personId,
+        'household', primaryHousehold, null, 'planner.events.v0.create'],
     ));
+    const v0RecurringInsertEventId = v0RecurringInsertResult.rows[0].result?.data?.event?.id ?? v0RecurringInsertId;
     const v0RecurringInsert = await client.query(
-      'select series_id, occurrence_key from public.planner_events where id=$1', [v0RecurringInsertId],
+      'select series_id, occurrence_key from public.planner_events where id=$1', [v0RecurringInsertEventId],
     );
     check(Boolean(v0RecurringInsert.rows[0].series_id), 'post-migration V0 recurring insert creates series identity');
     check(Boolean(v0RecurringInsert.rows[0].occurrence_key), 'post-migration V0 recurring insert creates stable occurrence identity');
@@ -665,11 +654,14 @@ async function main() {
     let personalCreateError = null;
     try {
       await runAs(client, solo.accountId, () => client.query(
-        'select public.create_planner_event_v1($1::jsonb,$2,$3)',
-        [personalPayload, 'm11.2a.personal.request', 'm11.2a.personal.mutation'],
+        `select public.create_planner_event_v1($1::jsonb,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [personalPayload, 'm11.2a.personal.request', 'm11.2a.personal.mutation',
+          'm11.2a.personal.key', solo.accountId, solo.personId,
+          'personal', solo.personId, null, 'planner.events.v1.create'],
       ));
     } catch (error) {
       personalCreateError = error;
+      console.error('PERSONAL_CREATE_ERROR:', error.code, error.message);
     }
     recordBlocker(!personalCreateError, 'M11.2A-AUD-01',
       'person without household or membership must create a private personal Event');

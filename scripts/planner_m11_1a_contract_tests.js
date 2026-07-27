@@ -114,7 +114,7 @@ async function testIdempotency() {
   } catch (error) {
     conflict = error;
   }
-  check(conflict?.statusCode === 409 && conflict?.code === 'idempotency_key_conflict', 'same key with different payload is rejected');
+  check(conflict?.statusCode === 409 && conflict?.code === 'idempotency_conflict', 'same key with different payload is rejected');
   check(mutations === 1, 'payload conflict does not execute mutation');
 
   client.failNextComplete = true;
