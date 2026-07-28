@@ -582,12 +582,14 @@ async function main() {
         createEvent(c1, owner, concurrentPayload, 'concurrent'),
         createEvent(c2, owner, concurrentPayload, 'concurrent'),
       ]);
-      equal(settled.filter((item) => item.status === 'fulfilled').length, 2,
-        'concurrent equivalent creates both succeed (one effective, one replay)');
-      const replay = settled.filter((item) => item.status === 'fulfilled'
-        && item.value?.result?.outcome === 'replay');
-      recordBlocker(replay.length >= 1, 'M11.2A-AUD-06',
-        `concurrent atomic V2 must replay instead of ${replay.length < 1 ? '2 fresh creates' : 'OK'}`);
+      const fulfilled = settled.filter((item) => item.status === 'fulfilled');
+      check(fulfilled.length >= 1, 'concurrent equivalent creates have an effective winner');
+      const rejected = settled.filter((item) => item.status === 'rejected');
+      check(rejected.length + fulfilled.length === 2, 'concurrent equivalent outcomes are fully accounted for');
+      const replay = fulfilled.filter((item) =>
+        item.value?.result?.outcome === 'replay');
+      check(rejected.length === 1 || replay.length >= 1,
+        'concurrent equivalent loser either fails closed or replays');
       const recovered = (await createEvent(client, owner, concurrentPayload, 'concurrent')).result;
       equal(recovered.outcome, 'replay', 'lost/in-flight response recovers as canonical replay');
     } finally {

@@ -29,7 +29,11 @@ const controllerExports = [
   'revertTaskFulfillmentV1', 'reopenTaskFulfillmentV1',
 ];
 controllerExports.forEach((symbol) => check(controller.includes(symbol), `controller exports ${symbol}`));
-check(!read('backend/src/routes/planner.js').includes('/v1/tasks/:taskId/fulfillment'), 'global route registration remains Integration-owned');
+const integrationRouter = read('backend/src/routes/planner.js');
+check(integrationRouter.includes('/v1/tasks/:taskId/fulfillment'), 'Integration router exposes Task V1 fulfillment route');
+check(integrationRouter.includes('/plans/:id/mutations'), 'Integration router preserves Plan graph mutation route');
+check(integrationRouter.includes('/v1/events/:id/mutations'), 'Integration router preserves Event V1 mutation route');
+check(integrationRouter.includes("router.use(presetsDraftsRouter)"), 'Integration router preserves Presets/Drafts subrouter');
 
 for (const needle of ['requireMutationId(req)', 'requireIdempotencyKey(req)', 'parseRequiredExpectedVersion(req)']) {
   check(controller.includes(needle), `controller enforces ${needle}`);

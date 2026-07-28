@@ -457,6 +457,7 @@ module.exports = {
   mapRpcError,
 
   // V2 shared exports
+  canonicalizeV2Value,
   hashIdempotencyRequestV2,
   invokeAtomicPlannerMutationV2,
   mapV2RpcError,

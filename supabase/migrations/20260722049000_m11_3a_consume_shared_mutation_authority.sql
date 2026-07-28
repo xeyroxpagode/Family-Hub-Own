@@ -13,6 +13,10 @@ begin;
 -- Recreate write_planner_plan_graph_rpc with V2 atomic idempotency consumption
 -- --------------------------------------------------------------------------
 
+drop function if exists public.write_planner_plan_graph_rpc(
+  text,text,text,text,text,uuid,uuid,integer,integer,jsonb,text,boolean,text
+);
+
 create or replace function public.write_planner_plan_graph_rpc(
   p_mutation_id text,
   p_idempotency_key text,
@@ -46,6 +50,7 @@ declare
   v_transition text;
   v_new_id uuid;
   v_action_name text;
+  v_canonical_operation text;
   v_classification text;
   v_scope text;
   v_household_id uuid;
@@ -606,7 +611,7 @@ begin
       else
         select * into v_requirement from public.planner_plan_requirements where id=p_entity_id and plan_id=v_plan.id for update;
         if not found then raise exception 'Requirement not found' using errcode='P0002'; end if;
-        if p_expected_version is null then raise exception 'expected version required' using errcode='22023'; end if.
+        if p_expected_version is null then raise exception 'expected version required' using errcode='22023'; end if;
         if v_requirement.version <> p_expected_version then
           raise exception 'Requirement version conflict' using errcode='40007',
             detail=jsonb_build_object('current',v_requirement.version,'expected',p_expected_version,'resource','node')::text;
@@ -636,7 +641,7 @@ begin
           if v_requirement.trashed_at is not null then v_outcome := 'noop'; else
             if exists (select 1 from public.planner_plan_requirements where parent_requirement_id=v_requirement.id and trashed_at is null) then
               raise exception 'Requirement with active children cannot be trashed' using errcode='55000';
-            end if.
+            end if;
             update public.planner_plan_requirements set trashed_at=now(),trashed_by_person_id=v_actor_person_id,
               trashed_by_member_id=v_actor_member_id where id=v_requirement.id returning * into v_requirement;
             v_outcome := 'updated';

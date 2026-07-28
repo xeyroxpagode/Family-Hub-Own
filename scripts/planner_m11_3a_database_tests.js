@@ -341,16 +341,16 @@ async function main() {
     check(operationCount.rows[0].count === 0, 'household operation does not use the personal Plan ledger');
     const canonicalOperationCount = await client.query(
       `select count(*)::int as count from public.planner_idempotency_keys
-       where household_id=$1 and actor_member_id=$2 and idempotency_key=$3
+       where household_id=$1 and actor_person_id=$2 and idempotency_key=$3
          and operation='planner.plans.plan.create' and response_status=201`,
-      [householdId, ownerMemberId, householdOperation],
+      [householdId, owner.personId, householdOperation],
     );
     check(canonicalOperationCount.rows[0].count === 1, 'household operation is persisted in canonical idempotency');
     const auditCount = await client.query(`select count(*)::int as count from public.audit_events where household_id=$1 and mutation_id=$2 and action='plan.created'`, [householdId, householdOperation]);
     check(auditCount.rows[0].count === 1, 'household Plan create audits exactly once');
     await expectFailure(
       () => createPlan(client, owner, { ...householdPayload, objective: `${PREFIX} conflict` }, householdOperation),
-      'same operation with different payload is rejected', '40007',
+      'same operation with different payload is rejected', 'P0008',
     );
     check((await readGraph(client, peer, household.data.id)) === null, 'peer cannot read a creator-private household Draft');
     check((await readGraph(client, peerCoordinator, household.data.id)) === null, 'another coordinator cannot read a creator-private household Draft');
@@ -414,8 +414,12 @@ async function main() {
           expectedPlanVersion: concurrentPlanVersionRefreshed,
           payload: { label: 'Concurrente B', classification: 'supporting' } }),
       ]);
-      check(concurrent.filter((item) => item.status === 'fulfilled').length === 1
-        && concurrent.filter((item) => item.status === 'rejected' && item.reason?.code === '40007').length === 1,
+      const concurrentWinners = concurrent.filter((item) => item.status === 'fulfilled' && !item.value?.__planError).length;
+      const concurrentConflicts = concurrent.filter((item) => (
+        (item.status === 'rejected' && item.reason?.code === '40007')
+        || (item.status === 'fulfilled' && item.value?.__planError === true && item.value?.status === 412)
+      )).length;
+      check(concurrentWinners === 1 && concurrentConflicts === 1,
       'parallel structural writes from one Plan version produce one winner and one conflict');
     } finally {
       await concurrentClientA.end();

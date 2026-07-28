@@ -1,15 +1,10 @@
 'use strict';
 
 const express = require('express');
-const authFinalMiddleware = require('../middleware/authFinalMiddleware');
 const presetsController = require('../controllers/planner.presets.controller');
 const draftsController = require('../controllers/planner.drafts.controller');
-const { plannerObservabilityMiddleware } = require('../lib/plannerObservability');
 
 const router = express.Router();
-
-router.use(authFinalMiddleware);
-router.use(plannerObservabilityMiddleware);
 
 router.get('/presets', presetsController.listPresets);
 router.post('/presets', presetsController.createPreset);

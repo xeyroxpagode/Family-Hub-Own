@@ -232,8 +232,6 @@ async function writePlanGraph(context, input) {
     p_expected_plan_version: input.expectedPlanVersion ?? null,
     p_payload: input.payload ?? {},
     p_request_id: input.requestId ?? null,
-    p_canonical_reserved: input.canonicalReserved === true,
-    p_canonical_operation: input.canonicalOperation ?? null,
   });
   if (error) throw mapPlanRpcError(error);
   if (data?.__planError === true) {

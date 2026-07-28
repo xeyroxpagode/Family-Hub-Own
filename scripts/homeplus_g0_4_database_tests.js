@@ -157,10 +157,13 @@ async function main() {
     );
     check(correlated.rows[0].request_id === ids.outboxRequest && correlated.rows[0].audit_mutation_id === ids.outboxMutation, 'request/mutation/audit/outbox correlation is preserved');
 
+    const duplicateOutboxArgs = [...recordArgs];
+    duplicateOutboxArgs[8] = `${ids.outboxRequest}-duplicate`;
+    duplicateOutboxArgs[9] = `${ids.outboxMutation}-duplicate`;
     await client.query(
       `select * from public.record_audit_and_enqueue_outbox(
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15::jsonb,$16
-      )`, recordArgs,
+      )`, duplicateOutboxArgs,
     );
     check((await client.query(`select count(*)::int as count from public.outbox_events where dedupe_key=$1`, [ids.outboxDedupe])).rows[0].count === 1, 'outbox dedupe key prevents duplicate delivery rows');
     await expectSqlFailure(client,
