@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "outDir": "./compiled-plans"
+  },
+  "include": [
+    "../scripts/planner_v1_frontend_plans_tests.ts",
+    "../front/mi-front-limpio/services/core/*.ts",
+    "../front/mi-front-limpio/services/planner/*.ts",
+    "../front/mi-front-limpio/services/api.ts",
+    "../front/mi-front-limpio/types/PlannerPlan.ts",
+    "../front/mi-front-limpio/navigation/plannerNavigationContract.ts"
+  ]
+}
