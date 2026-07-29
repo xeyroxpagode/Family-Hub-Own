@@ -137,7 +137,9 @@ function testRuntimeBoundary() {
   check(service.includes('(data ?? []).map(toPlanDto)'), 'Plan list uses the additive canonical DTO');
   check(!/percentage/i.test(dto), 'Plan DTO has no universal percentage');
   check(dto.includes('completedMilestoneCount') && dto.includes('reachedMeasurementCount'), 'DTO exposes separate real indicators');
-  check(dto.includes("bindingState: 'pending_integration'"), 'DTO publishes the future external requirement boundary');
+  check(dto.includes("bindingState: 'bound' | 'unavailable'"), 'DTO publishes stable external link binding states');
+  check(dto.includes('externalEntityId: string | null'), 'DTO exposes stable external Task/Event ids');
+  check(dto.includes('availability: PlanLinkedEntityAvailability'), 'DTO exposes safe linked entity availability');
   check(dto.includes('operationalChildrenPublished: false'), 'DTO publishes Draft isolation metadata');
   check(router.includes('planner.plans.controller'), 'Integration router imports Plan controller');
   check(router.includes("router.get('/plans/:id'"), 'Integration router exposes Plan graph read route');

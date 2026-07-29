@@ -106,6 +106,13 @@ export function PlannerPlanDetailScreen() {
           returnTo: 'previous',
         });
       }}
+      onOpenLinkedEntity={(intent) => {
+        if (intent.availability !== 'available') {
+          Alert.alert('Planner', intent.message ?? 'No pudimos abrir este vinculo.');
+          return;
+        }
+        navigation.navigate(intent.route, intent.params);
+      }}
       onAction={handleLifecycle}
     />
   );

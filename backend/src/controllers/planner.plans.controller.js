@@ -155,6 +155,58 @@ async function writePlanGraph(req, res) {
   }
 }
 
+async function applyPlanStructureChangeset(req, res) {
+  try {
+    const context = await getPlanActorContext(req);
+    const contract = requireMutationContract(req, OPERATION_KINDS.VERSIONED_MUTATION);
+    const planId = req.params.id;
+    const operations = req.body?.operations ?? [];
+    const input = {
+      planId,
+      expectedPlanVersion: contract.expectedVersion,
+      operations,
+      operationId: contract.mutationId,
+      idempotencyKey: contract.idempotencyKey,
+      requestId: req.requestId ?? null,
+    };
+    plansService.assertStructureChangesetInput(input);
+    const authorization = await assertBackendWriteAuthorization(context, {
+      entityType: 'plan',
+      action: 'update',
+      planId,
+      payload: {},
+    });
+    const operation = 'planner.plans.structure.apply';
+    const scopeId = authorization.scope === 'household'
+      ? authorization.householdId
+      : context.personId;
+    input.payloadHash = hashIdempotencyRequestV2({
+      operation,
+      scopeType: authorization.scope,
+      scopeId,
+      targetId: planId,
+      payload: {
+        planId,
+        expectedPlanVersion: contract.expectedVersion,
+        operations,
+      },
+      expectedVersion: contract.expectedVersion,
+      mutationId: contract.mutationId,
+    });
+    const result = await plansService.applyPlanStructureChangeset(context, input);
+    res.set('X-Mutation-Id', contract.mutationId);
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error?.storedEnvelope && error?.statusCode) {
+      return res
+        .set('X-Request-Id', req.requestId ?? '')
+        .status(error.statusCode)
+        .json(error.storedEnvelope);
+    }
+    return sendApiError(res, error, req);
+  }
+}
+
 async function getLegacyCompatibilityReport(req, res) {
   try {
     const context = await getPlanActorContext(req);
@@ -172,5 +224,6 @@ module.exports = {
   getPlanActorContext,
   getPlanGraph,
   listPlans,
+  applyPlanStructureChangeset,
   writePlanGraph,
 };

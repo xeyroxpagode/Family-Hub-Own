@@ -1,11 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Alert, View } from 'react-native';
 import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native';
 
 import { AppText, ErrorState } from '../../components/ui';
 import { useAuth } from '../../context/AuthContext';
 import { parsePlannerEntityDetailParams, type PlannerEntityDetailParams } from '../../navigation/plannerNavigationContract';
-import { getCanonicalPlanGraph, type PlanStructureDraft } from '../../services/planner/plannerPlans';
+import {
+  buildPlanStructureChangesetWrite,
+  createPlanStructureWriteIntent,
+  getCanonicalPlanGraph,
+  writeCanonicalPlanStructureChangeset,
+  type PlanStructureDraft,
+} from '../../services/planner/plannerPlans';
+import type { PlannerMutationIntent } from '../../services/planner/plannerMutationIntent';
 import { PlannerPlanStructureEditorSurface } from './PlannerPlansSurfaces';
 import { plannerStyles as S } from './plannerShared';
 import { colors, spacing } from '../../constants/theme';
@@ -26,6 +33,9 @@ export function PlannerPlanStructureEditScreen() {
 
   const [draft, setDraft] = useState<PlanStructureDraft | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [pendingIntent, setPendingIntent] = useState<PlannerMutationIntent | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -39,6 +49,8 @@ export function PlannerPlanStructureEditScreen() {
         expectedPlanVersion: graph.plan.version,
         nodes: [],
       });
+      setPendingIntent(null);
+      setSyncMessage(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No pudimos preparar la estructura.');
     } finally {
@@ -49,6 +61,35 @@ export function PlannerPlanStructureEditScreen() {
   useEffect(() => {
     if (isFocused) void load();
   }, [isFocused, load]);
+
+  const handleSubmit = useCallback(async () => {
+    if (!accessToken || !draft || submitting) return;
+    const decision = buildPlanStructureChangesetWrite(draft);
+    if (!decision.canSubmit) return;
+    const intent = pendingIntent ?? createPlanStructureWriteIntent(decision.remoteRequest);
+    setPendingIntent(intent);
+    setSubmitting(true);
+    setSyncMessage('Guardando estructura...');
+    try {
+      const result = await writeCanonicalPlanStructureChangeset(
+        { accessToken },
+        decision.remoteRequest,
+        intent,
+      );
+      setDraft({
+        planId: result.data.plan.id,
+        expectedPlanVersion: result.data.plan.version,
+        nodes: [],
+      });
+      setPendingIntent(null);
+      setSyncMessage(result.noop ? 'Estructura sin cambios.' : 'Estructura actualizada.');
+    } catch (err) {
+      setSyncMessage('No pudimos confirmar el guardado. Tus cambios siguen en pantalla.');
+      Alert.alert('Planner', err instanceof Error ? err.message : 'No pudimos guardar la estructura.');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [accessToken, draft, pendingIntent, submitting]);
 
   if (loading) {
     return (
@@ -77,7 +118,9 @@ export function PlannerPlanStructureEditScreen() {
   return (
     <PlannerPlanStructureEditorSurface
       draft={draft}
-      onSubmit={() => {}}
+      submitting={submitting}
+      syncMessage={syncMessage}
+      onSubmit={() => void handleSubmit()}
       onCancel={() => navigation.goBack()}
     />
   );

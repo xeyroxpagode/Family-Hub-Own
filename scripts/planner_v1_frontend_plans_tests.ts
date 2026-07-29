@@ -200,8 +200,17 @@ const graph: PlannerPlanGraphDto = {
         kind: 'external',
         externalKind: 'event',
         externalReferenceKey: eventId,
-        externalEntityId: null,
-        bindingState: 'pending_integration',
+        externalEntityId: eventId,
+        bindingState: 'bound',
+        linkedEntity: {
+          entityType: 'event',
+          externalEntityId: eventId,
+          planRequirementId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          title: 'Mudanza',
+          lifecycle: 'scheduled',
+          relationKind: 'necessary',
+          availability: 'available',
+        },
       },
       satisfied: false,
     },
@@ -216,8 +225,17 @@ const graph: PlannerPlanGraphDto = {
         kind: 'external',
         externalKind: 'task',
         externalReferenceKey: taskId,
-        externalEntityId: null,
-        bindingState: 'pending_integration',
+        externalEntityId: taskId,
+        bindingState: 'bound',
+        linkedEntity: {
+          entityType: 'task',
+          externalEntityId: taskId,
+          planRequirementId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          title: 'Comprar cajas',
+          lifecycle: 'pending',
+          relationKind: 'supporting',
+          availability: 'available',
+        },
       },
       satisfied: false,
     },
@@ -290,7 +308,9 @@ runTest('detail is detail-first and prioritizes blocker before full structure', 
   assert(detail.layout.phone === 'full_screen', 'phone full screen');
   assert(detail.layout.tablet === 'master_detail_available', 'tablet master detail contract');
   assert(detail.measurements.length === 2, 'multiple Measurements accessible');
-  assert(detail.linkedNavigationIntents.length === 0, 'unbound linked Task/Event do not fabricate navigation');
+  assert(detail.linkedNavigationIntents.length === 2, 'bound linked Task/Event expose honest navigation');
+  assert(detail.linkedNavigationIntents.some((intent) => intent.entityType === 'task' && intent.params.entityId === taskId), 'Task link navigates to Task Detail params');
+  assert(detail.linkedNavigationIntents.some((intent) => intent.entityType === 'event' && intent.params.entityId === eventId), 'Event link navigates to Event Detail params');
   assert(detail.summary.availableActions.find((action) => action.key === 'edit_structure')?.primary === false, 'edit is secondary');
 });
 
@@ -352,8 +372,8 @@ runTest('structure editor validates whole changeset and avoids multi-request orc
   };
   assert(planStructureEditAdapter.validate(draft).length === 0, 'valid structure draft');
   const decision = buildPlanStructureChangesetWrite(draft);
-  assert(decision.kind === 'integration_pending', 'structure save is Integration-pending');
-  assert(decision.remoteRequest === null, 'no fictitious remote request');
+  assert(decision.kind === 'remote_changeset', 'structure save uses real Integration endpoint');
+  assert(decision.remoteRequest.planId === planId, 'remote request targets Plan');
   assert(decision.draft.nodes.length === 2, 'operations remain locally contained');
   assert(decision.draft.expectedPlanVersion === 4, 'expected Plan version preserved');
   assert(decision.integrationRequest === 'PROPOSED IR-FE-PLAN-STRUCTURE-001', 'P1 Integration Request named');

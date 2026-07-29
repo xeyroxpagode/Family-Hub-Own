@@ -24,6 +24,15 @@ export type PlannerMutationReducerContract<TState = unknown, TResult = unknown> 
   readonly rollback: (state: TState) => TState;
 };
 
+export type PlannerLinkedEntityNavigationIntent = {
+  readonly entityType: 'task' | 'event';
+  readonly externalEntityId: string;
+  readonly route: PlannerRouteName;
+  readonly params: PlannerEntityDetailParams;
+  readonly availability: 'available' | 'missing' | 'trashed' | 'forbidden' | 'stale';
+  readonly message: string | null;
+};
+
 export type TasksLaneContract = {
   readonly root: PlannerRootScreenAdapter;
   readonly taskProjection: unknown;
@@ -52,7 +61,7 @@ export type PlansLaneContract = {
   readonly createAdapter: PlannerFormAdapterContract;
   readonly structureEditAdapter: PlannerFormAdapterContract;
   readonly lifecycleMutationReducers: PlannerMutationReducerContract;
-  readonly linkedEntityNavigationIntents: readonly PlannerEntityDetailParams[];
+  readonly linkedEntityNavigationIntents: readonly PlannerLinkedEntityNavigationIntent[];
 };
 
 export type PlannerFoundationExports = {

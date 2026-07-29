@@ -40,6 +40,7 @@ router.get('/activity', activityController.listActivity)
 router.get('/trash', trashController.getTrash)
 
 router.get('/plans/legacy-compatibility-report', plansController.getLegacyCompatibilityReport)
+router.post('/plans/:id/structure', plansController.applyPlanStructureChangeset)
 router.get('/plans/:id', plansController.getPlanGraph)
 router.get('/plans', plansController.listPlans)
 router.post('/plans', plansController.writePlanGraph)

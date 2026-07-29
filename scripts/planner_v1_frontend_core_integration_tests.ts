@@ -137,12 +137,15 @@ const structureDraft: PlanStructureDraft = {
   nodes: [],
 };
 const decision = buildPlanStructureChangesetWrite(structureDraft);
-equal(decision.kind, 'integration_pending', 'Plan Structure atomic edit is classified honestly');
-equal(decision.canSubmit, false, 'Plan Structure productive submit is disabled without mounted contract');
-equal(decision.remoteRequest, null, 'Plan Structure does not invent a remote request');
+equal(decision.kind, 'remote_changeset', 'Plan Structure atomic edit is wired to the backend changeset contract');
+equal(decision.canSubmit, true, 'Plan Structure productive submit is enabled for valid changesets');
+equal(decision.remoteRequest.planId, structureDraft.planId, 'Plan Structure remote request targets the Plan');
+equal(decision.remoteRequest.expectedPlanVersion, 3, 'Plan Structure remote request preserves expected Plan version');
 equal(decision.integrationRequest, 'PROPOSED IR-FE-PLAN-STRUCTURE-001', 'Plan Structure carries Integration Request id');
+equal(decision.endpoint, '/api/planner/plans/:id/structure', 'Plan Structure uses the explicit HTTP endpoint');
 check(!planService.includes('submit_mode: single_graph_request'), 'Plan Structure does not use forbidden submit_mode');
 check(!planService.includes('/structure_changeset'), 'Plan service does not invent a structure_changeset endpoint');
+check(planService.includes('writeCanonicalPlanStructureChangeset'), 'Plan service exposes the real structure changeset writer');
 
 const visibleCopy = planVisibleCopyTokens().join(' ');
 check(visibleCopy.includes('Planes') || visibleCopy.includes('Plan'), 'Plan visible copy tokens are canonical');

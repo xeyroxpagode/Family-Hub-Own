@@ -36,6 +36,7 @@ type PlanDetailProps = {
   readonly onBack: () => void;
   readonly onEditStructure: (detail: PlanDetailProjection) => void;
   readonly onAction: (actionKey: string, detail: PlanDetailProjection) => void;
+  readonly onOpenLinkedEntity?: (intent: PlanDetailProjection['linkedNavigationIntents'][number]) => void;
   readonly reduceMotion?: boolean;
 };
 
@@ -50,6 +51,8 @@ type StructureEditorProps = {
   readonly draft: PlanStructureDraft;
   readonly onSubmit: (request: ReturnType<typeof buildPlanStructureChangesetWrite>) => void;
   readonly onCancel: () => void;
+  readonly submitting?: boolean;
+  readonly syncMessage?: string | null;
 };
 
 export function PlannerPlansRootSurface({
@@ -121,6 +124,7 @@ export function PlannerPlanDetailSurface({
   onBack,
   onEditStructure,
   onAction,
+  onOpenLinkedEntity,
   reduceMotion = false,
 }: PlanDetailProps) {
   const detail = useMemo(() => projectPlanDetail(graph), [graph]);
@@ -205,6 +209,15 @@ export function PlannerPlanDetailSurface({
           <AppText variant="caption" tone="tertiary">
             Animacion funcional: {motionDuration} ms.
           </AppText>
+          {detail.linkedNavigationIntents.map((intent) => (
+            <AppButton
+              key={`${intent.entityType}:${intent.externalEntityId}`}
+              title={intent.entityType === 'task' ? 'Abrir tarea vinculada' : 'Abrir evento vinculado'}
+              variant="secondary"
+              onPress={() => onOpenLinkedEntity?.(intent)}
+              accessibilityLabel={intent.entityType === 'task' ? 'Abrir tarea vinculada' : 'Abrir evento vinculado'}
+            />
+          ))}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -304,10 +317,11 @@ export function PlannerPlanStructureEditorSurface({
   draft,
   onSubmit,
   onCancel,
+  submitting = false,
+  syncMessage = null,
 }: StructureEditorProps) {
   const errors = planStructureEditAdapter.validate(draft);
   const decision = buildPlanStructureChangesetWrite(draft);
-  void onSubmit;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -316,10 +330,16 @@ export function PlannerPlanStructureEditorSurface({
           <View style={{ flex: 1 }}>
             <AppText variant="title2">Editar estructura</AppText>
             <AppText variant="bodySmall" tone="secondary">
-              Cambios locales preservados hasta que Integracion conecte el guardado atomico.
+              Cambios locales preservados hasta confirmacion del servidor.
             </AppText>
           </View>
         </View>
+
+        {syncMessage ? (
+          <View style={styles.priorityBlock} accessibilityLiveRegion="polite">
+            <AppText variant="bodySmall" tone="secondary">{syncMessage}</AppText>
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           <AppText variant="title3">Cambios</AppText>
@@ -344,9 +364,9 @@ export function PlannerPlanStructureEditorSurface({
 
         <View style={styles.actionRow}>
           <AppButton
-            title="Guardar estructura"
-            disabled={errors.length > 0 || !decision.canSubmit}
-            onPress={() => {}}
+            title={submitting ? 'Guardando...' : 'Guardar estructura'}
+            disabled={submitting || errors.length > 0 || !decision.canSubmit}
+            onPress={() => onSubmit(decision)}
             accessibilityLabel="Guardar estructura del plan"
           />
           <AppButton title="Cancelar" variant="ghost" onPress={onCancel} accessibilityLabel="Cancelar" />

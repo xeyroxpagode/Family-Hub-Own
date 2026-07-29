@@ -24,6 +24,17 @@ const PLAN_TRANSITIONS = Object.freeze([
   'restore',
 ]);
 
+const PLAN_STRUCTURE_ACTIONS = Object.freeze([
+  'create',
+  'update',
+  'set',
+  'record',
+  'complete',
+  'reopen',
+  'trash',
+  'restore',
+]);
+
 function mapPlanRpcError(error) {
   if (!error) return null;
   const code = error.code;
@@ -89,6 +100,36 @@ function assertGraphWriteInput(input) {
   }
 }
 
+function assertStructureChangesetInput(input) {
+  if (!input?.planId) {
+    throw createHttpError(422, 'planId es obligatorio.', 'validation_error');
+  }
+  if (!Number.isInteger(input.expectedPlanVersion) || input.expectedPlanVersion < 1) {
+    throw createHttpError(422, 'If-Match es obligatorio para editar estructura.', 'expected_version_required');
+  }
+  if (!Array.isArray(input.operations)) {
+    throw createHttpError(422, 'operations debe ser un array.', 'validation_error');
+  }
+  for (const operation of input.operations) {
+    if (!operation || typeof operation !== 'object') {
+      throw createHttpError(422, 'Operacion de estructura invalida.', 'validation_error');
+    }
+    if (!PLAN_GRAPH_ENTITIES.includes(operation.entityType) || operation.entityType === 'plan') {
+      throw createHttpError(422, 'Tipo de nodo de estructura invalido.', 'validation_error');
+    }
+    if (!PLAN_STRUCTURE_ACTIONS.includes(operation.action)) {
+      throw createHttpError(422, 'Accion de estructura invalida.', 'validation_error');
+    }
+    if (operation.action !== 'create'
+      && (!Number.isInteger(operation.expectedVersion) || operation.expectedVersion < 1)) {
+      throw createHttpError(422, 'expectedVersion es obligatorio para nodos existentes.', 'expected_version_required');
+    }
+    if (!operation.payload || typeof operation.payload !== 'object' || Array.isArray(operation.payload)) {
+      throw createHttpError(422, 'payload de estructura invalido.', 'validation_error');
+    }
+  }
+}
+
 function targetReached(measurement) {
   if (measurement.target_value === null || measurement.target_value === undefined) return false;
   if (measurement.target_operator === 'lte') return Number(measurement.current_value) <= Number(measurement.target_value);
@@ -124,6 +165,19 @@ function toPlanDto(plan) {
     createdAt: plan.created_at,
     updatedAt: plan.updated_at,
     availableActions: structuralActions(plan),
+  };
+}
+
+function toLinkedEntityDto(row) {
+  if (!row) return null;
+  return {
+    entityType: row.entity_type,
+    externalEntityId: row.external_entity_id,
+    planRequirementId: row.plan_requirement_id ?? null,
+    title: row.title ?? null,
+    lifecycle: row.lifecycle ?? null,
+    relationKind: row.relation_kind,
+    availability: row.availability,
   };
 }
 
@@ -170,8 +224,10 @@ function toPlanGraphDto(raw) {
       version: row.version, classification: row.classification, sortOrder: row.sort_order,
       subject: row.subject_type === 'external'
         ? { kind: 'external', externalKind: row.external_kind,
-          externalReferenceKey: row.external_reference_key, externalEntityId: null,
-          bindingState: 'pending_integration' }
+          externalReferenceKey: row.external_reference_key,
+          externalEntityId: row.external_entity_id ?? row.external_reference_key ?? null,
+          bindingState: row.linked_entity?.availability === 'available' ? 'bound' : 'unavailable',
+          linkedEntity: toLinkedEntityDto(row.linked_entity) }
         : row.subject_type === 'milestone'
           ? { kind: 'milestone', milestoneId: row.milestone_id }
           : row.subject_type === 'measurement'
@@ -247,6 +303,52 @@ async function writePlanGraph(context, input) {
   return data;
 }
 
+function toStructureChangesetPayload(input) {
+  return {
+    operations: input.operations.map((operation, index) => ({
+      local_id: operation.localId ?? `op-${index}`,
+      entity_type: operation.entityType,
+      action: operation.action,
+      entity_id: operation.entityId ?? null,
+      expected_version: operation.expectedVersion ?? null,
+      payload: {
+        ...(operation.payload ?? {}),
+        classification: operation.classification ?? operation.payload?.classification ?? null,
+        parent_requirement_id: operation.parentRequirementId ?? operation.payload?.parent_requirement_id ?? null,
+        sort_order: operation.sortOrder ?? operation.payload?.sort_order ?? index,
+      },
+    })),
+  };
+}
+
+async function applyPlanStructureChangeset(context, input) {
+  assertStructureChangesetInput(input);
+  const { data, error } = await context.client.rpc('apply_planner_plan_structure_changeset_rpc', {
+    p_mutation_id: input.operationId,
+    p_idempotency_key: input.idempotencyKey,
+    p_request_hash: input.payloadHash,
+    p_plan_id: input.planId,
+    p_expected_plan_version: input.expectedPlanVersion,
+    p_changeset: toStructureChangesetPayload(input),
+    p_request_id: input.requestId ?? null,
+  });
+  if (error) throw mapPlanRpcError(error);
+  if (data?.__planError === true) {
+    const mapped = createHttpError(
+      Number(data.status),
+      data.message,
+      data.code,
+      data.details && Object.keys(data.details).length ? data.details : null,
+    );
+    mapped.storedEnvelope = data.body;
+    throw mapped;
+  }
+  return {
+    ...data,
+    data: data?.data ? toPlanGraphDto(data.data) : null,
+  };
+}
+
 async function getLegacyCompatibilityReport(context) {
   const { data, error } = await context.client.rpc('planner_m11_3a_legacy_compatibility_report');
   if (error) throw mapPlanRpcError(error);
@@ -255,8 +357,11 @@ async function getLegacyCompatibilityReport(context) {
 
 module.exports = {
   PLAN_GRAPH_ENTITIES,
+  PLAN_STRUCTURE_ACTIONS,
   PLAN_TRANSITIONS,
   assertGraphWriteInput,
+  assertStructureChangesetInput,
+  applyPlanStructureChangeset,
   getLegacyCompatibilityReport,
   getPlanAuthorizationContext,
   getPlanGraph,

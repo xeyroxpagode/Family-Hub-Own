@@ -3,7 +3,9 @@ import {
   ROUTE_NAMES,
   buildPlannerEntityDetailParams,
   parsePlannerEntityDetailParams,
+  resolveDetailRouteName,
   type PlannerEntityDetailParams,
+  type PlannerRouteName,
 } from '../../navigation/plannerNavigationContract';
 import type {
   PlanClassification,
@@ -113,13 +115,19 @@ export type PlanStructureDraft = {
 };
 
 export type PlanStructurePersistenceDecision = {
-  readonly kind: 'integration_pending';
-  readonly canSubmit: false;
+  readonly kind: 'remote_changeset';
+  readonly canSubmit: boolean;
   readonly draft: PlanStructureDraft;
   readonly validationErrors: readonly string[];
-  readonly remoteRequest: null;
-  readonly reason: 'backend_structure_changeset_route_unmounted';
+  readonly remoteRequest: PlanStructureChangesetWriteRequest;
+  readonly endpoint: '/api/planner/plans/:id/structure';
   readonly integrationRequest: 'PROPOSED IR-FE-PLAN-STRUCTURE-001';
+};
+
+export type PlanStructureChangesetWriteRequest = {
+  readonly planId: string;
+  readonly expectedPlanVersion: number;
+  readonly operations: readonly PlanStructureNodeDraft[];
 };
 
 export type PlanSyncVisualState = {
@@ -151,8 +159,8 @@ export type PlanBlocker =
   | { readonly kind: 'manual_condition_pending'; readonly manualConditionId: string; readonly label: string };
 
 export type PlanCommitment =
-  | { readonly kind: 'task'; readonly label: string; readonly navigation: PlannerEntityDetailParams | null }
-  | { readonly kind: 'event'; readonly label: string; readonly navigation: PlannerEntityDetailParams | null }
+  | { readonly kind: 'task'; readonly label: string; readonly navigation: PlanLinkedNavigationIntent | null }
+  | { readonly kind: 'event'; readonly label: string; readonly navigation: PlanLinkedNavigationIntent | null }
   | { readonly kind: 'milestone'; readonly label: string; readonly milestoneId: string }
   | { readonly kind: 'manual_condition'; readonly label: string; readonly manualConditionId: string }
   | { readonly kind: 'measurement'; readonly label: string; readonly measurementId: string };
@@ -213,11 +221,20 @@ export type PlanDetailProjection = {
   readonly milestones: readonly PlanMilestoneSummary[];
   readonly requirements: readonly PlannerPlanRequirement[];
   readonly manualConditions: readonly PlannerPlanManualCondition[];
-  readonly linkedNavigationIntents: readonly PlannerEntityDetailParams[];
+  readonly linkedNavigationIntents: readonly PlanLinkedNavigationIntent[];
   readonly layout: {
     readonly phone: 'full_screen';
     readonly tablet: 'master_detail_available';
   };
+};
+
+export type PlanLinkedNavigationIntent = {
+  readonly entityType: 'task' | 'event';
+  readonly externalEntityId: string;
+  readonly route: PlannerRouteName;
+  readonly params: PlannerEntityDetailParams;
+  readonly availability: 'available' | 'missing' | 'trashed' | 'forbidden' | 'stale';
+  readonly message: string | null;
 };
 
 type PlanDetailPriorityItem = PlanDetailProjection['priority'][number];
@@ -302,7 +319,7 @@ const plansLaneLifecycleMutationReducers: PlannerMutationReducerContract = {
   rollback: (state) => state,
 };
 
-export const linkedEntityNavigationIntents: readonly PlannerEntityDetailParams[] = [];
+export const linkedEntityNavigationIntents: readonly PlanLinkedNavigationIntent[] = [];
 
 export const plansLaneAdapters: PlansLaneContract = {
   root: plansRootScreenAdapter,
@@ -361,6 +378,31 @@ export async function writeCanonicalPlanGraph<TData>(
   });
 }
 
+export async function writeCanonicalPlanStructureChangeset(
+  request: PlannerReadRequest,
+  input: PlanStructureChangesetWriteRequest,
+  intent: PlannerMutationIntent = createPlanStructureWriteIntent(input),
+): Promise<PlannerMutationResult<PlannerPlanGraphDto>> {
+  const response = await requestJson<unknown>(`/api/planner/plans/${encodeURIComponent(input.planId)}/structure`, {
+    accessToken: request.accessToken,
+    signal: request.signal,
+    timeoutMs: request.timeoutMs,
+    contextScope: request.contextScope,
+    method: 'POST',
+    mutationId: intent.mutationId,
+    idempotencyKey: intent.idempotencyKey,
+    expectedVersion: typeof intent.ifMatch === 'string' ? Number(intent.ifMatch) : intent.ifMatch,
+    operationKind: intent.operationKind,
+    body: {
+      operations: serializeStructureOperations(input.operations),
+    },
+  });
+  return normalizePlannerMutationResult<PlannerPlanGraphDto>(response, {
+    mutationId: intent.mutationId,
+    idempotencyKey: intent.idempotencyKey,
+  });
+}
+
 export function createPlanWriteIntent(input: Pick<PlanGraphWriteRequest, 'entityType' | 'action' | 'expectedVersion'>): PlannerMutationIntent {
   const entityKind = `planner.plan.${input.entityType}`;
   if (input.action === 'create') {
@@ -370,6 +412,16 @@ export function createPlanWriteIntent(input: Pick<PlanGraphWriteRequest, 'entity
     kind: 'versioned',
     entityKind,
     entityVersion: input.expectedVersion ?? 1,
+  });
+}
+
+export function createPlanStructureWriteIntent(
+  input: Pick<PlanStructureChangesetWriteRequest, 'expectedPlanVersion'>,
+): PlannerMutationIntent {
+  return createPlannerVersionedMutationIntent({
+    kind: 'versioned',
+    entityKind: 'planner.plan.structure',
+    entityVersion: input.expectedPlanVersion,
   });
 }
 
@@ -427,13 +479,18 @@ export function buildPlanLifecycleWrite(
 }
 
 export function buildPlanStructureChangesetWrite(draft: PlanStructureDraft): PlanStructurePersistenceDecision {
+  const validationErrors = validatePlanStructureDraft(draft);
   return {
-    kind: 'integration_pending',
-    canSubmit: false,
+    kind: 'remote_changeset',
+    canSubmit: validationErrors.length === 0,
     draft,
-    validationErrors: validatePlanStructureDraft(draft),
-    remoteRequest: null,
-    reason: 'backend_structure_changeset_route_unmounted',
+    validationErrors,
+    remoteRequest: {
+      planId: draft.planId,
+      expectedPlanVersion: draft.expectedPlanVersion,
+      operations: draft.nodes,
+    },
+    endpoint: '/api/planner/plans/:id/structure',
     integrationRequest: 'PROPOSED IR-FE-PLAN-STRUCTURE-001',
   };
 }
@@ -753,6 +810,20 @@ function serializeStructureDraft(draft: PlanStructureDraft): Readonly<Record<str
   };
 }
 
+function serializeStructureOperations(nodes: readonly PlanStructureNodeDraft[]): readonly Readonly<Record<string, unknown>>[] {
+  return nodes.map((node, index) => ({
+    localId: node.localId,
+    entityType: node.entityType,
+    action: node.action,
+    entityId: node.entityId ?? null,
+    expectedVersion: node.expectedVersion ?? null,
+    parentRequirementId: node.parentRequirementId ?? null,
+    classification: node.classification ?? null,
+    sortOrder: node.sortOrder ?? index,
+    payload: node.payload,
+  }));
+}
+
 function isPlanGraphDto(input: PlannerPlan | PlannerPlanGraphDto): input is PlannerPlanGraphDto {
   return Boolean((input as PlannerPlanGraphDto).plan && (input as PlannerPlanGraphDto).indicators);
 }
@@ -1043,21 +1114,51 @@ function countOpenActions(graph: PlannerPlanGraphDto): number {
   return openMilestones + openManual + openMeasurements + openExternal;
 }
 
-function deriveLinkedNavigationIntents(graph: PlannerPlanGraphDto): readonly PlannerEntityDetailParams[] {
+function deriveLinkedNavigationIntents(graph: PlannerPlanGraphDto): readonly PlanLinkedNavigationIntent[] {
   return graph.requirements
     .map(externalNavigationIntent)
-    .filter((intent): intent is PlannerEntityDetailParams => intent !== null);
+    .filter((intent): intent is PlanLinkedNavigationIntent => intent !== null);
 }
 
-function externalNavigationIntent(requirement: PlannerPlanRequirement): PlannerEntityDetailParams | null {
+function externalNavigationIntent(requirement: PlannerPlanRequirement): PlanLinkedNavigationIntent | null {
   if (requirement.subject.kind !== 'external') return null;
-  const futureSubject = requirement.subject as typeof requirement.subject & { readonly externalEntityId?: string | null };
-  if (!futureSubject.externalEntityId) return null;
-  return buildPlannerEntityDetailParams({
-    entityId: futureSubject.externalEntityId,
-    source: 'planner',
-    returnTo: 'planner',
-  });
+  const linked = requirement.subject.linkedEntity;
+  const externalEntityId = linked?.externalEntityId ?? requirement.subject.externalEntityId;
+  const availability = linked?.availability ?? 'stale';
+  if (!externalEntityId) {
+    return {
+      entityType: requirement.subject.externalKind,
+      externalEntityId: requirement.subject.externalReferenceKey,
+      route: resolveDetailRouteName(requirement.subject.externalKind),
+      params: buildPlannerEntityDetailParams({
+        entityId: requirement.subject.externalReferenceKey,
+        source: 'planner',
+        returnTo: 'planner',
+      }),
+      availability: 'stale',
+      message: linkedNavigationMessage('stale'),
+    };
+  }
+  return {
+    entityType: requirement.subject.externalKind,
+    externalEntityId,
+    route: resolveDetailRouteName(requirement.subject.externalKind),
+    params: buildPlannerEntityDetailParams({
+      entityId: externalEntityId,
+      source: 'planner',
+      returnTo: 'planner',
+    }),
+    availability,
+    message: linkedNavigationMessage(availability),
+  };
+}
+
+function linkedNavigationMessage(availability: PlanLinkedNavigationIntent['availability']): string | null {
+  if (availability === 'available') return null;
+  if (availability === 'missing') return 'El elemento vinculado ya no esta disponible.';
+  if (availability === 'trashed') return 'El elemento vinculado esta en papelera.';
+  if (availability === 'forbidden') return 'No tenes permiso para abrir este vinculo.';
+  return 'Actualiza el plan para revisar este vinculo.';
 }
 
 function requirementLabel(requirement: PlannerPlanRequirement, graph: PlannerPlanGraphDto): string {

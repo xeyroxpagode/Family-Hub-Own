@@ -78,16 +78,30 @@ export type PlanInternalRequirementSubject =
   | { kind: 'measurement'; measurementId: string }
   | { kind: 'manual_condition'; manualConditionId: string };
 
-/**
- * Reserved contract only. M11.3A never binds externalEntityId; Integration
- * owns the future Task/Event relation and same-scope validation migration.
- */
+export type PlanLinkedEntityAvailability =
+  | 'available'
+  | 'missing'
+  | 'trashed'
+  | 'forbidden'
+  | 'stale';
+
+export type PlanLinkedEntityDto = {
+  entityType: 'task' | 'event';
+  externalEntityId: string;
+  planRequirementId?: string | null;
+  title?: string | null;
+  lifecycle?: string | null;
+  relationKind: PlanClassification;
+  availability: PlanLinkedEntityAvailability;
+};
+
 export type PlanFutureExternalRequirementSubject = {
   kind: 'external';
   externalKind: 'task' | 'event';
   externalReferenceKey: string;
-  externalEntityId: null;
-  bindingState: 'pending_integration';
+  externalEntityId: string | null;
+  bindingState: 'bound' | 'unavailable';
+  linkedEntity: PlanLinkedEntityDto | null;
 };
 
 export type PlannerPlanRequirement = {
