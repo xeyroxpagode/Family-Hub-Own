@@ -2,6 +2,18 @@ import { OPERATION_KINDS, requestJson } from './api';
 import { createIdempotencyKey } from './idempotency';
 import { plannerCache } from './planner/plannerCache';
 import { plannerKeys } from './planner/plannerKeys';
+import {
+  buildPlannerVersionedIntent,
+  normalizePlannerMutationResult,
+  plannerMutationRequestOptions,
+  plannerReadRequestOptions,
+  type PlannerMutationIdentity,
+  type PlannerMutationResult,
+} from './planner/plannerTransportContracts';
+import {
+  createPlannerMutationIntent,
+  type PlannerMutationIntent,
+} from './planner/plannerMutationIntent';
 
 export type PlannerTaskStatus =
   | 'pending'
@@ -31,9 +43,11 @@ export type PlannerTaskMember = {
 export type PlannerTask = {
   id: string;
   household_id: string;
+  scope?: 'personal' | 'household' | { type?: 'personal' | 'household'; id?: string | null };
   title: string;
   description?: string | null;
   status: PlannerTaskStatus;
+  lifecycle?: PlannerTaskStatus | 'draft' | 'active' | 'trash';
   priority: PlannerTaskPriority;
   template_key?: PlannerTaskTemplateKey | null;
   category?: string | null;
@@ -52,6 +66,7 @@ export type PlannerTask = {
   created_at: string;
   updated_at: string;
   version: number;
+  availableActions?: Array<{ action: string; fulfillmentId?: string; disabledReason?: string | null }>;
   assigned_member?: PlannerTaskMember | null;
   completed_member?: PlannerTaskMember | null;
   verified_member?: PlannerTaskMember | null;
@@ -66,6 +81,13 @@ export type PlannerTask = {
   cancelled_by_member_id?: string | null;
   cancelled_reason?: string | null;
   cancelled_from_status?: string | null;
+  recurrence?: {
+    seriesId?: string | null;
+    summary?: string | null;
+    rule?: string | null;
+    nextOccurrenceDate?: string | null;
+  } | null;
+  recurrenceSummary?: string | null;
 };
 
 export type CreatePlannerTaskPayload = {
@@ -184,6 +206,16 @@ type PlannerTaskFulfillmentResponseV1 = {
   task: PlannerTaskFulfillmentDtoV1;
 };
 
+export type PlannerTaskMutationOptions = {
+  idempotencyKey?: string;
+  mutationId?: string;
+  signal?: AbortSignal | null;
+  timeoutMs?: number;
+  contextScope?: string | null;
+};
+
+export type PlannerTaskMutationEnvelope<TData> = PlannerMutationResult<TData>;
+
 const toQueryString = (filters?: PlannerTaskFilters) => {
   const params = new URLSearchParams();
 
@@ -198,47 +230,104 @@ const toQueryString = (filters?: PlannerTaskFilters) => {
 };
 
 export const listPlannerTasks = (accessToken: string, filters?: PlannerTaskFilters) =>
-  requestJson<PlannerTasksResponse>(`/api/planner/tasks${toQueryString(filters)}`, { accessToken });
+  requestJson<PlannerTasksResponse>(
+    `/api/planner/tasks${toQueryString(filters)}`,
+    plannerReadRequestOptions({ accessToken }),
+  );
 
 export const getTaskById = (accessToken: string, taskId: string) =>
-  requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}`, { accessToken });
+  requestJson<PlannerTaskResponse>(
+    `/api/planner/tasks/${taskId}`,
+    plannerReadRequestOptions({ accessToken }),
+  );
+
+const createTaskIntent = (
+  operation: string,
+  options?: PlannerTaskMutationOptions,
+): PlannerMutationIntent => {
+  const intent = createPlannerMutationIntent({ kind: 'create', entityKind: operation });
+  return {
+    ...intent,
+    mutationId: options?.mutationId ?? intent.mutationId,
+    idempotencyKey: options?.idempotencyKey ?? intent.idempotencyKey,
+  };
+};
+
+const versionedTaskIntent = (
+  expectedVersion: number,
+  options?: PlannerTaskMutationOptions,
+): PlannerMutationIntent => {
+  const intent = buildPlannerVersionedIntent('task', expectedVersion);
+  return {
+    ...intent,
+    mutationId: options?.mutationId ?? intent.mutationId,
+    idempotencyKey: options?.idempotencyKey ?? intent.idempotencyKey,
+  };
+};
+
+const mutationIdentityOf = (intent: PlannerMutationIntent): PlannerMutationIdentity => ({
+  mutationId: intent.mutationId,
+  idempotencyKey: intent.idempotencyKey ?? '',
+});
 
 export const createPlannerTask = (
   accessToken: string,
   payload: CreatePlannerTaskPayload,
-  options?: { idempotencyKey?: string; mutationId?: string },
+  options?: PlannerTaskMutationOptions,
 ) => {
-  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.create')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (options?.mutationId) {
-    headers['X-Mutation-Id'] = options.mutationId
-  }
+  const intent = createTaskIntent('planner.tasks.create', options);
   return requestJson<PlannerTaskResponse>('/api/planner/tasks', {
+    ...plannerMutationRequestOptions({
+      accessToken,
+      payload,
+      intent,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      contextScope: options?.contextScope,
+    }),
     method: 'POST',
-    operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
-    accessToken,
-    body: payload,
-    headers,
   })
 }
+
+export const createPlannerTaskMutation = async (
+  accessToken: string,
+  payload: CreatePlannerTaskPayload,
+  options?: PlannerTaskMutationOptions,
+): Promise<PlannerTaskMutationEnvelope<PlannerTaskResponse>> => {
+  const intent = createTaskIntent('planner.tasks.create', options);
+  const response = await requestJson<PlannerTaskResponse>('/api/planner/tasks', {
+    ...plannerMutationRequestOptions({
+      accessToken,
+      payload,
+      intent,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      contextScope: options?.contextScope,
+    }),
+    method: 'POST',
+  });
+  return normalizePlannerMutationResult<PlannerTaskResponse>(response, mutationIdentityOf(intent));
+};
 
 export const updatePlannerTask = (
   accessToken: string,
   taskId: string,
   payload: UpdatePlannerTaskPayload,
-  options?: { idempotencyKey?: string },
+  options?: PlannerTaskMutationOptions,
 ) => {
-  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.update')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (payload.expected_version !== undefined) {
-    headers['If-Match'] = String(payload.expected_version)
-  }
+  const expectedVersion = payload.expected_version ?? 1;
+  const intent = versionedTaskIntent(expectedVersion, options);
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}`, {
+    ...plannerMutationRequestOptions({
+      accessToken,
+      payload,
+      intent,
+      expectedVersion,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      contextScope: options?.contextScope,
+    }),
     method: 'PATCH',
-    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
-    accessToken,
-    body: payload,
-    headers,
   });
 };
 
@@ -246,18 +335,20 @@ export const cancelPlannerTask = (
   accessToken: string,
   taskId: string,
   expectedVersion?: number,
-  options?: { idempotencyKey?: string },
+  options?: PlannerTaskMutationOptions,
 ) => {
-  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.cancel')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
-  }
+  const version = expectedVersion ?? 1;
+  const intent = versionedTaskIntent(version, options);
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}`, {
+    ...plannerMutationRequestOptions({
+      accessToken,
+      intent,
+      expectedVersion: version,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      contextScope: options?.contextScope,
+    }),
     method: 'DELETE',
-    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
-    accessToken,
-    headers,
   });
 };
 
@@ -265,37 +356,43 @@ export const completePlannerTask = (
   accessToken: string,
   taskId: string,
   expectedVersion?: number,
-  options?: { idempotencyKey?: string },
+  options?: PlannerTaskMutationOptions,
 ) => {
-  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.complete')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
-  }
+  const version = expectedVersion ?? 1;
+  const intent = versionedTaskIntent(version, options);
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/complete`, {
+    ...plannerMutationRequestOptions({
+      accessToken,
+      intent,
+      expectedVersion: version,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      contextScope: options?.contextScope,
+    }),
     method: 'POST',
-    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
-    accessToken,
-    headers,
   });
 };
+
+export const submitPlannerTaskForVerification = completePlannerTask;
 
 export const verifyPlannerTask = (
   accessToken: string,
   taskId: string,
   expectedVersion?: number,
-  options?: { idempotencyKey?: string },
+  options?: PlannerTaskMutationOptions,
 ) => {
-  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.verify')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
-  }
+  const version = expectedVersion ?? 1;
+  const intent = versionedTaskIntent(version, options);
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/verify`, {
+    ...plannerMutationRequestOptions({
+      accessToken,
+      intent,
+      expectedVersion: version,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      contextScope: options?.contextScope,
+    }),
     method: 'POST',
-    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
-    accessToken,
-    headers,
   });
 };
 
@@ -303,18 +400,20 @@ export const trashPlannerTask = (
   accessToken: string,
   taskId: string,
   expectedVersion?: number,
-  options?: { idempotencyKey?: string },
+  options?: PlannerTaskMutationOptions,
 ) => {
-  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.trash')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
-  }
+  const version = expectedVersion ?? 1;
+  const intent = versionedTaskIntent(version, options);
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/trash`, {
+    ...plannerMutationRequestOptions({
+      accessToken,
+      intent,
+      expectedVersion: version,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      contextScope: options?.contextScope,
+    }),
     method: 'POST',
-    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
-    accessToken,
-    headers,
   });
 };
 
@@ -322,18 +421,20 @@ export const reactivatePlannerTask = (
   accessToken: string,
   taskId: string,
   expectedVersion?: number,
-  options?: { idempotencyKey?: string },
+  options?: PlannerTaskMutationOptions,
 ) => {
-  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.reactivate')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
-  }
+  const version = expectedVersion ?? 1;
+  const intent = versionedTaskIntent(version, options);
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/reactivate`, {
+    ...plannerMutationRequestOptions({
+      accessToken,
+      intent,
+      expectedVersion: version,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      contextScope: options?.contextScope,
+    }),
     method: 'POST',
-    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
-    accessToken,
-    headers,
   });
 };
 
@@ -341,25 +442,24 @@ export const restorePlannerTask = (
   accessToken: string,
   taskId: string,
   expectedVersion?: number,
-  options?: { idempotencyKey?: string },
+  options?: PlannerTaskMutationOptions,
 ) => {
-  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.tasks.restore')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
-  }
+  const version = expectedVersion ?? 1;
+  const intent = versionedTaskIntent(version, options);
   return requestJson<PlannerTaskResponse>(`/api/planner/tasks/${taskId}/restore`, {
+    ...plannerMutationRequestOptions({
+      accessToken,
+      intent,
+      expectedVersion: version,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      contextScope: options?.contextScope,
+    }),
     method: 'POST',
-    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
-    accessToken,
-    headers,
   });
 };
 
-type PlannerTaskV1MutationOptions = {
-  idempotencyKey?: string;
-  mutationId?: string;
-};
+type PlannerTaskV1MutationOptions = PlannerTaskMutationOptions;
 
 const requestPlannerTaskV1Mutation = (
   accessToken: string,
@@ -370,22 +470,29 @@ const requestPlannerTaskV1Mutation = (
   options?: PlannerTaskV1MutationOptions,
   method: 'POST' | 'PUT' = 'POST',
 ) => {
-  const idempotencyKey = options?.idempotencyKey ?? createIdempotencyKey(operation);
+  const intent = versionedTaskIntent(expectedVersion, {
+    ...options,
+    idempotencyKey: options?.idempotencyKey ?? createIdempotencyKey(operation),
+  });
   return requestJson<PlannerTaskFulfillmentResponseV1>(path, {
+    ...plannerMutationRequestOptions({
+      accessToken,
+      payload: body,
+      intent,
+      expectedVersion,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      contextScope: options?.contextScope,
+    }),
     method,
-    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
-    accessToken,
-    body,
-    mutationId: options?.mutationId,
-    headers: {
-      'Idempotency-Key': idempotencyKey,
-      'If-Match': String(expectedVersion),
-    },
   });
 };
 
 export const getPlannerTaskFulfillmentV1 = (accessToken: string, taskId: string) =>
-  requestJson<PlannerTaskFulfillmentResponseV1>(`/api/planner/v1/tasks/${taskId}/fulfillment`, { accessToken });
+  requestJson<PlannerTaskFulfillmentResponseV1>(
+    `/api/planner/v1/tasks/${taskId}/fulfillment`,
+    plannerReadRequestOptions({ accessToken }),
+  );
 
 export const updatePlannerTaskAssignmentV1 = (
   accessToken: string,

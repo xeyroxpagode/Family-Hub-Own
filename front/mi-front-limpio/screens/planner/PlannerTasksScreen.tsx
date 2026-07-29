@@ -15,6 +15,7 @@ import {
 } from '../../services/plannerTasks';
 import { listGoals, type PlannerGoal } from '../../services/plannerGoals';
 import { createIdempotencyKey } from '../../services/idempotency';
+import { projectPlannerTask } from '../../adapters/planner/plannerTaskAdapters';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
@@ -36,6 +37,10 @@ type Props = {
   refreshKey?: number;
   onChanged?: () => void;
   onCreateTask: () => void;
+  /**
+   * Historical prop name kept for Planner root compatibility.
+   * The current root wiring opens TaskDetail through this callback.
+   */
   onEditTask: (taskId: string) => void;
   onShowToast?: (message: string) => void;
 };
@@ -99,6 +104,8 @@ function TaskCard({
   const isPending = task.status === 'pending';
   const isAwaiting = task.status === 'awaiting_verification';
   const isCancelled = task.status === 'cancelled';
+  const projection = projectPlannerTask(task);
+  const primaryAction = projection.primaryAction;
 
   const getOwnerLabel = () => {
     if (task.assigned_to_member_id) {
@@ -168,10 +175,6 @@ function TaskCard({
     onEditTask(task.id);
   };
 
-  const handleLongPress = () => {
-    openActionMenu();
-  };
-
   const openActionMenu = () => {
     const actions: Array<{ text: string; style?: 'default' | 'destructive' | 'cancel'; onPress?: () => void }> = [];
 
@@ -222,8 +225,18 @@ function TaskCard({
   };
 
   return (
-    <View style={[S.card, { borderLeftWidth: 4, borderLeftColor: getPriorityBorderColor(task.priority), marginBottom: 12 }]}>
-      <TouchableOpacity onPress={handlePress} onLongPress={handleLongPress} disabled={isSaving}>
+    <View
+      style={[S.card, { borderLeftWidth: 4, borderLeftColor: getPriorityBorderColor(task.priority), marginBottom: 12 }]}
+      accessibilityRole="summary"
+      accessibilityLabel={projection.accessibilityLabel}
+    >
+      <TouchableOpacity
+        onPress={handlePress}
+        disabled={isSaving}
+        accessibilityRole="button"
+        accessibilityLabel={`Abrir detalle de tarea. ${projection.accessibilityLabel}`}
+        accessibilityState={{ busy: isSaving, disabled: isSaving }}
+      >
         <View style={S.taskCardBody}>
           <View style={[S.taskTypeDot, { backgroundColor: typeDotColor }]}>
             {typeIcon ? (
@@ -236,9 +249,6 @@ function TaskCard({
           <View style={S.taskCardContent}>
             <View style={S.taskCardTitleRow}>
               <Text style={S.taskCardTitle} numberOfLines={2}>{task.title}</Text>
-              <TouchableOpacity onPress={openActionMenu} style={S.taskOverflowBtn} disabled={isSaving}>
-                <Text style={S.taskOverflowBtnText}>⋮</Text>
-              </TouchableOpacity>
             </View>
             
             <View style={S.taskDateLine}>
@@ -304,33 +314,44 @@ function TaskCard({
               <Text style={S.taskReviewLabel}>Por revisar</Text>
             )}
 
-            {(isPending || isCancelled) ? (
+            {primaryAction && (isPending || isAwaiting || isCancelled || task.trashed_at) ? (
               <View style={S.taskActionsRow}>
-                {isPending ? (
+                {primaryAction.key === 'complete' || primaryAction.key === 'submit_for_verification' ? (
                   <TouchableOpacity
                     style={[S.taskPrimaryAction, isSaving && { opacity: 0.6 }]}
                     onPress={() => onComplete(task)}
                     disabled={isSaving}
+                    accessibilityRole="button"
+                    accessibilityLabel={primaryAction.accessibilityLabel}
+                    accessibilityState={{ busy: isSaving, disabled: isSaving }}
                   >
-                    <Text style={S.taskPrimaryActionText}>Completar</Text>
+                    <Text style={S.taskPrimaryActionText}>{primaryAction.label}</Text>
                   </TouchableOpacity>
                 ) : null}
-                {isCancelled ? (
+                {primaryAction.key === 'verify' ? (
+                  <TouchableOpacity
+                    style={[S.taskPrimaryAction, isSaving && { opacity: 0.6 }]}
+                    onPress={() => onVerify(task)}
+                    disabled={isSaving}
+                    accessibilityRole="button"
+                    accessibilityLabel={primaryAction.accessibilityLabel}
+                    accessibilityState={{ busy: isSaving, disabled: isSaving }}
+                  >
+                    <Text style={S.taskPrimaryActionText}>{primaryAction.label}</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {primaryAction.key === 'reactivate' ? (
                   <TouchableOpacity
                     style={[S.taskPrimaryAction, isSaving && { opacity: 0.6 }]}
                     onPress={() => onReactivate(task)}
                     disabled={isSaving}
+                    accessibilityRole="button"
+                    accessibilityLabel={primaryAction.accessibilityLabel}
+                    accessibilityState={{ busy: isSaving, disabled: isSaving }}
                   >
-                    <Text style={S.taskPrimaryActionText}>Reactivar tarea</Text>
+                    <Text style={S.taskPrimaryActionText}>{primaryAction.label}</Text>
                   </TouchableOpacity>
                 ) : null}
-                <TouchableOpacity
-                  style={[S.taskSecondaryAction, isSaving && { opacity: 0.6 }]}
-                  onPress={openActionMenu}
-                  disabled={isSaving}
-                >
-                  <Text style={S.taskSecondaryActionText}>Más</Text>
-                </TouchableOpacity>
               </View>
             ) : null}
           </View>
