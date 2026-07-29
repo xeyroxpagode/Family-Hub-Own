@@ -86,7 +86,7 @@ export type PlannerStackParamList = {
   CreateEvent: undefined;
   EditEvent: { eventId: string };
   CreateGoal: undefined;
-  EditGoal: { goalId: string };
+  EditGoal: { goalId?: string } | import('./plannerNavigationContract').PlannerEntityDetailParams;
   GoalDetail: { goalId: string; source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown'; } | import('./plannerNavigationContract').PlannerEntityDetailParams;
   PlannerTrash: undefined;
   // New canonical V1 detail routes. Their params are the canonical typed

@@ -20,6 +20,7 @@ import {
   sheetMachineReducer,
   type OpenEventInput,
   type OpenGoalInput,
+  type OpenPlanInput,
   type OpenTaskInput,
   type PlannerSheetCloseReason,
   type PlannerSheetEvent,
@@ -40,6 +41,7 @@ export type PlannerSheetController = {
   openTaskForm(input: OpenTaskInput): void;
   openEventForm(input: OpenEventInput): void;
   openGoalForm(input: OpenGoalInput): void;
+  openPlanForm(input: OpenPlanInput): void;
 
   replace(next: PlannerSheetState): void;
   requestClose(reason: PlannerSheetCloseReason): void;
@@ -61,6 +63,7 @@ const noopController: PlannerSheetController = {
   openTaskForm: () => {},
   openEventForm: () => {},
   openGoalForm: () => {},
+  openPlanForm: () => {},
   replace: () => {},
   requestClose: () => {},
   forceClose: () => {},
@@ -113,6 +116,11 @@ export function PlannerSheetProvider({ children }: PlannerSheetProviderProps) {
 
   const openGoalForm = useCallback(
     (input: OpenGoalInput) => dispatch({ type: 'OPEN_GOAL', input }),
+    [],
+  );
+
+  const openPlanForm = useCallback(
+    (input: OpenPlanInput) => dispatch({ type: 'OPEN_PLAN', input }),
     [],
   );
 
@@ -206,6 +214,7 @@ export function PlannerSheetProvider({ children }: PlannerSheetProviderProps) {
       openTaskForm,
       openEventForm,
       openGoalForm,
+      openPlanForm,
       replace,
       requestClose,
       forceClose,
@@ -220,6 +229,7 @@ export function PlannerSheetProvider({ children }: PlannerSheetProviderProps) {
       openTaskForm,
       openEventForm,
       openGoalForm,
+      openPlanForm,
       replace,
       requestClose,
       forceClose,

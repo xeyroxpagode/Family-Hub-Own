@@ -20,7 +20,7 @@ import type { PlannerNavigationSource } from '../../navigation/plannerNavigation
 // 1. Sheet kind — closed discriminated union
 // ---------------------------------------------------------------------------
 
-export type PlannerSheetKind = 'closed' | 'actions' | 'task_form' | 'event_form' | 'goal_form';
+export type PlannerSheetKind = 'closed' | 'actions' | 'task_form' | 'event_form' | 'goal_form' | 'plan_form';
 
 // ---------------------------------------------------------------------------
 // 2. PlannerSheetState — a single discrimated union (no representing
@@ -49,6 +49,11 @@ export type PlannerSheetState =
       readonly mode: 'create' | 'edit';
       readonly goalId?: string;
       readonly source: PlannerNavigationSource;
+    }
+  | {
+      readonly kind: 'plan_form';
+      readonly mode: 'create';
+      readonly source: PlannerNavigationSource;
     };
 
 // ---------------------------------------------------------------------------
@@ -75,6 +80,10 @@ export type OpenGoalInput = {
   readonly source: PlannerNavigationSource;
 };
 
+export type OpenPlanInput = {
+  readonly source: PlannerNavigationSource;
+};
+
 // ---------------------------------------------------------------------------
 // 4. Close reason — closed enum
 // ---------------------------------------------------------------------------
@@ -97,6 +106,7 @@ export type PlannerSheetEvent =
   | { readonly type: 'OPEN_TASK'; readonly input: OpenTaskInput }
   | { readonly type: 'OPEN_EVENT'; readonly input: OpenEventInput }
   | { readonly type: 'OPEN_GOAL'; readonly input: OpenGoalInput }
+  | { readonly type: 'OPEN_PLAN'; readonly input: OpenPlanInput }
   | { readonly type: 'REPLACE'; readonly next: PlannerSheetState }
   | { readonly type: 'REQUEST_CLOSE'; readonly reason: PlannerSheetCloseReason }
   | { readonly type: 'FORCE_CLOSE'; readonly reason: PlannerSheetCloseReason }
@@ -188,6 +198,20 @@ export function sheetMachineReducer(
         source: event.input.source,
       };
       if (state.kind === 'goal_form' && sameGoal(state, desired)) return noChange(state, context);
+      return {
+        state: desired,
+        isSubmitting: context.isSubmitting,
+        activeIntentId: context.activeIntentId,
+      };
+    }
+
+    case 'OPEN_PLAN': {
+      const desired: PlannerSheetState = {
+        kind: 'plan_form',
+        mode: 'create',
+        source: event.input.source,
+      };
+      if (state.kind === 'plan_form') return noChange(state, context);
       return {
         state: desired,
         isSubmitting: context.isSubmitting,

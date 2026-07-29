@@ -87,7 +87,7 @@ export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSe
   const handleOpenGoal = useCallback(() => {
     if (sheet.isSubmitting) return;
     onActionSelected?.('goal');
-    sheet.openGoalForm({ source: 'quick_action' });
+    sheet.openPlanForm({ source: 'quick_action' });
   }, [sheet, onActionSelected]);
 
   const visibleActions = useMemo(() => {

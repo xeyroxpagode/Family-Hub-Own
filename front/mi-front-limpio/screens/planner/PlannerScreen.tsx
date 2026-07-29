@@ -47,7 +47,7 @@ import { useHousehold } from '../../context/HouseholdContext';
 import { usePlannerSheet } from '../../context/PlannerSheetContext';
 import { useFeatureFlags } from '../../context/FeatureFlagsContext';
 import { PlannerCalendarScreen } from './PlannerCalendarScreen';
-import { PlannerGoalsScreen } from './PlannerGoalsScreen';
+import { PlannerPlansScreen } from './PlannerPlansScreen';
 import { PlannerTasksScreen } from './PlannerTasksScreen';
 import { plannerStyles as S } from './plannerShared';
 import {
@@ -742,40 +742,21 @@ export function PlannerScreen() {
           {showActiveContent && activeTab === 'events' ? (
             <PlannerCalendarScreen
               refreshKey={refreshKey}
-              onChanged={changed}
               onCreateEvent={(initialDate) =>
                 sheet.openEventForm({ source: 'planner', initialDate })
               }
-              onEditEvent={(eventId, context) =>
-                navigation.navigate(ROUTE_NAMES.EventDetail, buildPlannerEntityDetailParams({
-                  entityId: context?.baseEventId ?? eventId,
-                  source: 'planner',
-                  returnTo: 'planner',
-                }))
-              }
-              onEditTask={(id) => navigation.navigate(ROUTE_NAMES.TaskDetail, buildPlannerEntityDetailParams({
-                entityId: id,
-                source: 'planner',
-                returnTo: 'planner',
-              }))}
               onCreateTask={(initialDueDate) =>
                 sheet.openTaskForm({ source: 'planner', initialDueDate })
               }
-              onShowToast={(msg) => {
-                setToast(msg);
-                setTimeout(() => setToast(null), 2200);
+              onOpenProjection={(projection) => {
+                navigation.navigate(projection.destination.route, projection.destination.params);
               }}
             />
           ) : null}
 
           {showActiveContent && activeTab === 'plans' ? (
-            <PlannerGoalsScreen
+            <PlannerPlansScreen
               refreshKey={refreshKey}
-              onChanged={changed}
-              onShowToast={(msg) => {
-                setToast(msg);
-                setTimeout(() => setToast(null), 2200);
-              }}
             />
           ) : null}
         </ScrollView>

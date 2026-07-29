@@ -19,8 +19,8 @@ import { EditTaskScreen } from '../screens/planner/EditTaskScreen';
 import { CreateEventScreen } from '../screens/planner/CreateEventScreen';
 import { EditEventScreen } from '../screens/planner/EditEventScreen';
 import { CreateGoalScreen } from '../screens/planner/CreateGoalScreen';
-import { EditGoalScreen } from '../screens/planner/EditGoalScreen';
-import { GoalDetailScreen } from '../screens/planner/GoalDetailScreen';
+import { PlannerPlanStructureEditScreen } from '../screens/planner/PlannerPlanStructureEditScreen';
+import { PlannerPlanDetailScreen } from '../screens/planner/PlannerPlanDetailScreen';
 import { PlannerTrashScreen } from '../screens/planner/PlannerTrashScreen';
 import { PlannerSearchScreen } from '../screens/planner/PlannerSearchScreen';
 import { TaskDetailScreen } from '../screens/planner/TaskDetailScreen';
@@ -126,8 +126,8 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="CreateEvent" component={CreateEventScreen} />
       <PlannerStack.Screen name="EditEvent" component={EditEventScreen} />
       <PlannerStack.Screen name="CreateGoal" component={CreateGoalScreen} />
-      <PlannerStack.Screen name="EditGoal" component={EditGoalScreen} />
-      <PlannerStack.Screen name="GoalDetail" component={GoalDetailScreen} />
+      <PlannerStack.Screen name="EditGoal" component={PlannerPlanStructureEditScreen} />
+      <PlannerStack.Screen name="GoalDetail" component={PlannerPlanDetailScreen} />
       <PlannerStack.Screen name="PlannerTrash" component={PlannerTrashScreen} />
       <PlannerStack.Screen name="PlannerSearch" component={PlannerSearchScreen} />
       <PlannerStack.Screen name="TaskDetail" component={TaskDetailScreen} />

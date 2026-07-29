@@ -41,6 +41,7 @@ import { useHousehold } from '../../context/HouseholdContext';
 import { EventForm } from '../../screens/planner/EventForm';
 import { TaskForm } from '../../screens/planner/TaskForm';
 import { GoalForm } from '../../screens/planner/GoalForm';
+import { PlannerPlanMinimalCreateSurface } from '../../screens/planner/PlannerPlansSurfaces';
 import { QuickActionsMenu } from './QuickActionsMenu';
 import type { PlannerSheetState } from '../../services/planner/plannerSheetState';
 import {
@@ -61,6 +62,11 @@ import {
 import { plannerCache } from '../../services/planner/plannerCache';
 import { plannerQuickActionsTelemetry } from '../../services/planner/plannerQuickActionsTelemetry';
 import { openGoalDetail } from '../../navigation/plannerNavigationHelpers';
+import {
+  createPlanWriteIntent,
+  writeCanonicalPlanGraph,
+  type PlanGraphWriteRequest,
+} from '../../services/planner/plannerPlans';
 
 // ---------------------------------------------------------------------------
 // 1. Heading map (a11y announcement text)
@@ -71,6 +77,7 @@ const SHEET_HEADINGS: Record<string, string> = {
   task_form: 'Formulario: nueva tarea',
   event_form: 'Formulario: nuevo evento',
   goal_form: 'Formulario: nuevo plan',
+  plan_form: 'Formulario: nuevo plan',
 };
 
 // ---------------------------------------------------------------------------
@@ -354,6 +361,66 @@ function GoalFormHost() {
   );
 }
 
+function PlanFormHost() {
+  const sheet = usePlannerSheet();
+  const { currentHousehold } = useHousehold();
+  const { session } = useAuth();
+  const accessToken = session?.access_token;
+  const [error, setError] = useState<string | null>(null);
+
+  const onClose = useCallback(() => {
+    sheet.requestClose('user_request');
+  }, [sheet]);
+
+  const onSubmit = useCallback(
+    async (request: PlanGraphWriteRequest) => {
+      if (!accessToken) {
+        setError('No hay sesion activa.');
+        return;
+      }
+
+      const intent = createPlanWriteIntent(request);
+      sheet.beginSubmit(intent.mutationId);
+      setError(null);
+      try {
+        await writeCanonicalPlanGraph({ accessToken }, request, intent);
+        if (currentHousehold) {
+          plannerCache.executeInvalidation(
+            { kind: 'plan', action: 'create' },
+            { householdId: currentHousehold.id },
+          );
+        }
+        plannerQuickActionsTelemetry.submitSucceeded('goal', accessToken);
+        sheet.endSubmit(intent.mutationId);
+        sheet.requestClose('success');
+      } catch (err) {
+        plannerQuickActionsTelemetry.submitFailed('goal', 'plan_create_failed', accessToken);
+        setError(err instanceof Error ? err.message : 'No pudimos crear el plan.');
+        sheet.endSubmit(intent.mutationId);
+      }
+    },
+    [accessToken, currentHousehold, sheet],
+  );
+
+  return (
+    <View>
+      {error ? (
+        <View style={[S.toastBox, { marginHorizontal: 16, marginBottom: 12 }]}>
+          <AppText variant="bodySmall" tone="warning" weight="700" style={{ flex: 1 }}>
+            {error}
+          </AppText>
+        </View>
+      ) : null}
+      <PlannerPlanMinimalCreateSurface
+        initialScope={currentHousehold ? 'household' : 'personal'}
+        householdId={currentHousehold?.id ?? null}
+        onSubmit={(request) => void onSubmit(request)}
+        onCancel={onClose}
+      />
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 4. Host component — single Modal owner
 // ---------------------------------------------------------------------------
@@ -395,7 +462,7 @@ export function PlannerSheetHost() {
     if (state.kind !== 'closed') {
       heading = SHEET_HEADINGS[state.kind];
       if (!heading) {
-        const mode = state.kind === 'task_form' || state.kind === 'event_form' || state.kind === 'goal_form'
+        const mode = state.kind === 'task_form' || state.kind === 'event_form' || state.kind === 'goal_form' || state.kind === 'plan_form'
           ? state.mode
           : 'create';
         heading = `${mode === 'edit' ? 'Editar' : 'Nueva'} ${state.kind.replace('_form', '')}`;
@@ -434,6 +501,8 @@ export function PlannerSheetHost() {
         return <EventFormHost />;
       case 'goal_form':
         return <GoalFormHost />;
+      case 'plan_form':
+        return <PlanFormHost />;
     }
   }, [state]);
 
@@ -482,6 +551,8 @@ export function PlannerSheetHost() {
               : state.kind === 'event_form'
               ? 'Formulario de evento'
               : state.kind === 'goal_form'
+              ? 'Formulario de plan'
+              : state.kind === 'plan_form'
               ? 'Formulario de plan'
               : ''
           }
