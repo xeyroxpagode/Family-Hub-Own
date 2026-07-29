@@ -880,6 +880,28 @@ export const plannerStyles = StyleSheet.create({
     height: 5,
     borderRadius: 3,
   },
+  calendarCountBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    marginTop: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.sage[500],
+  },
+  calendarCountBadgeSelected: {
+    backgroundColor: colors.text.inverse,
+  },
+  calendarCountBadgeText: {
+    color: colors.text.inverse,
+    fontSize: 10,
+    fontWeight: '900',
+    lineHeight: 12,
+  },
+  calendarCountBadgeTextSelected: {
+    color: colors.terracotta[700],
+  },
   calendarAgendaCard: {
     backgroundColor: colors.surface.card,
     borderRadius: radius.xl,

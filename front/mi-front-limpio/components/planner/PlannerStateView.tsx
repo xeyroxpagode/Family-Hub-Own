@@ -78,7 +78,7 @@ function describe(state: PlannerShellState): ChromeDescriptor {
         iconColor: colors.text.tertiary,
         iconBgColor: colors.background.soft,
         title: 'Cargando Planner',
-        description: 'Estamos preparando tus tareas, calendario y metas.',
+        description: 'Estamos preparando tus tareas, eventos y planes.',
         primaryLabel: 'Reintentar',
       };
     case 'empty':
@@ -87,7 +87,7 @@ function describe(state: PlannerShellState): ChromeDescriptor {
         iconColor: colors.terracotta[500],
         iconBgColor: colors.sand[50],
         title: 'Planner está vacío',
-        description: 'Cuando crees tareas, eventos o metas los vas a ver aquí.',
+        description: 'Cuando crees tareas, eventos o planes los vas a ver aquí.',
         primaryLabel: 'Volver',
       };
     case 'partial': {
@@ -225,14 +225,14 @@ function recoverableErrorDescription(info: PlannerShellErrorInfo | undefined): s
   }
 }
 
-function sectionLabel(key: 'tasks' | 'calendar' | 'goals'): string {
+function sectionLabel(key: 'tasks' | 'events' | 'plans'): string {
   switch (key) {
     case 'tasks':
       return 'Tareas';
-    case 'calendar':
-      return 'Calendario';
-    case 'goals':
-      return 'Metas';
+    case 'events':
+      return 'Eventos';
+    case 'plans':
+      return 'Planes';
     default:
       return String(key);
   }

@@ -30,7 +30,12 @@ import {
   createGoalDetailIntent,
   createPlannerSearchIntent,
 } from '../planner/plannerDeepLinkTypes';
-import { isValidPlannerEntityId } from '../../navigation/plannerNavigationContract';
+import {
+  isValidPlannerEntityId,
+  normalizePlannerTabKey,
+  type PlannerTabInputKey,
+  type PlannerTabKey,
+} from '../../navigation/plannerNavigationContract';
 
 // ---------------------------------------------------------------------------
 // 1. Allowlisted notification payload schema
@@ -57,7 +62,7 @@ export type ValidatedNotificationPayload = {
   /** UUID of the target entity (required for detail kinds). */
   entityId?: string;
   /** Optional tab hint for planner_root. */
-  initialTab?: 'tasks' | 'calendar' | 'goals';
+  initialTab?: PlannerTabKey;
   /** Optional metadata for analytics (never used for auth/access). */
   meta?: Record<string, string>;
 };
@@ -80,7 +85,7 @@ const ALLOWED_KINDS: readonly PlannerNotificationKind[] = [
   'planner_search',
 ] as const;
 
-const ALLOWED_TABS = ['tasks', 'calendar', 'goals'] as const;
+const ALLOWED_TABS: readonly PlannerTabInputKey[] = ['tasks', 'events', 'plans', 'calendar', 'goals'] as const;
 const ALLOWED_META_KEYS = ['source', 'campaign_id', 'timestamp'] as const;
 
 /**
@@ -114,8 +119,8 @@ export function validateNotificationPayload(payload: RawNotificationPayload): Va
   // Optional initialTab for planner_root
   if (kind === 'planner_root') {
     const initialTab = payload.initialTab;
-    if (typeof initialTab === 'string' && (initialTab === 'tasks' || initialTab === 'calendar' || initialTab === 'goals')) {
-      validated.initialTab = initialTab as 'tasks' | 'calendar' | 'goals';
+    if (typeof initialTab === 'string' && (ALLOWED_TABS as readonly string[]).includes(initialTab)) {
+      validated.initialTab = normalizePlannerTabKey(initialTab) ?? undefined;
     }
   }
 

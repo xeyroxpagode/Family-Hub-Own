@@ -33,11 +33,40 @@ export type PlannerErrorClass =
   | 'forbidden'
   | 'not_found'
   | 'conflict'
+  | 'idempotency_conflict'
+  | 'in_flight'
   | 'timeout'
   | 'abort'
   | 'offline'
   | 'server'
+  | 'transient'
+  | 'fatal'
   | 'unknown';
+
+export type PlannerSafeErrorCategory =
+  | 'validation'
+  | 'forbidden'
+  | 'not_found'
+  | 'version_conflict'
+  | 'idempotency_conflict'
+  | 'in_flight'
+  | 'safe_server_rejection'
+  | 'uncertain_network_outcome'
+  | 'offline'
+  | 'retryable_transient'
+  | 'fatal_sanitized';
+
+export type PlannerSafeErrorBehavior = {
+  readonly category: PlannerSafeErrorCategory;
+  readonly message: string;
+  readonly preservesData: boolean;
+  readonly allowsRetry: boolean;
+  readonly requiresRefetch: boolean;
+  readonly opensConflictReview: boolean;
+  readonly restoresOptimisticState: boolean;
+  readonly keepsOperationPending: boolean;
+  readonly canAutoClose: boolean;
+};
 
 /**
  * A wrapped error that preserves the original `ApiError` while providing
@@ -96,16 +125,22 @@ export function classifyPlannerError(error: unknown): PlannerError {
     return { original: error, class: 'not_found', code, requestId, isRetryable: false };
   }
   if (status === 409) {
+    if (code === 'idempotency_conflict' || code === 'idempotency_key_conflict') {
+      return { original: error, class: 'idempotency_conflict', code, requestId, isRetryable: false };
+    }
+    if (code === 'idempotency_in_flight') {
+      return { original: error, class: 'in_flight', code, requestId, isRetryable: true };
+    }
     return { original: error, class: 'conflict', code, requestId, isRetryable: false };
   }
   if (status === 412) {
     return { original: error, class: 'conflict', code, requestId, isRetryable: false };
   }
   if (status === 429) {
-    return { original: error, class: 'server', code, requestId, isRetryable: true };
+    return { original: error, class: 'transient', code, requestId, isRetryable: true };
   }
   if (status >= 500) {
-    return { original: error, class: 'server', code, requestId, isRetryable: true };
+    return { original: error, class: 'transient', code, requestId, isRetryable: true };
   }
 
   return { original: error, class: 'unknown', code, requestId, isRetryable: false };
@@ -127,7 +162,96 @@ export function isPlannerAbort(error: unknown): boolean {
  * (preserving mutationId and idempotencyKey).
  */
 export function isRetryable(classifier: PlannerErrorClass): boolean {
-  return classifier === 'server' || classifier === 'offline' || classifier === 'abort';
+  return classifier === 'server'
+    || classifier === 'transient'
+    || classifier === 'offline'
+    || classifier === 'abort'
+    || classifier === 'in_flight';
+}
+
+export function toPlannerSafeErrorBehavior(error: PlannerError): PlannerSafeErrorBehavior {
+  switch (error.class) {
+    case 'validation':
+      return safeBehavior('validation', 'Revisá los datos antes de continuar.', {
+        restoresOptimisticState: true,
+      });
+    case 'forbidden':
+      return safeBehavior('forbidden', 'No tenés permiso para realizar esta acción.', {
+        requiresRefetch: true,
+        restoresOptimisticState: true,
+      });
+    case 'not_found':
+      return safeBehavior('not_found', 'Este elemento ya no está disponible.', {
+        requiresRefetch: true,
+        restoresOptimisticState: true,
+      });
+    case 'conflict':
+      return safeBehavior('version_conflict', 'Los datos cambiaron en otro dispositivo.', {
+        requiresRefetch: true,
+        opensConflictReview: true,
+        restoresOptimisticState: true,
+      });
+    case 'idempotency_conflict':
+      return safeBehavior('idempotency_conflict', 'Esta operación ya se procesó con otros datos.', {
+        requiresRefetch: true,
+        restoresOptimisticState: true,
+      });
+    case 'in_flight':
+      return safeBehavior('in_flight', 'La operación ya está en curso.', {
+        allowsRetry: true,
+        keepsOperationPending: true,
+      });
+    case 'offline':
+      return safeBehavior('offline', 'Sin conexión. Conservamos tus datos para reintentar.', {
+        allowsRetry: true,
+        keepsOperationPending: true,
+      });
+    case 'abort':
+      return safeBehavior('uncertain_network_outcome', 'La respuesta no llegó. Vamos a reconciliar antes de repetir.', {
+        allowsRetry: true,
+        requiresRefetch: true,
+        keepsOperationPending: true,
+      });
+    case 'timeout':
+      return safeBehavior('uncertain_network_outcome', 'La respuesta tardó demasiado. Vamos a verificar el resultado.', {
+        allowsRetry: true,
+        requiresRefetch: true,
+        keepsOperationPending: true,
+      });
+    case 'server':
+      return safeBehavior('safe_server_rejection', 'No pudimos completar la acción. Reintentá en unos segundos.', {
+        allowsRetry: true,
+        restoresOptimisticState: true,
+      });
+    case 'transient':
+      return safeBehavior('retryable_transient', 'El servidor no respondió a tiempo. Reintentá en unos segundos.', {
+        allowsRetry: true,
+        keepsOperationPending: true,
+      });
+    default:
+      return safeBehavior('fatal_sanitized', 'No pudimos completar la acción.', {
+        restoresOptimisticState: true,
+      });
+  }
+}
+
+function safeBehavior(
+  category: PlannerSafeErrorCategory,
+  message: string,
+  overrides: Partial<Omit<PlannerSafeErrorBehavior, 'category' | 'message'>> = {},
+): PlannerSafeErrorBehavior {
+  return {
+    category,
+    message,
+    preservesData: true,
+    allowsRetry: false,
+    requiresRefetch: false,
+    opensConflictReview: false,
+    restoresOptimisticState: false,
+    keepsOperationPending: false,
+    canAutoClose: false,
+    ...overrides,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -38,7 +38,7 @@ export interface PlannerNavigation {
 import {
   ROUTE_NAMES,
   LEGACY_ROUTE_NAMES,
-  isPlannerTabKey,
+  normalizePlannerTabKey,
   normalizePlannerNavigationSource,
   normalizePlannerReturnTarget,
   buildPlannerRootParams,
@@ -46,10 +46,12 @@ import {
   buildPlannerSearchParams,
   isValidPlannerEntityId,
   resolveDetailRouteName,
+  normalizePlannerEntityKind,
   type PlannerTabKey,
   type PlannerNavigationSource,
   type PlannerReturnTarget,
   type PlannerEntityKind,
+  type LegacyPlannerEntityKind,
 } from '../navigation/plannerNavigationContract';
 
 // ---------------------------------------------------------------------------
@@ -69,7 +71,7 @@ export function openPlanner(
   } = {},
 ): void {
   const params = buildPlannerRootParams({
-    initialTab: options.initialTab,
+    initialTab: normalizePlannerTabKey(options.initialTab),
     source: normalizePlannerNavigationSource(options.source),
   });
   navigation.navigate(LEGACY_ROUTE_NAMES.PlannerHome, params);
@@ -147,12 +149,12 @@ export function openGoalDetail(
 
 /**
  * Convenience dispatcher that routes to the correct detail screen by entity
- * kind (task/event/goal). Delegates to `openTaskDetail`, `openEventDetail`
+ * kind (task/event/plan). Legacy `goal` inputs normalize to `plan`.
  * or `openGoalDetail`.
  */
 export function openEntityDetail(
   navigation: PlannerNavigation,
-  kind: PlannerEntityKind,
+  kind: PlannerEntityKind | LegacyPlannerEntityKind,
   options: {
     entityId: string;
     source?: PlannerNavigationSource;
@@ -166,10 +168,11 @@ export function openEntityDetail(
     returnTo: normalizePlannerReturnTarget(options.returnTo),
     justCreated: options.justCreated,
   });
-  if (kind === 'goal') {
+  const normalizedKind = normalizePlannerEntityKind(kind);
+  if (normalizedKind === 'plan') {
     navigation.navigate(LEGACY_ROUTE_NAMES.GoalDetail, params);
   } else {
-    const routeName = resolveDetailRouteName(kind);
+    const routeName = resolveDetailRouteName(normalizedKind);
     navigation.navigate(routeName as 'TaskDetail' | 'EventDetail', params);
   }
 }
@@ -245,19 +248,19 @@ export function resolvePlannerBackBehavior(params: {
   const returnTo = normalizePlannerReturnTarget(params.returnTo, 'previous');
 
   if (returnTo === 'home') {
-    const tab = isPlannerTabKey(params.fallbackTab) ? params.fallbackTab : undefined;
+    const tab = normalizePlannerTabKey(params.fallbackTab) ?? undefined;
     return { kind: 'navigate', routeName: ROUTE_NAMES.Planner, params: { initialTab: tab } };
   }
 
   if (returnTo === 'planner') {
     if (params.hasHistory) return { kind: 'goBack' };
-    const tab = isPlannerTabKey(params.fallbackTab) ? params.fallbackTab : undefined;
+    const tab = normalizePlannerTabKey(params.fallbackTab) ?? undefined;
     return { kind: 'navigate', routeName: ROUTE_NAMES.Planner, params: { initialTab: tab } };
   }
 
   // 'previous' or unknown/absent — prefer goBack, fallback to Planner root.
   if (params.hasHistory) return { kind: 'goBack' };
-  const tab = isPlannerTabKey(params.fallbackTab) ? params.fallbackTab : undefined;
+  const tab = normalizePlannerTabKey(params.fallbackTab) ?? undefined;
   return { kind: 'navigate', routeName: ROUTE_NAMES.Planner, params: { initialTab: tab } };
 }
 
@@ -320,9 +323,9 @@ export function openPlannerFromHomeTab(
   if (targetScreen === 'CreateTask') {
     enriched.initialTab = 'tasks';
   } else if (targetScreen === 'CreateEvent') {
-    enriched.initialTab = 'calendar';
+    enriched.initialTab = 'events';
   } else if (targetScreen === 'CreateGoal') {
-    enriched.initialTab = 'goals';
+    enriched.initialTab = 'plans';
   }
 
   // Nested navigation requires `any` because React Navigation's nested

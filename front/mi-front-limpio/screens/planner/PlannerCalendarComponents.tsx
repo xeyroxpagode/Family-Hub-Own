@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Alert, Animated, Image, Text, TouchableOpacity, View } from 'react-native';
+import React from 'react';
+import { Alert, Text, TouchableOpacity, View } from 'react-native';
 import { plannerStyles as S, getTypeDotColor, getTypeLabel, formatDate, formatTime, priorityLabelsWithLegacy, statusLabels, eventStatusLabels } from './plannerShared';
 import { colors } from '../../constants/theme';
 
@@ -10,6 +10,7 @@ type CalendarDayCellProps = {
   isToday: boolean;
   hasEvent: boolean;
   hasTask: boolean;
+  count?: number;
   onPress?: () => void;
 };
 
@@ -20,19 +21,17 @@ export const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
   isToday,
   hasEvent,
   hasTask,
+  count = 0,
   onPress,
 }) => {
-  const scale = useMemo(() => new Animated.Value(1), []);
-
   if (!day) {
     return <View style={[S.monthDay, { opacity: 0 }]} />;
   }
 
   const dayText = day.getDate();
-  const both = hasEvent && hasTask;
+  const badge = count <= 0 ? '' : count > 9 ? '9+' : String(count);
 
   return (
-    <Animated.View style={{ transform: [{ scale }] }}>
       <TouchableOpacity
         style={[
           S.calendarMonthDay,
@@ -51,18 +50,12 @@ export const CalendarDayCell: React.FC<CalendarDayCellProps> = ({
         >
           {dayText}
         </Text>
-        {both ? (
-          <View style={S.calendarIndicatorBoth}>
-            <View style={[S.calendarIndicatorBothInner, { backgroundColor: colors.terracotta[500] }]} />
-            <View style={[S.calendarIndicatorBothInner, { backgroundColor: colors.sage[500] }]} />
+        {badge ? (
+          <View style={[S.calendarCountBadge, selected && S.calendarCountBadgeSelected]}>
+            <Text style={[S.calendarCountBadgeText, selected && S.calendarCountBadgeTextSelected]}>{badge}</Text>
           </View>
-        ) : hasEvent ? (
-          <View style={[S.calendarIndicator, S.calendarIndicatorEvent]} />
-        ) : hasTask ? (
-          <View style={[S.calendarIndicator, S.calendarIndicatorTask]} />
         ) : null}
       </TouchableOpacity>
-    </Animated.View>
   );
 };
 
@@ -75,6 +68,7 @@ type WeekDayCellProps = {
   isToday: boolean;
   hasEvent: boolean;
   hasTask: boolean;
+  count?: number;
   onPress?: () => void;
 };
 
@@ -85,14 +79,12 @@ export const WeekDayCell: React.FC<WeekDayCellProps> = ({
   isToday,
   hasEvent,
   hasTask,
+  count = 0,
   onPress,
 }) => {
-  const scale = useMemo(() => new Animated.Value(1), []);
-
-  const both = hasEvent && hasTask;
+  const badge = count <= 0 ? '' : count > 9 ? '9+' : String(count);
 
   return (
-    <Animated.View style={{ transform: [{ scale }] }}>
       <TouchableOpacity
         style={[
           S.weekDayCell,
@@ -103,18 +95,12 @@ export const WeekDayCell: React.FC<WeekDayCellProps> = ({
       >
         <Text style={[S.weekDayCellLabel, selected && { color: colors.text.inverse }]}>{dayLabel}</Text>
         <Text style={[S.weekDayCellNumber, selected && S.weekDayCellNumberSelected]}>{dayNumber}</Text>
-        {both ? (
-          <View style={[S.calendarIndicatorBoth, { marginTop: 3 }]}>
-            <View style={[S.calendarIndicatorBothInner, { backgroundColor: colors.terracotta[400] }]} />
-            <View style={[S.calendarIndicatorBothInner, { backgroundColor: colors.sage[400] }]} />
+        {badge ? (
+          <View style={[S.calendarCountBadge, selected && S.calendarCountBadgeSelected, { marginTop: 3 }]}>
+            <Text style={[S.calendarCountBadgeText, selected && S.calendarCountBadgeTextSelected]}>{badge}</Text>
           </View>
-        ) : hasEvent ? (
-          <View style={[S.calendarIndicator, S.calendarIndicatorEvent, { marginTop: 3 }]} />
-        ) : hasTask ? (
-          <View style={[S.calendarIndicator, S.calendarIndicatorTask, { marginTop: 3 }]} />
         ) : null}
       </TouchableOpacity>
-    </Animated.View>
   );
 };
 

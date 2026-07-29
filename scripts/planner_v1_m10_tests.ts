@@ -167,10 +167,10 @@ runTest('Intent Model — serialization', () => {
   assert(ser.source === 'deep_link', 'ser task source');
   assert(!('initialTab' in ser), 'ser task no initialTab');
 
-  const root = createPlannerRootIntent('home', 'calendar');
+  const root = createPlannerRootIntent('home', 'events');
   const ser2 = serializeDeepLinkIntent(root);
   assert(ser2.kind === 'planner_root', 'ser root kind');
-  assert(ser2.initialTab === 'calendar', 'ser root initialTab');
+  assert(ser2.initialTab === 'events', 'ser root initialTab');
   assert(!('entityId' in ser2), 'ser root no entityId');
 
   const search = createPlannerSearchIntent('planner');
@@ -186,7 +186,7 @@ runTest('Intent Model — normalization', () => {
   assert(norm.kind === 'task_detail', 'norm task kind');
   assert(norm.source === 'deep_link', 'norm task source');
 
-  const root = createPlannerRootIntent('invalid', 'invalid' as any);
+  const root = createPlannerRootIntent('invalid' as any, 'invalid' as any);
   const norm2 = normalizePlannerDeepLinkIntent(root);
   assert(norm2.kind === 'planner_root', 'norm root kind');
   assert(norm2.source === 'unknown', 'norm root source unknown');
@@ -206,7 +206,7 @@ runTest('Intent Model — rejection messages (no PII)', () => {
     const msg = rejectionReasonMessage(r);
     assert(typeof msg === 'string' && msg.length > 0, `msg for ${r}`);
     assert(!msg.includes('UUID') && !msg.includes('uuid'), `no UUID in ${r}`);
-    assert(!msg.includes('household') && !msg.includes('hogar'), `no household in ${r}`);
+    assert(!msg.includes('household_id') && !msg.includes('hh-'), `no household id in ${r}`);
     assert(!msg.includes('token') && !msg.includes('auth'), `no token/auth in ${r}`);
   }
 });

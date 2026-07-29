@@ -117,21 +117,22 @@ runTest('Parser — valid tasks', () => {
   assert(prefs?.activeTab === 'tasks', 'tab tasks');
 });
 
-runTest('Parser — valid calendar', () => {
-  const prefs = parsePlannerPreferences({ version: 1, activeTab: 'calendar' });
-  assert(prefs?.activeTab === 'calendar', 'tab calendar');
+runTest('Parser — valid events', () => {
+  const prefs = parsePlannerPreferences({ version: 1, activeTab: 'events' });
+  assert(prefs?.activeTab === 'events', 'tab events');
 });
 
-runTest('Parser — valid goals', () => {
-  const prefs = parsePlannerPreferences({ version: 1, activeTab: 'goals' });
-  assert(prefs?.activeTab === 'goals', 'tab goals');
+runTest('Parser — valid plans', () => {
+  const prefs = parsePlannerPreferences({ version: 1, activeTab: 'plans' });
+  assert(prefs?.activeTab === 'plans', 'tab plans');
 });
 
 runTest('Parser — alias rejected (task singular)', () => {
   assert(parsePlannerPreferences({ version: 1, activeTab: 'task' }) === null, 'task rejected');
-  assert(parsePlannerPreferences({ version: 1, activeTab: 'events' }) === null, 'events rejected');
   assert(parsePlannerPreferences({ version: 1, activeTab: 'goal' }) === null, 'goal rejected');
   assert(parsePlannerPreferences({ version: 1, activeTab: 'agenda' }) === null, 'agenda rejected');
+  assert(parsePlannerPreferences({ version: 1, activeTab: 'calendar' })?.activeTab === 'events', 'legacy calendar migrates');
+  assert(parsePlannerPreferences({ version: 1, activeTab: 'goals' })?.activeTab === 'plans', 'legacy goals migrates');
 });
 
 runTest('Parser — invalid JSON (non-object)', () => {
@@ -150,19 +151,19 @@ runTest('Parser — invalid version', () => {
 });
 
 runTest('Parser — unknown properties ignored', () => {
-  const prefs = parsePlannerPreferences({ version: 1, activeTab: 'goals', extra: 'x', foo: 42 });
+  const prefs = parsePlannerPreferences({ version: 1, activeTab: 'plans', extra: 'x', foo: 42 });
   assert(prefs !== null, 'parsed despite unknown props');
-  assert(prefs?.activeTab === 'goals', 'tab preserved');
+  assert(prefs?.activeTab === 'plans', 'tab preserved');
   assert(!('extra' in prefs!), 'no extra prop');
 });
 
 runTest('Serialize — stable output', () => {
-  const prefs: PlannerPreferences = { version: 1, activeTab: 'calendar' };
+  const prefs: PlannerPreferences = { version: 1, activeTab: 'events' };
   const json = serializePlannerPreferences(prefs);
-  assert(json === '{"version":1,"activeTab":"calendar"}', 'stable JSON');
+  assert(json === '{"version":1,"activeTab":"events"}', 'stable JSON');
   // Round-trip
   const restored = parsePlannerPreferences(JSON.parse(json));
-  assert(restored?.activeTab === 'calendar', 'round-trip preserves tab');
+  assert(restored?.activeTab === 'events', 'round-trip preserves tab');
 });
 
 // ---------------------------------------------------------------------------
@@ -210,11 +211,11 @@ runTest('Hydration — restores tab from storage', async () => {
   const storage = createFakeStorage();
   await storage.setItem(
     __testBuildStorageKey(ACCT_A, HOUSE_A),
-    serializePlannerPreferences({ version: 1, activeTab: 'goals' }),
+    serializePlannerPreferences({ version: 1, activeTab: 'plans' }),
   );
   const store = __testCreatePlannerPreferencesStore(storage);
   const prefs = await store.load(ACCT_A, HOUSE_A);
-  assert(prefs.activeTab === 'goals', 'restored goals');
+  assert(prefs.activeTab === 'plans', 'restored plans');
 });
 
 runTest('Hydration — no preference uses tasks', async () => {
@@ -242,7 +243,7 @@ runTest('Hydration — invalid version uses tasks', async () => {
   const storage = createFakeStorage();
   await storage.setItem(
     __testBuildStorageKey(ACCT_A, HOUSE_A),
-    JSON.stringify({ version: 99, activeTab: 'goals' }),
+    JSON.stringify({ version: 99, activeTab: 'plans' }),
   );
   const store = __testCreatePlannerPreferencesStore(storage);
   const prefs = await store.load(ACCT_A, HOUSE_A);
@@ -267,18 +268,18 @@ runTest('Hydration — alias tab uses tasks', async () => {
 runTest('Save — persists value', async () => {
   const storage = createFakeStorage();
   const store = __testCreatePlannerPreferencesStore(storage);
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'calendar' });
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'events' });
   const saved = storage.dump().get(__testBuildStorageKey(ACCT_A, HOUSE_A));
   assert(saved !== undefined, 'value saved');
-  assert(JSON.parse(saved!).activeTab === 'calendar', 'calendar persisted');
+  assert(JSON.parse(saved!).activeTab === 'events', 'events persisted');
 });
 
 runTest('Save — last write wins (rapid taps)', async () => {
   const storage = createFakeStorage();
   const store = __testCreatePlannerPreferencesStore(storage);
-  // Simulate rapid taps: calendar, goals, tasks
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'calendar' });
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'goals' });
+  // Simulate rapid taps: events, plans, tasks
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'events' });
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'plans' });
   await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'tasks' });
   const prefs = await store.load(ACCT_A, HOUSE_A);
   assert(prefs.activeTab === 'tasks', 'last write (tasks) wins');
@@ -289,14 +290,14 @@ runTest('Save — error does not affect load (no revert)', async () => {
   // Pre-seed a value, then attempt a failing save
   await storage.setItem(
     __testBuildStorageKey(ACCT_A, HOUSE_A),
-    serializePlannerPreferences({ version: 1, activeTab: 'calendar' }),
+    serializePlannerPreferences({ version: 1, activeTab: 'events' }),
   );
   const failStore = __testCreatePlannerPreferencesStore(createFailingStorage());
   // Failing save should not throw, and existing value should remain
-  await failStore.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'goals' });
+  await failStore.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'plans' });
   const okStore = __testCreatePlannerPreferencesStore(storage);
   const prefs = await okStore.load(ACCT_A, HOUSE_A);
-  assert(prefs.activeTab === 'calendar', 'save failure did not revert');
+  assert(prefs.activeTab === 'events', 'save failure did not revert');
 });
 
 runTest('Save — no backend request, no cache invalidation triggered', async () => {
@@ -305,42 +306,42 @@ runTest('Save — no backend request, no cache invalidation triggered', async ()
   // has no such imports — here we just verify load/save work in isolation.
   const storage = createFakeStorage();
   const store = __testCreatePlannerPreferencesStore(storage);
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'goals' });
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'plans' });
   const prefs = await store.load(ACCT_A, HOUSE_A);
-  assert(prefs.activeTab === 'goals', 'save/load cycle works without external deps');
+  assert(prefs.activeTab === 'plans', 'save/load cycle works without external deps');
 });
 
 // ---------------------------------------------------------------------------
 // 5. Household isolation
 // ---------------------------------------------------------------------------
 
-runTest('Household isolation — A saves goals, B saves calendar, no cross-contamination', async () => {
+runTest('Household isolation — A saves plans, B saves events, no cross-contamination', async () => {
   const storage = createFakeStorage();
   const store = __testCreatePlannerPreferencesStore(storage);
 
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'goals' });
-  await store.save(ACCT_A, HOUSE_B, { version: 1, activeTab: 'calendar' });
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'plans' });
+  await store.save(ACCT_A, HOUSE_B, { version: 1, activeTab: 'events' });
 
   const prefsA = await store.load(ACCT_A, HOUSE_A);
   const prefsB = await store.load(ACCT_A, HOUSE_B);
 
-  assert(prefsA.activeTab === 'goals', 'A restored goals');
-  assert(prefsB.activeTab === 'calendar', 'B restored calendar');
+  assert(prefsA.activeTab === 'plans', 'A restored plans');
+  assert(prefsB.activeTab === 'events', 'B restored events');
 });
 
 runTest('Household isolation — switch A→B→A restores A', async () => {
   const storage = createFakeStorage();
   const store = __testCreatePlannerPreferencesStore(storage);
 
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'goals' });
-  await store.save(ACCT_A, HOUSE_B, { version: 1, activeTab: 'calendar' });
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'plans' });
+  await store.save(ACCT_A, HOUSE_B, { version: 1, activeTab: 'events' });
 
   // Simulate switching back to A
   const prefsBackA = await store.load(ACCT_A, HOUSE_A);
-  assert(prefsBackA.activeTab === 'goals', 'back to A restores goals');
+  assert(prefsBackA.activeTab === 'plans', 'back to A restores plans');
 
   const prefsBackB = await store.load(ACCT_A, HOUSE_B);
-  assert(prefsBackB.activeTab === 'calendar', 'back to B restores calendar');
+  assert(prefsBackB.activeTab === 'events', 'back to B restores events');
 });
 
 // ---------------------------------------------------------------------------
@@ -352,14 +353,14 @@ runTest('Account isolation — same household ID, different accounts', async () 
   const store = __testCreatePlannerPreferencesStore(storage);
 
   // Two accounts with same household ID (logical)
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'goals' });
-  await store.save(ACCT_B, HOUSE_A, { version: 1, activeTab: 'calendar' });
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'plans' });
+  await store.save(ACCT_B, HOUSE_A, { version: 1, activeTab: 'events' });
 
   const prefsA = await store.load(ACCT_A, HOUSE_A);
   const prefsB = await store.load(ACCT_B, HOUSE_A);
 
-  assert(prefsA.activeTab === 'goals', 'account A -> goals');
-  assert(prefsB.activeTab === 'calendar', 'account B -> calendar');
+  assert(prefsA.activeTab === 'plans', 'account A -> plans');
+  assert(prefsB.activeTab === 'events', 'account B -> events');
   assert(prefsA.activeTab !== prefsB.activeTab, 'no shared preference');
 });
 
@@ -374,16 +375,16 @@ runTest('Account isolation — creator vs non-creator in same household', async 
   const MEMBER_ACCT = 'm2000000-0000-4000-a000-000000000002';
   const SAME_HOUSE = 'h3000000-0000-4000-a000-000000000003';
 
-  // Creator saves 'goals'
-  await store.save(CREATOR_ACCT, SAME_HOUSE, { version: 1, activeTab: 'goals' });
-  // Member saves 'calendar'
-  await store.save(MEMBER_ACCT, SAME_HOUSE, { version: 1, activeTab: 'calendar' });
+  // Creator saves 'plans'
+  await store.save(CREATOR_ACCT, SAME_HOUSE, { version: 1, activeTab: 'plans' });
+  // Member saves 'events'
+  await store.save(MEMBER_ACCT, SAME_HOUSE, { version: 1, activeTab: 'events' });
 
   const prefsCreator = await store.load(CREATOR_ACCT, SAME_HOUSE);
   const prefsMember = await store.load(MEMBER_ACCT, SAME_HOUSE);
 
-  assert(prefsCreator.activeTab === 'goals', 'creator sees goals');
-  assert(prefsMember.activeTab === 'calendar', 'member sees calendar');
+  assert(prefsCreator.activeTab === 'plans', 'creator sees plans');
+  assert(prefsMember.activeTab === 'events', 'member sees events');
   assert(prefsCreator.activeTab !== prefsMember.activeTab, 'no cross-contamination');
 });
 
@@ -393,12 +394,12 @@ runTest('Account isolation — logout/login preserves durable prefs', async () =
   const storage = createFakeStorage();
   const store = __testCreatePlannerPreferencesStore(storage);
 
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'goals' });
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'plans' });
 
   // Simulate logout: in-memory state would reset to 'tasks'
   // Durable storage remains untouched
   const prefsAfterLogout = await store.load(ACCT_A, HOUSE_A);
-  assert(prefsAfterLogout.activeTab === 'goals', 'durable pref survives logout');
+  assert(prefsAfterLogout.activeTab === 'plans', 'durable pref survives logout');
 });
 
 runTest('Account isolation — switch account without household change', async () => {
@@ -407,23 +408,23 @@ runTest('Account isolation — switch account without household change', async (
   const storage = createFakeStorage();
   const store = __testCreatePlannerPreferencesStore(storage);
 
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'goals' });
-  await store.save(ACCT_B, HOUSE_A, { version: 1, activeTab: 'calendar' });
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'plans' });
+  await store.save(ACCT_B, HOUSE_A, { version: 1, activeTab: 'events' });
 
   // Switch to Account B
   const prefsB = await store.load(ACCT_B, HOUSE_A);
-  assert(prefsB.activeTab === 'calendar', 'Account B sees its own tab');
+  assert(prefsB.activeTab === 'events', 'Account B sees its own tab');
 
   // Switch back to Account A
   const prefsA = await store.load(ACCT_A, HOUSE_A);
-  assert(prefsA.activeTab === 'goals', 'Account A restored its tab');
+  assert(prefsA.activeTab === 'plans', 'Account A restored its tab');
 
   // Verify no cross-read
   const storageDump = storage.dump();
   const keyA = __testBuildStorageKey(ACCT_A, HOUSE_A);
   const keyB = __testBuildStorageKey(ACCT_B, HOUSE_A);
   assert(storageDump.has(keyA) && storageDump.has(keyB), 'both keys exist independently');
-  assert(JSON.parse(storageDump.get(keyB)!).activeTab === 'calendar', 'B key stores calendar');
+  assert(JSON.parse(storageDump.get(keyB)!).activeTab === 'events', 'B key stores events');
 });
 
 // ---------------------------------------------------------------------------
@@ -433,7 +434,7 @@ runTest('Account isolation — switch account without household change', async (
 runTest('Navigation initialTab — valid tab accepted by guard', () => {
   // Simulates Phase 5: navigation initialTab is validated with isPlannerTabKey.
   // If valid, it takes priority over the persisted preference.
-  const navTab = 'goals' as unknown;
+  const navTab = 'plans' as unknown;
   assert(isPlannerTabKey(navTab), 'valid initialTab accepted');
 });
 
@@ -447,8 +448,8 @@ runTest('Navigation initialTab — one-shot consumption (no re-apply)', () => {
   // as consumed. Here we simulate that logic: processing the same key
   // twice should be a no-op the second time.
   let processedKey: string | null = null;
-  const key1 = 'goals-';
-  const key2 = 'goals-';
+  const key1 = 'plans-';
+  const key2 = 'plans-';
 
   if (processedKey !== key1) {
     processedKey = key1;
@@ -465,11 +466,11 @@ runTest('Navigation initialTab — one-shot consumption (no re-apply)', () => {
 // 8. Tabs
 // ---------------------------------------------------------------------------
 
-runTest('Tabs — exactly tasks/calendar/goals', () => {
+runTest('Tabs — exactly tasks/events/plans', () => {
   assert(PLANNER_TAB_KEYS.length === 3, 'exactly 3 tabs');
   assert(PLANNER_TAB_KEYS[0] === 'tasks', 'first is tasks');
-  assert(PLANNER_TAB_KEYS[1] === 'calendar', 'second is calendar');
-  assert(PLANNER_TAB_KEYS[2] === 'goals', 'third is goals');
+  assert(PLANNER_TAB_KEYS[1] === 'events', 'second is events');
+  assert(PLANNER_TAB_KEYS[2] === 'plans', 'third is plans');
 });
 
 runTest('Tabs — no aliases, no search', () => {
@@ -483,10 +484,10 @@ runTest('Tabs — no aliases, no search', () => {
 runTest('Tabs — accessibility selected state follows active tab', () => {
   // The render maps `accessibilityState={{ selected: active }}` where
   // `active = activeTab === tabKey`. Verify the logic:
-  const activeTab: PlannerTabKey = 'goals';
+  const activeTab: PlannerTabKey = 'plans';
   for (const tabKey of PLANNER_TAB_KEYS) {
     const selected = activeTab === tabKey;
-    if (tabKey === 'goals') assert(selected === true, 'goals selected when active');
+    if (tabKey === 'plans') assert(selected === true, 'plans selected when active');
     else assert(selected === false, `${tabKey} not selected`);
   }
 });
@@ -499,11 +500,11 @@ runTest('Lifecycle — household switch invalidates old load', async () => {
   const storage = createFakeStorage();
   await storage.setItem(
     __testBuildStorageKey(ACCT_A, HOUSE_A),
-    serializePlannerPreferences({ version: 1, activeTab: 'goals' }),
+    serializePlannerPreferences({ version: 1, activeTab: 'plans' }),
   );
   await storage.setItem(
     __testBuildStorageKey(ACCT_A, HOUSE_B),
-    serializePlannerPreferences({ version: 1, activeTab: 'calendar' }),
+    serializePlannerPreferences({ version: 1, activeTab: 'events' }),
   );
   const store = __testCreatePlannerPreferencesStore(storage);
 
@@ -513,15 +514,15 @@ runTest('Lifecycle — household switch invalidates old load', async () => {
   const loadAPromise = store.load(ACCT_A, HOUSE_A);
   const loadBPromise = store.load(ACCT_A, HOUSE_B);
   const [prefsA, prefsB] = await Promise.all([loadAPromise, loadBPromise]);
-  assert(prefsA.activeTab === 'goals', 'A load returns A preference');
-  assert(prefsB.activeTab === 'calendar', 'B load returns B preference');
+  assert(prefsA.activeTab === 'plans', 'A load returns A preference');
+  assert(prefsB.activeTab === 'events', 'B load returns B preference');
 });
 
 runTest('Lifecycle — remove preference for a scope', async () => {
   const storage = createFakeStorage();
   const store = __testCreatePlannerPreferencesStore(storage);
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'goals' });
-  assert((await store.load(ACCT_A, HOUSE_A)).activeTab === 'goals', 'saved goals');
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'plans' });
+  assert((await store.load(ACCT_A, HOUSE_A)).activeTab === 'plans', 'saved plans');
 
   await store.remove(ACCT_A, HOUSE_A);
   const prefsAfter = await store.load(ACCT_A, HOUSE_A);
@@ -534,7 +535,7 @@ runTest('Lifecycle — sign-out leaves durable preferences intact for re-login',
   // same account re-login restores them. No global wipe.
   const storage = createFakeStorage();
   const store = __testCreatePlannerPreferencesStore(storage);
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'goals' });
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'plans' });
 
   // Simulate sign-out: in-memory state resets to tasks. Durable pref stays.
   const inMemoryFallback = DEFAULT_PREFERENCES.activeTab;
@@ -542,18 +543,18 @@ runTest('Lifecycle — sign-out leaves durable preferences intact for re-login',
 
   // After re-login with same account/household, durable pref is restored.
   const restored = await store.load(ACCT_A, HOUSE_A);
-  assert(restored.activeTab === 'goals', 'durable preference survives sign-out');
+  assert(restored.activeTab === 'plans', 'durable preference survives sign-out');
 });
 
 runTest('Lifecycle — no other account preference affected by sign-out', async () => {
   const storage = createFakeStorage();
   const store = __testCreatePlannerPreferencesStore(storage);
-  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'goals' });
-  await store.save(ACCT_B, HOUSE_B, { version: 1, activeTab: 'calendar' });
+  await store.save(ACCT_A, HOUSE_A, { version: 1, activeTab: 'plans' });
+  await store.save(ACCT_B, HOUSE_B, { version: 1, activeTab: 'events' });
 
   // Sign-out of account A does not touch B's storage
   const prefsB = await store.load(ACCT_B, HOUSE_B);
-  assert(prefsB.activeTab === 'calendar', 'account B preference intact after A sign-out');
+  assert(prefsB.activeTab === 'events', 'account B preference intact after A sign-out');
 });
 
 // ---------------------------------------------------------------------------

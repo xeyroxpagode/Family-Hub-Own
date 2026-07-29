@@ -28,11 +28,12 @@ export type HomeTabParamList = {
 };
 
 // Re-export the canonical Planner V1 navigation authority (M1).
-// `PlannerTabKey` is the single tab authority; legacy consumers reading
-// `initialTab` from `PlannerStackParamList['PlannerHome']` keep working
-// because the canonical union is the same `'tasks' | 'calendar' | 'goals'`.
+// `PlannerTabKey` is the single tab authority; legacy `calendar`/`goals`
+// params are accepted at compatibility boundaries and normalized.
 export type {
   PlannerTabKey,
+  LegacyPlannerTabKey,
+  PlannerTabInputKey,
   PlannerNavigationSource,
   PlannerReturnTarget,
   PlannerRootParams,
@@ -40,6 +41,7 @@ export type {
   PlannerSearchParams,
   PlannerRouteName,
   PlannerEntityKind,
+  LegacyPlannerEntityKind,
 } from './plannerNavigationContract';
 export {
   ROUTE_NAMES,
@@ -47,6 +49,7 @@ export {
   PLANNER_TAB_KEYS,
   ENTITY_DETAIL_ROUTES,
   isPlannerTabKey,
+  normalizePlannerTabKey,
   isPlannerNavigationSource,
   isPlannerReturnTarget,
   isValidPlannerEntityId,
@@ -60,12 +63,13 @@ export {
   parsePlannerEntityDetailParams,
   parsePlannerSearchParams,
   stripEphemeralParams,
+  normalizePlannerEntityKind,
 } from './plannerNavigationContract';
 
 export type PlannerStackParamList = {
   PlannerHome: {
     refreshKey?: number;
-    initialTab?: 'tasks' | 'calendar' | 'goals';
+    initialTab?: import('./plannerNavigationContract').PlannerTabInputKey;
     initialSheet?: 'task' | 'event';
     sheetKey?: number;
     source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown';

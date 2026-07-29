@@ -285,12 +285,12 @@ runTest('Offline empty does not collapse into product empty', () => {
 });
 
 runTest('Partial preserves content and lists unavailable sections', () => {
-  const partialSections: readonly ('tasks' | 'calendar' | 'goals')[] = ['goals'];
+  const partialSections: readonly ('tasks' | 'events' | 'plans')[] = ['plans'];
   const state = resolvePlannerShellState(inputs({ hasUsableContent: true, partialSections }));
   assertEqual<PlannerShellState['kind']>(state.kind, 'partial', 'kind');
   if (state.kind === 'partial') {
     assertEqual(state.unavailableSections.length, 1, 'unavailable count');
-    assertEqual(state.unavailableSections[0], 'goals', 'unavailable section');
+    assertEqual(state.unavailableSections[0], 'plans', 'unavailable section');
   }
   assert(shellStateShowsActiveContent(state), 'active content visible');
 });
@@ -362,7 +362,7 @@ runTest('Not found wins over recoverable error when no content', () => {
 });
 
 runTest('Partial wins over offline_stale when partialSections set', () => {
-  const partialSections: readonly ('tasks' | 'calendar' | 'goals')[] = ['tasks'];
+  const partialSections: readonly ('tasks' | 'events' | 'plans')[] = ['tasks'];
   const state = resolvePlannerShellState(inputs({ isOffline: true, hasUsableContent: true, partialSections }));
   assertEqual<PlannerShellState['kind']>(state.kind, 'partial', 'kind');
 });
@@ -430,8 +430,8 @@ runTest('Incident id format is opaque and PII-free', () => {
 runTest('PLANNER_SECTION_KEYS mirror PlannerTabKey values', () => {
   assertEqual(PLANNER_SECTION_KEYS.length, 3, 'three sections');
   assert(PLANNER_SECTION_KEYS.includes('tasks'), 'tasks present');
-  assert(PLANNER_SECTION_KEYS.includes('calendar'), 'calendar present');
-  assert(PLANNER_SECTION_KEYS.includes('goals'), 'goals present');
+  assert(PLANNER_SECTION_KEYS.includes('events'), 'events present');
+  assert(PLANNER_SECTION_KEYS.includes('plans'), 'plans present');
 });
 
 // ---------------------------------------------------------------------------

@@ -365,6 +365,7 @@ const selectedDateItems = useMemo(
                 isToday={isToday}
                 hasEvent={hasEvent}
                 hasTask={hasTask}
+                count={dayItems.length}
                 onPress={() => day && setSelectedDate(day)}
               />
             );
@@ -392,6 +393,7 @@ const selectedDateItems = useMemo(
                   isToday={isToday}
                   hasEvent={hasEvent}
                   hasTask={hasTask}
+                  count={dayItems.length}
                   onPress={() => setSelectedDate(dayInfo.date)}
                 />
               );

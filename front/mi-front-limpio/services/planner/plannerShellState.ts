@@ -44,7 +44,7 @@ export type { PlannerErrorClass } from './plannerErrorAdapter';
  */
 export type PlannerSectionKey = PlannerTabKey;
 
-export const PLANNER_SECTION_KEYS: readonly PlannerSectionKey[] = ['tasks', 'calendar', 'goals'] as const;
+export const PLANNER_SECTION_KEYS: readonly PlannerSectionKey[] = ['tasks', 'events', 'plans'] as const;
 
 // ---------------------------------------------------------------------------
 // 2. PlannerShellState — discriminated union (single authority)

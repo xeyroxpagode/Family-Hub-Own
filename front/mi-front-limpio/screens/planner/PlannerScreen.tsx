@@ -52,8 +52,9 @@ import { PlannerTasksScreen } from './PlannerTasksScreen';
 import { plannerStyles as S } from './plannerShared';
 import {
   PLANNER_TAB_KEYS,
-  isPlannerTabKey,
+  normalizePlannerTabKey,
   type PlannerTabKey,
+  buildPlannerEntityDetailParams,
 } from '../../navigation/plannerNavigationContract';
 import {
   ROUTE_NAMES,
@@ -142,8 +143,8 @@ export function PlannerScreen() {
   // later restore a persisted tab, but navigation initialTab (if valid)
   // is applied immediately and takes priority over persistence (Phase 5).
   const [activeTab, setActiveTab] = useState<PlannerTabKey>(() => {
-    const initialTab = route.params?.initialTab;
-    if (isPlannerTabKey(initialTab)) {
+    const initialTab = normalizePlannerTabKey(route.params?.initialTab);
+    if (initialTab) {
       manualSelectionRef.current = true;
       return initialTab;
     }
@@ -398,8 +399,9 @@ export function PlannerScreen() {
     // navigation. It takes priority over the persisted preference (Phase 5)
     // but does NOT itself persist — only user tab selections are saved.
     // Setting manualSelectionRef blocks late hydration from overwriting it.
-    if (isPlannerTabKey(p.initialTab)) {
-      setActiveTab(p.initialTab);
+    const initialTab = normalizePlannerTabKey(p.initialTab);
+    if (initialTab) {
+      setActiveTab(initialTab);
       manualSelectionRef.current = true;
     }
 
@@ -725,7 +727,11 @@ export function PlannerScreen() {
               refreshKey={refreshKey}
               onChanged={changed}
               onCreateTask={() => sheet.openTaskForm({ source: 'planner' })}
-              onEditTask={(id) => sheet.openTaskForm({ mode: 'edit', taskId: id, source: 'planner' })}
+              onEditTask={(id) => navigation.navigate(ROUTE_NAMES.TaskDetail, buildPlannerEntityDetailParams({
+                entityId: id,
+                source: 'planner',
+                returnTo: 'planner',
+              }))}
               onShowToast={(msg) => {
                 setToast(msg);
                 setTimeout(() => setToast(null), 2200);
@@ -733,7 +739,7 @@ export function PlannerScreen() {
             />
           ) : null}
 
-          {showActiveContent && activeTab === 'calendar' ? (
+          {showActiveContent && activeTab === 'events' ? (
             <PlannerCalendarScreen
               refreshKey={refreshKey}
               onChanged={changed}
@@ -741,17 +747,17 @@ export function PlannerScreen() {
                 sheet.openEventForm({ source: 'planner', initialDate })
               }
               onEditEvent={(eventId, context) =>
-                sheet.openEventForm(
-                  context?.isGeneratedRecurringOccurrence
-                    ? {
-                        mode: 'edit',
-                        eventId,
-                        source: 'planner',
-                      }
-                    : { mode: 'edit', eventId, source: 'planner' },
-                )
+                navigation.navigate(ROUTE_NAMES.EventDetail, buildPlannerEntityDetailParams({
+                  entityId: context?.baseEventId ?? eventId,
+                  source: 'planner',
+                  returnTo: 'planner',
+                }))
               }
-              onEditTask={(id) => sheet.openTaskForm({ mode: 'edit', taskId: id, source: 'planner' })}
+              onEditTask={(id) => navigation.navigate(ROUTE_NAMES.TaskDetail, buildPlannerEntityDetailParams({
+                entityId: id,
+                source: 'planner',
+                returnTo: 'planner',
+              }))}
               onCreateTask={(initialDueDate) =>
                 sheet.openTaskForm({ source: 'planner', initialDueDate })
               }
@@ -762,7 +768,7 @@ export function PlannerScreen() {
             />
           ) : null}
 
-          {showActiveContent && activeTab === 'goals' ? (
+          {showActiveContent && activeTab === 'plans' ? (
             <PlannerGoalsScreen
               refreshKey={refreshKey}
               onChanged={changed}
@@ -786,10 +792,10 @@ function tabLabel(key: PlannerTabKey): string {
   switch (key) {
     case 'tasks':
       return 'Tareas';
-    case 'calendar':
-      return 'Calendario';
-    case 'goals':
-      return 'Metas';
+    case 'events':
+      return 'Eventos';
+    case 'plans':
+      return 'Planes';
     default:
       return String(key);
   }
@@ -799,9 +805,9 @@ function tabIcon(key: PlannerTabKey): HomePlusIconName {
   switch (key) {
     case 'tasks':
       return APP_ICONS.planner.todo ?? 'checkbox';
-    case 'calendar':
+    case 'events':
       return APP_ICONS.planner.calendar ?? 'calendar';
-    case 'goals':
+    case 'plans':
       return APP_ICONS.planner.goals ?? 'flag';
     default:
       return 'grid';

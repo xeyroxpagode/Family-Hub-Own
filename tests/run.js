@@ -70,6 +70,18 @@ const commands = {
     'node',
     ['scripts/compiled/scripts/planner_v1_m10_tests.js'],
   ),
+  'planner-v1-foundation': () => {
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Planner V1 frontend foundation tests',
+      'node',
+      ['scripts/compiled/scripts/planner_v1_frontend_foundation_tests.js'],
+      { env },
+    );
+  },
   'runtime-smoke': () => runCommand(
     'Frontend runtime smoke',
     'node',
@@ -95,7 +107,7 @@ const suites = {
   'core-backend': ['testing-core', 'core-backend'],
   'core-frontend': ['compile-frontend-tests', 'core-frontend'],
   core: ['testing-core', 'core-backend', 'compile-frontend-tests', 'core-frontend'],
-  planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10'],
+  planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation'],
   home: ['planner-v1-m9'],
   'planner-m1': ['compile-frontend-tests', 'planner-v1-m1'],
   'planner-m2': ['compile-frontend-tests', 'planner-v1-m2'],
@@ -107,6 +119,7 @@ const suites = {
   'planner-m8': ['planner-v1-m8'],
   'planner-m9': ['planner-v1-m9'],
   'planner-m10': ['compile-frontend-tests', 'planner-v1-m10'],
+  'planner-foundation': ['compile-frontend-tests', 'planner-v1-foundation'],
   'g0.3': ['compile-frontend-tests', 'g0.3'],
   'g0.4': ['g0.4-contracts', 'g0.4-db', 'integration-g0.4'],
   'feature-flags': ['g0.4-contracts'],

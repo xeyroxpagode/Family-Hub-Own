@@ -7,7 +7,7 @@
  * imports so it can be unit-tested without rendering the app.
  *
  * Binding rules (frozen by `planner_v1_implementation_order.md` §M1):
- * - Detail routes transport entity IDs only, never full Task/Event/Goal rows.
+ * - Detail routes transport entity IDs only, never full Task/Event/Plan rows.
  * - Detail params are serializable primitives (string, boolean).
  * - `source` uses closed enum; unknown values normalize to `'unknown'`.
  * - `returnTo` uses closed enum; unknown values are rejected (typed guard).
@@ -35,14 +35,25 @@
 
 /**
  * Canonical Planner tab keys. Single authority.
- * Forbidden aliases: `task`, `events`, `goal`, plurals other than these.
+ * Visible perspectives are exactly Tareas, Eventos and Planes. Legacy
+ * `calendar`/`goals` inputs are accepted only at boundaries and normalized.
  */
-export type PlannerTabKey = 'tasks' | 'calendar' | 'goals';
+export type PlannerTabKey = 'tasks' | 'events' | 'plans';
+export type LegacyPlannerTabKey = 'calendar' | 'goals';
+export type PlannerTabInputKey = PlannerTabKey | LegacyPlannerTabKey;
 
-export const PLANNER_TAB_KEYS: readonly PlannerTabKey[] = ['tasks', 'calendar', 'goals'] as const;
+export const PLANNER_TAB_KEYS: readonly PlannerTabKey[] = ['tasks', 'events', 'plans'] as const;
+export const LEGACY_PLANNER_TAB_KEYS: readonly LegacyPlannerTabKey[] = ['calendar', 'goals'] as const;
 
 export function isPlannerTabKey(value: unknown): value is PlannerTabKey {
-  return value === 'tasks' || value === 'calendar' || value === 'goals';
+  return value === 'tasks' || value === 'events' || value === 'plans';
+}
+
+export function normalizePlannerTabKey(value: unknown): PlannerTabKey | null {
+  if (isPlannerTabKey(value)) return value;
+  if (value === 'calendar') return 'events';
+  if (value === 'goals') return 'plans';
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,8 +141,18 @@ export const ROUTE_NAMES = {
   Planner: 'Planner',
   TaskDetail: 'TaskDetail',
   EventDetail: 'EventDetail',
-  GoalDetail: 'GoalDetail',
+  PlanDetail: 'GoalDetail',
   PlannerSearch: 'PlannerSearch',
+  TaskCreate: 'CreateTask',
+  TaskEdit: 'EditTask',
+  EventCreate: 'CreateEvent',
+  EventEdit: 'EditEvent',
+  PlanCreate: 'CreateGoal',
+  PlanStructureEdit: 'EditGoal',
+  PresetLibrary: 'PlannerPresetLibrary',
+  Trash: 'PlannerTrash',
+  PlanArchive: 'PlannerPlanArchive',
+  ConflictReview: 'PlannerConflictReview',
 } as const;
 
 export type PlannerRouteName = (typeof ROUTE_NAMES)[keyof typeof ROUTE_NAMES];
@@ -140,8 +161,18 @@ export const PLANNER_ROUTE_NAMES: readonly PlannerRouteName[] = [
   ROUTE_NAMES.Planner,
   ROUTE_NAMES.TaskDetail,
   ROUTE_NAMES.EventDetail,
-  ROUTE_NAMES.GoalDetail,
+  ROUTE_NAMES.PlanDetail,
   ROUTE_NAMES.PlannerSearch,
+  ROUTE_NAMES.TaskCreate,
+  ROUTE_NAMES.TaskEdit,
+  ROUTE_NAMES.EventCreate,
+  ROUTE_NAMES.EventEdit,
+  ROUTE_NAMES.PlanCreate,
+  ROUTE_NAMES.PlanStructureEdit,
+  ROUTE_NAMES.PresetLibrary,
+  ROUTE_NAMES.Trash,
+  ROUTE_NAMES.PlanArchive,
+  ROUTE_NAMES.ConflictReview,
 ] as const;
 
 export function isPlannerRouteName(value: unknown): value is PlannerRouteName {
@@ -171,13 +202,13 @@ export const LEGACY_ROUTE_NAMES = {
 
 /** Serializable root entry params for the Planner shell route. */
 export type PlannerRootParams = {
-  /** Optional default tab to focus on entry. Invalid values are ignored. */
+  /** Optional default tab to focus on entry. Legacy values normalize at parse/build time. */
   initialTab?: PlannerTabKey;
   /** Where the navigation originated. */
   source?: PlannerNavigationSource;
 };
 
-/** Serializable detail entry params for Task/Event/Goal detail routes. */
+/** Serializable detail entry params for Task/Event/Plan detail routes. */
 export type PlannerEntityDetailParams = {
   /** Required validated UUID of the target entity. */
   entityId: string;
@@ -247,7 +278,8 @@ export function parsePlannerRootParams(input: unknown): PlannerRootParams {
   const record = input as Record<string, unknown>;
   const clean: PlannerRootParams = {};
   // Unknown tab values are ignored silently — deny-safe, no crash.
-  if (isPlannerTabKey(record.initialTab)) clean.initialTab = record.initialTab;
+  const tab = normalizePlannerTabKey(record.initialTab);
+  if (tab) clean.initialTab = tab;
   if (isPlannerNavigationSource(record.source)) clean.source = record.source;
   return dropUndefined(clean);
 }
@@ -287,7 +319,8 @@ export function buildPlannerRootParams(
   input: { initialTab?: unknown; source?: unknown } = {},
 ): PlannerRootParams {
   const clean: PlannerRootParams = {};
-  if (isPlannerTabKey(input.initialTab)) clean.initialTab = input.initialTab;
+  const tab = normalizePlannerTabKey(input.initialTab);
+  if (tab) clean.initialTab = tab;
   if (isPlannerNavigationSource(input.source)) clean.source = input.source;
   return dropUndefined(clean);
 }
@@ -340,14 +373,19 @@ export function stripEphemeralParams(
 // 9. Entity kind hint (used by detail helpers to share routing logic)
 // ---------------------------------------------------------------------------
 
-export type PlannerEntityKind = 'task' | 'event' | 'goal';
+export type PlannerEntityKind = 'task' | 'event' | 'plan';
+export type LegacyPlannerEntityKind = 'goal';
 
 export const ENTITY_DETAIL_ROUTES: Readonly<Record<PlannerEntityKind, PlannerRouteName>> = {
   task: ROUTE_NAMES.TaskDetail,
   event: ROUTE_NAMES.EventDetail,
-  goal: ROUTE_NAMES.GoalDetail,
+  plan: ROUTE_NAMES.PlanDetail,
 } as const;
 
 export function resolveDetailRouteName(kind: PlannerEntityKind): PlannerRouteName {
   return ENTITY_DETAIL_ROUTES[kind];
+}
+
+export function normalizePlannerEntityKind(kind: PlannerEntityKind | LegacyPlannerEntityKind): PlannerEntityKind {
+  return kind === 'goal' ? 'plan' : kind;
 }

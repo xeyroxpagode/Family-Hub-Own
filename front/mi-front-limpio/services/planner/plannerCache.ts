@@ -11,7 +11,7 @@ import {
 export type { CapabilityScope, HouseholdScope } from './plannerKeys';
 
 type PlannerMutation = {
-  kind: 'task' | 'event' | 'goal' | 'milestone' | 'capabilities';
+  kind: 'task' | 'event' | 'goal' | 'plan' | 'milestone' | 'capabilities';
   action: 'create' | 'update' | 'complete' | 'cancel' | 'trash' | 'restore' | 'close' | 'reopen' | 'verify' | 'reactivate' | 'fail' | 'archive' | 'assign' | 'override';
   entityId?: string;
   goalId?: string;
@@ -23,10 +23,14 @@ let staleConfig: StaleConfig = {
   tasks: 30_000,
   events: 30_000,
   goals: 60_000,
+  plans: 60_000,
   summary: 15_000,
+  home_summary: 15_000,
   trash: 60_000,
   calendar: 30_000,
   capabilities: 300_000,
+  presets: 60_000,
+  drafts: 30_000,
   search: 10_000,
   default: 30_000,
 };
@@ -57,10 +61,13 @@ function getInvalidationKeys(mutation: PlannerMutation, scope: HouseholdScope): 
     if (mutation.action === 'trash' || mutation.action === 'restore') trash();
     if (mutation.action === 'override') add(keys, plannerKeys.calendar(scope));
     summary();
-  } else if (mutation.kind === 'goal') {
+  } else if (mutation.kind === 'goal' || mutation.kind === 'plan') {
     if (detail) add(keys, plannerKeys.goals.detail(scope, detail));
+    if (detail) add(keys, plannerKeys.plans.detail(scope, detail));
     add(keys, plannerKeys.goals.all(scope));
     add(keys, plannerKeys.goals.list(scope));
+    add(keys, plannerKeys.plans.all(scope));
+    add(keys, plannerKeys.plans.list(scope));
     if (mutation.action === 'trash' || mutation.action === 'restore') trash();
     summary();
   } else if (mutation.kind === 'milestone') {
@@ -127,7 +134,7 @@ export const plannerCache = {
     const collectionKinds = new Set<PlannerKeyKind>();
     for (const key of getInvalidationKeys(mutation, scope)) {
       const kind = classifyKey(key);
-      if (kind && isCollectionMarker(key) && ['tasks', 'events', 'goals'].includes(kind)) {
+      if (kind && isCollectionMarker(key) && ['tasks', 'events', 'goals', 'plans'].includes(kind)) {
         if (!collectionKinds.has(kind)) {
           count += core.invalidatePrefix(['planner', kind, scope.householdId]);
           collectionKinds.add(kind);

@@ -2,6 +2,7 @@
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
 
 const repositoryRoot = path.resolve(__dirname, '../..');
 
@@ -14,6 +15,12 @@ function executable(name) {
 function commandInvocation(command, args) {
   if (command === 'npm' && process.env.npm_execpath) {
     return { command: process.execPath, args: [process.env.npm_execpath, ...args] };
+  }
+  if (command === 'npm' && process.platform === 'win32') {
+    const npmCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    if (fs.existsSync(npmCli)) {
+      return { command: process.execPath, args: [npmCli, ...args] };
+    }
   }
   return { command: executable(command), args };
 }

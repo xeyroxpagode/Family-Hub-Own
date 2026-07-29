@@ -7,7 +7,7 @@
  * - Owns the order and composition contract; does NOT own submit or rendering.
  *
  * Binding rules (frozen by `planner_v1_implementation_order.md` M4):
- * - Exactly three actions: Crear tarea, Crear evento, Crear meta.
+ * - Exactly three actions: Crear tarea, Crear evento, Crear plan.
  * - Invite is NOT part of the Quick Actions catalog.
  * - Goal is deferred to M5 (catalog entry exists, but UI hides it).
  * - Order is fixed: task → event → goal.
@@ -112,9 +112,9 @@ const CATALOG: readonly PlannerQuickActionDefinition[] = [
   },
   {
     key: 'create_goal',
-    label: 'Crear meta',
-    accessibilityLabel: 'Crear meta',
-    description: 'Creá una meta para tu hogar',
+    label: 'Crear plan',
+    accessibilityLabel: 'Crear plan',
+    description: 'Creá un plan para tu hogar',
     iconName: 'flag',
     iconBackgroundColor: '#F0F4FB', // colors.info.soft approximate
     iconColor: '#3B68A0',          // colors.info.text approximate

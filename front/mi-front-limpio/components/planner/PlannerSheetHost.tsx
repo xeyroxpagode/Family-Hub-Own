@@ -70,7 +70,7 @@ const SHEET_HEADINGS: Record<string, string> = {
   actions: 'Crear: acciones rápidas',
   task_form: 'Formulario: nueva tarea',
   event_form: 'Formulario: nuevo evento',
-  goal_form: 'Formulario: nueva meta',
+  goal_form: 'Formulario: nuevo plan',
 };
 
 // ---------------------------------------------------------------------------
@@ -482,7 +482,7 @@ export function PlannerSheetHost() {
               : state.kind === 'event_form'
               ? 'Formulario de evento'
               : state.kind === 'goal_form'
-              ? 'Formulario de meta'
+              ? 'Formulario de plan'
               : ''
           }
         >

@@ -127,7 +127,7 @@ test('Catalog — orden Task/Event/Goal', () => {
   assertEqual(catalog.length, 3, 'catalog has 3 entries');
   assertEqual(catalog[0].label, 'Crear tarea', 'first label');
   assertEqual(catalog[1].label, 'Crear evento', 'second label');
-  assertEqual(catalog[2].label, 'Crear meta', 'third label');
+  assertEqual(catalog[2].label, 'Crear plan', 'third label');
 });
 
 test('Catalog — Goal implemented', () => {

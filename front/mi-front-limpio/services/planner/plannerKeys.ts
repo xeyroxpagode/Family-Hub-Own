@@ -55,6 +55,13 @@ export interface HouseholdScope {
   readonly householdId: string;
 }
 
+/** Personal Planner scope. Personal entities must not mix with active household keys. */
+export interface PersonalScope {
+  readonly personId: string;
+}
+
+export type PlannerScope = HouseholdScope | PersonalScope;
+
 /** Scope for capabilities (account + household + membership). */
 export interface CapabilityScope {
   readonly accountId: string;
@@ -86,10 +93,14 @@ export type PlannerKeyKind =
   | 'tasks'
   | 'events'
   | 'goals'
+  | 'plans'
   | 'summary'
+  | 'home_summary'
   | 'trash'
   | 'calendar'
   | 'capabilities'
+  | 'presets'
+  | 'drafts'
   | 'search';
 
 /** Classify a key into its kind (for TTL / invalidation). */
@@ -97,7 +108,7 @@ export function classifyKey(key: readonly unknown[]): PlannerKeyKind | null {
   if (key[0] !== 'planner') return null;
   const second = key[1];
   if (typeof second === 'string' && [
-    'tasks', 'events', 'goals', 'summary', 'trash', 'calendar', 'capabilities', 'search'
+    'tasks', 'events', 'goals', 'plans', 'summary', 'home_summary', 'trash', 'calendar', 'capabilities', 'presets', 'drafts', 'search'
   ].includes(second)) {
     return second as PlannerKeyKind;
   }
@@ -112,6 +123,9 @@ export function householdOf(key: readonly unknown[]): string | null {
   // capabilities: ['planner','capabilities', accountId, householdId, membershipId]
   if (second === 'capabilities') {
     return typeof key[3] === 'string' ? key[3] : null;
+  }
+  if (second === 'presets' || second === 'drafts') {
+    return key[2] === 'household' && typeof key[3] === 'string' ? key[3] : null;
   }
   // All other household-scoped keys: ['planner', kind, householdId, ...]
   if (typeof key[2] === 'string') return key[2];
@@ -179,9 +193,26 @@ function goalsMilestoneDetail(
   return ['planner', 'goals', scope.householdId, 'milestones', goalId, 'detail', milestoneId];
 }
 
+/** Canonical Plan keys. Physical V0 services may still consume `goals`. */
+function plansAll(scope: HouseholdScope): readonly (string | number)[] {
+  return ['planner', 'plans', scope.householdId, 'all'];
+}
+
+function plansList(scope: HouseholdScope, filters?: PlannerGoalFilters): readonly (string | number)[] {
+  return ['planner', 'plans', scope.householdId, 'list', ...normalizeFilters(filters)];
+}
+
+function plansDetail(scope: HouseholdScope, planId: string): readonly (string | number)[] {
+  return ['planner', 'plans', scope.householdId, 'detail', planId];
+}
+
 /** Summary key. */
 function summary(scope: HouseholdScope): readonly (string | number)[] {
   return ['planner', 'summary', scope.householdId];
+}
+
+function homeSummary(scope: HouseholdScope): readonly (string | number)[] {
+  return ['planner', 'home_summary', scope.householdId];
 }
 
 /** Trash key. */
@@ -189,6 +220,18 @@ function trash(scope: HouseholdScope, type?: 'tasks' | 'events' | 'goals' | 'all
   return type
     ? ['planner', 'trash', scope.householdId, type]
     : ['planner', 'trash', scope.householdId];
+}
+
+function presets(scope: PlannerScope, type?: 'task' | 'event' | 'plan' | 'all'): readonly (string | number)[] {
+  return 'householdId' in scope
+    ? ['planner', 'presets', 'household', scope.householdId, type ?? 'all']
+    : ['planner', 'presets', 'personal', scope.personId, type ?? 'all'];
+}
+
+function drafts(scope: PlannerScope, type?: 'task' | 'event' | 'plan' | 'all'): readonly (string | number)[] {
+  return 'householdId' in scope
+    ? ['planner', 'drafts', 'household', scope.householdId, type ?? 'all']
+    : ['planner', 'drafts', 'personal', scope.personId, type ?? 'all'];
 }
 
 /** Calendar key. */
@@ -218,11 +261,15 @@ export const plannerKeys = {
   tasks: { all: tasksAll, list: tasksList, detail: tasksDetail },
   events: { all: eventsAll, list: eventsList, detail: eventsDetail },
   goals: { all: goalsAll, list: goalsList, detail: goalsDetail, milestones: goalsMilestones, milestoneDetail: goalsMilestoneDetail },
+  plans: { all: plansAll, list: plansList, detail: plansDetail },
   summary,
+  homeSummary,
   trash,
+  presets,
+  drafts,
   calendar,
   search,
 } as const;
 
 // Helper types for consumers to ensure they pass the right scope
-export type { HouseholdScope as PlannerHouseholdScope, CapabilityScope as PlannerCapabilityScope };
+export type { HouseholdScope as PlannerHouseholdScope, PersonalScope as PlannerPersonalScope, CapabilityScope as PlannerCapabilityScope };

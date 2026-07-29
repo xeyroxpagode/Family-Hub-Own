@@ -34,8 +34,10 @@ import {
   parsePlannerEntityDetailParams,
   normalizePlannerNavigationSource,
   normalizePlannerReturnTarget,
-  isPlannerTabKey,
+  normalizePlannerTabKey,
   LEGACY_ROUTE_NAMES,
+  type PlannerTabInputKey,
+  type PlannerTabKey,
 } from './plannerNavigationContract';
 
 // ---------------------------------------------------------------------------
@@ -70,11 +72,11 @@ export const LEGACY_CREATE_GOAL = LEGACY_ROUTE_NAMES.CreateGoal;
  * @deprecated M2 shell will consume canonical params directly.
  */
 export function mapLegacyPlannerHomeParams(legacy: {
-  initialTab?: 'tasks' | 'calendar' | 'goals';
+  initialTab?: PlannerTabInputKey;
   initialSheet?: 'task' | 'event';
   sheetKey?: number;
   refreshKey?: number;
-}): { initialTab?: 'tasks' | 'calendar' | 'goals'; source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown' } {
+}): { initialTab?: PlannerTabKey; source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown' } {
   return buildPlannerRootParams({ initialTab: legacy.initialTab });
 }
 
@@ -138,16 +140,16 @@ export function mapLegacyQuickActionTaskParams(legacy: {
  * Convert legacy `CreateEvent` quick action params.
  * @deprecated M4 will use `openPlannerFromHomeTab('CreateEvent', ...)` directly.
  */
-export function mapLegacyQuickActionEventParams(): { initialTab: 'calendar'; returnTo: 'PlannerHome' } {
-  return { initialTab: 'calendar', returnTo: 'PlannerHome' };
+export function mapLegacyQuickActionEventParams(): { initialTab: 'events'; returnTo: 'PlannerHome' } {
+  return { initialTab: 'events', returnTo: 'PlannerHome' };
 }
 
 /**
  * Convert legacy `CreateGoal` quick action params.
  * @deprecated M4 will use `openPlannerFromHomeTab('CreateGoal', ...)` directly.
  */
-export function mapLegacyQuickActionGoalParams(): { initialTab: 'goals'; returnTo: 'PlannerHome' } {
-  return { initialTab: 'goals', returnTo: 'PlannerHome' };
+export function mapLegacyQuickActionGoalParams(): { initialTab: 'plans'; returnTo: 'PlannerHome' } {
+  return { initialTab: 'plans', returnTo: 'PlannerHome' };
 }
 
 // ---------------------------------------------------------------------------
@@ -160,10 +162,10 @@ export function mapLegacyQuickActionGoalParams(): { initialTab: 'goals'; returnT
  */
 export function navigateToPlannerHome(
   navigation: NavigationProp<PlannerStackParamList>,
-  params?: { initialTab?: 'tasks' | 'calendar' | 'goals'; source?: string },
+  params?: { initialTab?: PlannerTabInputKey; source?: string },
 ): void {
   openPlanner(navigation, {
-    initialTab: params?.initialTab,
+    initialTab: normalizePlannerTabKey(params?.initialTab) ?? undefined,
     source: normalizePlannerNavigationSource(params?.source),
   });
 }

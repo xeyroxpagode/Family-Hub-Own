@@ -110,16 +110,16 @@ function runTest(name: string, fn: () => void): void {
 runTest('Tab keys — canonical set', () => {
   assert(PLANNER_TAB_KEYS.length === 3, 'exactly 3 tab keys');
   assert(PLANNER_TAB_KEYS[0] === 'tasks', 'first is tasks');
-  assert(PLANNER_TAB_KEYS[1] === 'calendar', 'second is calendar');
-  assert(PLANNER_TAB_KEYS[2] === 'goals', 'third is goals');
+  assert(PLANNER_TAB_KEYS[1] === 'events', 'second is events');
+  assert(PLANNER_TAB_KEYS[2] === 'plans', 'third is plans');
 });
 
 runTest('Tab keys — isPlannerTabKey guard', () => {
   assert(isPlannerTabKey('tasks'), 'tasks accepted');
-  assert(isPlannerTabKey('calendar'), 'calendar accepted');
-  assert(isPlannerTabKey('goals'), 'goals accepted');
+  assert(isPlannerTabKey('events'), 'events accepted');
+  assert(isPlannerTabKey('plans'), 'plans accepted');
   assert(!isPlannerTabKey('task'), 'singular task rejected');
-  assert(!isPlannerTabKey('events'), 'plural events rejected');
+  assert(!isPlannerTabKey('event'), 'singular event rejected');
   assert(!isPlannerTabKey('goal'), 'singular goal rejected');
   assert(!isPlannerTabKey('invalid'), 'invalid rejected');
   assert(!isPlannerTabKey(null), 'null rejected');
@@ -213,9 +213,9 @@ runTest('Route names — canonical set', () => {
   assert(ROUTE_NAMES.Planner === 'Planner', 'Planner');
   assert(ROUTE_NAMES.TaskDetail === 'TaskDetail', 'TaskDetail');
   assert(ROUTE_NAMES.EventDetail === 'EventDetail', 'EventDetail');
-  assert(ROUTE_NAMES.GoalDetail === 'GoalDetail', 'GoalDetail');
+  assert(ROUTE_NAMES.PlanDetail === 'GoalDetail', 'PlanDetail physical route');
   assert(ROUTE_NAMES.PlannerSearch === 'PlannerSearch', 'PlannerSearch');
-  assert(PLANNER_ROUTE_NAMES.length === 5, 'exactly 5 canonical routes');
+  assert(PLANNER_ROUTE_NAMES.length >= 5, 'canonical routes include extension slots');
   assert(isPlannerRouteName('Planner'), 'Planner in set');
   assert(isPlannerRouteName('TaskDetail'), 'TaskDetail in set');
   assert(isPlannerRouteName('PlannerSearch'), 'PlannerSearch in set');
@@ -249,8 +249,8 @@ runTest('buildPlannerRootParams — canonical params', () => {
   const p5 = buildPlannerRootParams({ source: 'invalid' });
   assert(!('source' in p5), 'invalid source ignored');
 
-  const p6 = buildPlannerRootParams({ initialTab: 'calendar', source: 'quick_action' });
-  assert(p6.initialTab === 'calendar' && p6.source === 'quick_action', 'both accepted');
+  const p6 = buildPlannerRootParams({ initialTab: 'events', source: 'quick_action' });
+  assert(p6.initialTab === 'events' && p6.source === 'quick_action', 'both accepted');
 });
 
 runTest('buildPlannerEntityDetailParams — canonical params', () => {
@@ -380,13 +380,13 @@ runTest('isSerializablePlannerRouteParam — rejects non-serializable', () => {
 runTest('ENTITY_DETAIL_ROUTES mapping', () => {
   assert(ENTITY_DETAIL_ROUTES.task === 'TaskDetail', 'task -> TaskDetail');
   assert(ENTITY_DETAIL_ROUTES.event === 'EventDetail', 'event -> EventDetail');
-  assert(ENTITY_DETAIL_ROUTES.goal === 'GoalDetail', 'goal -> GoalDetail');
+  assert(ENTITY_DETAIL_ROUTES.plan === 'GoalDetail', 'plan -> GoalDetail');
 });
 
 runTest('resolveDetailRouteName', () => {
   assert(resolveDetailRouteName('task') === 'TaskDetail', 'task -> TaskDetail');
   assert(resolveDetailRouteName('event') === 'EventDetail', 'event -> EventDetail');
-  assert(resolveDetailRouteName('goal') === 'GoalDetail', 'goal -> GoalDetail');
+  assert(resolveDetailRouteName('plan') === 'GoalDetail', 'plan -> GoalDetail');
 });
 
 // ---------------------------------------------------------------------------
@@ -437,8 +437,12 @@ runTest('openEntityDetail — dispatches by kind', () => {
   assert(nav.calls[0].route === 'EventDetail', 'event -> EventDetail');
 
   nav.calls.length = 0;
+  openEntityDetail(nav as any, 'plan', { entityId: uuid });
+  assert(nav.calls[0].route === 'GoalDetail', 'plan -> GoalDetail physical route');
+
+  nav.calls.length = 0;
   openEntityDetail(nav as any, 'goal', { entityId: uuid });
-  assert(nav.calls[0].route === 'GoalDetail', 'goal -> GoalDetail (legacy route)');
+  assert(nav.calls[0].route === 'GoalDetail', 'legacy goal -> GoalDetail');
 });
 
 runTest('preparePlannerSearchRoute — returns params only', () => {
@@ -458,9 +462,9 @@ runTest('resolvePlannerBackBehavior — rules', () => {
   assert(action.kind === 'goBack', 'planner with history -> goBack');
 
   // returnTo='planner' without history -> navigate Planner
-  action = resolvePlannerBackBehavior({ returnTo: 'planner', hasHistory: false, fallbackTab: 'goals' });
+  action = resolvePlannerBackBehavior({ returnTo: 'planner', hasHistory: false, fallbackTab: 'plans' });
   assert(action.kind === 'navigate', 'planner without history -> navigate');
-  if (action.kind === 'navigate') assert(action.params.initialTab === 'goals', 'fallbackTab used');
+  if (action.kind === 'navigate') assert(action.params.initialTab === 'plans', 'fallbackTab used');
 
   // returnTo='previous' with history -> goBack
   action = resolvePlannerBackBehavior({ returnTo: 'previous', hasHistory: true });

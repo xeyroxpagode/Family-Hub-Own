@@ -17,7 +17,7 @@
 
 import {
   isValidPlannerEntityId,
-  isPlannerTabKey,
+  normalizePlannerTabKey,
   normalizePlannerNavigationSource,
   type PlannerTabKey,
   type PlannerNavigationSource,
@@ -152,34 +152,35 @@ export type DeepLinkRejectionReason =
 export function createPlannerRootIntent(
   source: PlannerNavigationSource,
   initialTab?: PlannerTabKey,
-): PlannerDeepLinkIntent {
-  return { kind: 'planner_root', source, ...(initialTab ? { initialTab } : {}) };
+): Extract<PlannerDeepLinkIntent, { kind: 'planner_root' }> {
+  const tab = normalizePlannerTabKey(initialTab);
+  return { kind: 'planner_root', source, ...(tab ? { initialTab: tab } : {}) };
 }
 
 export function createTaskDetailIntent(
   entityId: string,
   source: PlannerNavigationSource,
-): PlannerDeepLinkIntent {
+): Extract<PlannerDeepLinkIntent, { kind: 'task_detail' }> {
   return { kind: 'task_detail', entityId, source };
 }
 
 export function createEventDetailIntent(
   entityId: string,
   source: PlannerNavigationSource,
-): PlannerDeepLinkIntent {
+): Extract<PlannerDeepLinkIntent, { kind: 'event_detail' }> {
   return { kind: 'event_detail', entityId, source };
 }
 
 export function createGoalDetailIntent(
   entityId: string,
   source: PlannerNavigationSource,
-): PlannerDeepLinkIntent {
+): Extract<PlannerDeepLinkIntent, { kind: 'goal_detail' }> {
   return { kind: 'goal_detail', entityId, source };
 }
 
 export function createPlannerSearchIntent(
   source: PlannerNavigationSource,
-): PlannerDeepLinkIntent {
+): Extract<PlannerDeepLinkIntent, { kind: 'planner_search' }> {
   return { kind: 'planner_search', source };
 }
 
@@ -323,9 +324,7 @@ export function normalizePlannerDeepLinkIntent(
 
   switch (intent.kind) {
     case 'planner_root': {
-      const tab = intent.initialTab && isPlannerTabKey(intent.initialTab)
-        ? intent.initialTab
-        : undefined;
+      const tab = normalizePlannerTabKey(intent.initialTab) ?? undefined;
       return { kind: 'planner_root', source, ...(tab ? { initialTab: tab } : {}) };
     }
     case 'task_detail':

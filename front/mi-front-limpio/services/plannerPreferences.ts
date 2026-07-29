@@ -9,7 +9,7 @@
  * - Injectable fake storage for tests.
  *
  * Binding rules:
- * - Canonical tab keys: `'tasks' | 'calendar' | 'goals'`. Default: `'tasks'`.
+ * - Canonical tab keys: `'tasks' | 'events' | 'plans'`. Default: `'tasks'`.
  * - Preferences belong to one account and one household; no cross-contamination.
  * - Invalid/corrupt values silently fall back to `tasks`.
  * - Storage failure never blocks Planner.
@@ -19,7 +19,7 @@
  * - Backend sync, migration tables, endpoints, Search, Home Summary, M7.
  */
 
-import { isPlannerTabKey, type PlannerTabKey } from '../navigation/plannerNavigationContract';
+import { normalizePlannerTabKey, type PlannerTabKey } from '../navigation/plannerNavigationContract';
 
 // ---------------------------------------------------------------------------
 // 1. Typed preferences payload
@@ -53,10 +53,10 @@ export function parsePlannerPreferences(raw: unknown): PlannerPreferences | null
   // Version must be exactly 1. Unknown versions are not migrated automatically.
   if (obj.version !== 1) return null;
 
-  // activeTab must be a canonical key. Aliases (task, events, goal) are rejected.
-  if (!isPlannerTabKey(obj.activeTab)) return null;
+  const activeTab = normalizePlannerTabKey(obj.activeTab);
+  if (!activeTab) return null;
 
-  return { version: 1, activeTab: obj.activeTab };
+  return { version: 1, activeTab };
 }
 
 /** Serializes PlannerPreferences to a stable JSON string. */

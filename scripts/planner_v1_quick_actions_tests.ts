@@ -153,7 +153,7 @@ function runTests() {
     const labels = plannerQuickActions.catalog.map((a) => a.label);
     assertEqual(labels[0], 'Crear tarea', 'first label');
     assertEqual(labels[1], 'Crear evento', 'second label');
-    assertEqual(labels[2], 'Crear meta', 'third label');
+    assertEqual(labels[2], 'Crear plan', 'third label');
   });
 
   test('Catalog — Invite absent', () => {
