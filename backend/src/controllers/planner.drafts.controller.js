@@ -21,16 +21,18 @@ function buildCapabilities(context) {
 
 function requireMutationTransport(req, res, versionRequired = false) {
   const mutationId = requireMutationId(req);
-  requireIdempotencyKey(req);
+  const idempotencyKey = requireIdempotencyKey(req);
   res.set('X-Mutation-Id', mutationId);
   return {
+    idempotencyKey,
     mutationId,
     expectedVersion: versionRequired ? parseRequiredExpectedVersion(req) : parseExpectedVersion(req),
   };
 }
 
 function sendMutation(res, result, operationId) {
-  return res.status(result.outcome === 'created' ? 201 : 200).json({
+  const status = result.response_status ?? (result.outcome === 'created' ? 201 : 200);
+  return res.status(status).json({
     data: result.draft ?? result.data ?? {},
     outcome: result.outcome ?? 'updated',
     version: result.draft?.version ?? result.version ?? null,
@@ -89,6 +91,7 @@ const trashDraft = async (req, res) => {
     assertCapability(buildCapabilities(context), 'planner.view');
     const mutation = requireMutationTransport(req, res, true);
     const result = await draftsService.trashDraft(context, req.params.id, mutation.expectedVersion, {
+      idempotencyKey: mutation.idempotencyKey,
       requestId: req.requestId,
       mutationId: mutation.mutationId,
     });

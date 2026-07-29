@@ -20,16 +20,18 @@ function buildCapabilities(context) {
 
 function requireMutationTransport(req, res, expectedVersion = false) {
   const mutationId = requireMutationId(req);
-  requireIdempotencyKey(req);
+  const idempotencyKey = requireIdempotencyKey(req);
   res.set('X-Mutation-Id', mutationId);
   return {
+    idempotencyKey,
     mutationId,
     expectedVersion: expectedVersion ? parseRequiredExpectedVersion(req) : null,
   };
 }
 
 function sendMutation(res, result, operationId) {
-  return res.status(result.outcome === 'created' ? 201 : 200).json({
+  const status = result.response_status ?? (result.outcome === 'created' ? 201 : 200);
+  return res.status(status).json({
     data: result.preset ?? result.revision ?? result.data ?? {},
     outcome: result.outcome ?? 'updated',
     version: result.preset?.version ?? result.revision?.version ?? result.version ?? null,
@@ -64,9 +66,10 @@ const createPreset = async (req, res) => {
     const context = await getPlannerContext(req);
     assertCapability(buildCapabilities(context), 'planner.templates.manage');
     const operationId = requireMutationId(req);
-    requireIdempotencyKey(req);
+    const idempotencyKey = requireIdempotencyKey(req);
     res.set('X-Mutation-Id', operationId);
     const result = await presetsService.createPreset(context, req.body ?? {}, {
+      idempotencyKey,
       requestId: req.requestId,
       mutationId: operationId,
     });
@@ -82,6 +85,7 @@ const updatePresetMetadata = async (req, res) => {
     assertCapability(buildCapabilities(context), 'planner.templates.manage');
     const mutation = requireMutationTransport(req, res, true);
     const result = await presetsService.updatePresetMetadata(context, req.params.id, req.body ?? {}, mutation.expectedVersion, {
+      idempotencyKey: mutation.idempotencyKey,
       requestId: req.requestId,
       mutationId: mutation.mutationId,
     });

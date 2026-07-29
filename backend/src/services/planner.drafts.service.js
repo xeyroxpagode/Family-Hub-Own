@@ -14,7 +14,11 @@ const {
   getDefaultAdapter,
   validateEnvelopeForUse,
 } = require('../adapters/planner.presets-drafts.adapters');
-const { addRetentionWindow } = require('./planner.presets.service');
+const {
+  addRetentionWindow,
+  mapAtomicMutationResult,
+  mapPresetDraftRpcError,
+} = require('./planner.presets.service');
 
 const nowIso = () => new Date().toISOString();
 
@@ -74,7 +78,7 @@ class SupabaseDraftRepository {
 
   async callMutation(name, args) {
     const { data, error } = await this.client.rpc(name, args);
-    if (error) throw createHttpError(500, 'Error interno.', 'internal_error');
+    if (error) throw mapPresetDraftRpcError(error);
     return data;
   }
 
@@ -93,12 +97,14 @@ class SupabaseDraftRepository {
   }
 
   async trash(context, draftId, expectedVersion, correlation = {}) {
-    return this.callMutation('planner_trash_draft_v1', {
+    const result = await this.callMutation('planner_trash_draft_v1', {
       p_draft_id: draftId,
       p_expected_version: expectedVersion,
       p_request_id: correlation.requestId ?? null,
       p_mutation_id: correlation.mutationId ?? null,
+      p_idempotency_key: correlation.idempotencyKey ?? null,
     });
+    return mapAtomicMutationResult(result, expectedVersion);
   }
 
   async restore(context, draftId, expectedVersion, correlation = {}) {

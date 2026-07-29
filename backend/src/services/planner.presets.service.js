@@ -1,7 +1,10 @@
 'use strict';
 
 const { createHttpError } = require('../lib/httpErrors');
-const { assertExpectedVersionMatches } = require('../lib/mutationContracts');
+const {
+  CANONICAL_ERROR_CODES,
+  assertExpectedVersionMatches,
+} = require('../lib/mutationContracts');
 const {
   buildPayloadEnvelope,
   cloneJson,
@@ -22,6 +25,36 @@ const addRetentionWindow = (date = new Date()) =>
 function toError(result) {
   const status = result.code === 'payload_version_unsupported' ? 422 : 400;
   return createHttpError(status, result.message, result.code, result.details ?? null);
+}
+
+function mapPresetDraftRpcError(error) {
+  if (!error) return createHttpError(500, 'Error interno.', 'internal_error');
+  if (error.code === '42501') return createHttpError(403, 'No tenes permiso para realizar esta accion.', 'forbidden');
+  if (error.code === 'P0008') {
+    return createHttpError(409, 'La operacion ya fue procesada con otros datos.', CANONICAL_ERROR_CODES.IDEMPOTENCY_CONFLICT);
+  }
+  if (error.code === 'P0009') {
+    return createHttpError(409, 'La operacion ya se esta procesando. Reintenta en unos segundos.', CANONICAL_ERROR_CODES.IDEMPOTENCY_IN_FLIGHT);
+  }
+  if (error.code === 'P0001' && error.message === 'version_conflict') {
+    return createHttpError(412, 'La version de la entidad cambio. Actualiza y reintenta.', CANONICAL_ERROR_CODES.VERSION_CONFLICT_V2);
+  }
+  const mapped = createHttpError(500, 'Error interno.', 'internal_error');
+  mapped.supabaseError = { code: error.code, message: error.message, details: error.details, hint: error.hint };
+  return mapped;
+}
+
+function mapAtomicMutationResult(result, expectedVersion = null) {
+  if (result?.outcome === 'version_conflict') {
+    throw createHttpError(412, 'La version de la entidad cambio. Actualiza y reintenta.', CANONICAL_ERROR_CODES.VERSION_CONFLICT_V2, {
+      current: Number(result.current_version),
+      expected: Number(expectedVersion),
+    });
+  }
+  if (result?.outcome === 'idempotency_conflict') {
+    throw createHttpError(409, 'La operacion ya fue procesada con otros datos.', CANONICAL_ERROR_CODES.IDEMPOTENCY_CONFLICT);
+  }
+  return result;
 }
 
 function ensurePayloadEnvelope(input, entityType, adapterKey, kind) {
@@ -110,7 +143,7 @@ class SupabasePresetRepository {
 
   async callMutation(name, args) {
     const { data, error } = await this.client.rpc(name, args);
-    if (error) throw createHttpError(500, 'Error interno.', 'internal_error');
+    if (error) throw mapPresetDraftRpcError(error);
     return data;
   }
 
@@ -123,17 +156,20 @@ class SupabasePresetRepository {
       p_structural_fingerprint: data.fingerprint,
       p_request_id: correlation.requestId ?? null,
       p_mutation_id: correlation.mutationId ?? null,
+      p_idempotency_key: correlation.idempotencyKey ?? null,
     });
   }
 
   async updateMetadata(context, presetId, patch, expectedVersion, correlation = {}) {
-    return this.callMutation('planner_update_preset_metadata_v1', {
+    const result = await this.callMutation('planner_update_preset_metadata_v1', {
       p_preset_id: presetId,
       p_expected_version: expectedVersion,
       p_name: patch.name ?? null,
       p_request_id: correlation.requestId ?? null,
       p_mutation_id: correlation.mutationId ?? null,
+      p_idempotency_key: correlation.idempotencyKey ?? null,
     });
+    return mapAtomicMutationResult(result, expectedVersion);
   }
 
   async startRevision(context, presetId) {
@@ -510,5 +546,7 @@ module.exports = {
   SupabasePresetRepository,
   addRetentionWindow,
   createPlannerPresetsService,
+  mapAtomicMutationResult,
+  mapPresetDraftRpcError,
   ...defaultService,
 };
