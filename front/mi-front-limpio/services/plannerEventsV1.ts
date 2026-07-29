@@ -1,5 +1,18 @@
 import { OPERATION_KINDS, requestJson } from './api';
-import { createIdempotencyKey } from './idempotency';
+import {
+  buildPlannerVersionedIntent,
+  normalizePlannerMutationResult,
+  plannerMutationRequestOptions,
+  plannerReadRequestOptions,
+  type PlannerMutationIdentity,
+  type PlannerMutationRequest,
+  type PlannerMutationResult,
+  type PlannerReadRequest,
+} from './planner/plannerTransportContracts';
+import {
+  createPlannerMutationIntent,
+  type PlannerMutationIntent,
+} from './planner/plannerMutationIntent';
 
 export type EventV1Scope = 'personal' | 'household';
 export type EventV1Lifecycle = 'draft' | 'scheduled' | 'cancelled' | 'trash';
@@ -89,7 +102,7 @@ export type CreatePlannerEventV1Input = {
   recurrenceRule?: { frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'; interval?: number; [key: string]: unknown };
 };
 
-export type EventV1MutationResult = {
+export type RawEventV1MutationResult = {
   data: { event: PlannerEventV1 };
   outcome: 'created' | 'updated' | 'noop' | 'replay';
   version: number;
@@ -97,32 +110,121 @@ export type EventV1MutationResult = {
   auditEventId?: string;
 };
 
-type MutationOptions = { mutationId?: string; idempotencyKey?: string };
+export type EventV1MutationResult = PlannerMutationResult<{ event: PlannerEventV1 }> & {
+  readonly auditEventId?: string;
+};
 
-function mutationHeaders(prefix: string, options?: MutationOptions) {
+export type PlannerEventsV1Filters = {
+  readonly scope?: EventV1Scope;
+  readonly lifecycle?: EventV1Lifecycle;
+  readonly include_trash?: boolean;
+  readonly limit?: number;
+};
+
+type LegacyMutationOptions = PlannerMutationIdentity & {
+  readonly signal?: AbortSignal | null;
+  readonly timeoutMs?: number;
+};
+
+type MutationOptions = {
+  readonly intent?: PlannerMutationIntent | null;
+  readonly signal?: AbortSignal | null;
+  readonly timeoutMs?: number;
+} | Partial<LegacyMutationOptions>;
+
+const toQueryString = (filters?: PlannerEventsV1Filters | string) => {
+  if (typeof filters === 'string') return filters;
+  const params = new URLSearchParams();
+  Object.entries(filters ?? {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) params.append(key, String(value));
+  });
+  const query = params.toString();
+  return query ? `?${query}` : '';
+};
+
+const readRequest = (
+  accessTokenOrRequest: string | PlannerReadRequest,
+): PlannerReadRequest => typeof accessTokenOrRequest === 'string'
+  ? { accessToken: accessTokenOrRequest }
+  : accessTokenOrRequest;
+
+const legacyIdentityIntent = (
+  kind: typeof OPERATION_KINDS.CREATE_IDEMPOTENT | typeof OPERATION_KINDS.VERSIONED_MUTATION,
+  options?: MutationOptions,
+  expectedVersion?: number,
+): PlannerMutationIntent | null => {
+  if (options && 'intent' in options && options.intent) return options.intent;
+  const mutationId = options && 'mutationId' in options ? options.mutationId : undefined;
+  const idempotencyKey = options && 'idempotencyKey' in options ? options.idempotencyKey : undefined;
+  if (!mutationId && !idempotencyKey) return null;
   return {
-    'X-Mutation-Id': options?.mutationId ?? createIdempotencyKey(`${prefix}.mutation`),
-    'Idempotency-Key': options?.idempotencyKey ?? createIdempotencyKey(prefix),
+    mutationId: mutationId ?? createPlannerMutationIntent({ kind: 'create', entityKind: 'planner.event' }).mutationId,
+    idempotencyKey,
+    ifMatch: expectedVersion,
+    operationKind: kind,
   };
-}
+};
 
-export const listPlannerEventsV1 = (accessToken: string, query = '') =>
-  requestJson<{ data: { events: PlannerEventV1[] } }>(`/api/planner/v1/events${query}`, { accessToken });
+const mutationRequest = <TPayload>(
+  accessToken: string,
+  payload: TPayload,
+  intent: PlannerMutationIntent,
+  options?: MutationOptions,
+  expectedVersion?: number,
+): PlannerMutationRequest<TPayload> => ({
+  accessToken,
+  payload,
+  intent,
+  expectedVersion,
+  signal: options && 'signal' in options ? options.signal : undefined,
+  timeoutMs: options && 'timeoutMs' in options ? options.timeoutMs : undefined,
+});
 
-export const getPlannerEventV1 = (accessToken: string, eventId: string) =>
-  requestJson<{ data: { event: PlannerEventV1 } }>(`/api/planner/v1/events/${eventId}`, { accessToken });
+const normalizeEventMutationResult = (
+  raw: RawEventV1MutationResult,
+  intent: PlannerMutationIntent,
+): EventV1MutationResult => ({
+  ...normalizePlannerMutationResult<{ event: PlannerEventV1 }>(raw, {
+    mutationId: intent.mutationId,
+    idempotencyKey: intent.idempotencyKey,
+  }),
+  auditEventId: raw.auditEventId,
+});
+
+export const listPlannerEventsV1 = (
+  accessTokenOrRequest: string | PlannerReadRequest,
+  filters?: PlannerEventsV1Filters | string,
+) => {
+  const request = readRequest(accessTokenOrRequest);
+  return requestJson<{ data: { events: PlannerEventV1[] } }>(
+    `/api/planner/v1/events${toQueryString(filters)}`,
+    plannerReadRequestOptions(request),
+  );
+};
+
+export const getPlannerEventV1 = (
+  accessTokenOrRequest: string | PlannerReadRequest,
+  eventId: string,
+) => {
+  const request = readRequest(accessTokenOrRequest);
+  return requestJson<{ data: { event: PlannerEventV1 } }>(
+    `/api/planner/v1/events/${eventId}`,
+    plannerReadRequestOptions(request),
+  );
+};
 
 export const createPlannerEventV1 = (
   accessToken: string,
   input: CreatePlannerEventV1Input,
   options?: MutationOptions,
-) => requestJson<EventV1MutationResult>('/api/planner/v1/events', {
-  method: 'POST',
-  operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
-  accessToken,
-  headers: mutationHeaders('planner.events.v1.create', options),
-  body: input,
-});
+) => {
+  const intent = legacyIdentityIntent(OPERATION_KINDS.CREATE_IDEMPOTENT, options)
+    ?? createPlannerMutationIntent({ kind: 'create', entityKind: 'planner.event' });
+  return requestJson<RawEventV1MutationResult>('/api/planner/v1/events', {
+    method: 'POST',
+    ...plannerMutationRequestOptions(mutationRequest(accessToken, input, intent, options)),
+  }).then((raw) => normalizeEventMutationResult(raw, intent));
+};
 
 export const mutatePlannerEventV1 = (
   accessToken: string,
@@ -135,13 +237,14 @@ export const mutatePlannerEventV1 = (
     patch?: Partial<CreatePlannerEventV1Input> & { reason?: string };
   },
   options?: MutationOptions,
-) => requestJson<EventV1MutationResult>(`/api/planner/v1/events/${eventId}/mutations`, {
-  method: 'POST',
-  operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
-  accessToken,
-  headers: { ...mutationHeaders(`planner.events.v1.${input.action}`, options), 'If-Match': String(expectedVersion) },
-  body: input,
-});
+) => {
+  const intent = legacyIdentityIntent(OPERATION_KINDS.VERSIONED_MUTATION, options, expectedVersion)
+    ?? buildPlannerVersionedIntent('event', expectedVersion);
+  return requestJson<RawEventV1MutationResult>(`/api/planner/v1/events/${eventId}/mutations`, {
+    method: 'POST',
+    ...plannerMutationRequestOptions(mutationRequest(accessToken, input, intent, options, expectedVersion)),
+  }).then((raw) => normalizeEventMutationResult(raw, intent));
+};
 
 export const mutatePlannerEventParticipantV1 = (
   accessToken: string,
@@ -155,10 +258,11 @@ export const mutatePlannerEventParticipantV1 = (
     expectedParticipantVersion?: number;
   },
   options?: MutationOptions,
-) => requestJson<EventV1MutationResult>(`/api/planner/v1/events/${eventId}/participants/mutations`, {
-  method: 'POST',
-  operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
-  accessToken,
-  headers: { ...mutationHeaders(`planner.events.v1.participants.${input.action}`, options), 'If-Match': String(expectedEventVersion) },
-  body: input,
-});
+) => {
+  const intent = legacyIdentityIntent(OPERATION_KINDS.VERSIONED_MUTATION, options, expectedEventVersion)
+    ?? buildPlannerVersionedIntent('event', expectedEventVersion);
+  return requestJson<RawEventV1MutationResult>(`/api/planner/v1/events/${eventId}/participants/mutations`, {
+    method: 'POST',
+    ...plannerMutationRequestOptions(mutationRequest(accessToken, input, intent, options, expectedEventVersion)),
+  }).then((raw) => normalizeEventMutationResult(raw, intent));
+};
