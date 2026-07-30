@@ -26,7 +26,7 @@ create or replace function public.planner_plan_external_link_dto(
 returns jsonb
 language plpgsql
 stable
-security invoker
+security definer
 set search_path = pg_catalog, public
 as $$
 declare
@@ -113,7 +113,7 @@ create or replace function public.read_planner_plan_graph_rpc(p_plan_id uuid)
 returns jsonb
 language sql
 stable
-security invoker
+security definer
 set search_path = pg_catalog, public
 as $$
   select jsonb_build_object(
@@ -145,7 +145,9 @@ as $$
   )
   from public.planner_plans p
   left join public.planner_plan_indicators i on i.plan_id=p.id
-  where p.id=p_plan_id and p.trashed_at is null
+  where p.id=p_plan_id
+    and p.trashed_at is null
+    and public.planner_plan_can_read(p.id, false)
 $$;
 
 create or replace function public.planner_plan_validate_external_link(
@@ -598,8 +600,8 @@ begin
 end;
 $$;
 
-revoke all on function public.planner_plan_external_link_dto(public.planner_plans, public.planner_plan_requirements) from public, anon;
-grant execute on function public.planner_plan_external_link_dto(public.planner_plans, public.planner_plan_requirements) to authenticated, service_role;
+revoke all on function public.planner_plan_external_link_dto(public.planner_plans, public.planner_plan_requirements) from public, anon, authenticated;
+grant execute on function public.planner_plan_external_link_dto(public.planner_plans, public.planner_plan_requirements) to service_role;
 revoke all on function public.planner_plan_validate_external_link(public.planner_plans, text, uuid) from public, anon, authenticated;
 revoke all on function public.apply_planner_plan_structure_changeset_rpc(text, text, text, uuid, integer, jsonb, text) from public, anon;
 grant execute on function public.apply_planner_plan_structure_changeset_rpc(text, text, text, uuid, integer, jsonb, text) to authenticated, service_role;
