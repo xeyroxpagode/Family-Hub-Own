@@ -40,7 +40,7 @@ export async function emitPlannerReliabilityEvent(
 export function sanitizePlannerReliabilityMetadata(
   metadata: Record<string, string | number | boolean | null>,
 ): Record<string, string | number | boolean | null> {
-  const blocked = /payload|title|description|note|location|email|person|token|secret|authorization|stack|raw/i;
+  const blocked = /payload|body|draft|title|description|note|location|email|person|token|secret|authorization|headers?|stack|raw|mutation|idempotency|user|household|uuid/i;
   const output: Record<string, string | number | boolean | null> = {};
   for (const [key, value] of Object.entries(metadata)) {
     if (!blocked.test(key)) output[key] = value;

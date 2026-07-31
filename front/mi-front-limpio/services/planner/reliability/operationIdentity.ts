@@ -1,4 +1,5 @@
 import type { PlannerMutationIntent } from '../plannerMutationIntent';
+import { OPERATION_KINDS } from '../../api';
 import type {
   PlannerOperationEntity,
   PlannerOperationPartition,
@@ -7,11 +8,74 @@ import type {
   PlannerPendingOperation,
 } from './types';
 
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`;
+const MAX_SAFE_PLANNER_VERSION = Number.MAX_SAFE_INTEGER;
+
+function isPlainPlannerHashObject(value: object): value is Record<string, unknown> {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+export function validatePlannerExpectedVersion(value: unknown, required: boolean): number | undefined {
+  if (value === undefined) {
+    if (!required) return undefined;
+    throw new Error('planner_reliability_expected_version_required');
+  }
+  if (
+    typeof value !== 'number'
+    || !Number.isFinite(value)
+    || !Number.isInteger(value)
+    || value < 0
+    || value > MAX_SAFE_PLANNER_VERSION
+  ) {
+    throw new Error('planner_reliability_invalid_expected_version');
+  }
+  return value;
+}
+
+function stableStringify(value: unknown, seen: Set<object> = new Set()): string {
+  if (value === null) return 'null';
+  const type = typeof value;
+  if (type === 'boolean' || type === 'string') return JSON.stringify(value);
+  if (type === 'number') {
+    if (!Number.isFinite(value)) throw new Error('planner_reliability_non_finite_hash_number');
+    return JSON.stringify(value);
+  }
+  if (
+    type === 'undefined'
+    || type === 'bigint'
+    || type === 'function'
+    || type === 'symbol'
+    || !value
+  ) {
+    throw new Error('planner_reliability_invalid_request_hash_material');
+  }
+  if (value instanceof Date) throw new Error('planner_reliability_date_hash_material');
+  if (value instanceof RegExp || value instanceof Map || value instanceof Set || ArrayBuffer.isView(value)) {
+    throw new Error('planner_reliability_unsupported_hash_material');
+  }
+  const objectValue = value as object;
+  if (seen.has(objectValue)) throw new Error('planner_reliability_cyclic_hash_material');
+  seen.add(objectValue);
+  try {
+    if (Array.isArray(value)) {
+      for (let index = 0; index < value.length; index += 1) {
+        if (!Object.prototype.hasOwnProperty.call(value, index)) {
+          throw new Error('planner_reliability_sparse_hash_array');
+        }
+      }
+      return `[${value.map((item) => stableStringify(item, seen)).join(',')}]`;
+    }
+    if (!isPlainPlannerHashObject(objectValue)) {
+      throw new Error('planner_reliability_custom_object_hash_material');
+    }
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => {
+      if (record[key] === undefined) throw new Error('planner_reliability_undefined_hash_property');
+      return `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`;
+    }).join(',')}}`;
+  } finally {
+    seen.delete(objectValue);
+  }
 }
 
 export function computePlannerRequestHash(value: unknown): string {
@@ -43,12 +107,16 @@ export function createPlannerPendingOperation<TPayload>(params: {
   dependencies?: readonly string[];
   createdAt: Date;
 }): PlannerPendingOperation<TPayload> {
+  const expectedVersion = validatePlannerExpectedVersion(
+    params.intent.ifMatch,
+    params.intent.operationKind === OPERATION_KINDS.VERSIONED_MUTATION,
+  );
   const requestHash = computePlannerRequestHash({
     domain: params.domain,
     operationType: params.operationType,
     scope: params.scope,
     entity: params.entity ?? null,
-    expectedVersion: params.intent.ifMatch ?? null,
+    expectedVersion: expectedVersion ?? null,
     payload: params.payload,
   });
   const idempotencyKey = params.intent.idempotencyKey ?? params.intent.mutationId;
@@ -69,7 +137,7 @@ export function createPlannerPendingOperation<TPayload>(params: {
     },
     scope: params.scope,
     entity: params.entity,
-    expectedVersion: params.intent.ifMatch === undefined ? undefined : Number(params.intent.ifMatch),
+    expectedVersion,
     payload: params.payload,
     dependencies: [...(params.dependencies ?? [])],
     createdAt: params.createdAt.toISOString(),

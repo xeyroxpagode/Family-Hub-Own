@@ -45,6 +45,15 @@ function assertEqual<T>(actual: T, expected: T, message: string): void {
   assert(JSON.stringify(actual) === JSON.stringify(expected), `${message} expected ${JSON.stringify(expected)} got ${JSON.stringify(actual)}`);
 }
 
+function assertThrows(fn: () => unknown, message: string): void {
+  try {
+    fn();
+    assert(false, message);
+  } catch {
+    assert(true, message);
+  }
+}
+
 async function runTest(name: string, fn: () => void | Promise<void>): Promise<void> {
   console.log(`\n=== ${name} ===`);
   try {
@@ -107,9 +116,24 @@ function record(seed: string, overrides: Partial<PlannerOperationRecord> = {}): 
   };
 }
 
-function createMemoryStore(): { storage: FakeStorage; store: PlannerDurableOperationStore } {
+function createMemoryStore(events?: PlannerReliabilityEvent[], throwingObserver = false): { storage: FakeStorage; store: PlannerDurableOperationStore } {
   const storage = new FakeStorage();
-  return { storage, store: createPlannerDurableOperationStore(storage, () => new Date('2026-07-31T00:00:00.000Z')) };
+  const eventObserver = events
+    ? {
+      emit: (event: PlannerReliabilityEvent) => {
+        events.push(event);
+        if (throwingObserver) throw new Error('observer_down');
+      },
+    }
+    : undefined;
+  return {
+    storage,
+    store: createPlannerDurableOperationStore(
+      storage,
+      () => new Date('2026-07-31T00:00:00.000Z'),
+      eventObserver,
+    ),
+  };
 }
 
 function adapter(script: Array<PlannerAuthoritativeMutationResult | Error>, reconciled: string[] = []): PlannerReliabilityDomainAdapter {
@@ -141,6 +165,28 @@ function blockedReason(decision: ReturnType<typeof evaluatePlannerOperationDepen
   return decision.executable ? null : decision.reason;
 }
 
+function pendingWithIfMatch(value: unknown, operationKind: PlannerMutationIntent['operationKind'] = OPERATION_KINDS.VERSIONED_MUTATION) {
+  return () => createPlannerPendingOperation({
+    intent: {
+      mutationId: 'mut-expected-version',
+      idempotencyKey: 'idem-expected-version',
+      ifMatch: value as number,
+      operationKind,
+    },
+    domain: 'fake',
+    operationType: 'update',
+    partition: partition(),
+    scope: { kind: 'household', householdId: 'hh-a' },
+    entity: { type: 'task', id: 'task-1' },
+    payload: { value: 'strict' },
+    createdAt: new Date('2026-07-31T00:00:00.000Z'),
+  });
+}
+
+function privateMetadataKeys(event: PlannerReliabilityEvent): string[] {
+  return Object.keys(event.metadata).filter((key) => /payload|body|draft|title|description|token|secret|mutation|idempotency|user|household|uuid|raw|stack|header/i.test(key));
+}
+
 void (async () => {
   await runTest('descriptor identity and deterministic hash are stable across retry/restart', () => {
     const a = record('same');
@@ -150,6 +196,65 @@ void (async () => {
     assertEqual(a.descriptor.requestHash, b.descriptor.requestHash, 'request hash deterministic');
     assert(computePlannerRequestHash({ b: 1, a: 2 }) === computePlannerRequestHash({ a: 2, b: 1 }), 'hash ignores object key order');
     assert(a.descriptor.ownerPartition.authenticatedUserId === 'user-a', 'owner partition from authenticated context');
+  });
+
+  await runTest('expectedVersion validation is strict at runtime without coercion', () => {
+    assert(pendingWithIfMatch(2)().expectedVersion === 2, 'integer expectedVersion accepted');
+    assert(createPlannerPendingOperation({
+      intent: intent('create-without-version'),
+      domain: 'fake',
+      operationType: 'create',
+      partition: partition(),
+      scope: { kind: 'household', householdId: 'hh-a' },
+      payload: { title: 'new' },
+      createdAt: new Date('2026-07-31T00:00:00.000Z'),
+    }).expectedVersion === undefined, 'absent optional expectedVersion accepted');
+    assertThrows(pendingWithIfMatch('2'), 'numeric string expectedVersion rejected');
+    assertThrows(pendingWithIfMatch('two'), 'plain string expectedVersion rejected');
+    assertThrows(pendingWithIfMatch(1.5), 'float expectedVersion rejected');
+    assertThrows(pendingWithIfMatch(Number.NaN), 'NaN expectedVersion rejected');
+    assertThrows(pendingWithIfMatch(Number.POSITIVE_INFINITY), 'Infinity expectedVersion rejected');
+    assertThrows(pendingWithIfMatch(Number.NEGATIVE_INFINITY), '-Infinity expectedVersion rejected');
+    assertThrows(pendingWithIfMatch(-1), 'negative expectedVersion rejected');
+    assertThrows(pendingWithIfMatch(true), 'boolean expectedVersion rejected');
+    assertThrows(pendingWithIfMatch(null), 'null expectedVersion rejected');
+    assertThrows(pendingWithIfMatch([2]), 'array expectedVersion rejected');
+    assertThrows(pendingWithIfMatch({ value: 2 }), 'object expectedVersion rejected');
+    assertThrows(pendingWithIfMatch(new Date('2026-07-31T00:00:00.000Z')), 'Date expectedVersion rejected');
+    assertThrows(pendingWithIfMatch('2', OPERATION_KINDS.CREATE_IDEMPOTENT), 'present optional expectedVersion follows strict rules');
+    assertThrows(pendingWithIfMatch(undefined), 'missing required expectedVersion rejected');
+  });
+
+  await runTest('request hash uses one canonical JSON policy and rejects unsupported material', () => {
+    assert(computePlannerRequestHash({ b: 1, a: 2 }) === computePlannerRequestHash({ a: 2, b: 1 }), 'top-level reordered keys hash equally');
+    assert(computePlannerRequestHash({ a: { z: 1, y: 2 } }) === computePlannerRequestHash({ a: { y: 2, z: 1 } }), 'nested reordered keys hash equally');
+    assert(computePlannerRequestHash({ items: [1, 2] }) !== computePlannerRequestHash({ items: [2, 1] }), 'array order changes hash');
+    assert(computePlannerRequestHash({ value: null }) !== computePlannerRequestHash({ value: false }), 'null and false differ');
+    assert(computePlannerRequestHash({ value: 0 }) !== computePlannerRequestHash({ value: '' }), 'zero and empty string differ');
+    assert(computePlannerRequestHash({ value: 1 }) !== computePlannerRequestHash({ value: 2 }), 'material payload difference changes hash');
+    assertThrows(() => computePlannerRequestHash({ value: new Date('2026-07-31T00:00:00.000Z') }), 'Date hash material rejected');
+    assertThrows(() => computePlannerRequestHash({ value: undefined }), 'undefined object value rejected');
+    assertThrows(() => computePlannerRequestHash([undefined]), 'undefined array value rejected');
+    const sparse: unknown[] = [];
+    sparse[1] = 'x';
+    assertThrows(() => computePlannerRequestHash(sparse), 'sparse array rejected');
+    assertThrows(() => computePlannerRequestHash({ value: Number.NaN }), 'NaN hash number rejected');
+    assertThrows(() => computePlannerRequestHash({ value: Number.POSITIVE_INFINITY }), 'Infinity hash number rejected');
+    assertThrows(() => computePlannerRequestHash({ value: BigInt(1) }), 'bigint hash material rejected');
+    assertThrows(() => computePlannerRequestHash({ value: () => null }), 'function hash material rejected');
+    assertThrows(() => computePlannerRequestHash({ value: Symbol('s') }), 'symbol hash material rejected');
+    assertThrows(() => computePlannerRequestHash({ value: new Map([['a', 1]]) }), 'Map hash material rejected');
+    assertThrows(() => computePlannerRequestHash({ value: new Set([1]) }), 'Set hash material rejected');
+    assertThrows(() => computePlannerRequestHash({ value: /x/ }), 'RegExp hash material rejected');
+    assertThrows(() => computePlannerRequestHash({ value: new Uint8Array([1]) }), 'typed array hash material rejected');
+    class CustomHashMaterial { value = 1; }
+    assertThrows(() => computePlannerRequestHash({ value: new CustomHashMaterial() }), 'custom instance hash material rejected');
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    assertThrows(() => computePlannerRequestHash(cyclic), 'cyclic hash material rejected');
+    const retry = record('retry-hash');
+    const retrying = transitionPlannerOperation(retry, 'in_flight', new Date('2026-07-31T00:00:00.000Z'));
+    assert(retrying.descriptor.requestHash === retry.descriptor.requestHash, 'retry keeps assigned requestHash');
   });
 
   await runTest('state machine allows required transitions and rejects arbitrary transitions', () => {
@@ -185,6 +290,57 @@ void (async () => {
     const parsed = __testParseStoredOperations(storage.values.get(key) ?? null);
     assert(parsed.records.length === 1 && parsed.quarantined === 2, 'corrupt and incompatible records quarantined');
     assert(validatePlannerOperationRecord(record('valid')) !== null, 'valid record validates');
+  });
+
+  await runTest('durable schemaVersion restore accepts only explicitly supported wrappers', () => {
+    const valid = JSON.stringify({ schemaVersion: 1, operations: [record('schema-valid')] });
+    assert(__testParseStoredOperations(valid).records.length === 1, 'current schemaVersion accepted');
+    assert(__testParseStoredOperations(JSON.stringify({ operations: [] })).quarantined === 1, 'missing schemaVersion quarantined');
+    assert(__testParseStoredOperations(JSON.stringify({ schemaVersion: '1', operations: [] })).quarantined === 1, 'string schemaVersion quarantined');
+    assert(__testParseStoredOperations(JSON.stringify({ schemaVersion: null, operations: [] })).quarantined === 1, 'null schemaVersion quarantined');
+    assert(__testParseStoredOperations(JSON.stringify({ schemaVersion: 99, operations: [] })).quarantined === 1, 'unknown future schemaVersion quarantined');
+    assert(__testParseStoredOperations(JSON.stringify({ schemaVersion: 0, operations: [] })).quarantined === 1, 'old schemaVersion without migrator quarantined');
+    assert(__testParseStoredOperations(JSON.stringify(['legacy-array'])).quarantined === 1, 'wrapper array quarantined');
+    assert(__testParseStoredOperations(JSON.stringify({ schemaVersion: 1, operations: {} })).quarantined === 1, 'operations non-array quarantined');
+    const mixed = __testParseStoredOperations(JSON.stringify({ schemaVersion: 1, operations: [record('neighbor'), { bad: true }] }));
+    assert(mixed.records.length === 1 && mixed.quarantined === 1, 'valid neighboring record preserved with corrupt record');
+  });
+
+  await runTest('quarantine observability emits sanitized storage_record_quarantined events', async () => {
+    const events: PlannerReliabilityEvent[] = [];
+    const { storage, store } = createMemoryStore(events);
+    const key = buildPlannerOperationPartitionKey(partition());
+    storage.values.set(key, '{bad json');
+    assert((await store.hydrate(partition())).length === 0, 'invalid JSON does not restore operations');
+    assert(events.some((event) => event.name === 'storage_record_quarantined' && event.metadata.reason === 'invalid_json' && event.metadata.source === 'parse' && event.metadata.count === 1), 'invalid JSON quarantine event emitted');
+    storage.values.set(key, JSON.stringify({ schemaVersion: 2, operations: [record('future')] }));
+    await store.hydrate(partition());
+    assert(events.some((event) => event.name === 'storage_record_quarantined' && event.metadata.reason === 'incompatible_schema' && event.metadata.source === 'schema' && event.metadata.schemaVersion === 2), 'schema quarantine event emitted');
+    const valid = record('clean-neighbor');
+    storage.values.set(key, JSON.stringify({
+      schemaVersion: 1,
+      operations: [
+        valid,
+        { ...record('private-corrupt'), descriptor: { ...record('private-corrupt').descriptor, expectedVersion: '2', payload: { title: 'secret title', body: 'secret body' } } },
+        { ...record('bad-dep'), descriptor: { ...record('bad-dep').descriptor, dependencies: [null] } },
+        { ...record('bad-material'), descriptor: { ...record('bad-material').descriptor, requestHash: 'not-a-safe-hash' } },
+      ],
+    }));
+    const restored = await store.hydrate(partition());
+    assert(restored.length === 1 && restored[0].descriptor.localOperationId === valid.descriptor.localOperationId, 'corrupt record does not eliminate valid neighbor');
+    assert(events.some((event) => event.name === 'storage_record_quarantined' && event.metadata.reason === 'invalid_expected_version'), 'invalid expectedVersion quarantine emitted');
+    assert(events.some((event) => event.name === 'storage_record_quarantined' && event.metadata.reason === 'invalid_dependency'), 'invalid dependency quarantine emitted');
+    assert(events.some((event) => event.name === 'storage_record_quarantined' && event.metadata.reason === 'invalid_request_material'), 'invalid request material quarantine emitted');
+    const quarantineEvents = events.filter((event) => event.name === 'storage_record_quarantined');
+    assert(quarantineEvents.every((event) => privateMetadataKeys(event).length === 0), 'quarantine metadata omits private fields');
+    const throwingEvents: PlannerReliabilityEvent[] = [];
+    const throwing = createMemoryStore(throwingEvents, true);
+    const throwingKey = buildPlannerOperationPartitionKey(partition());
+    throwing.storage.values.set(throwingKey, JSON.stringify({ schemaVersion: 1, operations: [record('throw-valid'), { bad: true }] }));
+    assert((await throwing.store.hydrate(partition())).length === 1, 'throwing observer does not break restore');
+    storage.values.set(key, JSON.stringify({ schemaVersion: 'bad', operations: [record('not-executed')] }));
+    assert((await store.hydrate(partition())).length === 0, 'corrupt wrapper does not execute operations');
+    assert(storage.values.get(key)?.includes('not-executed') === true, 'corrupt wrapper is not indiscriminately overwritten');
   });
 
   await runTest('write interruption does not fake success', async () => {

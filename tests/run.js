@@ -18,6 +18,11 @@ const commands = {
   'testing-core': () => runCommand('Testing Core unit tests', 'node', ['--test', 'tests/core/testing-core.test.js']),
   'core-backend': () => runCommand('Core backend contracts', 'node', ['scripts/homeplus_core_contract_tests.js']),
   'compile-frontend-tests': () => runCommand('Compile frontend tests', 'npm', compileFrontendTests),
+  'compile-planner-reliability-tests': () => runCommand(
+    'Compile Planner Reliability tests',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.planner_reliability_test.json'],
+  ),
   'core-frontend': () => runCommand('Core frontend contracts', 'node', ['scripts/compiled/scripts/homeplus_core_frontend_tests.js']),
   'g0.3': () => runCommand('G0.3 cache/context contracts', 'node', ['scripts/compiled/scripts/planner_g0_3_cache_tests.js']),
   'planner-v1-m1': () => runCommand(
@@ -79,6 +84,18 @@ const commands = {
       'Planner V1 frontend foundation tests',
       'node',
       ['scripts/compiled/scripts/planner_v1_frontend_foundation_tests.js'],
+      { env },
+    );
+  },
+  'planner-v1-reliability': () => {
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Planner V1 M11.7A reliability tests',
+      'node',
+      ['scripts/compiled-reliability/scripts/planner_m11_7a_reliability_tests.js'],
       { env },
     );
   },
@@ -169,7 +186,7 @@ const suites = {
   'core-backend': ['testing-core', 'core-backend'],
   'core-frontend': ['compile-frontend-tests', 'core-frontend'],
   core: ['testing-core', 'core-backend', 'compile-frontend-tests', 'core-frontend'],
-  planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration'],
+  planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration'],
   home: ['planner-v1-m9'],
   'planner-m1': ['compile-frontend-tests', 'planner-v1-m1'],
   'planner-m2': ['compile-frontend-tests', 'planner-v1-m2'],
@@ -182,6 +199,7 @@ const suites = {
   'planner-m9': ['planner-v1-m9'],
   'planner-m10': ['compile-frontend-tests', 'planner-v1-m10'],
   'planner-foundation': ['compile-frontend-tests', 'planner-v1-foundation'],
+  'planner-reliability': ['compile-planner-reliability-tests', 'planner-v1-reliability'],
   'planner-frontend-core-integration': ['compile-frontend-tests', 'planner-v1-frontend-core-integration'],
   'planner-frontend-events': ['compile-frontend-tests', 'planner-v1-frontend-events'],
   'planner-frontend-plans': ['compile-frontend-tests', 'planner-v1-frontend-plans'],

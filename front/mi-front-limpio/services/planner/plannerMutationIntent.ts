@@ -31,6 +31,7 @@ import {
   OPERATION_KINDS,
   type RequestJsonOptions,
 } from '../api';
+import { validatePlannerExpectedVersion } from './reliability/operationIdentity';
 
 // ---------------------------------------------------------------------------
 // 1. Mutation intent identity (contract; runtime locking → M3)
@@ -84,10 +85,11 @@ export function createPlannerVersionedMutationIntent(params: {
   entityKind: string;
   entityVersion: number | string;
 }): PlannerMutationIntent {
+  const entityVersion = validatePlannerExpectedVersion(params.entityVersion, true);
   return {
     mutationId: generateMutationId(),
     idempotencyKey: createIdempotencyKey(params.entityKind),
-    ifMatch: String(params.entityVersion),
+    ifMatch: entityVersion,
     operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
   };
 }
@@ -146,9 +148,7 @@ export function toRequestJsonOptions(options: PlannerTransportOptions): RequestJ
     coreOpts.operationKind = options.intent.operationKind;
     if (options.intent.idempotencyKey) coreOpts.idempotencyKey = options.intent.idempotencyKey;
     if (options.intent.ifMatch !== undefined) {
-      coreOpts.expectedVersion = typeof options.intent.ifMatch === 'string'
-        ? parseInt(options.intent.ifMatch, 10)
-        : options.intent.ifMatch;
+      coreOpts.expectedVersion = validatePlannerExpectedVersion(options.intent.ifMatch, true);
     }
   }
 
