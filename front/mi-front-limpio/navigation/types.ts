@@ -89,6 +89,13 @@ export type PlannerStackParamList = {
   EditGoal: { goalId?: string } | import('./plannerNavigationContract').PlannerEntityDetailParams;
   GoalDetail: { goalId: string; source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown'; } | import('./plannerNavigationContract').PlannerEntityDetailParams;
   PlannerTrash: undefined;
+  PlannerPresetLibrary: undefined;
+  PlannerPresetDetail: { presetId: string };
+  PlannerPresetCreate: { duplicateFromPresetId?: string } | undefined;
+  PlannerPresetEdit: { presetId: string };
+  PlannerDraftRecovery: undefined;
+  PlannerDraftResume: { draftId: string };
+  PlannerPresetDraftsTrash: undefined;
   // New canonical V1 detail routes. Their params are the canonical typed
   // contract from `plannerNavigationContract.ts`. Visual surfaces land in
   // M10 (TaskDetail/EventDetail) and M7 (PlannerSearch); M1 only defines the

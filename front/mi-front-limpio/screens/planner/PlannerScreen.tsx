@@ -475,6 +475,16 @@ export function PlannerScreen() {
     setShowOverflow(false);
   }, [navigation]);
 
+  const openPresetLibrary = useCallback(() => {
+    navigation.navigate(ROUTE_NAMES.PresetLibrary);
+    setShowOverflow(false);
+  }, [navigation]);
+
+  const openDraftRecovery = useCallback(() => {
+    navigation.navigate(ROUTE_NAMES.DraftRecovery);
+    setShowOverflow(false);
+  }, [navigation]);
+
   // -------------------------------------------------------------------------
   // 5. Resolve canonical global state (single authority)
   // -------------------------------------------------------------------------
@@ -616,6 +626,20 @@ export function PlannerScreen() {
             onPress={() => setShowOverflow(false)}
           >
             <Pressable style={S.overflowPanel} onPress={(e) => e.stopPropagation()}>
+              <TouchableOpacity
+                style={S.overflowItem}
+                onPress={openPresetLibrary}
+              >
+                <HomePlusIcon name={APP_ICONS.planner.notes ?? 'albums-outline'} size={20} color={colors.text.primary} />
+                <AppText variant="body" weight="600" style={{ marginLeft: 12, flex: 1 }}>Presets</AppText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={S.overflowItem}
+                onPress={openDraftRecovery}
+              >
+                <HomePlusIcon name={APP_ICONS.planner.todo ?? 'document-text-outline'} size={20} color={colors.text.primary} />
+                <AppText variant="body" weight="600" style={{ marginLeft: 12, flex: 1 }}>Borradores</AppText>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={S.overflowItem}
                 onPress={openTrash}

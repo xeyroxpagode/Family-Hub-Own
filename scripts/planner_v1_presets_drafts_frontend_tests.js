@@ -91,13 +91,14 @@ run('Planner tabs are Tasks Events Plans only', () => {
 });
 
 // --- Route descriptors lane-owned ---
-run('Route descriptors and lane extension exist', () => {
-    const code = read('front/mi-front-limpio/navigation/plannerPresetDraftsRouteDescriptors.ts');
+run('Route descriptors and Integration routes exist', () => {
+  const code = read('front/mi-front-limpio/navigation/plannerPresetDraftsRouteDescriptors.ts');
+  const nav = read('front/mi-front-limpio/navigation/HomeTabNavigator.tsx');
   ok(code.includes('PLANNER_PRESET_DRAFTS_ROUTES'), 'routes array exported');
   ok(code.includes('presetDraftsLaneExtension'), 'lane extension exported');
   ok(code.includes('planner.templates.use'), 'capability present');
   ok(code.includes('planner.templates.manage'), 'manage capability present');
-  ok(code.includes("canEditSource('homeplus') === false") || code.includes('homeplus') , 'homeplus read-only');
+  ok(nav.includes('PlannerPresetLibraryRoute') && nav.includes('PlannerDraftRecoveryRoute'), 'Planner stack registers local entry routes');
 });
 
 // --- Services exist and carry mutation identity ---

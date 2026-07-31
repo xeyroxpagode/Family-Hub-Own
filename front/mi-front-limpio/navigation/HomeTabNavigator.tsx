@@ -25,6 +25,15 @@ import { PlannerTrashScreen } from '../screens/planner/PlannerTrashScreen';
 import { PlannerSearchScreen } from '../screens/planner/PlannerSearchScreen';
 import { TaskDetailScreen } from '../screens/planner/TaskDetailScreen';
 import { EventDetailScreen } from '../screens/planner/EventDetailScreen';
+import {
+  PlannerDraftRecoveryRoute,
+  PlannerDraftResumeRoute,
+  PlannerPresetCreateRoute,
+  PlannerPresetDetailRoute,
+  PlannerPresetDraftsTrashRoute,
+  PlannerPresetEditRoute,
+  PlannerPresetLibraryRoute,
+} from '../components/planner/presets/PlannerPresetDraftsIntegrationRoutes';
 import { MoreScreen } from '../screens/MoreScreen';
 import { APP_ICONS, HomePlusIcon } from '../constants/icons';
 import { AppTopBar, HouseholdSwitcherSheet, CenterTabButton } from '../components/ui';
@@ -129,6 +138,13 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="EditGoal" component={PlannerPlanStructureEditScreen} />
       <PlannerStack.Screen name="GoalDetail" component={PlannerPlanDetailScreen} />
       <PlannerStack.Screen name="PlannerTrash" component={PlannerTrashScreen} />
+      <PlannerStack.Screen name="PlannerPresetLibrary" component={PlannerPresetLibraryRoute} />
+      <PlannerStack.Screen name="PlannerPresetDetail" component={PlannerPresetDetailRoute} />
+      <PlannerStack.Screen name="PlannerPresetCreate" component={PlannerPresetCreateRoute} />
+      <PlannerStack.Screen name="PlannerPresetEdit" component={PlannerPresetEditRoute} />
+      <PlannerStack.Screen name="PlannerDraftRecovery" component={PlannerDraftRecoveryRoute} />
+      <PlannerStack.Screen name="PlannerDraftResume" component={PlannerDraftResumeRoute} />
+      <PlannerStack.Screen name="PlannerPresetDraftsTrash" component={PlannerPresetDraftsTrashRoute} />
       <PlannerStack.Screen name="PlannerSearch" component={PlannerSearchScreen} />
       <PlannerStack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <PlannerStack.Screen name="EventDetail" component={EventDetailScreen} />

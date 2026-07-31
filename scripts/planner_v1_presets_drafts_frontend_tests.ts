@@ -279,9 +279,9 @@ runTest('Global operational surfaces are not wired to presets/drafts', () => {
   ok(!/preset|draft/i.test(trash), 'global Trash clean');
 });
 
-runTest('Lane descriptors are published but not globally registered', () => {
+runTest('Lane descriptors are published and Integration consumes them locally', () => {
   const descriptorCode = read('front/mi-front-limpio/navigation/plannerPresetDraftsRouteDescriptors.ts');
-  const navCode = read('front/mi-front-limpio/navigation/AppNavigator.tsx');
+  const navCode = read('front/mi-front-limpio/navigation/HomeTabNavigator.tsx');
   ok(PLANNER_PRESET_DRAFTS_ROUTES.length === 1, 'one lane-owned route descriptor');
   ok(PLANNER_PRESET_DRAFTS_ROUTES[0].routeName === 'PlannerPresetLibrary', 'route descriptor uses canonical route name');
   ok(presetDraftsLaneExtension.requiredCapabilities.includes('planner.templates.use'), 'use capability declared');
@@ -291,7 +291,7 @@ runTest('Lane descriptors are published but not globally registered', () => {
   ok(presetDraftsLaneExtension.canEditSource('household'), 'household source can be edited');
   ok(PRESET_ENTITY_TYPES.every((kind) => presetDraftsLaneExtension.supportsKind(kind)), 'Task/Event/Plan kinds supported');
   ok(descriptorCode.includes('suggestedEntry'), 'route stays descriptor-only');
-  ok(!navCode.includes('PlannerPresetLibraryScreen') && !navCode.includes('PresetLibrary'), 'route not registered globally');
+  ok(navCode.includes('PlannerPresetLibraryRoute') && navCode.includes('PlannerDraftRecoveryRoute'), 'Integration registers local Planner routes');
 });
 
 runTest('Services do not import projection, durability, backend or Supabase modules', () => {
@@ -313,7 +313,7 @@ runTest('No package, lockfile, backend, migration or global-route change is need
   ok(changedSinceBase.includes('Backend code unchanged'), 'JS suite preserves backend invariant');
   ok(read('package.json').includes('"typecheck"'), 'root package is only consumed by tests');
   ok(read('front/mi-front-limpio/package.json').includes('"typescript"'), 'frontend package is only consumed by typecheck');
-  ok(!read('front/mi-front-limpio/navigation/AppNavigator.tsx').includes('plannerPresetDraftsRouteDescriptors'), 'global route file does not import lane descriptor');
+  ok(read('front/mi-front-limpio/navigation/HomeTabNavigator.tsx').includes('PlannerPresetDraftsIntegrationRoutes'), 'Planner stack consumes Integration routes');
 });
 
 runTest('Query keys partition personal and household presets/drafts', () => {
