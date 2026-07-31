@@ -33,6 +33,7 @@
     "../scripts/planner_v1_m10_tests.ts",
     "../scripts/planner_v1_frontend_foundation_tests.ts",
     "../scripts/planner_v1_frontend_core_integration_tests.ts",
+    "../scripts/planner_v1_presets_drafts_frontend_tests.ts",
     "../front/mi-front-limpio/services/core/*.ts",
     "../front/mi-front-limpio/services/planner/*.ts",
     "../front/mi-front-limpio/services/plannerPreferences.ts",
