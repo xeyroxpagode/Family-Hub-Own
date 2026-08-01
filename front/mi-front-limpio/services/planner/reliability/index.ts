@@ -11,3 +11,4 @@ export * from './operationStore';
 export * from './realtimeBridge';
 export * from './reconciliation';
 export * from './retryPolicy';
+export * from './frontendExperience';
