@@ -83,6 +83,7 @@ import {
   type PlannerSearchAccess,
 } from '../../services/planner/plannerSearchAccess';
 import { getActiveDeepLinkCoordinator } from '../../services/planner/plannerDeepLinkCoordinator';
+import { openPlannerReliabilityRuntimeForSession } from '../../services/planner/reliability';
 
 // ---------------------------------------------------------------------------
 // 1. M3/M6 — PlannerScreen does not own Task/Event sheet Modal (M3).
@@ -181,6 +182,17 @@ export function PlannerScreen() {
   const accountId = authMe?.person?.auth_user_id ?? null;
   const householdId = currentHousehold?.id ?? null;
   const contextKey = accountId && householdId ? `${accountId}::${householdId}` : null;
+
+  useEffect(() => {
+    const runtime = openPlannerReliabilityRuntimeForSession({
+      accessToken,
+      authenticatedUserId: accountId,
+      activeHouseholdId: householdId,
+      authResolved: Boolean(accessToken && accountId),
+      householdResolved: Boolean(householdId),
+    });
+    return () => runtime?.dispose();
+  }, [accessToken, accountId, householdId]);
 
   // When the context changes ( accountId/householdId), start a new
   // hydration generation, reset preferences readiness, and load the

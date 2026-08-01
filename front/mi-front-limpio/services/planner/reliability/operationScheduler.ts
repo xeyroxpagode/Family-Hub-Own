@@ -4,6 +4,7 @@ import type { PlannerOperationQueue } from './operationQueue';
 export class PlannerOperationScheduler {
   private handle: unknown = null;
   private running = false;
+  private draining = false;
 
   constructor(
     private readonly queue: PlannerOperationQueue,
@@ -33,8 +34,15 @@ export class PlannerOperationScheduler {
     if (!this.clock.setTimeout) return;
     this.handle = this.clock.setTimeout(async () => {
       try {
-        await this.queue.drain();
-        await this.queue.cleanupConfirmed();
+        if (!this.draining) {
+          this.draining = true;
+          try {
+            await this.queue.drain();
+            await this.queue.cleanupConfirmed();
+          } finally {
+            this.draining = false;
+          }
+        }
       } finally {
         if (this.running) this.schedule(this.intervalMs);
       }

@@ -60,6 +60,14 @@ type PlannerEventsResponse = {
   events: PlannerEvent[];
 };
 
+export type PlannerEventMutationOptions = {
+  idempotencyKey?: string;
+  mutationId?: string;
+  signal?: AbortSignal | null;
+  timeoutMs?: number;
+  contextScope?: string | null;
+};
+
 const toQueryString = (filters?: PlannerEventFilters) => {
   const params = new URLSearchParams();
 
@@ -82,19 +90,19 @@ export const getEventById = (accessToken: string, eventId: string) =>
 export const createPlannerEvent = (
   accessToken: string,
   payload: CreatePlannerEventPayload,
-  options?: { idempotencyKey?: string; mutationId?: string },
+  options?: PlannerEventMutationOptions,
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.create')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (options?.mutationId) {
-    headers['X-Mutation-Id'] = options.mutationId
-  }
   return requestJson<PlannerEventResponse>('/api/planner/events', {
     method: 'POST',
     operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
+    mutationId: options?.mutationId,
+    idempotencyKey: key,
+    signal: options?.signal,
+    timeoutMs: options?.timeoutMs,
+    contextScope: options?.contextScope,
     body: payload,
-    headers,
   })
 }
 
@@ -102,15 +110,21 @@ export const updatePlannerEvent = (
   accessToken: string,
   eventId: string,
   payload: UpdatePlannerEventPayload,
-  options?: { idempotencyKey?: string },
+  options?: PlannerEventMutationOptions,
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.update')
+  const expectedVersion = payload.expected_version ?? 1;
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}`, {
     method: 'PATCH',
     operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
+    mutationId: options?.mutationId,
+    idempotencyKey: key,
+    expectedVersion,
+    signal: options?.signal,
+    timeoutMs: options?.timeoutMs,
+    contextScope: options?.contextScope,
     body: payload,
-    headers: { 'Idempotency-Key': key },
   });
 };
 
@@ -118,18 +132,20 @@ export const cancelPlannerEvent = (
   accessToken: string,
   eventId: string,
   expectedVersion?: number,
-  options?: { idempotencyKey?: string },
+  options?: PlannerEventMutationOptions,
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.cancel')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
-  }
+  const version = expectedVersion ?? 1;
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}`, {
     method: 'DELETE',
     operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
-    headers,
+    mutationId: options?.mutationId,
+    idempotencyKey: key,
+    expectedVersion: version,
+    signal: options?.signal,
+    timeoutMs: options?.timeoutMs,
+    contextScope: options?.contextScope,
   });
 };
 
@@ -137,18 +153,20 @@ export const trashPlannerEvent = (
   accessToken: string,
   eventId: string,
   expectedVersion?: number,
-  options?: { idempotencyKey?: string },
+  options?: PlannerEventMutationOptions,
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.trash')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
-  }
+  const version = expectedVersion ?? 1;
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/trash`, {
     method: 'POST',
     operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
-    headers,
+    mutationId: options?.mutationId,
+    idempotencyKey: key,
+    expectedVersion: version,
+    signal: options?.signal,
+    timeoutMs: options?.timeoutMs,
+    contextScope: options?.contextScope,
   });
 };
 
@@ -156,18 +174,20 @@ export const reactivatePlannerEvent = (
   accessToken: string,
   eventId: string,
   expectedVersion?: number,
-  options?: { idempotencyKey?: string },
+  options?: PlannerEventMutationOptions,
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.reactivate')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
-  }
+  const version = expectedVersion ?? 1;
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/reactivate`, {
     method: 'POST',
     operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
-    headers,
+    mutationId: options?.mutationId,
+    idempotencyKey: key,
+    expectedVersion: version,
+    signal: options?.signal,
+    timeoutMs: options?.timeoutMs,
+    contextScope: options?.contextScope,
   });
 };
 
@@ -175,18 +195,20 @@ export const restorePlannerEvent = (
   accessToken: string,
   eventId: string,
   expectedVersion?: number,
-  options?: { idempotencyKey?: string },
+  options?: PlannerEventMutationOptions,
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.restore')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (expectedVersion !== undefined) {
-    headers['If-Match'] = String(expectedVersion)
-  }
+  const version = expectedVersion ?? 1;
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/restore`, {
     method: 'POST',
     operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
-    headers,
+    mutationId: options?.mutationId,
+    idempotencyKey: key,
+    expectedVersion: version,
+    signal: options?.signal,
+    timeoutMs: options?.timeoutMs,
+    contextScope: options?.contextScope,
   });
 };
 
@@ -200,18 +222,18 @@ export const createEventOccurrenceOverride = (
   accessToken: string,
   eventId: string,
   payload: CreateOccurrenceOverridePayload,
-  options?: { idempotencyKey?: string; mutationId?: string },
+  options?: PlannerEventMutationOptions,
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.events.occurrences.override.create')
-  const headers: Record<string, string> = { 'Idempotency-Key': key }
-  if (options?.mutationId) {
-    headers['X-Mutation-Id'] = options.mutationId
-  }
   return requestJson<PlannerEventResponse>(`/api/planner/events/${eventId}/occurrences/override`, {
     method: 'POST',
     operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
     accessToken,
+    mutationId: options?.mutationId,
+    idempotencyKey: key,
+    signal: options?.signal,
+    timeoutMs: options?.timeoutMs,
+    contextScope: options?.contextScope,
     body: payload,
-    headers,
   })
 }
