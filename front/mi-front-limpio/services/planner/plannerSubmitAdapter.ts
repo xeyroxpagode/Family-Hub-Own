@@ -34,8 +34,12 @@ import {
   isRetryable,
   type PlannerError,
 } from './plannerErrorAdapter';
-import { createPlannerTask, type CreatePlannerTaskPayload } from '../plannerTasks';
-import { createPlannerEvent, type CreatePlannerEventPayload } from '../plannerEvents';
+import { type CreatePlannerTaskPayload } from '../plannerTasks';
+import { type CreatePlannerEventPayload } from '../plannerEvents';
+import {
+  enqueuePlannerEventCreate,
+  enqueuePlannerTaskCreate,
+} from './reliability';
 import { createGoal, type CreatePlannerGoalInput, type PlannerGoal } from '../plannerGoals';
 import { plannerCache } from './plannerCache';
 import type { HouseholdScope } from './plannerKeys';
@@ -68,15 +72,16 @@ export async function executeTaskCreateSubmit(params: {
   signal?: AbortSignal;
   timeoutMs?: number;
 }): Promise<PlannerCreateSubmitResult> {
-  const { accessToken, payload, scope, sheet, intent, signal, timeoutMs } = params;
+  const { payload, scope, sheet, intent, signal, timeoutMs } = params;
 
   const intentId = intent.mutationId;
 
   try {
     sheet.beginSubmit(intentId);
 
-    const response = await createPlannerTask(accessToken, payload, {
+    await enqueuePlannerTaskCreate(payload, {
       idempotencyKey: intent.idempotencyKey,
+      mutationId: intent.mutationId,
     });
 
     // Success: directed invalidation
@@ -124,15 +129,16 @@ export async function executeEventCreateSubmit(params: {
   signal?: AbortSignal;
   timeoutMs?: number;
 }): Promise<PlannerCreateSubmitResult> {
-  const { accessToken, payload, scope, sheet, intent, signal, timeoutMs } = params;
+  const { payload, scope, sheet, intent, signal, timeoutMs } = params;
 
   const intentId = intent.mutationId;
 
   try {
     sheet.beginSubmit(intentId);
 
-    const response = await createPlannerEvent(accessToken, payload, {
+    await enqueuePlannerEventCreate(payload, {
       idempotencyKey: intent.idempotencyKey,
+      mutationId: intent.mutationId,
     });
 
     // Success: directed invalidation

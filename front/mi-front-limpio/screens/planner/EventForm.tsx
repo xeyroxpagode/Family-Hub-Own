@@ -15,14 +15,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { ApiError } from '../../services/api';
 import {
-  cancelPlannerEvent,
-  createEventOccurrenceOverride,
-  createPlannerEvent,
   listPlannerEvents,
-  updatePlannerEvent,
   type CreatePlannerEventPayload,
   type PlannerEventRecurrence,
 } from '../../services/plannerEvents';
+import {
+  enqueuePlannerEventCancel,
+  enqueuePlannerEventCreate,
+  enqueuePlannerEventOccurrenceOverride,
+  enqueuePlannerEventUpdate,
+} from '../../services/planner/reliability';
 import { createIdempotencyKey } from '../../services/idempotency';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
@@ -304,7 +306,7 @@ if (isGeneratedRecurringOccurrence) {
                 return;
               }
 
-              const overrideResponse = await createEventOccurrenceOverride(accessToken, baseEventId, {
+              const overrideResponse = await enqueuePlannerEventOccurrenceOverride(baseEventId, {
                 original_occurrence_start_at: occurrenceStartsAt,
                 starts_at: occurrenceStartsAt,
                 ends_at: occurrenceEndsAt ?? undefined,
@@ -322,7 +324,7 @@ if (isGeneratedRecurringOccurrence) {
             }
           }
 
-        await updatePlannerEvent(accessToken, targetEventId, payload, { idempotencyKey: eventUpdateKeyRef.current });
+        await enqueuePlannerEventUpdate(targetEventId, payload, { idempotencyKey: eventUpdateKeyRef.current });
         markPlannerChanged();
         if (onSaved) {
           onSaved('Evento actualizado.');
@@ -331,7 +333,7 @@ if (isGeneratedRecurringOccurrence) {
         }
         eventUpdateKeyRef.current = createIdempotencyKey('planner.events.update');
       } else {
-        await createPlannerEvent(accessToken, payload, {
+        await enqueuePlannerEventCreate(payload, {
           idempotencyKey: eventCreateKeyRef.current,
           mutationId: createMutationId,
         });
@@ -378,7 +380,7 @@ if (isGeneratedRecurringOccurrence) {
 onPress: async () => {
             setSaving(true);
             try {
-              await cancelPlannerEvent(accessToken, eventId, entityVersion ?? undefined, { idempotencyKey: eventCancelKeyRef.current });
+              await enqueuePlannerEventCancel(eventId, entityVersion ?? undefined, { idempotencyKey: eventCancelKeyRef.current });
               markPlannerChanged();
               if (onSaved) {
                 onSaved('Evento cancelado.');

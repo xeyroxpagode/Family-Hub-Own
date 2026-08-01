@@ -22,6 +22,9 @@ import type { PlannerMutationIntent } from '../front/mi-front-limpio/services/pl
 
 (globalThis as typeof globalThis & { __DEV__?: boolean }).__DEV__ = false;
 
+const fs = require('fs');
+const path = require('path');
+
 let passCount = 0;
 let failCount = 0;
 
@@ -149,7 +152,85 @@ function observer(events: PlannerReliabilityEvent[]) {
   return { emit: (event: PlannerReliabilityEvent) => { events.push(event); } };
 }
 
+const PRODUCTIVE_MUTATION_NAMES = [
+  'createPlannerTask',
+  'updatePlannerTask',
+  'completePlannerTask',
+  'verifyPlannerTask',
+  'cancelPlannerTask',
+  'trashPlannerTask',
+  'restorePlannerTask',
+  'reactivatePlannerTask',
+  'createPlannerEvent',
+  'updatePlannerEvent',
+  'cancelPlannerEvent',
+  'restorePlannerEvent',
+  'createEventOccurrenceOverride',
+  'writeCanonicalPlanGraph',
+  'writeCanonicalPlanStructureChangeset',
+  'createPlannerPreset',
+  'updatePlannerPresetMetadata',
+  'publishPlannerPresetRevision',
+  'restorePlannerPreset',
+  'trashPlannerPreset',
+  'startPlannerPresetRevision',
+  'restorePlannerDraft',
+  'trashPlannerDraft',
+] as const;
+
+function collectSourceFiles(root: string): string[] {
+  if (!fs.existsSync(root)) return [];
+  const entries = fs.readdirSync(root, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const child = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectSourceFiles(child));
+      continue;
+    }
+    if (/\.(tsx?|jsx?)$/.test(entry.name)) files.push(child);
+  }
+  return files;
+}
+
+function findProductiveMutationBypasses(): string[] {
+  const roots = [
+    path.join(process.cwd(), 'front/mi-front-limpio/screens/planner'),
+    path.join(process.cwd(), 'front/mi-front-limpio/components/planner'),
+  ];
+  const files = [
+    ...roots.flatMap(collectSourceFiles),
+    path.join(process.cwd(), 'front/mi-front-limpio/services/planner/plannerSubmitAdapter.ts'),
+  ];
+  const violations: string[] = [];
+  const importPattern = /import\s*{([\s\S]*?)}\s*from\s*['"]([^'"]+)['"]/g;
+  for (const file of files) {
+    if (!fs.existsSync(file)) continue;
+    const source = fs.readFileSync(file, 'utf8') as string;
+    for (const match of source.matchAll(importPattern)) {
+      const importedNames = match[1];
+      const modulePath = match[2];
+      const isProductiveService = /(?:^|\/|\.\.\/)(plannerTasks|plannerEvents|plannerPresets|plannerDrafts|planner\/plannerPlans)$/.test(modulePath.replace(/\\/g, '/'));
+      if (!isProductiveService) continue;
+      for (const name of PRODUCTIVE_MUTATION_NAMES) {
+        const imported = new RegExp(`\\b${name}\\b`).test(importedNames);
+        if (imported) violations.push(`${path.relative(process.cwd(), file)} imports ${name} from ${modulePath}`);
+      }
+    }
+    for (const name of PRODUCTIVE_MUTATION_NAMES) {
+      const callsDirectMutation = new RegExp(`\\b${name}\\s*\\(`).test(source);
+      if (callsDirectMutation) violations.push(`${path.relative(process.cwd(), file)} calls ${name}()`);
+    }
+  }
+  return violations;
+}
+
 void (async () => {
+  await runTest('productive UI call sites route mutations through reliability enqueue', () => {
+    const violations = findProductiveMutationBypasses();
+    assertEqual(violations, [], 'no screen/form/card/hook bypasses productive adapters');
+  });
+
   await runTest('scope resolver refuses unresolved auth or household', () => {
     assert(resolvePlannerReliabilityScope({ authResolved: false, householdResolved: true, accessToken: 'token', authenticatedUserId: 'user-a', activeHouseholdId: 'hh-a' }) === null, 'auth unresolved blocks runtime');
     assert(resolvePlannerReliabilityScope({ authResolved: true, householdResolved: false, accessToken: 'token', authenticatedUserId: 'user-a', activeHouseholdId: 'hh-a' }) === null, 'household unresolved blocks runtime');

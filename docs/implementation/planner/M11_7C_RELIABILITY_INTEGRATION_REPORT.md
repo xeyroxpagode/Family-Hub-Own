@@ -8,6 +8,7 @@
 - Integration branch: `planner-v1-reliability-integration`
 - Candidate: `b8ecf8ff53c6426ffc386cef2790aef5eae26541`
 - Incorporation: fast-forward only, no merge commit, no rebase, no cherry-pick.
+- R1 checkpoint: previous integration commit `3cebbd94233bb90b75f3843fbda6e0143da58051` was intentionally partial because screen/form/list call sites still bypassed enqueue. R1 closes that migration.
 
 ## Environmental hygiene
 
@@ -41,6 +42,27 @@
 - Plans: graph writes and atomic Plan Structure changeset through existing canonical plan services.
 - Presets: create, metadata update, revision start/update/publish, trash, restore.
 - Drafts: autosave, trash, restore, with autosave supersession limited to pending unsent operations for the same draft.
+
+## R1 call site migration matrix
+
+- Task form: `TaskForm.tsx` create/update now use `enqueuePlannerTaskCreate` and `enqueuePlannerTaskUpdate`.
+- Task rows/lists: `PlannerTasksScreen.tsx` complete/verify/cancel/reactivate/trash now use enqueue wrappers.
+- General trash: `PlannerTrashScreen.tsx` task/event restore now use enqueue wrappers. Goal/milestone restore remains outside M11.7C because no Reliability adapter exists for Goals in this scope.
+- Event form: `EventForm.tsx` create/update/cancel and recurring occurrence override now use enqueue wrappers.
+- Plan detail/actions: `PlannerPlanDetailScreen.tsx` lifecycle writes now use `enqueuePlannerPlanGraphWrite`.
+- Plan structure editor: `PlannerPlanStructureEditScreen.tsx` atomic changeset writes now use `enqueuePlannerPlanStructureChangeset`.
+- Sheet host plan create: `PlannerSheetHost.tsx` plan quick-create now uses `enqueuePlannerPlanGraphWrite`.
+- Preset routes: `PlannerPresetDraftsIntegrationRoutes.tsx` create/update/trash/restore/revision start/publish now use enqueue wrappers.
+- Preset/Draft local trash: `PlannerPresetDraftsTrashScreen.tsx` restore actions now use enqueue wrappers.
+- Draft recovery list: `PlannerDraftsScreen.tsx` trash/restore now use enqueue wrappers.
+- Historical submit adapter: `plannerSubmitAdapter.ts` no longer delegates task/event create directly to productive services.
+
+## R1 bypass guard
+
+- Added `services/planner/reliability/productiveMutations.ts` as the only UI-facing enqueue facade for productive Planner mutations.
+- Added a static guard to `scripts/planner_m11_7c_reliability_integration_tests.ts` that scans Planner screens/components and submit adapter for direct productive service imports/calls.
+- Added `scripts/planner_v1_frontend_tasks_tests.ts` and `node tests/run.js planner-frontend-tasks` to keep task forms/lists/trash covered as a named frontend gate.
+- Current allowed direct productive service consumption is limited to `productiveAdapters.ts`, `productiveMutations.ts`, service implementation files, and tests. No R1 UI bypass exception remains for Tasks, Events, Plans, Presets, or Drafts.
 
 ## Realtime and reconciliation
 
@@ -79,22 +101,23 @@ Executed and passing:
 - `npm run test:contracts`
 - `node tests/run.js planner-reliability` -> 122 PASS / 0 FAIL
 - `node tests/run.js planner-reliability-frontend` -> 251 PASS / 0 FAIL
-- `node tests/run.js planner-reliability-integration` -> 28 PASS / 0 FAIL
+- `node tests/run.js planner-reliability-integration` -> 29 PASS / 0 FAIL
 - `node tests/run.js planner-frontend-core-integration` -> 50 PASS / 0 FAIL
+- `node tests/run.js planner-frontend-tasks` -> 26 PASS / 0 FAIL
 - `node tests/run.js planner-frontend-events` -> 98 PASS / 0 FAIL
 - `node tests/run.js planner-frontend-plans` -> 106 PASS / 0 FAIL
 - `node tests/run.js planner-presets-drafts-integration` -> 86 PASS / 0 FAIL
 
-The full `npm run test:planner` suite also passed with the new M11.7C suite included.
+The full `npm run test:planner` suite also passed with the R1 task gate and M11.7C suite included.
 
 ## Integration Requests
 
-- `connect-domain-mutations-to-reliability-enqueue`: PARTIAL
-  - Files: `runtime.ts`, `productiveAdapters.ts`, `PlannerScreen.tsx`, domain services, M11.7C tests.
+- `connect-domain-mutations-to-reliability-enqueue`: CLOSED
+  - Files: `runtime.ts`, `productiveAdapters.ts`, `productiveMutations.ts`, `PlannerScreen.tsx`, forms/screens/routes, M11.7C tests.
   - Contracts: stable identity, requestHash, expectedVersion, canonical payload, enqueue before dispatch.
-  - Wiring: Tasks, Events, Plans, Presets, Drafts productive adapters are registered on the active Planner runtime.
-  - Tests: M11.7C enqueue/reconnect/headers plus full planner suite.
-  - Remaining gap: existing screen-level submit/action handlers still need to route every user mutation through `runtime.enqueue` instead of direct service calls.
+  - Wiring: Tasks, Events, Plans, Presets, Drafts productive adapters are registered on the active Planner runtime, and productive UI handlers now route through `runtime.enqueueAndFlush`.
+  - Tests: M11.7C enqueue/reconnect/headers/static guard, Tasks frontend guard, and full planner suite.
+  - Exceptions: none for M11.7C domains. Goal/milestone trash restore remains documented out-of-scope.
 
 - `scheduler-reconnect-session-lifecycle`: CLOSED
   - Files: `runtime.ts`, `operationScheduler.ts`.
@@ -116,8 +139,8 @@ The full `npm run test:planner` suite also passed with the new M11.7C suite incl
 
 ## Risks
 
-- Productive adapters cover published serializable operations and the Planner surface opens the runtime, but remaining screen-level call sites must be migrated to enqueue for complete coverage.
-- Events had the main transport gap fixed in this lane; other services already carried mutation identity or canonical wrappers.
+- Productive UI handlers for M11.7C domains are routed through enqueue and guarded statically; future handlers need to import the reliability facade instead of domain services.
+- Event and Plan call sites close only after `confirmed`; pending/uncertain/conflicted outcomes preserve UI content through the existing error paths.
 - No backend/DB changes were made.
 
 ## Scope excluded
@@ -134,5 +157,6 @@ The full `npm run test:planner` suite also passed with the new M11.7C suite incl
 
 ## Final Git
 
-- Final commit: pending at report creation.
-- Worktree cleanup required before commit: remove temporary `node_modules` junctions used for gates.
+- R1 commit message: `fix(planner): route mutations through reliability runtime`.
+- Final commit hash: recorded in handoff after commit creation.
+- Worktree cleanup before commit: remove temporary `node_modules` junctions used for gates and generated compiled test outputs.

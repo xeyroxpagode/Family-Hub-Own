@@ -235,7 +235,7 @@ equal(draftRequest.kind, 'task', 'Task draft resumes into Task form request');
 equal(draftRequest.sourcePresetId, 'preset-1', 'Draft resume preserves preset source reference');
 check(!applyPlannerDraft(draft({ owner_person_id: OTHER }), OWNER, EMPTY_RESOLVED).applicable, 'Foreign draft is blocked by owner isolation');
 check(routeBridge.includes('PlannerDraftResumeRoute'), 'Draft resume has a dedicated route');
-check(routeBridge.includes('trashPlannerDraft') || read('front/mi-front-limpio/components/planner/drafts/PlannerDraftsScreen.tsx').includes('trashPlannerDraft'), 'Draft discard uses draft trash mutation');
+check(routeBridge.includes('enqueuePlannerDraftTrash') || read('front/mi-front-limpio/components/planner/drafts/PlannerDraftsScreen.tsx').includes('enqueuePlannerDraftTrash'), 'Draft discard uses reliability draft trash mutation');
 equal(DRAFT_OPERATIONALLY_PROJECTED.length, 0, 'Drafts do not project as Task/Event/Plan entities');
 check(DRAFT_OPERATIONALLY_PROJECTED_FORBIDDEN.includes('calendar'), 'Drafts remain absent from Calendar');
 

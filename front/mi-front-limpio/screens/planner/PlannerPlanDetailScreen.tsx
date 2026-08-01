@@ -11,11 +11,12 @@ import {
 } from '../../navigation/plannerNavigationContract';
 import {
   buildPlanLifecycleWrite,
+  createPlanWriteIntent,
   getCanonicalPlanGraph,
-  writeCanonicalPlanGraph,
   type PlanDetailProjection,
   type PlanLifecycleTransition,
 } from '../../services/planner/plannerPlans';
+import { enqueuePlannerPlanGraphWrite } from '../../services/planner/reliability';
 import type { PlannerPlanGraphDto } from '../../types/PlannerPlan';
 import { PlannerPlanDetailSurface } from './PlannerPlansSurfaces';
 import { plannerStyles as S } from './plannerShared';
@@ -64,7 +65,7 @@ export function PlannerPlanDetailScreen() {
         { id: detail.summary.id, version: detail.summary.version },
         transition,
       );
-      await writeCanonicalPlanGraph({ accessToken }, request);
+      await enqueuePlannerPlanGraphWrite(request, createPlanWriteIntent(request), 'update');
       await load();
     } catch (err) {
       Alert.alert('Planner', err instanceof Error ? err.message : 'No pudimos actualizar el plan.');

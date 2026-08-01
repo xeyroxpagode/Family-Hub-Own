@@ -32,6 +32,7 @@
     "../scripts/planner_v1_m7_tests.ts",
     "../scripts/planner_v1_m10_tests.ts",
     "../scripts/planner_v1_frontend_foundation_tests.ts",
+    "../scripts/planner_v1_frontend_tasks_tests.ts",
     "../scripts/planner_v1_frontend_events_tests.ts",
     "../scripts/planner_v1_frontend_plans_tests.ts",
     "../scripts/planner_v1_frontend_core_integration_tests.ts",

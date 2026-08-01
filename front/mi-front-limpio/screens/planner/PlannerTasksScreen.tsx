@@ -3,16 +3,17 @@ import { ActivityIndicator, Alert, Image, ScrollView, Text, TouchableOpacity, Vi
 import { ErrorState } from '../../components/ui';
 import { ApiError } from '../../services/api';
 import {
-  cancelPlannerTask,
-  completePlannerTask,
   listPlannerTasks,
-  reactivatePlannerTask,
-  restorePlannerTask,
-  trashPlannerTask,
-  verifyPlannerTask,
   type PlannerTask,
   type PlannerTaskPriority,
 } from '../../services/plannerTasks';
+import {
+  enqueuePlannerTaskCancel,
+  enqueuePlannerTaskComplete,
+  enqueuePlannerTaskReactivate,
+  enqueuePlannerTaskTrash,
+  enqueuePlannerTaskVerify,
+} from '../../services/planner/reliability';
 import { listGoals, type PlannerGoal } from '../../services/plannerGoals';
 import { createIdempotencyKey } from '../../services/idempotency';
 import { projectPlannerTask } from '../../adapters/planner/plannerTaskAdapters';
@@ -583,12 +584,12 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
     try {
       let resultTask: PlannerTask | undefined;
       if (action === 'complete') {
-        const response = await completePlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskCompleteKeyRef.current });
+        const response = await enqueuePlannerTaskComplete(task.id, task.version, { idempotencyKey: taskCompleteKeyRef.current });
         resultTask = response.task;
         taskCompleteKeyRef.current = createIdempotencyKey('planner.tasks.complete');
       }
       if (action === 'verify') {
-        const response = await verifyPlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskVerifyKeyRef.current });
+        const response = await enqueuePlannerTaskVerify(task.id, task.version, { idempotencyKey: taskVerifyKeyRef.current });
         resultTask = response.task;
         taskVerifyKeyRef.current = createIdempotencyKey('planner.tasks.verify');
       }
@@ -642,7 +643,7 @@ const confirmCancel = (task: PlannerTask) => {
             await lightHaptic();
             setSavingId(task.id);
             try {
-              await cancelPlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskCancelKeyRef.current });
+              await enqueuePlannerTaskCancel(task.id, task.version, { idempotencyKey: taskCancelKeyRef.current });
               markPlannerChanged();
               await loadTasks();
               onChanged?.();
@@ -678,7 +679,7 @@ const confirmReactivate = (task: PlannerTask) => {
             await lightHaptic();
             setSavingId(task.id);
             try {
-              const response = await reactivatePlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskReactivateKeyRef.current });
+              const response = await enqueuePlannerTaskReactivate(task.id, task.version, { idempotencyKey: taskReactivateKeyRef.current });
               const reactivated = response.task;
               setTasks((current) => current.map((item) => (item.id === task.id ? reactivated : item)));
               markPlannerChanged();
@@ -718,7 +719,7 @@ const confirmTrash = (task: PlannerTask) => {
             await lightHaptic();
             setSavingId(task.id);
             try {
-              await trashPlannerTask(accessToken, task.id, task.version, { idempotencyKey: taskTrashKeyRef.current });
+              await enqueuePlannerTaskTrash(task.id, task.version, { idempotencyKey: taskTrashKeyRef.current });
               markPlannerChanged();
               await loadTasks();
               onChanged?.();

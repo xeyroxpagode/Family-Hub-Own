@@ -19,9 +19,11 @@ import { useAuth } from '../../../context/AuthContext';
 import {
   getPlannerDraft,
   listPlannerDrafts,
-  restorePlannerDraft,
-  trashPlannerDraft,
 } from '../../../services/plannerDrafts';
+import {
+  enqueuePlannerDraftRestore,
+  enqueuePlannerDraftTrash,
+} from '../../../services/planner/reliability';
 import {
   classifyDraftsVisualState,
   draftEntityKindLabel,
@@ -102,7 +104,7 @@ export function PlannerDraftsScreen({
     async (draft: PlannerDraft) => {
       if (!accessToken || !draft.version) return;
       try {
-        await restorePlannerDraft(accessToken, draft.id, {
+        await enqueuePlannerDraftRestore(draft.id, {
           expectedVersion: draft.version,
           mutationId: `draft_restore_${draft.id}`,
           idempotencyKey: `draft_restore_${draft.id}_${draft.version}`,
@@ -119,7 +121,7 @@ export function PlannerDraftsScreen({
     async (draft: PlannerDraft) => {
       if (!accessToken || !draft.version) return;
       try {
-        await trashPlannerDraft(accessToken, draft.id, {
+        await enqueuePlannerDraftTrash(draft.id, {
           expectedVersion: draft.version,
           mutationId: `draft_trash_${draft.id}`,
           idempotencyKey: `draft_trash_${draft.id}_${draft.version}`,

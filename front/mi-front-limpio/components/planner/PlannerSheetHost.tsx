@@ -64,9 +64,9 @@ import { plannerQuickActionsTelemetry } from '../../services/planner/plannerQuic
 import { openGoalDetail } from '../../navigation/plannerNavigationHelpers';
 import {
   createPlanWriteIntent,
-  writeCanonicalPlanGraph,
   type PlanGraphWriteRequest,
 } from '../../services/planner/plannerPlans';
+import { enqueuePlannerPlanGraphWrite } from '../../services/planner/reliability';
 
 // ---------------------------------------------------------------------------
 // 1. Heading map (a11y announcement text)
@@ -383,7 +383,7 @@ function PlanFormHost() {
       sheet.beginSubmit(intent.mutationId);
       setError(null);
       try {
-        await writeCanonicalPlanGraph({ accessToken }, request, intent);
+        await enqueuePlannerPlanGraphWrite(request, intent, 'create');
         if (currentHousehold) {
           plannerCache.executeInvalidation(
             { kind: 'plan', action: 'create' },

@@ -9,10 +9,10 @@ import {
   buildPlanStructureChangesetWrite,
   createPlanStructureWriteIntent,
   getCanonicalPlanGraph,
-  writeCanonicalPlanStructureChangeset,
   type PlanStructureDraft,
 } from '../../services/planner/plannerPlans';
 import type { PlannerMutationIntent } from '../../services/planner/plannerMutationIntent';
+import { enqueuePlannerPlanStructureChangeset } from '../../services/planner/reliability';
 import { PlannerPlanStructureEditorSurface } from './PlannerPlansSurfaces';
 import { plannerStyles as S } from './plannerShared';
 import { colors, spacing } from '../../constants/theme';
@@ -71,11 +71,10 @@ export function PlannerPlanStructureEditScreen() {
     setSubmitting(true);
     setSyncMessage('Guardando estructura...');
     try {
-      const result = await writeCanonicalPlanStructureChangeset(
-        { accessToken },
-        decision.remoteRequest,
-        intent,
-      );
+      const result = await enqueuePlannerPlanStructureChangeset<{
+        data: { plan: { id: string; version: number } };
+        noop?: boolean;
+      }>(decision.remoteRequest, intent);
       setDraft({
         planId: result.data.plan.id,
         expectedPlanVersion: result.data.plan.version,

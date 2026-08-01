@@ -15,17 +15,19 @@ import { plannerStyles as S } from '../../../screens/planner/plannerShared';
 import { AppText } from '../../ui/AppText';
 import type { PlannerDraft, PlannerPreset } from '../../../types/plannerPresetsDrafts';
 import {
-  createPlannerPreset,
   createPlannerPresetIdentity,
   getPlannerPreset,
   preparePlannerPresetApplication,
-  publishPlannerPresetRevision,
-  restorePlannerPreset,
-  startPlannerPresetRevision,
-  trashPlannerPreset,
-  updatePlannerPresetMetadata,
 } from '../../../services/plannerPresets';
 import { getPlannerDraft } from '../../../services/plannerDrafts';
+import {
+  enqueuePlannerPresetCreate,
+  enqueuePlannerPresetPublishRevision,
+  enqueuePlannerPresetRestore,
+  enqueuePlannerPresetStartRevision,
+  enqueuePlannerPresetTrash,
+  enqueuePlannerPresetUpdate,
+} from '../../../services/planner/reliability';
 import { applyPlannerPreset } from '../../../services/planner/plannerPresetAdapters';
 import { applyPlannerDraft } from '../../../services/planner/plannerDraftAdapters';
 import type { DraftOpenFormRequest } from '../../../services/planner/plannerDraftEntry';
@@ -140,7 +142,7 @@ export function PlannerPresetDetailRoute() {
 
       if (action === 'trash' && targetPreset.version) {
         const identity = createPlannerPresetIdentity('planner.presets.trash');
-        await trashPlannerPreset(token, targetPreset.id, {
+        await enqueuePlannerPresetTrash(targetPreset.id, {
           expectedVersion: targetPreset.version,
           mutationId: identity.mutationId,
           idempotencyKey: identity.idempotencyKey,
@@ -151,7 +153,7 @@ export function PlannerPresetDetailRoute() {
 
       if (action === 'restore' && targetPreset.version) {
         const identity = createPlannerPresetIdentity('planner.presets.restore');
-        await restorePlannerPreset(token, targetPreset.id, {
+        await enqueuePlannerPresetRestore(targetPreset.id, {
           expectedVersion: targetPreset.version,
           mutationId: identity.mutationId,
           idempotencyKey: identity.idempotencyKey,
@@ -204,7 +206,7 @@ export function PlannerPresetCreateRoute() {
       if (!token) return;
       const identity = createPlannerPresetIdentity('planner.presets.create');
       try {
-        await createPlannerPreset(token, {
+        await enqueuePlannerPresetCreate({
           name: input.name,
           entity_type: input.entity_type,
           source: input.source,
@@ -264,7 +266,7 @@ export function PlannerPresetEditRoute() {
       if (!token || !preset) return;
       const identity = createPlannerPresetIdentity('planner.presets.update');
       try {
-        await updatePlannerPresetMetadata(token, preset.id, { name: input.name }, {
+        await enqueuePlannerPresetUpdate(preset.id, input.name, {
           expectedVersion: preset.version,
           mutationId: identity.mutationId,
           idempotencyKey: identity.idempotencyKey,
@@ -283,7 +285,7 @@ export function PlannerPresetEditRoute() {
       if (!token) return;
       const identity = createPlannerPresetIdentity('planner.presets.revisions.start');
       try {
-        await startPlannerPresetRevision(token, targetPresetId, {
+        await enqueuePlannerPresetStartRevision(targetPresetId, {
           mutationId: identity.mutationId,
           idempotencyKey: identity.idempotencyKey,
         });
@@ -302,7 +304,7 @@ export function PlannerPresetEditRoute() {
       if (!token || version === undefined) return;
       const identity = createPlannerPresetIdentity('planner.presets.revisions.publish');
       try {
-        await publishPlannerPresetRevision(token, revisionId, {
+        await enqueuePlannerPresetPublishRevision(revisionId, {
           expectedVersion: version,
           mutationId: identity.mutationId,
           idempotencyKey: identity.idempotencyKey,

@@ -18,14 +18,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { ApiError } from '../../services/api';
 import {
-  createPlannerTask,
   listPlannerTasks,
-  updatePlannerTask,
   type CreatePlannerTaskPayload,
   type PlannerTask,
   type PlannerTaskPriority,
   type PlannerTaskTemplateKey,
 } from '../../services/plannerTasks';
+import {
+  enqueuePlannerTaskCreate,
+  enqueuePlannerTaskUpdate,
+} from '../../services/planner/reliability';
 import {
   listGoals,
   type PlannerGoal,
@@ -431,7 +433,7 @@ export function TaskForm({
 
     try {
       if (mode === 'edit' && taskId) {
-        await updatePlannerTask(accessToken, taskId, payload as CreatePlannerTaskPayload & { expected_version: number }, { idempotencyKey: taskUpdateKeyRef.current });
+        await enqueuePlannerTaskUpdate(taskId, payload as CreatePlannerTaskPayload & { expected_version: number }, { idempotencyKey: taskUpdateKeyRef.current });
         markPlannerChanged();
         const successMsg = 'Tarea actualizada.';
         if (onSaved) {
@@ -441,7 +443,7 @@ export function TaskForm({
         }
         taskUpdateKeyRef.current = createIdempotencyKey('planner.tasks.update');
       } else {
-        await createPlannerTask(accessToken, payload, {
+        await enqueuePlannerTaskCreate(payload, {
           idempotencyKey: taskCreateKeyRef.current,
           mutationId: createMutationId,
         });

@@ -19,12 +19,14 @@ import { useAuth } from '../../../context/AuthContext';
 import { useHousehold } from '../../../context/HouseholdContext';
 import {
   listPlannerPresets,
-  restorePlannerPreset,
 } from '../../../services/plannerPresets';
 import {
   listPlannerDrafts,
-  restorePlannerDraft,
 } from '../../../services/plannerDrafts';
+import {
+  enqueuePlannerDraftRestore,
+  enqueuePlannerPresetRestore,
+} from '../../../services/planner/reliability';
 import type { PlannerDraft, PlannerPreset } from '../../../types/plannerPresetsDrafts';
 import type { HouseholdScope } from '../../../services/planner/plannerKeys';
 import { plannerCache } from '../../../services/planner/plannerCache';
@@ -76,7 +78,7 @@ export function PlannerPresetDraftsTrashScreen({ accessTokenOverride }: Props) {
     async (preset: PlannerPreset) => {
       if (!accessToken || !preset.version) return;
       try {
-        await restorePlannerPreset(accessToken, preset.id, {
+        await enqueuePlannerPresetRestore(preset.id, {
           expectedVersion: preset.version,
           mutationId: `preset_restore_${preset.id}`,
           idempotencyKey: `preset_restore_${preset.id}_${preset.version}`,
@@ -96,7 +98,7 @@ export function PlannerPresetDraftsTrashScreen({ accessTokenOverride }: Props) {
     async (draft: PlannerDraft) => {
       if (!accessToken || !draft.version) return;
       try {
-        await restorePlannerDraft(accessToken, draft.id, {
+        await enqueuePlannerDraftRestore(draft.id, {
           expectedVersion: draft.version,
           mutationId: `draft_restore_${draft.id}`,
           idempotencyKey: `draft_restore_${draft.id}_${draft.version}`,

@@ -15,3 +15,4 @@ export * from './frontendExperience';
 export * from './productiveAdapters';
 export * from './runtime';
 export * from './conflictReview';
+export * from './productiveMutations';

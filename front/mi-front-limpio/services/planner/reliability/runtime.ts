@@ -100,6 +100,7 @@ export class PlannerReliabilityRuntime {
   private unsubscribeConnectivity: (() => void) | null = null;
   private disposed = false;
   private started = false;
+  private drainInFlight: Promise<PlannerOperationRecord[]> | null = null;
 
   constructor(options: PlannerReliabilityRuntimeOptions) {
     this.partition = partitionOf(options);
@@ -150,6 +151,24 @@ export class PlannerReliabilityRuntime {
     const enqueued = await this.queue.enqueue(record);
     if (this.isOnline()) this.scheduler.triggerReconnect();
     return enqueued as PlannerOperationRecord<TPayload>;
+  }
+
+  async enqueueAndFlush<TPayload>(input: PlannerReliabilityEnqueueInput<TPayload>): Promise<PlannerOperationRecord<TPayload>> {
+    this.assertOpen();
+    const enqueued = await this.enqueue(input);
+    if (!this.isOnline()) return enqueued;
+    await this.drainNow();
+    return (await this.store.get(this.partition, enqueued.descriptor.localOperationId) ?? enqueued) as PlannerOperationRecord<TPayload>;
+  }
+
+  async drainNow(): Promise<PlannerOperationRecord[]> {
+    this.assertOpen();
+    if (this.drainInFlight) return this.drainInFlight;
+    this.drainInFlight = this.queue.drain()
+      .finally(() => {
+        this.drainInFlight = null;
+      });
+    return this.drainInFlight;
   }
 
   async retry(localOperationId: string): Promise<PlannerOperationRecord | null> {

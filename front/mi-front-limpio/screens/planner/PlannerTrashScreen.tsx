@@ -19,9 +19,11 @@ import {
   type TrashItem,
   type TrashFilterType,
 } from '../../services/plannerTrash';
-import { restorePlannerTask } from '../../services/plannerTasks';
-import { restorePlannerEvent } from '../../services/plannerEvents';
 import { restoreGoal, restoreGoalMilestone } from '../../services/plannerGoals';
+import {
+  enqueuePlannerEventRestore,
+  enqueuePlannerTaskRestore,
+} from '../../services/planner/reliability';
 import { plannerStyles as S } from './plannerShared';
 
 type FilterTab = { key: TrashFilterType; label: string };
@@ -113,10 +115,10 @@ export function PlannerTrashScreen() {
     try {
       switch (item.type) {
         case 'task':
-          await restorePlannerTask(accessToken, item.id, item.version);
+          await enqueuePlannerTaskRestore(item.id, item.version);
           break;
         case 'event':
-          await restorePlannerEvent(accessToken, item.id, item.version);
+          await enqueuePlannerEventRestore(item.id, item.version);
           break;
         case 'goal':
           await restoreGoal(accessToken, item.id, item.version);
