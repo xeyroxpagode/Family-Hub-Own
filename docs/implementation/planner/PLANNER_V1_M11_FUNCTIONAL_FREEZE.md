@@ -5,9 +5,12 @@
 **Milestone:** M11 — Functional / UX Freeze  
 **Status:** **FROZEN**  
 **Human approval:** **APPROVED**  
-**Freeze date:** 2026-07-22  
+**Freeze date:** 2026-07-22 (original); 2026-08-02 (latest approved revision CR-M11-11A-GLOBAL-SURFACES-001)  
 **Canonical authority:** This document  
-**Document version:** 1.2 — canonical filename and complete Preset creation contract  
+**Original freeze date:** 2026-07-22  
+**Latest approved revision:** 2026-08-02  
+**Approved change:** CR-M11-11A-GLOBAL-SURFACES-001 — Global Surfaces change-controlled freeze  
+**Document version:** 1.3 — Global Surfaces change-controlled freeze  
 **Implementation status:** **NOT YET AUTHORIZED.** Any future implementation may proceed only through separately approved technical submilestones
 
 ---
@@ -57,6 +60,573 @@ No functional decision in this document may be changed, removed, weakened or rei
 - a new version of this canonical document.
 
 A technical limitation is not authorization to silently simplify the product.
+
+### 1.3 Global Surfaces change-controlled freeze (CR-M11-11A-GLOBAL-SURFACES-001)
+
+This section freezes the Global Surfaces product decisions approved on 2026-08-02 under change request `CR-M11-11A-GLOBAL-SURFACES-001`. These decisions are binding and supersede any conflicting historical rule in this document, in the Final Decision Registry, or in the UX/UI Freeze Contract. Where a historical rule is preserved for traceability, it is explicitly marked `SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001`.
+
+A person reading only this section must be able to understand the frozen Global Surfaces behavior without re-interpreting P0/P1/P2/P3 evidence. The full Change Request, impact analysis, risks, and supersession ledger live in `M11_11A_P4_GLOBAL_SURFACES_PRODUCT_FREEZE.md`.
+
+#### 1.3.1 Global architecture
+
+The Global Surfaces architecture for HomePlus is `Global Equilibrada`:
+
+- Bottom Navigation stays without structural redesign.
+- `Home`, `Quick Actions`, `Search`, `Attention`, `Activity`, `Trash` and `Archive` have distinct responsibilities.
+- Planner retains Details, forms, lists, Calendar and canonical lifecycle.
+- Global Surfaces project existing entities; they do not create duplicate entities.
+- Inventory participates only where expressly frozen in this section.
+- Geni is not shown until implemented.
+
+#### 1.3.2 Home
+
+Home orients, prioritizes and gives continuity.
+
+Home is hybrid and contains conceptually:
+
+- active household context;
+- conditional Attention excerpt;
+- Today / Next;
+- real continuity from Planner when valuable;
+- the Inventory exception already supported by its current integration;
+- offline, stale and partial-error states.
+
+Home does **not** contain:
+
+- a permanent Search bar;
+- redundant accesses to Planner, Inventory, People or More;
+- a module grid;
+- Activity;
+- a feed;
+- Trash;
+- Archive;
+- decorative metrics;
+- full forms;
+- full Planner lists;
+- full Inventory list.
+
+Attention in Home:
+
+- appears only when there are real elements;
+- shows the most important matters;
+- among equivalent priorities uses recency;
+- includes `Ver todo`;
+- disappears when there is no content.
+
+Activity does **not** appear in Home.
+
+Rows in Home open canonical destinations. Inline actions in Home stay minimal and are not defined as technical authority until the later audit.
+
+#### 1.3.3 Quick Actions + Search surface
+
+The central Bottom Navigation button opens a single global surface.
+
+Frozen structure:
+
+```text
+┌───────────────────────────────────┐
+│ Buscar en HomePlus...             │
+└───────────────────────────────────┘
+
+Acciones rápidas
+
+       Tarea           Evento           Plan
+
+                      Geni
+                 cuando exista
+```
+
+Search:
+
+- lives as the top bar inside this surface;
+- is not a tile;
+- does not live permanently in Home;
+- does not require a separate global magnifier;
+- when activated opens Search at full screen;
+- the Quick Actions surface closes or transitions to Search;
+- does not show results inside the small sheet.
+
+Initial Quick Actions:
+
+- Crear tarea;
+- Crear evento;
+- Crear plan.
+
+They do **not** include:
+
+- templates;
+- Drafts;
+- opening modules;
+- Inventory;
+- Search as a tile;
+- actions on existing entities;
+- approvals;
+- lifecycle;
+- Trash;
+- Archive.
+
+Design:
+
+- open grid;
+- no permanent cards or borders;
+- distinct icon;
+- short label;
+- full cell tappable;
+- visible pressed/focus;
+- stable order;
+- accessible reflow;
+- no subtitles, chevrons or metadata.
+
+Geni:
+
+- appears as a fourth action only when implemented;
+- no disabled placeholder may ship;
+- does not replace Search;
+- uses canonical operations and forms;
+- requires confirmation for mutations per Geni policy.
+
+#### 1.3.4 Search
+
+Initial frozen scope:
+
+- active Tasks;
+- active Events;
+- active Plans.
+
+Inventory is initially **excluded**.
+
+Also excluded from the normal scope:
+
+- Drafts;
+- Presets;
+- People;
+- Settings;
+- routes;
+- commands;
+- actions;
+- Inventory Items;
+- Archived items;
+- Trash.
+
+Search:
+
+- retrieves existing content;
+- does not interpret intent;
+- does not execute mutations;
+- does not replace Geni;
+- opens canonical destinations;
+- does not render a second Detail implementation;
+- respects household, personal scope, ownership and permissions before showing or ranking.
+
+Hidden content:
+
+Normal Search shows active content. Search allows explicit contexts:
+
+- Activos;
+- Archivados;
+- Papelera.
+
+Hidden content must not be mixed silently with active content.
+
+Archived result:
+
+- shows `Archivado` indicator;
+- opens Archive context;
+- offers Desarchivar where applicable;
+- is not presented as active.
+
+Trash result:
+
+- shows `En Papelera`;
+- shows retention time;
+- opens recovery context;
+- does not open the normal operational Detail;
+- allows Restaurar;
+- allows Eliminar definitivamente only to the coordinator.
+
+#### 1.3.5 Attention + Activity
+
+Global access:
+
+- icon in AppTopBar;
+- badge visible when applicable;
+- opens one shared full-screen surface.
+
+Screen:
+
+```text
+Atención y actividad
+
+[ Atención ] [ Actividad ]
+```
+
+The tabs share the destination but keep separate semantics.
+
+Attention:
+
+- contains matters that require human intervention or decision;
+- does not contain general activity;
+- reading does not resolve;
+- viewing does not resolve;
+- persists until valid resolution;
+- deduplicates by problem or entity;
+- shows one primary action plus `Abrir`;
+- any complex process opens Detail or canonical flow;
+- the badge counts only unresolved Attention for the current person and household.
+
+Home priority order:
+
+- importance or impact;
+- need for direct decision;
+- temporal proximity;
+- recency among equivalent priorities.
+
+Activity:
+
+- simple chronological timeline;
+- no unread state;
+- no "new" dots;
+- no `Marcar todo como leído`;
+- no badge;
+- no inline mutations;
+- allows opening canonical destination;
+- groups by day, entity and process where applicable;
+- does not record navigation, clicks, searches, screens visited, keystrokes, routine sync or technical logs.
+
+Inventory is initially excluded from:
+
+- global Search;
+- global Attention;
+- global Activity.
+
+Inventory may keep its existing exception integration in Home.
+
+#### 1.3.6 Geni in Attention and Activity
+
+Pending proposal:
+
+- appears in Attention;
+- Geni is identified;
+- the person reviews and confirms or rejects.
+
+Confirmed and executed process:
+
+- appears as a single grouped row in Activity;
+- the main row summarizes the result;
+- `Ver proceso` expands the sequence;
+- each step shows author and order.
+
+Conceptual example:
+
+```text
+Evento: Pediatra
+
+Geni cambió el horario después de la confirmación de María.
+[Ver proceso]
+
+Proceso:
+
+1. Geni propuso 16:00 → 16:30.
+2. María confirmó.
+3. Geni actualizó el evento.
+4. Resultado: evento a las 16:30.
+```
+
+Three independent rows must not be created for one operation.
+
+Failed or uncertain execution:
+
+- does not appear as success;
+- remains or returns to Attention;
+- offers a safe primary action plus `Abrir`.
+
+#### 1.3.7 Trash
+
+A global Trash exists.
+
+Access:
+
+```text
+More
+└─ Papelera
+```
+
+Allowed local entries:
+
+- Planner opens Trash filtered to Planner;
+- Tasks opens Trash filtered to Tasks;
+- Events opens Trash filtered to Events;
+- Plans opens Trash filtered to Plans;
+- Presets opens Trash filtered to Presets;
+- Inventory may open Trash filtered to Inventory once its restore is technically and visually ready.
+
+All entries lead to the same global surface.
+
+Filters:
+
+- module;
+- entity type;
+- deletion date;
+- expiration / remaining time;
+- allowed scope.
+
+Recoverable entities in Trash:
+
+- Tasks;
+- Events;
+- Plans;
+- Presets;
+- Inventory Items once their complete contract is implemented;
+- other entities only through future change control.
+
+Drafts do **not** enter Trash.
+
+Retention:
+
+- 30 days;
+- show exact purge date;
+- show remaining time;
+- use human copy:
+  - `Se eliminará el 26 de agosto · quedan 24 días`;
+  - `Se eliminará mañana`;
+  - `Se eliminará hoy`.
+
+Restore:
+
+- requires current permission over the entity;
+- returns to the corresponding state/context;
+- if dependencies are broken, opens review or reports the block;
+- does not promise success until canonical confirmation.
+
+Move to Trash:
+
+- anyone with the corresponding entity permission may do it.
+
+#### 1.3.8 Drafts
+
+This decision expressly replaces the previous Trash contract for Drafts (former §7.3 and §12.5).
+
+A Draft:
+
+- is unconfirmed creation work;
+- is not a confirmed productive entity;
+- may be preserved locally after unexpected interruption;
+- remains private to its creator;
+- does not appear in Home;
+- does not appear in Search;
+- does not appear in Attention;
+- does not appear in Activity;
+- does not appear in Archive;
+- does not appear in Trash.
+
+Action:
+
+```text
+Descartar borrador
+→ immediate and definitive deletion.
+```
+
+Do **not** use:
+
+- `Eliminar`;
+- `Mover a Papelera`;
+- `Restaurar borrador eliminado`.
+
+A later technical audit must determine how to adapt or compatibly retire any current persistent-Draft recoverable implementation. That migration is **not** designed in this freeze.
+
+#### 1.3.9 Archive
+
+Archive is contextual per module and is not mixed with Trash.
+
+Frozen archivable entities:
+
+- Tasks;
+- Events;
+- Plans;
+- Presets;
+- Inventory Items.
+
+Archive is a visibility/preservation state independent of the operational state.
+
+Examples:
+
+```text
+Task completada + archivada
+→ stays completed;
+→ leaves active views;
+→ can be unarchived.
+
+Event cancelado + archivado
+→ stays cancelled;
+→ leaves agenda/active views;
+→ can be unarchived.
+
+Plan cerrado + archivado
+→ stays closed;
+→ preserves structure;
+→ can be unarchived.
+
+Preset archivado
+→ does not appear in active library;
+→ not offered for new executions;
+→ preserves definition;
+→ can be unarchived.
+
+Inventory Item archivado
+→ preserves history and relationships;
+→ does not appear in active inventory;
+→ does not generate alerts or restocks;
+→ can be unarchived.
+```
+
+Inventory Archive is approved as a functional result, but its implementation must wait for the polish and canonical contract of the Inventory module.
+
+Archive:
+
+- is not equivalent to Completed;
+- is not equivalent to Closed;
+- is not equivalent to Cancelled;
+- is not equivalent to Trash;
+- does not silently change operational state;
+- has no automatic retention;
+- does not allow permanent delete directly;
+- from Archive, an entity may be unarchived or moved to Trash according to permissions.
+
+There is initially **no single global Archive screen**. Each module exposes its contextual Archive.
+
+#### 1.3.10 Permanent delete + Empty Trash
+
+The previous rule of no manual permanent deletion is expressly replaced.
+
+`Eliminar definitivamente`:
+
+- exists only inside Trash;
+- only the coordinator may execute it;
+- never appears on an active entity;
+- never appears in Home;
+- never appears in Attention;
+- never appears in Activity;
+- never appears in normal Search;
+- requires explicit confirmation;
+- shows entity or quantity;
+- shows consequences;
+- communicates that it cannot be undone;
+- does not run offline;
+- is not presented as success before backend confirmation.
+
+`Vaciar Papelera`:
+
+- only the coordinator may execute it;
+- shows quantity and types of entities;
+- requires explicit confirmation;
+- does not run offline;
+- must tolerate partial failure;
+- failed items remain visible;
+- the result must distinguish successes and failures.
+
+Anyone with permission over the entity:
+
+- may move it to Trash;
+- may restore it if they keep the corresponding permission.
+
+Only the coordinator:
+
+- may delete definitively;
+- may empty Trash.
+
+V1 mass actions:
+
+- no multiple selection;
+- no mass restore;
+- no mass archive;
+- no mass delete of selected items;
+- `Vaciar Papelera` is the only initial mass operation.
+
+#### 1.3.11 Privacy
+
+Apply before:
+
+- ranking;
+- badge;
+- grouping;
+- recents;
+- results;
+- Activity;
+- Attention;
+- Trash;
+- Archive.
+
+Dimensions:
+
+- current person;
+- active household;
+- personal/household scope;
+- ownership;
+- role;
+- entity permissions.
+
+Rules:
+
+- personal content is not filtered into the household feed;
+- changing household resets the global context;
+- Geni is always identified;
+- Activity coordinates, does not surveil;
+- do not show technical or navigation events;
+- do not reveal titles, counts or existence of other people's private content;
+- the coordinator does not automatically gain access to private personal content except through an explicit entity rule.
+
+#### 1.3.12 Responsive and accessibility
+
+Phone:
+
+- Home single-column;
+- Quick Actions as accessible sheet;
+- Search full-screen;
+- Attention/Activity full-screen with tabs;
+- Trash full-screen;
+- Archive contextual full-screen;
+- labels visible;
+- no ambiguous icon-only.
+
+Tablet:
+
+- Home may use two columns without changing priority;
+- Search may use overlay or split view;
+- Attention/Activity may use list + detail;
+- Trash may use filters + list + recovery context;
+- same capabilities as phone.
+
+Accessibility:
+
+- Android minimum 48 dp;
+- iOS minimum 44 pt;
+- Dynamic Type / reflow;
+- screen reader;
+- visible focus;
+- logical order;
+- no color-only;
+- Reduce Motion;
+- accessible destructive confirmations;
+- badge with semantic label;
+- offline/stale state announced;
+- purge date announced understandably.
+
+#### 1.3.13 Superseded historical rules (traceability)
+
+The following historical rules in the v1.2 freeze are preserved for traceability but are **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001** and must not be implemented:
+
+1. Global Search including Drafts, Presets, People, Settings, nested actions and routes (former §3 core entities, §4.3 global capabilities, §11.10). Replaced by §1.3.4.
+2. Quick Actions described only as creation tiles (former §4.3). Replaced by §1.3.3 — Search lives as the top bar of the shared Quick Actions + Search surface.
+3. Persistent Drafts entering Trash and being recoverable for 30 days (former §7.3 and §12.5). Replaced by §1.3.8 — `Descartar borrador` is immediate and definitive.
+4. Planner V1 not allowing immediate manual permanent deletion (former §7.3, §19). Replaced by §1.3.10 — `Eliminar definitivamente` and `Vaciar Papelera` exist, restricted to coordinator, inside Trash.
+5. Archive concentrated mainly in Plans (former §10.3, §10.16, §13.2). Replaced by §1.3.9 — Archive is contextual per module; Tasks, Events, Plans, Presets and Inventory Items are archivable.
+6. Trash being local or fragmented to Planner / Presets / Drafts (former §3.1, §13.2, §22). Replaced by §1.3.7 — a single global Trash exists with module filters and local prefiltered entries.
+7. Attention Center structure `Para vos` / `Requiere respuesta` / `Próximo` / `Disponible en casa` (former §14.3). Replaced by §1.3.5 — one shared Attention/Activity surface with tabs; the local Planner attention filter remains a Planner-local helper.
+8. Activity as a backend feed with `Marcar todo como leído`-style unread semantics (former §14.4). Replaced by §1.3.5 — Activity is a simple chronological timeline with no unread state and no badge.
+9. Inventory global participation as a Search/Attention/Activity first-class citizen (former §3.2 cross-module boundaries; §22 traceability). Replaced by §1.3.1 / §1.3.4 / §1.3.5 — Inventory is initially excluded from global Search, Attention and Activity; its Home exception is preserved.
+10. Module gateways/grid in Home and a persistent Search bar in Home (former §13.2, §22). Replaced by §1.3.2 — Home is hybrid with no module grid and no permanent Search bar.
+
+The full supersession ledger with technical gaps appears in `M11_11A_P4_GLOBAL_SURFACES_PRODUCT_FREEZE.md`.
 
 ---
 
@@ -204,7 +774,14 @@ These are projections of one entity, not duplicates.
 
 ### 4.3 Global capabilities
 
-Quick Actions and global search belong to HomePlus, not only to Planner.
+Global Quick Actions and global search belong to HomePlus, not only to Planner.
+
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 (see §1.3.3 and §1.3.4):**
+> the surface that contains Quick Actions and Search is now a single global
+> surface reached from the central Bottom Navigation button. Search lives as the
+> top bar inside that surface, not as a tile and not as a permanent Home bar.
+> The frozen Quick Actions are `Crear tarea`, `Crear evento` and `Crear plan`,
+> with `Geni` reserved as a fourth action only when implemented.
 
 Quick Actions contain only:
 
@@ -220,6 +797,13 @@ Crear plan
 ```
 
 They do not include subtitles, chevrons, metadata or explanatory text. The entire tile is tappable.
+
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 (see §1.3.4):**
+> the historical list of searchable content below is preserved only as
+> traceability. The frozen initial Search scope is active Tasks, active Events
+> and active Plans. Drafts, Presets, people, settings, nested actions, routes,
+> archived items and Trash are excluded from the normal Search scope; archived
+> and trash content appears only through explicit contexts (see §1.3.4).
 
 Global search can find:
 
@@ -244,6 +828,10 @@ Its ranking and interpretation must consider:
 - active household.
 
 Before Geni exists, global search remains productively implementable through a registry/index, keywords, aliases and deterministic ranking.
+
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001:** Drafts no longer appear in
+> Search at all (see §1.3.8). Trash is no longer "excluded by default" but is
+> reachable only through an explicit Trash context inside Search (see §1.3.4).
 
 Search indexes confirmed state. Personal Drafts may appear only to their owner. Trash is excluded by default and appears only through an explicit Trash context.
 
@@ -661,11 +1249,29 @@ Trash
 
 A Revision Draft does not replace the active Preset until explicitly confirmed.
 
-### 7.3 Trash retention
+#### Trash retention
+
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 (see §1.3.7 and §1.3.10):**
+> a single global Trash now exists, accessed primarily from `More ▸ Papelera`
+> with local prefiltered entries; recoverable entities are Tasks, Events,
+> Plans, Presets and (when implemented) Inventory Items. **Drafts do not enter
+> Trash** (see §1.3.8). `Eliminar definitivamente` and `Vaciar Papelera` now
+> exist, restricted to the coordinator, inside Trash, after explicit
+> confirmation, never offline.
 
 Tasks, Events, Plans, Milestones, Measurements, Drafts and Presets remain recoverable for 30 days after entering Trash.
 
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001:** Drafts are removed from
+> this list. Persistent Draft Trash/recovery is replaced by `Descartar
+> borrador` (immediate and definitive). Inventory Items enter Trash only after
+> their restore contract is implemented (see §1.3.7).
+
 Planner V1 does not expose immediate manual permanent deletion.
+
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 (see §1.3.10):** this sentence
+> is replaced. `Eliminar definitivamente` and `Vaciar Papelera` now exist
+> inside Trash, restricted to the coordinator, with explicit confirmation and
+> never offline.
 
 The technical retention mechanism may be implemented later, but it must preserve the frozen 30-day recoverability contract.
 
@@ -1339,6 +1945,15 @@ Papelera
 archived_at
 ```
 
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 (see §1.3.9):** Archive is no
+> longer Plan-only. Archivable entities now include Tasks, Events, Plans,
+> Presets and Inventory Items. Archive is a visibility/preservation state
+> independent of the operational state; it does not change Completed/Closed/
+> Cancelled; it does not equal Trash; it has no automatic retention and no
+> direct permanent delete. There is initially no single global Archive screen;
+> each module exposes its contextual Archive. Inventory Archive's functional
+> result is approved but waits for the Inventory polish and canonical contract.
+
 Archive applies only to:
 
 - completed Plans;
@@ -1710,7 +2325,19 @@ Archive:
 - can be reversed;
 - is not Trash.
 
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 (see §1.3.9):** Archive is no
+> longer Plan-only. Tasks, Events, Presets and Inventory Items are also
+> archivable as a visibility/preservation state independent of the operational
+> state; each module exposes its contextual Archive and there is no single
+> global Archive screen in V1. Inventory Archive's functional result is
+> approved but waits for the Inventory polish and canonical contract.
+
 Tasks and Events do not receive a separate Archive in V1.
+
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 (see §1.3.9):** the prior
+> "Tasks and Events do not receive a separate Archive in V1" sentence is
+> replaced. Tasks, Events, Presets and Inventory Items each receive their
+> contextual Archive as described in §1.3.9.
 
 Completed and cancelled Tasks remain accessible through history and filters.
 
@@ -2134,6 +2761,13 @@ Offline:
 
 ### 12.5 Draft deletion
 
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 (see §1.3.8):** persistent
+> Drafts no longer enter Trash and are no longer recoverable for 30 days. The
+> only Draft removal action is `Descartar borrador`, which is immediate and
+> definitive. The prior local recoverable-Draft implementation must be adapted
+> or compatibly retired by a later technical audit; that migration is not
+> designed in this freeze.
+
 A persistent Draft is sent to Trash and remains recoverable for 30 days.
 
 It is not ambiguously “discarded”.
@@ -2341,6 +2975,14 @@ One surface does not automatically substitute another.
 
 ### 14.3 Attention Center
 
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 (see §1.3.5):** the global
+> Attention surface is no longer the screen-tree below. There is now a single
+> shared `Atención y actividad` full-screen surface with tabs, reached from an
+> AppTopBar icon with a badge that counts only unresolved Attention for the
+> current person and household. The `Para vos` / `Requiere respuesta` /
+> `Próximo` / `Disponible en casa` breakdown below is historical; it remains a
+> valid in-Planner local helper but is not the global Attention contract.
+
 ```text
 Atención
 ├── Para vos
@@ -2385,6 +3027,13 @@ Examples:
 This section does not increase the badge by default.
 
 ### 14.4 Activity
+
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 (see §1.3.5):** the global
+> Activity surface is the second tab of the shared `Atención y actividad`
+> surface. It is a simple chronological timeline with no unread state, no "new"
+> dots, no `Marcar todo como leído`, no badge and no inline mutations.
+> Inventory is initially excluded from global Activity. Geni confirmed
+> operations appear as a single grouped row with `Ver proceso` (see §1.3.6).
 
 Activity records humanly meaningful confirmed events:
 
@@ -3207,6 +3856,14 @@ The following are not part of this functional freeze:
 - intelligent automatic replanning after resume;
 - collaborative editing equivalent to Google Docs;
 - immediate manual permanent deletion;
+
+> **SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 (see §1.3.10):** the prior
+> `immediate manual permanent deletion` exclusion is replaced.
+> `Eliminar definitivamente` and `Vaciar Papelera` now exist inside Trash,
+> restricted to the coordinator, with explicit confirmation, never offline.
+> They never appear on an active entity, Home, Attention, Activity or normal
+> Search.
+
 - critical alerts;
 - family productivity rankings;
 - mandatory streaks;
@@ -3417,7 +4074,16 @@ PLANNER V1 FUNCTIONAL FREEZE
 STATUS: FROZEN
 HUMAN APPROVAL: APPROVED
 MILESTONE: M11
-FREEZE DATE: 2026-07-22
+FREEZE DATE: 2026-07-22 (original)
+LATEST APPROVED REVISION: 2026-08-02
+APPROVED CHANGE: CR-M11-11A-GLOBAL-SURFACES-001
+DOCUMENT VERSION: 1.3 — Global Surfaces change-controlled freeze
 CANONICAL AUTHORITY: PLANNER_V1_M11_FUNCTIONAL_FREEZE.md
 IMPLEMENTATION: NOT YET AUTHORIZED — FUTURE WORK ONLY THROUGH APPROVED SUBMILESTONES
+NEXT GATE: 11A.1 Technical Architecture / Contract Readiness Audit
 ```
+
+> The Global Surfaces product decisions of revision 1.3 are detailed and
+> authorized for traceability by `M11_11A_P4_GLOBAL_SURFACES_PRODUCT_FREEZE.md`.
+> Implementation of any of those decisions requires a separately approved
+> technical submilestone and must not be started from this documentation commit.

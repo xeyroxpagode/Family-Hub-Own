@@ -2,8 +2,10 @@
 
 **STATUS:** **FROZEN**  
 **HUMAN APPROVAL:** **APPROVED**  
-**FREEZE DATE:** 2026-07-22  
-**CANONICAL FUNCTIONAL AUTHORITY:** `PLANNER_V1_M11_FUNCTIONAL_FREEZE.md`  
+**ORIGINAL FREEZE DATE:** 2026-07-22  
+**LATEST APPROVED REVISION:** 2026-08-02  
+**APPROVED CHANGE:** CR-M11-11A-GLOBAL-SURFACES-001  
+**CANONICAL FUNCTIONAL AUTHORITY:** `PLANNER_V1_M11_FUNCTIONAL_FREEZE.md` (version 1.3)  
 **FUNCTIONAL FREEZE:** **APPROVED**  
 **IMPLEMENTATION:** **NOT YET AUTHORIZED**
 
@@ -106,3 +108,168 @@ refactors. M11.1A requires a separate prompt after the documentation commit.
 - **P0-3:** D29/D30/D36 must prove no contradiction or technical code in every Home partial combination before Home PASS.
 
 No M11-D/F block may declare PASS while its applicable P0 or mandatory quality rule is failing.
+
+---
+
+## Global Surfaces — Frozen visual contract (CR-M11-11A-GLOBAL-SURFACES-001, approved 2026-08-02)
+
+This section freezes the structure, behavior and states — not final colors or
+decorative visual style (those belong to 11C). It is binding for all
+implementation.
+
+### GS-V1 — Quick Actions + Search surface
+
+- One single surface reached from the central bottom-navigation button.
+- Top: `Buscar en HomePlus...` search bar. Tapping it opens full-screen Search;
+  the sheet closes or transitions to Search.
+- Below: open grid of Quick Actions — no permanent cards, no borders, no
+  chevrons, no subtitles, no metadata.
+- Grid order: Tarea → Evento → Plan. Fixed; no auto-reorder.
+- Cell: distinct icon + short label, full cell tappable, pressed/focus visible,
+  accessible reflow (3→2+1→1 columns).
+- Geni enters as fourth cell only when implemented; no disabled placeholder.
+- No Inventory mutations, Templates, Drafts, Search-as-tile, or
+  Lifecycle/Trash/Archive actions in this surface.
+- Phone: bottom sheet grid. Tablet: centered sheet, do not stretch full width.
+
+### GS-V2 — Global Search
+
+- Full-screen Search activated from the Quick Actions + Search surface.
+- Initial state: recents (per-user, privacy-scoped) + module chips.
+- Results grouped by module/entity; no unified single ranking.
+- Each result: type icon, title, essential metadata; tap opens canonical Detail.
+- Do not: render inline Detail inside Search, duplicate Planner Search, create
+  parallel forms, or show hidden content in default search.
+- Hidden content contexts: explicit `Activos`/`Archivados`/`Papelera` chips;
+  never silently mix with active results.
+- Archived result: `Archivado` indicator + archive context + `Desarchivar`
+  where applicable.
+- Trash result: `En Papelera` + retention time + recovery context (Restaurar,
+  Eliminar definitivamente only to coordinator). Never opens normal operational
+  Detail.
+- Inventory excluded from initial Search scope.
+
+### GS-V3 — Attention + Activity surface
+
+- Entry: icon in AppTopBar with badge (count of unresolved Attention).
+- Opens full screen with two tabs: `Atención` | `Actividad`.
+- Attention:
+  - Persists until valid resolution (read/view do NOT resolve).
+  - Deduplicated by problem or entity.
+  - One primary action + `Abrir`.
+  - Grouped by prioritized order: importance/impact, decision proximity,
+    temporal proximity, recency among equivalents.
+  - Empty state: `Nada requiere tu intervención.`.
+  - Badge counts unresolved Attention items for the current person + household.
+- Activity:
+  - Chronological timeline, no unread/new-dot/Marcar todo Leído/Badge.
+  - Grouped by day, then entity, then process.
+  - NO navigation, keystroke, screen-visit, routine-sync or technical logs.
+  - No inline mutations; tap opens canonical destination.
+  - Geni confirmed process: one grouped row with `Ver proceso` showing
+    author+order per step. Never 3 independent rows for one operation.
+  - Failed/uncertain Geni process: never appears as success; remains or returns
+    to Attention.
+- Inventory excluded from both tabs in P4.
+
+### GS-V4 -- Global Trash
+
+- Location: `More ▸ Papelera`.
+- Local entries (Planner→Trash filtered to Planner, Tasks→Trash filtered
+  Tasks, etc.) lead to the same surface with pre-applied filters.
+- Filters: module, entity type, `fecha de eliminación`, remaining time scope.
+- Row shows: entity type, title, key metadata, retention copy (human format):
+  - `Se eliminará el 26 de agosto · quedan 24 días`
+  - `Se eliminará mañana`
+  - `Se eliminará hoy`
+- Row actions per entity: `Restaurar` (anyone with permission), `Eliminar definitivamente` (coordinator only).
+- Drafts do NOT appear in Trash.
+- Inventory Items appear only when the complete Inventory Trash contract
+  (restore + visual) is implemented.
+- Empty State: `No hay elementos eliminados recuperables.`
+- Empty Trash button: coordinator-only, shows count and entity types, explicit
+  confirmation, cannot-undo warning, never offline. Tolerates partial failure;
+  failed items remain visible with success/failure distinction.
+- Do NOT: show permanent delete or Empty Trash on active entities, Home,
+  Attention, Activity, or default Search.
+
+### GS-V5 -- Archive contextual
+
+- Archive is per-module and not a single global screen in V1 of Global
+  Surfaces.
+- Each archivable entity (Tasks, Events, Plans, Presets, Inventory)
+  has its own contextual Archive screen.
+- Archived entity in Search: `Archivado` indicator + opens Archive context
+  (not normal operational Detail).
+- Archive does NOT change entity's operational state (complete, completed,
+  closed, cancelled remain as-is).
+- Unarchive returns entity to its previous state; `Mover a Papelera`
+  available per permissions.
+- Inventory Archive: approved functional result but waits for Inventory
+  polish/contract.. Not implemented until Inventory restore and visual
+  readiness is confirmed.
+
+### GS-V6 -- Draft discard
+
+- `Descartar borrador` = immediate and definitive.
+- NO `Eliminar`, `Mover a Papelera`, or `Restaurar borrador eliminado`.
+- Confirmation before discard if the Draft has meaningful content.
+- Self-cleared from local storage; no backend commit required for discard.
+
+### GS-V7 -- Permanent delete + Empty Trash confirmation
+
+- Permanent Delete = `Eliminar definitivamente`:
+  - Only inside Trash surface.
+  - Shows entity title + type + remaining retention + cannot-undo warning.
+  - Requires explicit button press (not swipe or quick gesture).
+  - Not offline to the backend.
+- Empty Trash = `Vaciar Papelera`:
+  - Tells count + entity types.
+  - Explicit confirmation.
+  - Not offline to backend.
+  - Partial failure: remaining visible + distinguished from successes.
+
+### GS-V8 -- Phone / Tablet mirrors
+
+- Phone:
+  - Home: single-column.
+  - Quick Actions: accessible bottom sheet.
+  - Search / Trash / Attention+Activity: full-screen.
+  - Contextual Archive: full-screen.
+- Tablet:
+  - Home may use 2 columns, no priority change.
+  - Search: overlay or split.
+  - Attention+Activity: list + detail.
+  - Trash: filters + list + recovery context.
+  - Same visible capabilities as phone.
+
+### GS-V9 -- Accessibility
+
+- Android minimum 48 dp hit target; iOS minimum 44 pt.
+- Dynamic Type reflow not clipping.
+- Screen-reader announces complete labels including counts, dates, consequences.
+- Focus order logical, not based on position only.
+- Destructive confirmations have accessible alternatives and announce "no se
+  puede deshacer"/"restauración posible" appropriately.
+- Badge icon has semantic accessibility label.
+- Offline/stale state announced to screen reader.
+- `Reducir movimiento` stops non-essential / pathological motion + scale/translation collapses.
+- Purge date announced as readable date, not technical string.
+
+### GS-V10 -- States (empty / loading / error / offline / partial)
+
+- Offline/stale: Header warns once per surface; data stays visible when possible.
+- Partial failure: Module-level failure banner with `Reintentar` per failing
+  source, healthy sections remain.
+- Empty states: Zero-content helpful descriptive text (e.g. `No hay tareas,`, `No
+  hay elementos eliminados recuperables.`); always a direct route to the
+  canonical module's create/access point.
+
+### GS-V11 -- Privacy labels
+
+- Personal content never filtered into household feed.
+- Coordinator does not auto-gain personal private content.
+- Household switch resets search recents, filters, badges, hidden-content
+  states.
+- Geni always identified in Attention/Activity.
+- Drafts always owner-only and do not appear in any global surface.

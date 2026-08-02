@@ -457,6 +457,7 @@ Research basis for gestures and recovery: [Apple Gestures](https://developer.app
 | MERGED | 0 | — |
 | DEFERRED_OUT_OF_SCOPE | 0 global; one D28 subcapability | template creation/edit |
 | BLOCKED_BY_MISSING_EVIDENCE | 0 | — |
+| APPROVED_AND_FROZEN under CR-M11-11A-GLOBAL-SURFACES-001 (2026-08-02) | 12 | GS-01..GS-12 |
 
 **Historical approval set (resolved 2026-07-22):** the 18 questions formerly
 requiring human approval were D1–D11, plus D13, D15, D18, D23, D28, D30 and
@@ -465,3 +466,63 @@ freeze and the supersession notes above. D20 is covered by D10's intensity
 approval. Mandatory accessibility, privacy, P0 closure and absence of technical
 codes remain non-optional. This documentation update does not authorize code;
 M11.1A requires a separate prompt after the documentation commit.
+
+---
+
+## 11A.P3 / CR-M11-11A-GLOBAL-SURFACES-001
+
+**Change ID:** CR-M11-11A-GLOBAL-SURFACES-001  
+**Requester:** Human Product Owner / Control General  
+**Reason:** Close the Global Surfaces after the readiness audit, factual
+inventory, comparative research (P1A–P1D), integrated synthesis (P2) and the
+P3 human decisions.  
+**Approval date:** 2026-08-02  
+**Authority link:** `PLANNER_V1_M11_FUNCTIONAL_FREEZE.md` version 1.3,
+section 1.3 — Global Surfaces change-controlled freeze.  
+**Status of every decision below:** `APPROVED_AND_FROZEN`. No
+`HUMAN_APPROVAL_REQUIRED` state remains for these items. Implementation is
+**not** authorized by this block; only the 11A.1 Technical Architecture /
+Contract Readiness Audit may start the implementation chain.
+
+### GS — Decision registry
+
+Each entry records: previous behavior, new frozen behavior, impact, risks,
+dependencies, evidence.
+
+| ID | Decision | Previous behavior | New frozen behavior | Impact | Risks | Dependencies | Evidence |
+|---|---|---|---|---|---|---|---|
+| GS-01 | Global architecture = `Global Equilibrada` | Bottom nav with Planner-led surfaces; no global Search/Attention/Activity; Trash fragmented; Archive only Plans. | Bottom nav unchanged; Home, Quick Actions, Search, Attention, Activity, Trash and Archive have distinct responsibilities; Inventory gated; Geni hidden until implemented. | Product: coherent global layer. Frontend: new global surfaces. Backend/data: aggregation, Activity, hidden-content contexts. Permissions: coordinator authority for permanent delete/Empty Trash. Offline/reliability: queued/deferred actions. | Shell churn if scoped loosely; privacy leaks if filters not enforced before ranking. | 11A.1 technical audit; Inventory polish before global Trash/Archive participation. | P0, P1A, P1B, P1C, P1D, P2. |
+| GS-02 | Home = híbrida orientadora | Planner-first Home with Inventory urgency card; no real Attention/Activity. | Household context, conditional Attention excerpt, Today/Next, Planner continuity when valuable, Inventory exception, offline/stale/partial states. No module grid, no permanent Search bar, no Activity, no Trash/Archive, no decorative metrics. | Product: clearer orientation. Frontend: Home restructuring. Backend: must feed hybrid surface. | Implementation sprawl if Home becomes a feed. | Existing `useHomePlannerSummary`; Inventory alert hook. | P1B, P2 §12. |
+| GS-03 | Quick Actions + Search single surface | Center `+` opens actions sheet; Search is a gated Planner placeholder. | The central button opens one surface whose top bar is `Buscar en HomePlus...` and whose grid has `Tarea/Evento/Plan` (and `Geni` only when implemented). Search opens full-screen; the sheet closes/transitions to Search. | Product: one global action surface. Frontend: restructure sheet entry. Backend: Search endpoint required. | Sheet/Search transition must not lose drafts/cancel. | `PlannerSheetHost`; new global Search endpoint. | P1A, P2 §11.2/§13. |
+| GS-04 | Search scope = active Tasks/Events/Plans | Search included Drafts, Presets, people, settings, actions, routes. | Initial scope: active Tasks, Events, Plans. Inventory, Drafts, Presets, People, Settings, routes, commands, archived, trash excluded from normal scope. Explicit contexts `Activos/Archivados/Papelera`. | Product: predictable retrieval. Backend: simpler index. Privacy: clearer scope. | Hidden content leaking into active results. | 11A.1 search contract. | P1A, P1D, P2 §13.2. |
+| GS-05 | Attention + Activity one shared surface with tabs | No global Attention/Activity; Planner-only local attention filter; Home count card. | One `Atención y actividad` full-screen surface with two tabs. Attention persists until resolution; no read/view resolution; one primary action + `Abrir`; badge counts only unresolved Attention. Activity is chronological, no unread, no `Marcar todo como leído`, no badge, no inline mutations. | Product: actionable queue. Frontend: new top-level surface. Backend: Attention source/count and Activity feed endpoints. | Badges becoming noisy; Activity leaking technical noise. | Realtime bridge passive; Activity backend endpoint. | P1C, P2 §14. |
+| GS-06 | Geni in Attention/Activity (pending proposal → Attention; confirmed → grouped Activity row) | Geni not implemented; not represented. | Pending proposal in Attention, Geni identified, person confirms/rejects. Confirmed result in Activity as one grouped row with `Ver proceso` showing author and order per step; never three independent rows for one operation. Failed/uncertain never appears as success; remains or returns to Attention. | Product: traceable AI actions. Frontend: Activity grouping. Backend: process correlation. | Geni ops appearing as successes prematurely. | Geni not implemented; contract deferred to 11A.1+ Geni milestone. | P1C, P2 §14.3. |
+| GS-07 | Global Trash with module filters | Trash fragmented: Planner Trash + Preset/Draft Trash separate; Inventory soft-delete only. | One global Trash under `More ▸ Papelera` with local prefiltered entries (Planner/Tasks/Events/Plans/Presets; Inventory when restore ready). Filters: module, type, deletion date, remaining time, scope. 30-day retention with human copy of exact purge date. | Product: unified recovery. Frontend: single surface with filters. Backend: aggregator across modules. | Privacy if owner-only Drafts are included (they are not). | 11A.1 global Trash aggregation contract. | P1D, P2 §15. |
+| GS-08 | Drafts: `Descartar borrador` (immediate, definitive); Drafts leave Trash | Persistent Drafts entered Trash, recoverable 30 days; `Enviar a Papelera` and `Restaurar borrador eliminado` existed. | Drafts are private, never appear in Home/Search/Attention/Activity/Archive/Trash. `Descartar borrador` is immediate and definitive. `Eliminar`, `Mover a Papelera` and `Restaurar borrador eliminado` are forbidden. | Product: simpler Draft lifecycle. Data/migration: adapt/retire existing persistent Draft restore. Backend: remove Draft recovery mutation. Privacy: stronger. | Existing Draft restore code paths left inconsistent. | Technical audit question — see §11 of P4 doc. Functional Freeze §7.3, §12.5 superseded. | P1D, P2 §15.2, §17.1. |
+| GS-09 | Archive contextual per module (Tasks/Events/Plans/Presets/Inventory) | Archive Plans-only; route registered, no screen. | Archive is a visibility/preservation state independent of operational state. Tasks, Events, Plans, Presets and Inventory Items are archivable. No single global Archive screen; each module exposes contextual Archive. Archive ≠ Completed/Closed/Cancelled/Trash; no automatic retention; no direct permanent delete; Unarchive or move to Trash by permission. Inventory Archive approved as result but waits for Inventory polish/contract. | Product: cross-module Archive. Frontend: contextual Archive screens. Backend: archived_at per entity. | Blurring Archive with Completed/Closed. | 11A.1 Archive contract per module; Inventory contract. Functional Freeze §10.3, §10.16 superseded. | P1D, P2 §15.1. |
+| GS-10 | `Eliminar definitivamente` + `Vaciar Papelera` (coordinator-only, inside Trash) | Planner V1 disallowed immediate manual permanent deletion. | Inside Trash only: coordinator may `Eliminar definitivamente` (one or many) and `Vaciar Papelera`. Explicit confirmation showing entity/quantity, consequences, cannot-undo. Never offline, never on active entity/Home/Attention/Activity/normal Search. Empty Trash tolerates partial failure; failed items remain visible; success/failure distinguished. | Product: irreversible cleanup path exists. Permissions: coordinator authority. Backend: irreversible mutation. Privacy: removes content from ranking. | Irreversible human error. | 11A.1 coordinator capability + transactional purge contract. Functional Freeze §7.3, §19 superseded. | P1D, P2 §15.2. |
+| GS-11 | Privacy applied before ranking/badge/grouping/recents/results/Activity/Attention/Trash/Archive | Privacy noted but no consolidated pre-rule. | Apply household/personal scope, ownership, role and entity permissions before any surfacing or counting. Personal content never reaches household feed. Household switch resets global context. Geni always identified. Activity coordinates, not surveils. No reveal of titles/counts/existence of others' private content. Coordinator does not auto-gain access to private personal content. | Product: trust. Backend: RLS-aware filters and counts. | Surveillance creep via Activity. | 11A.1 privacy/RLS audit. | P1C, P1D, P2 §17. |
+| GS-12 | Phone/tablet surfaces + accessibility floor | Responsive noted generally; no Global Surfaces floor. | Phone: Home single-column; Quick Actions accessible sheet; Search/Attention/Activity/Trash/Archive full-screen; labels visible; no ambiguous icon-only. Tablet: Home two columns same priority; Search overlay/split; Attention/Activity list+detail; Trash filters+list+recovery context. Android 48 dp; iOS 44 pt; Dynamic Type/reflow; screen reader; visible focus; logical order; no color-only; Reduce Motion; accessible destructive confirmations; semantically labelled badge; offline/stale and purge date announced understandably. | Product: cross-device parity. QA: matrix scope. | Tablet becoming a different product. | Existing accessibility contracts; 11A.1 surface contracts. | P1A (accessibility), P1B (tablet), P2 §11.9/§11.10. |
+
+### Superseded historical Registry items
+
+The following older Registry statements remain for traceability but are
+**SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001**:
+
+- D7 / D30 historical `Meta`/`Goal` references — preserved with existing
+  supersession notes; nothing in this change alters that.
+- D1 historical "Quick Actions = tiles" wording — the surface is now the
+  shared Quick Actions + Search surface (see GS-03). The tile visual rule
+  within that surface remains valid.
+- D30 historical Home block structure — Home hybrid shape is now GS-02.
+- D21/D22/D29 historical attention/list/state visual rules — global
+  Attention/Activity shape is now GS-05; local list rules remain valid where
+  they do not conflict.
+- Any prior `HUMAN_APPROVAL_REQUIRED` state for GS-01..GS-12 is removed.
+
+Implementations must follow `PLANNER_V1_M11_FUNCTIONAL_FREEZE.md` version 1.3
+section 1.3 and `M11_11A_P4_GLOBAL_SURFACES_PRODUCT_FREEZE.md`.
+
+---
+
+## Registry totals (after CR-M11-11A-GLOBAL-SURFACES-001)
