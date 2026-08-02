@@ -3,7 +3,8 @@
 **MILESTONE:** Planner V1 — 11A.P0 Global Surfaces Product Research  
 **WORKTREE:** `C:\Users\thega\Desktop\HomePlus-worktrees\integration`  
 **BRANCH:** `planner-v1-global-surfaces-product-research`  
-**BASE:** `e412123`  
+**BASE P0:** `e4121230845d5d5bd4167ed0db1814e16bbd33ab`
+**R1 ENTRY HEAD:** `0f2c9d1a999cb4adf79bd432e99ff768add006f4`
 **DATE:** 2026-08-02
 
 ---
@@ -14,8 +15,8 @@ Read-only inventory of the real capabilities currently implemented in HomePlus t
 
 **Key facts:**
 
-- **Planner** has high maturity: 3 entities (Tasks, Events, Plans), Presets, Drafts, Trash, Calendar, Depth, SheetHost, Reliability queue.
-- **Inventory** is functional but far more basic: one screen, 6 categories, local search, templates, quantity mutations, restock requests.
+- **Planner** has high maturity: 3 main entities (Tasks, Events, Plans), Presets, Drafts, Trash, Calendar, Details, SheetHost, and the M11.7C Reliability runtime.
+- **Inventory** is functional but far more basic: one screen, 7 categories, local search, templates, quantity mutations, restock requests.
 - **Shell** is minimal globally: 5 bottom tabs (Home, People, Add, Planner, More), one AppTopBar (no search, no bell, no alerts), no global surfaces.
 - **Geni** confirmed as future module; not implemented.
 - **No global Search.**
@@ -31,7 +32,7 @@ Read-only inventory of the real capabilities currently implemented in HomePlus t
 |---|---|
 | Worktree | `C:\Users\thega\Desktop\HomePlus-worktrees\integration` |
 | Current branch | `planner-v1-global-surfaces-product-research` |
-| HEAD | `e4121230845d5d5bd4167ed0db1814e16bbd33ab` |
+| HEAD on R1 entry | `0f2c9d1a999cb4adf79bd432e99ff768add006f4` |
 | Base branch | `planner-v1-global-surfaces-readiness` |
 | Worktree clean | Yes |
 | Files changed | 1 (this report) |
@@ -63,7 +64,7 @@ Read-only inventory of the real capabilities currently implemented in HomePlus t
 | `cancel_task`  | `enqueuePlannerTaskCancel` | No | Yes | No | No | Weekly | household | Yes | No |
 | `trash_task`   | `enqueuePlannerTaskTrash` | No | Yes | No | No | Daily | household | Yes | No |
 | `restore_task` | `enqueuePlannerTaskRestore` | No | Yes | No | No | Weekly | household | Yes | No |
-| `complete_from_home` | `completeTaskFromHome` | No | Yes | No | No | Daily | personal | No (direct HTTP + graf) | No |
+| `complete_from_home` | `completeTaskFromHome` | No | Yes | No | No | Daily | personal | No (direct optimistic HTTP; outside M11.7C productiveMutations) | No |
 | `reactivate_task` | `enqueuePlannerTaskReactivate` | No | Yes | No | No | Rare | household | Yes | No |
 | `list all` | `PlannerTasksScreen` | No | No | No | Yes | Continuous | household | No (read) | No |
 | `filtered list` | `PlannerTasksScreen` (6 filters: `today`, `open`, `mine`, `attention`, `done`, `cancelled`) | No | No | No | Yes | Muy frecuente | household | No (read) | No |
@@ -74,10 +75,11 @@ Read-only inventory of the real capabilities currently implemented in HomePlus t
 | Action | URI | Creates | Modifies | Navega | Consults | Frecuencia | Scope | Reliability | Quick Actions (candidate) |
 |---|---|---|---|---|---|---|---|---|---|
 | `create_event` | `sheet.openEventForm` | Yes | No | Yes | No | Weekly | household | `enqueuePlannerEventCreate` | Yes |
-| `edit_event` | `EditEventScreen` | No | Yes | Yes | No | Weekly | household | No | No |
-| `cancel_event` | — | No | Yes | No | No | Weekly | household | No | No |
-| `trash_event` | — | No | Yes | No | No | Monthly | household | No | No |
+| `edit_event` | `EditEventScreen` / `EventForm` | No | Yes | Yes | No | Weekly | household | `enqueuePlannerEventUpdate` | No |
+| `cancel_event` | `EventForm` | No | Yes | No | No | Weekly | household | `enqueuePlannerEventCancel` | No |
+| `trash_event` | Event reliability adapter | No | Yes | No | No | Monthly | household | Adapter covered in M11.7C; no current UI call site observed | No |
 | `restore_event` | `enqueuePlannerEventRestore` | No | Yes | No | No | Rare | household | Yes | No |
+| `reactivate_event` | Event reliability adapter | No | Yes | No | No | Rare | household | Adapter covered in M11.7C; no current UI call site observed | No |
 | `detail_view` | `EventDetailScreen` | No | Yes | No | Yes | Medium | household | No (read) | No |
 | `calendar_view` | `PlannerCalendarScreen` | No | No | No | Yes | Daily | household | No (read) | No |
 
@@ -86,12 +88,13 @@ Read-only inventory of the real capabilities currently implemented in HomePlus t
 | Action | URI | Creates | Modifies | Navega | Consults | Frecuencia | Scope | Reliability | Quick Actions (candidate) |
 |---|---|---|---|---|---|---|---|---|---|
 | `create_plan` | `sheet.openPlanForm` | Yes | No | Yes | No | Weekly | household | `enqueuePlannerPlanGraphWrite` | Yes |
-| `structure_edit` | `PlannerPlanStructureEditScreen` | No | Yes | Yes | No | Weekly | household | No (direct) | No |
+| `structure_edit` | `PlannerPlanStructureEditScreen` | No | Yes | Yes | No | Weekly | household | `enqueuePlannerPlanStructureChangeset` | No |
 | `detail_view` | `PlannerPlanDetailScreen` | No | No | No | Yes | Daily | household | No (read) | No |
 | `minimal_create` | `PlannerPlanMinimalCreateSurface` | Yes | No | Yes | No | Weekly | household | Yes (via graph write) | Yes (part of the QA form) |
-| `goal_complete` | — | No | Yes | No | No | Monthly | household | No | No |
-| `goal_close` | — | No | Yes | No | No | Monthly | household | No | No |
-| `goal_archive` | — | No | Yes | No | No | Monthly | household | No | No |
+| `plan_lifecycle_write` | `PlannerPlanDetailScreen` | No | Yes | No | No | Monthly | household | `enqueuePlannerPlanGraphWrite` | No |
+| `legacy_goal_complete` | `GoalDetailScreen` / `PlannerGoalsScreen` | No | Yes | No | No | Monthly | household | No (legacy Goals surface remains outside M11.7C) | No |
+| `legacy_goal_close` | `GoalDetailScreen` | No | Yes | No | No | Monthly | household | No (legacy Goals surface remains outside M11.7C) | No |
+| `legacy_goal_trash` | `GoalDetailScreen` / `PlannerGoalsScreen` | No | Yes | No | No | Monthly | household | No (legacy Goals surface remains outside M11.7C) | No |
 | `plan_list` | `PlannerPlansScreen` | No | No | No | Yes | Daily | household | No (read) | No |
 
 ### 3.5 Presets Action Inventory
@@ -111,7 +114,8 @@ Read-only inventory of the real capabilities currently implemented in HomePlus t
 |---|---|---|---|---|---|---|---|---|
 | `view_recovery` | `PlannerDraftRecoveryRoute` | No | No | No | Yes | Low | personal | No (read) | No |
 | `resume_draft` | `PlannerDraftResumeRoute` | No | Yes | Yes | No | Low | personal | No | No |
-| `delete_draft` | — | No | Yes | No | No | Low | personal | No | No |
+| `autosave_draft` | Draft reliability adapter | Yes/Update | Yes | No | No | Medium | personal | Adapter covered in M11.7C | No |
+| `trash_draft` | `enqueuePlannerDraftTrash` | No | Yes | No | No | Low | personal | Yes | No |
 | `restore_draft` | `enqueuePlannerDraftRestore` | No | Yes | No | No | Low | personal | Yes | No |
 
 ### 3.7 Calendar Action Inventory
@@ -138,31 +142,47 @@ Read-only inventory of the real capabilities currently implemented in HomePlus t
 | Action | Status |
 |---|---|
 | `PlanArchive` route in `plannerNavigationContract.ts:160` | Route registered |
-| Archive screen for Plans | Notlets | No screen file exists (`*Archive*`) |
+| Archive screen for Plans | Not implemented | No screen file exists (`*Archive*`) |
 | `projectPlanArchive()` service | Exists |
 | Separate `archived_at` boolean | Orthogonal to lifecycle |
 
 ### 3.10 Reliability Action Inventory
 
-| Workspace | Productive   | Reliability | Productive   | Reliability | Productive   | Reliability |
-|---|---|---|---|---|---|---|
-| `enqueuePlannerTaskCreate` | Task create | Yes |
-| `enqueuePlannerTaskUpdate` | Task update | Yes |
-| `enqueuePlannerTaskComplete` | Task complete | Yes |
-| `enqueuePlannerTaskCancel` | Task cancel | Yes |
-| `enqueuePlannerTaskReactivate` | Task reactivate | Yes |
-| `enqueuePlannerTaskTrash` | Task trash | Yes |
-| `enqueuePlannerTaskVerify` | Promise verifying | Yes |
-| `enqueuePlannerTaskRestore` | Task restore | Yes |
-| `enqueuePlannerEventCreate` | Event create | Yes |
-| `enqueuePlannerEventRestore` | Event restore | Yes |
-| `enqueuePlannerPlanGraphWrite` | Plan graph write | Yes |
-| `enqueuePlannerPresetRestore` | Preset restore | Yes |
-| `enqueuePlannerDraftRestore` | Draft restore | Yes |
-| `restoreGoal` | Goal restore | No (direct HTTP) |
-| `restoreGoalMilestone` | Milestone restore | No (direct HTTP) |
+| Productive facade / adapter | Domain | Operation coverage | Reliability |
+|---|---|---|---|
+| `enqueuePlannerTaskCreate` | Task | create | Yes |
+| `enqueuePlannerTaskUpdate` | Task | update | Yes |
+| `enqueuePlannerTaskComplete` | Task | complete | Yes |
+| `enqueuePlannerTaskCancel` | Task | cancel | Yes |
+| `enqueuePlannerTaskReactivate` | Task | reactivate | Yes |
+| `enqueuePlannerTaskTrash` | Task | trash | Yes |
+| `enqueuePlannerTaskVerify` | Task | verify | Yes |
+| `enqueuePlannerTaskRestore` | Task | restore | Yes |
+| Task V1 fulfillment adapter | Task fulfillment | assignment, claim, complete, verify, request correction, resubmit, revert, reopen | Yes |
+| `enqueuePlannerEventCreate` | Event | create | Yes |
+| `enqueuePlannerEventUpdate` | Event | update | Yes |
+| `enqueuePlannerEventCancel` | Event | cancel | Yes |
+| Event reliability adapter | Event | trash, reactivate | Yes (adapter covered; no current UI facade wrapper observed) |
+| `enqueuePlannerEventRestore` | Event | restore | Yes |
+| `enqueuePlannerEventOccurrenceOverride` | Event | recurring occurrence override | Yes |
+| `enqueuePlannerPlanGraphWrite` | Plan | graph write / lifecycle writes | Yes |
+| `enqueuePlannerPlanStructureChangeset` | Plan | atomic structure changeset | Yes |
+| `enqueuePlannerPresetCreate` | Preset | create | Yes |
+| `enqueuePlannerPresetUpdate` | Preset | metadata update | Yes |
+| `enqueuePlannerPresetStartRevision` | Preset | revision start | Yes |
+| Preset revision adapter | Preset revision | revision draft update | Yes |
+| `enqueuePlannerPresetPublishRevision` | Preset revision | publish | Yes |
+| `enqueuePlannerPresetTrash` | Preset | trash | Yes |
+| `enqueuePlannerPresetRestore` | Preset | restore | Yes |
+| Draft reliability adapter | Draft | autosave | Yes |
+| `enqueuePlannerDraftTrash` | Draft | trash | Yes |
+| `enqueuePlannerDraftRestore` | Draft | restore | Yes |
+| `completeTaskFromHome` | Home task one-tap | complete task from Home | No (direct optimistic HTTP path outside M11.7C productiveMutations) |
+| `restoreGoal` | Legacy Goal restore | restore | No (direct HTTP; out of M11.7C scope) |
+| `restoreGoalMilestone` | Legacy Milestone restore | restore | No (direct HTTP; out of M11.7C scope) |
 
 **Additional infrastructure:**
+- `runtime.enqueueAndFlush` is the productive facade path used by `productiveMutations.ts`.
 - Operation Queue (`operationQueue.ts`) — `pending` → `in_flight` → `uncertain` / `conflicted` / `confirmed`
 - State Machine (`operationStateMachine.ts`) — deterministic transitions
 - Retry Policy (`retryPolicy.ts`) — same identity preserved
@@ -174,9 +194,9 @@ Read-only inventory of the real capabilities currently implemented in HomePlus t
 
 | Quick Action | URI | Plausible | Implemented | Capability guard | External? |
 |---|---|---|---|---|---|
-| Create Task | `sheet.openTaskForm` | Yes | Yes | `task.create_reachable \|\| task.create_personal` | Yes |
-| Create Event | `sheet.openEventForm` | Yes | Yes | `event.create_reachable \|\| event.create_personal` | Yes |
-| Create Plan | `sheet.openPlanForm` | Yes | Yes | `goal.create_reachable \|\| goal.create_personal` | Yes |
+| Create Task | `sheet.openTaskForm` | Yes | Yes | `task.create_household` \|\| `task.create_personal` | Yes |
+| Create Event | `sheet.openEventForm` | Yes | Yes | `event.create_household` \|\| `event.create_personal` | Yes |
+| Create Plan | `sheet.openPlanForm` | Yes | Yes | `goal.create_household` \|\| `goal.create_personal` | Yes |
 
 ---
 
@@ -188,9 +208,9 @@ Read-only inventory of the real capabilities currently implemented in HomePlus t
 |---|---|
 | Frontend types | `services/inventory.ts` |
 | Frontend screen | `screens/inventory/InventarioScreen.tsx` |
-| Backend router | `back/src/routes/inventory.js` |
-| Backend controller | `back/src/controllers/inventory.controller.js` |
-| Backend service | `back/src/services/inventory.service.js` |
+| Backend router | `backend/src/routes/inventory.js` |
+| Backend controller | `backend/src/controllers/inventory.controller.js` |
+| Backend service | `backend/src/services/inventory.service.js` |
 
 ### 4.2 Entities
 
@@ -216,18 +236,18 @@ Read-only inventory of the real capabilities currently implemented in HomePlus t
 
 | Action | Method | Mutation/Read | Frequency |
 |---|---|---|---|
-| `listItems` | `GET /api/flight/items` | Read | Always |
-| `listTemplates` | `GET /api/flight/templates` | Read | Always |
-| `createItem` | `POST /api/flight/items` | Mutation | Weekly |
-| `updateItem` | `PATCH /api/flight/items/:id` | Mutation | Weekly |
-| `deleteItem` | `DELETE /api/flight/items/:id` | Mutation | Weekly |
-| `addQuantity` | `POST /api/flight/items/:id/add` | Mutation | Daily |
-| `consumeQuantity` | `POST /api/flight/items/:id/consume` | Mutation | Daily |
-| `markOutOfStock` | `POST /api/flight/items/:id/out-of-stock` | Mutation | Daily |
-| `getAlerts` | `GET /api/flight/alerts` | Read | Medium |
-| `listRestockRequests` | `GET /api/flight/restock-requests` | Read | Weekly |
-| `approveRestockRequest` | `POST /api/flight/restock-requests/:id/approve` | Mutation | Weekly |
-| `rejectRestockRequest` | `POST /api/flight/restock-requests/:id/reject` | Mutation | Weekly |
+| `listItems` | `GET /api/inventory/items` | Read | Always |
+| `listTemplates` | `GET /api/inventory/templates` | Read | Always |
+| `createItem` | `POST /api/inventory/items` | Mutation | Weekly |
+| `updateItem` | `PATCH /api/inventory/items/:id` | Mutation | Weekly |
+| `deleteItem` | `DELETE /api/inventory/items/:id` | Mutation | Weekly |
+| `addQuantity` | `POST /api/inventory/items/:id/add` | Mutation | Daily |
+| `consumeQuantity` | `POST /api/inventory/items/:id/consume` | Mutation | Daily |
+| `markOutOfStock` | `POST /api/inventory/items/:id/out-of-stock` | Mutation | Daily |
+| `getAlerts` | `GET /api/inventory/alerts` | Read | Medium |
+| `listRestockRequests` | `GET /api/inventory/restock-requests` | Read | Weekly |
+| `approveRestockRequest` | `POST /api/inventory/restock-requests/:id/approve` | Mutation | Weekly |
+| `rejectRestockRequest` | `POST /api/inventory/restock-requests/:id/reject` | Mutation | Weekly |
 
 ### 4.5 Screen Anatomy
 
@@ -235,15 +255,15 @@ Lectura real del archivo `InventarioScreen.tsx`:
 
 - **Header**: Title "Inventario" + subtitle "Cocina y alacena"
 - **Stats row**: 3 tag cards — total items, low stock count, out-of-stock count
-- **AlertsCard**: inline alerts for low_stock + out_of_stock items + pending restitution
+- **AlertsCard**: inline alerts for low-stock + out-of-stock items + pending restock requests
 - **Search field**: local filter by name; `placeholder = "Harina, leche, arroz..."`
 - **Category chips**: horizontal scroll; 7 icon+label chips; exclusive selection
 - **Quick Add section**: "Agregar rápido" — templates filtered for current category
 - **Item list**: cards with card, badge (status), quantity plus +/-/out-of-stock/edit/delete actions
 - **Modal form**: nombre, emoji, quantity, threshold, category — "Cantidad simple, sin advanced units"
 - **States**: loading, error, empty (with and without search filter)
-- **Realtime**: Subscribes to `notify_items` and `notify_restock_requests` per household via Supabase Realtime; auto refreshes
-- **No paginated**: local search + category filtering over full array
+- **Realtime**: Subscribes to `inventory_items` and `inventory_restock_requests` per household via Supabase Realtime; auto refreshes
+- **No pagination**: local search + category filtering over the loaded array
 
 ### 4.6 Navigation
 
@@ -251,21 +271,21 @@ Inventory is accessed from the "More" tab via `navigation.navigate('Inventory')`
 
 ### 4.7 Capabilities
 
-- **No dedicated Inventory feature flag** — the module is always visible in "More" for all genders.
+- **No dedicated Inventory feature flag** — the module is visible in "More" for the app shell roles inspected.
 - **No capability system for inventory** — no `inventory.create`, `inventory.approve` capabilities.
 - **Role-based** at the client level: `currentRole === 'coordinador' \|\| 'adulto'` to show approve/reject buttons (`canApproveRestock`).
 
 ### 4.8 Limitations Observed
 
-1. **No categories federation.** The "Agregar rapido" section only shows templates of the current category. If the user changes category, templates update but the filter is always `category_key === 'into'`.
+1. **Template category limitation.** The "Agregar rapido" section currently filters templates with `category_key === 'kitchen'`, so template chips do not follow the selected category.
 2. **No recycling/papelera.** `deleteInventoryItem` is a soft-delete (`deleted_at = now()`), but there is no UI for trash or restore.
-3. **No integral search.** Only local search by item name; cannot search by category, status or templates.
-4. **No alerts widget.** Low stock is only visible inside the screen; the Home section shows 1 alert hardcoded.
+3. **No global search integration.** Only local search by item name; there is no global Inventory search surface.
+4. **Limited Home integration.** Home reads `getInventoryAlerts` and shows an urgency card, but there is no broader Inventory dashboard or Attention integration.
 5. **No barcode/camera/OCR.**
 6. **No unit system.** Quantities are bare numbers; no `kg`, `liters`, `units`.
-7. **No productive draft.** Creation is a Modal with direct POST; no draft in local memory.
+7. **No Inventory draft.** Creation is a Modal with direct POST; no draft or Reliability queue.
 8. **No archival.** No archive visible for items.
-9. **No forums cells.** The list does not have sections; items are flat.
+9. **No sectioned lists.** The list does not have sections; items are flat.
 10. **No pagination.** All items loaded at once (no virtual scrolling).
 
 ---
@@ -283,7 +303,7 @@ App
           NavigationContainer(linking)
             AppNavigator
               HomeTabNavigator (Bottom tabs)
-                HomeTab  (= HomeScreen ) = role projection)
+                HomeTab  (= HomeScreen role projection)
                 PeopleTab (= FamilyStack)
                 AddTab   (= CenterTabButton ) = PlannerSheet.openActions())
                 PlannerTab (= Planner stack, full routes)
@@ -292,7 +312,7 @@ App
 
 Global stack (`PrivateStack`):
 - `HomeTabs` (initial)
-- `P02CrearGrupo`, `P03InvitingPersonas`, `JoinHousehold`
+- `P02CrearGrupo`, `P03InvitarPersonas`, `JoinHousehold`
 - `ProfileScreen`
 - `Inventory` (InventarioScreen)
 - `FeedFamiliar` (FeedFamiliarScreen)
@@ -327,13 +347,13 @@ No Search tab, no Attention/Notifications tab, no Activity tab.
 
 | Path | Integration |
 |---|---|
-| `CenterTabButton` → `PlannerProvider.openActions()` | `PlannerSheetProvider` context |
-| `PlannerSheetHost` renders the actions menu | IMAGE |
-| Catalog: Create Task, Create Event, Create Plan | `planQuickActions.ts` |
+| `CenterTabButton` → `PlannerSheetProvider.openActions()` | `PlannerSheetProvider` context |
+| `PlannerSheetHost` renders the actions menu | Single Planner modal host |
+| Catalog: Create Task, Create Event, Create Plan | `plannerQuickActions.ts` |
 
 Limitations:
 - Only activates Planner actions; is not generic.
-- No visual state for abilities block (hidden by accessibility flag).
+- No separate global-disabled visual state; unavailable actions are hidden by capability guards.
 - Not configurable per context; no "recently used" / "shortcuts".
 - No haptic feedback (except lightHaptic on task cell).
 
@@ -342,7 +362,7 @@ Limitations:
 | Entropy | Integration |
 |---|---|
 | Scheme | `homeplus://` |
-| Coordinator | `planDeepLinkProvider.tsx` |
+| Coordinator | `plannerDeepLinkProvider.tsx` |
 | Planner Routes | `M10` implementation |
 | Cold-start | `TaskDetailScreen` + `EventDetailScreen` handle `entityId` via action handler |
 
@@ -355,7 +375,7 @@ Limitations:
 | native notification permissions | **No** |
 | Background alert integration | **No** |
 | Realtime bridge (passive) | Yes (Planner) |
-| Inventory alerts widget on home | Yes (1 item hardcoded) |
+| Inventory alerts widget on home | Yes (`InventoryUrgencyCard` reads `getInventoryAlerts`) |
 
 ### 5.7 Activity
 
@@ -380,45 +400,47 @@ Limitations:
 
 ## 6. Capability Matrix
 
-| Capability | Module | Entity | Action | Current Access | Frequency | Performance | Context | Mutation/Read | Reliability | QA Cat | Search Cat | Home Cat | Attention Cat | Activity Cat | Trash/Archive |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `create_task` | Planner | Task | Create task | Quick | Daily | High | Global | Create | Yes | Yes | Yes | No | No | No | No |
-| `edit_task` | Planner | Task | Edit task | List or Detail | Daily | High | By task | Update | Yes | Yes | Yes | No | No | No | No |
-| `complete_task` | Planner | Task | Complete task | List or Detail | Daily | High | Contextual | Yes | Update | Yes | Yes | No | No | No | No |
-| `complete_from_home` | Planner | Task | Complete from Home | Home widget | Daily | High | Home surface | Update | No | Yes | No | Yes | No | No | No |
-| `verify_task` | Planner | Task | Verify task | List or Detail | Weekly | High | Advanced | Update | Yes | No | No | No | Yes | Yes | No |
-| `cancel_task` | Planner | Task | Cancel task | List or Detail | Weekly | High | Advanced | Update | Yes | No | No | No | No | No | Trash (incomplete) |
-| `reactivate_task` | Planner | Task | Reactivate | List only | Rare | Low | Advanced | Update | Yes | No | No | No | No | No | No |
-| `filter_tasks` | Planner | Task | Filter by status | PlannerTaskScreen | Very high | Very high | Planner screen | Camera | Read | No | No | No | No | No | No |
-| `task_details` | Planner | Task | View detail | PlannerTaskScreen | Medium | Individual read | No | Yes | Yes | Yes | Yes | Yes | Yes | Yes | No |
-| `create_event` | Planner | Event | Create event | Quick actions | Monthly | Low | Task | Create | Yes | Yes | Yes | No | No | No | No |
-| `edit_event` | Planner | Event | Edit event | Inline or form | Monthly | Low | Advanced | Update | — | No | No | No | No | No | No |
-| `event_details` | Planner | Event | View detail | EventDetailScreen | Weekly | Individual read | No | Yes | No | No | No | No | Yes | Yes | No |
-| `calendar_view` | Planner | Event | Calendar | PlannerCalendarScreen | Weekly | Individual read | Planner read | No | No | No | No | No | No | No | No |
-| `create_plan` | Planner | Plan | Create plan | Quick actions or via GoalForm | Weekly | High | Task creation | Upsert (graph write) | Yes | No | Yes | No | No | No | No |
-| `structure_plan` | Planner | Plan | Edit structure | PlannerPlanStructureEditScreen | Weekly | High | Plan screen | Update (graph write) | — | No | No | No | No | No | No | No |
-| `plan_detail` | Planner | Plan | View detail | PlannerPlanDetailScreen | Daily per plan | No | No | No | No | No | Yes | Yes | Yes | Yes | No |
-| `archive_plan` | Planner | Plan | Archive | Route registered, no screen | Rare | Low | Plan screen | Write (static) | No | No | No | No | No | No | Archive |
-| `trash_plan` | Planner | Plan | Move to trash | Route not registered; trash goes to lifecyle | Rare | Low | PlannerAIner | Write | No | No | No | No | No | No | Trash |
-| `restore_plan` | Planner | Plan | Restore goal from trash | PlannerTrashScreen | Rare | Low | Back permanently | Write | No (direct HTTP) | No | Yes | No | No | No | Yes |
-| `restore_milestone` | Planner | Milestone | Restore milestone | PlannerTrashScreen | Rare | Low | Back permanently | Write | No (direct HTTP) | No | No | No | No | No | Yes |
-| `library_presets` | Planner | Preset | View library | Of line menu + route | Monthly | Medium | PlannerHeader | Read | — | No | No | No | No | No | No |
-| `preset_detail` | Planner | Preset | View detail | Term | Very low | High | Read-only | Read | — | No | No | No | No | No | No |
-| `create_preset` | Planner | Preset | Create preset | In-library form | Low | Low | Read-only | Write | Yes | No | No | No | No | No | No |
-| `recovery_drafts` | Planner | Draft | See recovery | PlannerHeader menu + route | Weekly | Low | Draft recovery | Read | — | No | No | No | Yes | No | Yes |
-| `resume_draft` | Planner | Draft | Resume draft | PlannerHeader route | Week | Low | Draft | Write | — | No | No | No | No | Yes | No |
-| `restore_draft` | Planner | Draft | Restore from trash | PresetDraftsTrashScreen | Rare | Low | Read | Write | Yes | No | No | No | No | No | Yes |
-| `view_item (inventory)` | Inventory | InventoryItem | View list | More tab (global stack) | Daily | Medium | Protected | Read | — | No | Yes | No | No | No | No |
-| `create_item` | Inventory | InventoryItem | Add item | Edem (scroll button or template) | Weekly | Medium | Protected | Write | No | No | Yes | No | No | No | No |
-| `edit_item` | Inventory | InventoryItem | Edit item | Item card action | Weekly | Medium | Protected | Write | No | No | No | No | No | No | No |
-| `delete_item` | Inventory | InventoryItem | Soft delete item | Item card action with confirmation | Weekly | Medium | Protected | Write | No | No | No | No | No | No | Yes |
-| `add_quantity` | Inventory | InventoryItem | Remove quantity | Item card + button (icon) | Daily | Medium | Protected | Write | No | No | No | No | No | No | No |
-| `consume_quantity` | Inventory | InventoryItem | Consume quantity | Item card - button (icon) | Daily | Medium | High | Write | No | Yes | No | No | No | No | No |
-| `mark_out_of_stock` | Inventory | InventoryItem | Mark out of stock | Item card alert icon | Daily | Medium | Protected | Write | No | No | No | No | No | No | No |
-| `list_request (restock)` | Inventory | Restock Requests | View list | No standalone screen | Medium | Plugin | High | Read | — | No | No | No | No | No | No |
-| `approve_request` | Inventory | Restock Request | Approve & create Planner task | AlertCard button | Weekly | High | High | Write | No | No | No | No | No | No | No |
-| `reject_request` | Inventory | Restock Request | Reject request | AlertCard button (X) | Weekly | High | High | Write | No | No | No | No | No | Yes | No |
-| `list_alerts` | Inventory | InventoryAlerts | Fold alerts | GET `/api/report/alerts` | Daily | The entry | High (plugin) | Read | — | No | No | Yes | No | No | No |
+| Capability | Module | Entity | Action or information | Current access | Frequency | Urgency | Context | Permissions | Mutation/Read | Reliability | QA candidate | Search candidate | Home candidate | Attention candidate | Activity candidate | Trash/Archive candidate |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `create_task` | Planner | Task | Create task | Central + / `PlannerSheetHost` | Daily | Medium | Global | `task.create_household` or `task.create_personal` | Mutation | Yes | Yes | No | No | No | No | No |
+| `edit_task` | Planner | Task | Edit task | Task detail / edit screen | Daily | Medium | Entity detail | `task.edit_own` or `task.edit_any` | Mutation | Yes | No | Yes | No | No | Yes | No |
+| `complete_task` | Planner | Task | Complete task | List or Detail | Daily | High | Contextual | `task.complete_*` | Mutation | Yes | No | No | Yes | Yes | Yes | No |
+| `complete_from_home` | Planner | Task | Complete from Home | Home widget | Daily | High | Home surface | completion capability recheck | Mutation | No, direct optimistic HTTP | No | No | Yes | Yes | Yes | No |
+| `verify_task` | Planner | Task | Verify task | Task list/action | Weekly | High | Attention workflow | `task.verify` | Mutation | Yes | No | No | No | Yes | Yes | No |
+| `cancel_task` | Planner | Task | Cancel task | Task list/action | Weekly | Medium | Entity row | `task.cancel_own` or `task.cancel_any` | Mutation | Yes | No | No | No | Possibly | Yes | No |
+| `reactivate_task` | Planner | Task | Reactivate | Task list/action | Rare | Low | Entity row | backend capability | Mutation | Yes | No | No | No | No | Yes | No |
+| `filter_tasks` | Planner | Task | Filter by status | PlannerTasksScreen | Very high | Medium | Planner tab | `planner.view` | Read | N/A | No | Search may reuse indexed fields | No | Attention filter exists locally | No | No |
+| `task_details` | Planner | Task | View detail | TaskDetailScreen | Medium | Medium | Canonical detail | `planner.view` + backend scope | Read | N/A | No | Yes | Yes | Yes | Yes | No |
+| `create_event` | Planner | Event | Create event | Central + / `PlannerSheetHost` | Weekly | Medium | Global | `event.create_household` or `event.create_personal` | Mutation | Yes | Yes | No | No | No | No | No |
+| `edit_event` | Planner | Event | Edit event | EventForm | Monthly | Medium | Entity form | `event.edit_own` or `event.edit_any` | Mutation | Yes | No | Yes | No | No | Yes | No |
+| `cancel_event` | Planner | Event | Cancel event | EventForm | Monthly | Medium | Entity form | `event.cancel_own` or `event.cancel_any` | Mutation | Yes | No | No | No | Possibly | Yes | No |
+| `trash_event` | Planner | Event | Move event to trash | Reliability adapter, no current UI call site observed | Rare | Low | Lifecycle | backend capability | Mutation | Yes at adapter level | No | No | No | No | Yes | Trash |
+| `restore_event` | Planner | Event | Restore event | PlannerTrashScreen | Rare | Medium | Trash | backend capability | Mutation | Yes | No | No | No | No | Yes | Trash |
+| `reactivate_event` | Planner | Event | Reactivate event | Reliability adapter, no current UI call site observed | Rare | Low | Lifecycle | backend capability | Mutation | Yes at adapter level | No | No | No | No | Yes | No |
+| `event_details` | Planner | Event | View detail | EventDetailScreen | Weekly | Medium | Canonical detail | `planner.view` + backend scope | Read | N/A | No | Yes | Yes | Possibly | Yes | No |
+| `calendar_view` | Planner | Event | Calendar | PlannerCalendarScreen | Weekly | Medium | Planner tab | `planner.view` | Read | N/A | No | Search may index events | No | No | No | No |
+| `create_plan` | Planner | Plan | Create plan | Central + / `PlannerSheetHost` | Weekly | Medium | Global | `goal.create_household` or `goal.create_personal` | Mutation | Yes | Yes | No | No | No | No | No |
+| `structure_plan` | Planner | Plan | Edit structure | PlannerPlanStructureEditScreen | Weekly | Medium | Plan structure editor | backend capability | Mutation | Yes | No | No | No | Possibly | Yes | No |
+| `plan_detail` | Planner | Plan | View detail | PlannerPlanDetailScreen | Daily | Medium | Canonical detail | `planner.view` | Read | N/A | No | Yes | Yes | Possibly | Yes | No |
+| `archive_plan` | Planner | Plan | Archive | Route registered, no screen | Rare | Low | Missing surface | `goal.archive` | Mutation if implemented | Adapter supports plan writes; screen absent | No | No | No | No | Yes | Archive |
+| `legacy_goal_restore` | Planner | Goal/Milestone | Restore legacy goal/milestone | PlannerTrashScreen | Rare | Medium | Trash | `goal.restore` | Mutation | No, direct HTTP remains | No | No | No | No | Yes | Trash |
+| `library_presets` | Planner | Preset | View library | Planner overflow menu + route | Monthly | Low | Planner header | `planner.templates.use` or `planner.templates.manage` | Read | N/A | No | No | No | No | Possibly | No |
+| `preset_detail` | Planner | Preset | View detail | Preset detail route | Very low | Low | Preset library | `planner.templates.use` or `planner.templates.manage` | Read | N/A | No | No | No | No | Possibly | No |
+| `create_preset` | Planner | Preset | Create preset | Preset create route | Low | Low | Preset library | `planner.templates.manage` | Mutation | Yes | No | No | No | No | Yes | No |
+| `recovery_drafts` | Planner | Draft | See recovery | Planner header overflow + route | Weekly | Medium | Draft recovery | owner/private | Read | N/A | No | No | Maybe if recoverable draft becomes a product decision | Possibly | Yes | No |
+| `resume_draft` | Planner | Draft | Resume draft | Draft resume route | Weekly | Low | Draft recovery | owner/private | Read/Mutation | Route flow; trash/restore/autosave use Reliability | No | No | No | No | Yes | No |
+| `restore_draft` | Planner | Draft | Restore from trash | PresetDraftsTrashScreen | Rare | Low | Preset/Draft trash | owner/private | Mutation | Yes | No | No | No | No | Yes | Trash |
+| `view_item (inventory)` | Inventory | InventoryItem | View list | More tab > Inventory | Daily | Medium | Inventory screen | authenticated household | Read | N/A | No | Yes | Limited Home summary exists | Low stock can feed Attention | Possibly | No |
+| `create_item` | Inventory | InventoryItem | Add item | Header add button or template chip | Weekly | Medium | Inventory screen | authenticated household | Mutation | No | Possible, but not current | Yes | No | No | Yes | No |
+| `edit_item` | Inventory | InventoryItem | Edit item | Item card action | Weekly | Medium | Inventory screen | authenticated household | Mutation | No | No | Yes | No | No | Yes | No |
+| `delete_item` | Inventory | InventoryItem | Soft delete item | Item card action with confirmation | Weekly | Medium | Inventory screen | authenticated household | Mutation | No | No | No | No | No | Yes | Trash candidate if restore UI exists |
+| `add_quantity` | Inventory | InventoryItem | Add quantity | Item card + button | Daily | Medium | Inventory screen | authenticated household | Mutation | No | No | No | No | Stock changes may feed Attention | Yes | No |
+| `consume_quantity` | Inventory | InventoryItem | Consume quantity | Item card - button | Daily | Medium | Inventory screen | authenticated household | Mutation | No | Possible, but not automatic | No | No | Stock changes may feed Attention | Yes | No |
+| `mark_out_of_stock` | Inventory | InventoryItem | Mark out of stock | Item card alert icon | Daily | High | Inventory screen | authenticated household | Mutation | No | No | No | Yes | Yes | Yes | No |
+| `list_request (restock)` | Inventory | RestockRequest | View pending requests | Inventory alerts card | Medium | High | Inventory screen | authenticated household | Read | N/A | No | No | Possibly | Yes | Possibly | No |
+| `approve_request` | Inventory | RestockRequest | Approve and create Planner task | Inventory alerts card | Weekly | High | Inventory screen | coordinator/adulto client gate + backend | Mutation | No Inventory Reliability; creates Planner task server-side | No | No | Possibly | Yes | Yes | No |
+| `reject_request` | Inventory | RestockRequest | Reject request | Inventory alerts card | Weekly | Medium | Inventory screen | coordinator/adulto client gate + backend | Mutation | No | No | No | No | Yes | Yes | No |
+| `list_alerts` | Inventory | InventoryAlerts | Low stock/out-of-stock/pending restock counts | `GET /api/inventory/alerts`; Home urgency card | Daily | High | Home and Inventory | authenticated household | Read | N/A | No | No | Yes | Yes | Possibly | No |
 
 ---
 
@@ -430,16 +452,16 @@ Limitations:
 - Pre-opening template via Quick Action would bypass the library and the workspace of presets.
 
 ### 7.2 Drafts
-- Access to recovery/preservation is only from the **Planner header overflow menu** (3 items: Presets, Database, Trash).
+- Access to recovery/preservation is from the **Planner header overflow menu** (Presets, Borradores, Papelera).
 - Draft recovery is a contextual workspace, not global. Should NOT duplicate in Quick Actions or Home Summary.
 
 ### 7.3 Sheets & Forms
-- Already exists in Planner: the single host (`PlannerSheetHost`) handles all modals (venue, quick actions, create forms). Do NOT duplicate a global FAB or context-dependent form everywhere.
+- Planner already has a single host (`PlannerSheetHost`) for Quick Actions and create forms. Do NOT duplicate a parallel global FAB or context-dependent form host.
 - Planner uses a single bottom-sheet-form host with a single state machine; creating a parallel global quick action host would cause state collisions.
 
 ### 7.4 Delete / Cancel / Trash / Archive
-- **Consequences** in Planner: Cancel is a status change (no trash); only after Cancel does a user have the option to move to trash. Do not surface global "Eliminar" commands that bypass this flow.
-- **Archive**: exists as a route registered in `RouteNames.PlanArchive`. No screen. Do not try to reuse the Trash vocabulary.
+- In Planner, Cancel is a status change and Trash is a lifecycle action. Do not surface global "Eliminar" commands that bypass canonical flows.
+- **Archive**: exists as a route registered in `ROUTE_NAMES.PlanArchive`. No screen. Do not try to reuse the Trash vocabulary.
 - Archive is orthogonal.
 
 ### 7.5 Details Surfaces
@@ -447,12 +469,12 @@ Limitations:
 - `PlannerPlanDetailScreen` follows the same contract. No parallel detail rendering.
 
 ### 7.6 Planner-Internal Routes
-- `PlannerTasksScreen`, `PlannerEventsScreen`, `PlannerPlansScreen` live within the Planner tab.
+- `PlannerTasksScreen`, `PlannerCalendarScreen`, and `PlannerPlansScreen` live within the Planner tab.
 - Do NOT expose them as global applications from Home or Quick Actions.
 
 ### 7.7 Actions by Context
-- Completing, verifying, assigning participant should stay contextual and not be promoted to global Quick Actions.
-- Home summary already accesses the complete task apply one-tap.
+- Completing, verifying, and assigning participants should stay contextual and not be promoted to global Quick Actions.
+- Home summary already exposes task completion as a one-tap Home action.
 
 ---
 
@@ -462,116 +484,114 @@ Limitations:
 
 Geni does not exist in the current repository. No frontend component, no backend service, no API route.
 
-### 8.2 Not registry
+### 8.2 Future requirements
 
 1. **Geni must be a global action**, accessible from any surface of the app.
-2. Geni **writes** queries and **writes** proposals and **will** confirm confirmed action.
+2. Geni may initiate queries, proposals, and confirmed actions.
 3. **Geni should not duplicate Search:** It does not replace global search; instead, it interprets, reasons and acts.
-4. **Geni should not duplicate canonical formulas:** If the user says "I want to create a task", Geni must redirect to the canonical TaskForm, not create its own version.
+4. **Geni should not duplicate canonical forms:** If the user says "I want to create a task", Geni must redirect to the canonical TaskForm or use the canonical mutation path, not create a parallel form.
 5. **Geni must not condition the current design of Planner or Inventory.** Anything implemented today must not take into account future Geni restrictions that do not exist.
 
 ---
 
-## 8. Brief for External Research
+## 9. Brief for External Research
 
-### 8.1 Quick Actions
+### 9.1 Quick Actions
 
 | Aspect | Description |
 |---|---|
-| **Real problem** | The current `QuickActionsMenu` has exactly 3 items (Create Task, Create Event, Create Plan). Is 3 enough for a household? FamilyTrello/Todoist/100 alternatives show 4–6 items. Should Quick Actions be contextual (ex: only show "Crear tarea" when in Planner context? |
-| **Available info** | Catalog fixed, capability queries, scope scope; everything uses the sheet host. No content composing. |
-| **Pending decisions** | Should Quick Actions depend on the current surface? Should recent history (last rendered) be preserved? |
-| **Patterns to compare** | Avian (home quick actions), Notion menus, Things 3 (positions dynamic), Todoist (contextual quick access). |
-| **Relevant app types** | Google Home, accessibility apps with 1-tap actions, studio-oriented apps (you pick). |
-| **Risks** | Too many = dissolve the mental model. Too few = the central point feels annoyingly limited. |
+| **Real problem** | The current `QuickActionsMenu` has exactly 3 implemented Planner actions: Create Task, Create Event, Create Plan. Inventory has creation and quantity actions, but no global action entry. |
+| **Available info** | Fixed catalog, capability guards, scope handling, and single `PlannerSheetHost`. |
+| **Pending decisions** | Should Quick Actions remain Planner-only or become module-aware? Which Inventory actions, if any, justify global placement? |
+| **Patterns to compare** | Central action buttons, contextual create menus, and shortcuts in household/productivity apps. |
+| **Relevant app types** | Household management, task management, calendar, inventory/pantry, and productivity apps. |
+| **Risks** | Too many actions dilute the central button; too few make a global action feel artificially narrow. |
 
-### 8.2 Search
+### 9.2 Search
 
 | Aspect | Description |
 |---|---|
 | **Real problem** | HomePlus has **no global search of any kind.** Planner Search is a gated placeholder. Inventory has local search only within the screen. The user needs to know "exactly" where to go to find something. |
-| **Available info** | Sever types exist (Task, Event, Plan, Preset, Draft, Inventory Item). No full-text index exists. No search endpoint is proposed. |
+| **Available info** | Entity types exist: Task, Event, Plan, Preset, Draft, Inventory Item. Planner Search is gated and non-productive. Inventory search is local by item name. |
 | **Pending decisions** | Should Search show all entities in unified results? Should each module have its own gateway? Should search preview open the canonical Detail or show result details inline? |
-| **Patterns to compare** | iOS Spotlight, Notion universal search, Things summaries, ClickUp. |
-| **Applicable apps** | Todoist (user), apple focal ratio system, Shortcuts for conditional searches. |
+| **Patterns to compare** | Universal search, scoped module search, result grouping, recent searches, and command-search hybrids. |
+| **Applicable apps** | Household management, task/calendar, notes, and inventory apps. |
 | **Risks** | Too many = overwhelming, duplicates Navigation. Too little = search is ignored. |
 
-### 8.3 Home
+### 9.3 Home
 
 | Aspect | Description |
 |---|---|
 | **Real problem** | The Home screen currently places Planner info (cards) and an Inventory minor bar. There is no unified home with notifications, quick status, recent activity, summary of each module. It's essentially a Planner+shelf Surface. |
-| **Available info** | `useHomePlannerSummary` API projects tasks, events, goals, counts, alerts. Inventory does one hardcoded alert. |
-| **Pending decisions** | Should the Home be a real aggregated dashboard (Fuel like home screen architecture)? Should activities/recent appear here? Or is there a separate Activity tab? |
-| **Patterns to compare** | Home screens like Welness, Notion, Apple, Android *latest* with universal overview. |
-| **Apps to inspect** | Google Home, Creator Suite, learning Studio (dashboard models). |
+| **Available info** | `useHomePlannerSummary` projects tasks, events, goal and counts. `InventoryUrgencyCard` reads `getInventoryAlerts`. |
+| **Pending decisions** | Should Home be an aggregated dashboard, a priority feed, or a module launcher with selected summaries? Should recent activity appear here or in a separate Activity surface? |
+| **Patterns to compare** | Dashboard summaries, priority cards, module cards, and actionable home widgets. |
+| **Apps to inspect** | Household management, task/calendar, smart home, and pantry/inventory apps. |
 | **Risks** | Too many cards = the Home looks cluttered. Too few = doesn't wear its promised weight. |
 
-### 8.4 Attention
+### 9.4 Attention
 
 | Aspect | Description |
 |---|---|
-| **Real problem** | No global Attention center, no "Screen Papelera para tus actividades urgentes". Planner Attention is a local client (data). Home shows an "Atención requerida" card of counts (cannot navigate). |
-| **Available info** | `planner_shell_colors` and `attention` filter show: (verified tasks, incorrect corrections, context, pending verification, blocked plans). FunctionalFreeze defines categories. |
-| **Pending decisions** | Should the "Pam Walser" be a screen with filterPersistent? A unique route? Should it group by entity? By household? Should it play nice with Geni? |
-| **Patterns to compare** | lanyard, Gmail Notify, Google PriorityIn, I remind. |
-| **Applications** | Mobile channels that surface important information; push notifications vs summary. |
+| **Real problem** | No global Attention center exists. Planner has a local `attention` task filter and Home shows an "Atención requerida" count card that is informational, not a center. |
+| **Available info** | Planner local attention includes overdue tasks and tasks awaiting verification. Inventory exposes low-stock, out-of-stock, and pending restock alerts. |
+| **Pending decisions** | Should Attention be a dedicated route, Home section, badge system, or all three? Should items group by module, urgency, household member, or time? |
+| **Patterns to compare** | Notification centers, priority inboxes, alert cards, and task-review queues. |
+| **Applications** | Household management, task management, smart home, and inventory apps. |
 | **Risks** | Too much information = ignored attention. Too little = what is important never gets received. |
 
-### 8.5 Activity
+### 9.5 Activity
 
 | Aspect | Description |
 |---|---|
 | **Real problem** | The user cannot see a recent timeline of what happened in their household. The Planner Activity endpoint exists in the backend — there is no frontend consumer. |
-| **Available info** | Backend Activity endpoint `GET /api/planner/activity` is live. Controls tasks, events changes, synchronization (presets). |
+| **Available info** | Backend Activity endpoint `GET /api/planner/activity` exists. No frontend consumer was found. |
 | **Pending decisions** | Should the Activity be in Planner? Or a global surface? Should it be feed-like (continuous scroll) or grouped by collaboration? |
-| **Patterns to compare** | GitHub activity stream, Notion updates, SimpleZ Opening screen. |
-| **Risks** | Others fallback if slow; alpha Loading data. Too much activity (= noise) could scare users away. |
+| **Patterns to compare** | Household timelines, collaboration activity streams, audit logs, and recent-changes cards. |
+| **Risks** | Too much activity creates noise; too little fails to explain household changes. |
 
-### 8.6 Trash
+### 9.6 Trash
 
 | Aspect | Description |
 |---|---|
-| **Real problem** | There are already two different trash surfaces: Planner has `PlannerTrashScreen` (Tasks, Events, Goals, Milestones) and `PlannerPresetRatiosTrashScreen` (Presets, Drafts). No unified. Goals use direct HTTP (no reliability). |
-| **Available info** | 30-day retention. All Planner entities + Presets + Drafts go to `listTrash`. |
-| **Pending decisions** | Should the two trash surfaces be unified into a single global dashboard? Should `InvertedItems` also appear in Trash? |
-| **Patterns to compare** | iOS Files, Aftermail, GoogleDrive |
-| **Risks** | Many trash sheets = controls Heavy flow; none = items deleted are ghosts forever. |
+| **Real problem** | Trash is fragmented: `PlannerTrashScreen` handles Tasks, Events, legacy Goals, Milestones; `PlannerPresetDraftsTrashScreen` handles Presets and Drafts. Inventory soft-delete exists but no restore/trash UI was found. |
+| **Available info** | Planner Trash reads `listTrash`; task/event/preset/draft restore uses Reliability; legacy goal/milestone restore remains direct HTTP. |
+| **Pending decisions** | Should Planner trash surfaces merge first? Should Inventory soft-deleted items eventually enter a global Trash? |
+| **Patterns to compare** | Unified trash, module-scoped trash, retention windows, restore-first vs permanent-delete flows. |
+| **Risks** | Too fragmented makes recovery hard; too global can mix private drafts with household items incorrectly. |
 
-### 8.7 Archive
+### 9.7 Archive
 
 | Aspect | Description |
 |---|---|
 | **Real problem** | Archive for plans exists as a registered route but no screen. No other module has archive. |
-| **Available info** | Archive endpoint exists. Boolean `plan.archived_at` exists. |
-| **Pending decisions** | Should plans only have as the only feature of Archive? Should the Archive be a visible of millions of trashi? |
-| **Applications** | TrelloArchive, Google Drive, Archive classic apps. |
+| **Available info** | Plan archive is represented in contracts/services; `PlanArchive` route is declared, but no screen implementation exists. |
+| **Pending decisions** | Should Archive be Planner-only at first? Should archived Plans appear in Search, Activity, or a dedicated Planner route? |
+| **Applications** | Task/project planning, document organization, and household history apps. |
 
 ---
 
-## 9. Information Gaps
+## 10. Information Gaps
 
-1. **No frontend namespace for navigation across modules.** The navigation types do not have `Search`, `Activity`, or `Attention`. These destinations do not yet exist in the middleware.
-2. **No characteristic policy for global Attention.** The Frontend functional freeze defines 8 types of Attention but has no priority rule.
+1. **No frontend namespace for global module surfaces.** The navigation types do not have global `Search`, `Activity`, or `Attention` destinations.
+2. **No priority policy for global Attention.** Planner and Inventory have local signals, but no global ranking or grouping rule exists.
 3. **Inventory has no backend pagination or filtering.** All items returned at once. If the user has 200+ products, the loading pattern may fail.
-4. **No backend API for global Search.** Euclidian back-end Search index is missing. No SQL full-text search is configured.
-5. **Goals restore, achievements are not atomic.</strong. Goals use HTTP, not reliability. This is a difference.
+4. **No backend API for global Search.** No global search endpoint or full-text search projection was found.
+5. **Legacy Goal/Milestone restore remains outside M11.7C Reliability.** Task/Event/Preset/Draft restore uses Reliability; legacy Goal/Milestone restore remains direct HTTP in the current code.
 6. **Planner Archive screen is incomplete.** No screen file; completely absent.
 
 ---
 
-## 10. Recommendations for starting 11A.P1
+## 11. Recommendations for starting 11A.P1
 
-1. **First priority: Define the entity projection that each surface will share**. Search will need `SearchableEntity`, Home needs `SummaryEntity`, Attention needs `AttentionItem`, Trash needs `TrashEntity`.
-2. **Don't design screens until you resolve the shared entity types.** The UX needs unified definitions before any screen.
-3. **Style by developer rotation:** HomePrinter / Fabric / Map App, Home itself in 3 weeks; estimated 2 sprint per developer per surface.
-4. **Start external research for the longest-known surfaces:** Search, Attention, and Home Dashboard.
-5. **Prepare the backend for Supabase full-text indices** (needed for a global Search).
-6. **Investigate the reliability for Goal and Milestone operations** before putting everything into the global Trash.
+1. **Start 11A.P1 with external comparative research for Quick Actions and Search**, as requested by Control General.
+2. **Keep research tied to verified capabilities**: Planner create actions, Inventory local search/actions, Home summary, local Attention signals, fragmented Trash, and missing Archive screen.
+3. **Do not design contracts or screens yet.** Use P1 to compare patterns and clarify product decisions.
+4. **Keep legacy Goal/Milestone restore as a documented reliability gap** unless code changes later route it through M11.7C.
 
 ---
 
-## 11. Validation
+## 12. Validation
 
 Only this file was modified:
 
@@ -583,19 +603,19 @@ No code, no contracts, no UI, no backend were changed.
 
 ---
 
-HANDOFF FOR CONTROL GENERAL
+HANDOFF PARA CONTROL GENERAL
 
-LANE: Planner V1 — 11th Avenue (11A current seaboard product research)
+LANE: Planner V1 — 11A.P0 R1 factual correction
 MILESTONE: Planner V1 — 11A.0 Global Surfaces Product Research
 BRANCH: `planner-v1-global-surfaces-product-research`
 WORKTREE: `C:\Users\thega\Desktop\HomePlus-worktrees\integration`
-BASE: `e4121234875d5d5bd4167ed0db1814e16bbd33ab`
-VERDICT: PLANNER_GLOBAL_CAPABILITIES_INVENTORY_COMPLETE
+BASE: `0f2c9d1a999cb4adf79bd432e99ff768add006f4`
+VERDICT: PLANNER_GLOBAL_CAPABILITIES_INVENTORY_R1_COMPLETE
 COMMIT: (pending)
-BLOCKERS: No
-RISKS: Decision on global surfaces must be based on real data from external research; half-developed starter could distort proposals objectives.
+BLOCKERS: None
+RISKS: Future global surfaces may accidentally duplicate canonical Planner forms/details if P1 research is not tied to these verified access points.
 INTEGRATION REQUESTS: None for this phase.
 SUPABASE: No changes.
 FILES CHANGED:
-  - docs/implementation/planner/M11_11A_P0_CURRENT_CAPABILITIES_INVENTORY.md (created)
-NEXT ACTION: Approval of 11A.0 report. Then proceed with 11A.1 (no automatic triggers.)
+  - docs/implementation/planner/M11_11A_P0_CURRENT_CAPABILITIES_INVENTORY.md (corrected)
+NEXT ACTION: Iniciar 11A.P1 External Comparative Research, comenzando por Quick Actions y Search.
