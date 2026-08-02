@@ -1,12 +1,13 @@
-# Planner V1 M11 - 11A.1 Global Surfaces Technical Readiness Audit
+# Planner V1 M11 - 11A.1 R1 Global Surfaces Technical Readiness Audit Correction
 
-Status: final audit
+Status: R1 corrected audit
 Date: 2026-08-02
-Lane: Planner V1 / M11 / 11A.1
+Lane: Planner V1 / M11 / 11A.1 R1
 Branch: `planner-v1-11a-1-global-surfaces-technical-readiness`
 Worktree: `C:\Users\thega\Desktop\HomePlus-worktrees\integration`
-Base: `e43f44ff218349b12b31e3f345f4998fc1e62d92`
-Mode: read-only technical readiness audit
+Correction base: `e245dd8a4c30177da1a9cb925e5d604758edf22e`
+Original audit base: `e43f44ff218349b12b31e3f345f4998fc1e62d92`
+Mode: documentation-only correction
 
 ## 1. Executive Summary
 
@@ -14,1128 +15,1387 @@ Verdict:
 
 `PLANNER_GLOBAL_SURFACES_TECHNICAL_READINESS_READY_WITH_PRECONDITIONS`
 
-The repository is technically ready to start implementation of Planner V1 Global Surfaces, but not ready for a blind implementation pass. The current codebase already provides several important foundations: a mounted shell top bar, a single quick-action sheet host, a Planner Search placeholder route, a Planner Trash screen, a backend Trash aggregation service for Tasks/Events/Goals/Milestones, backend Activity logging, Planner capabilities, Home summary consolidation, and the productive mutation reliability runtime.
+R1 corrects the 11A.1 technical audit to align it with the approved P3 human decisions and P4 Product Freeze. The codebase has enough foundations to proceed through controlled implementation packages, but several foundations need adapters or contracts before the frozen surfaces can be released.
 
-However, the frozen product surface is broader than the current implementation. The largest gaps are:
+Corrected architecture:
 
-- Global Search is a placeholder screen, scoped as Planner Search, with no query input, indexing, productive search endpoint, archived/trash contexts, or global shell entry.
-- Global Attention does not exist as a shared AppTopBar surface; current Home "Atencion requerida" is only a legacy summary card.
-- Global Activity is backend-only and Planner-scoped; there is no global Activity tab, grouping model, or frontend surface.
-- Global Trash is Planner-scoped and incomplete; it omits Presets and excludes Drafts correctly for global trash, but lacks permanent delete and Empty Trash.
-- Archive is materially underbuilt for the frozen 11A scope; Plan archive exists structurally but is capability-disabled, while Task/Event/Preset contextual archive is missing.
-- Draft discard still behaves as recoverable trash/restore, conflicting with the frozen immediate definitive discard rule.
-- Reliability is strong for core Task/Event/Plan/Preset/Draft mutations, but some existing flows still bypass the productive runtime and future permanent destructive operations have no offline-safe design.
+- Global architecture is balanced, not a navigation redesign.
+- Home is a Global Surface and remains hybrid: orientation, priority, continuity, conditional Attention, Today / Next, current Inventory exception, offline/stale/partial error handling.
+- Quick Actions is the global surface that contains the `Buscar en HomePlus...` bar plus the small creation actions.
+- Search starts from the bar inside Quick Actions and then opens full-screen.
+- Search initial normal scope is active Tasks, Events, and Plans only.
+- AppTopBar is reserved for the global Attention access and unresolved badge.
+- Attention and Activity share one full-screen surface with tabs.
+- Activity has no badge, no unread state, and no inline mutations.
+- Trash is global and reachable from More plus local prefiltered entries.
+- Archive is contextual by module. There is no single global Archive screen.
+- Draft discard is definitive after confirmation when meaningful content exists.
+- Inventory is protected by explicit deferral guards outside the current Home exception.
+- Geni remains future-only and must not appear as a placeholder.
 
-Recommendation: proceed to implementation only after integration accepts explicit preconditions for IR-11A1-01 through IR-11A1-12 below. The safest path is to build the global shell entry points first, then implement each surface behind capability and feature gates, preserving existing Planner-scoped screens as internal or transitional routes until the global surfaces own navigation.
+Main readiness conclusion:
 
-## 2. Audit Scope
+- Quick Action creation is canonical.
+- Quick Actions lacks the frozen Search bar adapter.
+- Productive Search requires a contract, but active Search can proceed before archived and Trash contexts.
+- Attention requires an item/count/resolution contract and AppTopBar wiring.
+- Activity has backend logging foundations but needs the frozen tab/timeline contract.
+- Global Trash has an aggregation foundation, but entity coverage, retention copy, local prefilters, restore semantics, and destructive operations need alignment.
+- Draft recoverable trash/restore behavior is incompatible with the frozen discard rule and must be corrected before Global Trash release.
+- Archive requires contextual entity work for Tasks, Events, Plans, and Presets; Inventory archive is deferred.
+- Permanent delete and Empty Trash require coordinator-only, online-only destructive handling inside Papelera.
 
-This audit covers only technical readiness. It does not implement new behavior, run migrations, call Supabase, push commits, or alter remote state.
+No implementation is started by this audit. All Integration Requests below are proposed and require Control General approval.
+
+## 2. R1 Scope
+
+This R1 correction modifies only this audit document.
 
 Included:
 
-- Frontend shell, navigation, AppTopBar, More, Home, Planner screens.
-- Existing Quick Actions, Search, Trash, Drafts, Archive, Activity, Summary, and Reliability code.
-- Backend controllers, routes, services, capability checks, and privacy-sensitive patterns.
-- Supabase migration files only as static source evidence.
-- Existing tests and scripts as static evidence.
+- Correct interpretations, classifications, dependencies, Integration Requests, and sequencing.
+- Preserve technical evidence already gathered where still valid.
+- Reclassify requirements with the R1 taxonomy.
+- Mark technical options as `PROPOSED - NOT FROZEN`.
 
 Excluded:
 
-- Supabase runtime execution.
-- Production or preview deployment.
-- Test execution beyond repository validation commands.
-- API contract changes.
-- UI implementation.
-- Schema migrations.
+- Product Freeze changes.
+- Functional Freeze changes.
+- Decision Registry changes.
+- UX/UI Freeze Contract changes.
+- Frontend code changes.
+- Backend code changes.
+- Tests.
+- Routes.
+- Migrations.
+- Package or lock files.
+- Supabase runtime access.
+- Remote Git operations.
 
-## 3. Repository Baseline And Guardrails
+## 3. Preflight And Authority
 
-Observed state:
+Preflight for R1:
 
-- Worktree path: `C:\Users\thega\Desktop\HomePlus-worktrees\integration`
-- Branch at start: `planner-v1-11a-1-global-surfaces-technical-readiness`
-- Expected branch name: `planner-v1-11a-1-global-surfaces-technical-readiness`
-- Expected base commit: `e43f44ff218349b12b31e3f345f4998fc1e62d92`
-- Actual HEAD at start: `e43f44ff218349b12b31e3f345f4998fc1e62d92`
-- Working tree at start: clean
-- Merge/rebase/cherry-pick/bisect state: none detected
+- `git rev-parse 'e245dd8^{commit}'`: resolved to `e245dd8a4c30177da1a9cb925e5d604758edf22e`.
+- Branch: `planner-v1-11a-1-global-surfaces-technical-readiness`.
+- HEAD at start: `e245dd8a4c30177da1a9cb925e5d604758edf22e`.
+- Worktree at start: clean.
+- Merge, rebase, cherry-pick, and bisect state: none detected.
 
-Important note: the worktree was already on the target audit branch when the audit began. HEAD matched the required base commit exactly, so no branch creation or checkout was required.
-
-Operational guardrails followed:
-
-- No remotes were touched.
-- No Supabase commands were run.
-- No application code was modified.
-- Only this audit document was created.
-
-## 4. Authority Documents Read
-
-The following authority documents were read before classification:
+Authority documents reread before this correction:
 
 - `docs/implementation/planner/PLANNER_V1_M11_FUNCTIONAL_FREEZE.md`
 - `docs/implementation/planner/PLANNER_V1_M11_FINAL_DECISION_REGISTRY.md`
 - `docs/implementation/planner/PLANNER_V1_M11_UX_UI_FREEZE_CONTRACT.md`
 - `docs/implementation/planner/M11_11A_P4_GLOBAL_SURFACES_PRODUCT_FREEZE.md`
-- `docs/implementation/planner/M11_11A_P0_GLOBAL_SURFACES_INVENTORY.md`
-- `docs/implementation/planner/M11_11A_P1_DATA_MODEL_EVIDENCE.md`
-- `docs/implementation/planner/M11_11A_P2_BACKEND_CAPABILITY_PRIVACY_AUDIT.md`
-- `docs/implementation/planner/M11_11A_P2_FRONTEND_NAV_SURFACES_AUDIT.md`
-- `docs/implementation/planner/M11_11A_P2_OFFLINE_RELIABILITY_AUDIT.md`
-- `docs/implementation/planner/M11_11A_P2_TEST_TELEMETRY_AUDIT.md`
-- `docs/implementation/planner/M11_11A_P3_CONFLICTS_AND_DECISIONS.md`
 
-Primary frozen contracts applied:
+Precedence applied:
 
-- Global Search: active and archived contexts included; Inventory excluded; Trash context must be explicit.
-- Global Attention and Activity: shared AppTopBar surface with unresolved badge only for Attention.
-- Global Trash: local filtered entries, Drafts excluded, permanent delete and Empty Trash restricted to Trash and coordinator role.
-- Archive: contextual per module; global archive surface rejected; Inventory archive deferred.
-- Drafts: meaningful draft discard is immediate definitive discard after confirmation.
-- Quick Actions: remain create-only; no search-as-tile, inventory, templates, trash, archive, or draft entry.
+1. Functional Freeze version 1.3.
+2. Final Decision Registry.
+3. UX/UI Freeze Contract.
+4. P4 Global Surfaces Product Freeze.
+5. This technical audit.
+
+## 4. Corrected Product Invariants
+
+The audit must not reopen or reinterpret these decisions.
+
+### 4.1 Global Architecture
+
+- Bottom Navigation remains structurally stable.
+- Home remains a Global Surface.
+- Quick Actions remains a Global Surface.
+- Search lives as the bar inside Quick Actions, then transitions to full-screen.
+- Attention and Activity share one tabbed full-screen surface.
+- Trash is global.
+- Archive is contextual by module.
+- Planner keeps canonical Details, forms, lists, and Calendar.
+- Global Surfaces project existing entities and do not duplicate canonical Details or forms.
+- Inventory participates only where expressly approved.
+- Geni does not appear until implemented.
+
+### 4.2 Home
+
+Home is hybrid. It orients, prioritizes, and gives continuity.
+
+Home includes:
+
+- Active household context.
+- Conditional Attention excerpt when real unresolved items exist.
+- Today / Next.
+- Useful Planner continuity.
+- Current Inventory exception.
+- Offline, stale, and partial error states.
+
+Home excludes:
+
+- Permanent Search.
+- Module gateway grid.
+- Redundant access to Planner, Inventory, People, or More.
+- Activity.
+- Trash.
+- Archive.
+- Decorative metrics.
+- Full Planner or Inventory lists.
+- Full forms.
+- Duplicate Details.
+
+The backend-authored Planner Summary can be preserved when compatible. The technical work is adaptation, not removal from Global Surfaces.
+
+### 4.3 Quick Actions And Search
+
+Quick Actions is the surface. It contains:
+
+- The `Buscar en HomePlus...` bar.
+- Small creation actions for `Crear tarea`, `Crear evento`, and `Crear plan`.
+
+The existing creation actions are a foundation, but the frozen Search bar is not present in the current menu.
+
+Search behavior:
+
+- Starts from the bar inside Quick Actions.
+- Opens full-screen.
+- Closes or transitions the Quick Actions sheet.
+- Moves focus to full-screen Search.
+- Restores focus and context on Back.
+- Opens canonical destinations.
+- Does not create parallel Details.
+- Does not execute mutations.
+- Does not replace Geni.
+
+Initial normal Search scope:
+
+- Active Tasks.
+- Active Events.
+- Active Plans.
+
+Initial normal Search excludes:
+
+- Presets.
+- Drafts.
+- Inventory Items.
+- People.
+- Settings.
+- Routes.
+- Commands.
+- Actions.
+
+Search contexts:
+
+- Activos: initial normal context.
+- Archivados: staged after contextual Archive work.
+- Papelera: staged after Global Trash work.
+
+Active Search must not be blocked by the first absence of Archive or Trash context implementation.
+
+### 4.4 AppTopBar, Attention, And Activity
+
+AppTopBar contains the global Attention access and unresolved badge. It does not contain Search.
+
+Attention rules:
+
+- Badge counts only unresolved visible items.
+- Count belongs to the current person and active household.
+- Reading, opening, or viewing an item does not resolve it.
+- Each row can show one primary action plus `Abrir`.
+- Complex flows open canonical Details or canonical flows.
+- Inventory is not included initially.
+
+Activity rules:
+
+- Lives in the Activity tab beside Attention.
+- Chronological timeline.
+- Grouped by day, entity, and process where appropriate.
+- No badge.
+- No unread state.
+- No novelty dots.
+- No "mark all read".
+- No inline mutations.
+- Excludes navigation, clicks, searches, visited screens, keys, routine sync, technical logs, and Inventory initially.
+- Shows human coordination events, not surveillance.
+
+### 4.5 Trash, Drafts, Archive, And Destructive Operations
+
+Global Trash:
+
+- Lives in More as `Papelera`.
+- Can be reached from local prefiltered entries.
+- Covers Tasks, Events, Plans, and Presets where supported.
+- Excludes Drafts.
+- Keeps Inventory deferred.
+- Shows 30-day retention, exact purge date, time remaining, entity type, source module, title, original date when relevant, who moved it, available action, and allowed scope.
+- Restore depends on entity permission and is not coordinator-only.
+- Move to Papelera depends on entity permission and is not coordinator-only.
+
+Drafts:
+
+- Draft is unconfirmed creation work.
+- Draft is private to its creator while it exists.
+- Drafts stay out of Home, Quick Actions, Search, Attention, Activity, Papelera, and Archive.
+- `Descartar borrador` means immediate definitive deletion.
+- Meaningful content discard requires confirmation.
+- No automatic assumption of data migration is made unless evidence proves it.
+
+Archive:
+
+- Contextual by module.
+- Entities: Tasks, Events, Plans, Presets.
+- Inventory Items are functionally approved but technically deferred.
+- Archive does not equal Completed, Closed, Cancelled, or Trash.
+- Archive preserves history and relationships.
+- Archive removes the entity from active views.
+- Unarchive and move to Papelera depend on permission.
+- Permanent delete is not available directly from Archive.
+
+Permanent delete and Empty Trash:
+
+- Exist only inside Papelera.
+- Coordinator-only.
+- Online-only.
+- Not queued.
+- Require explicit confirmation.
+- Do not show success before backend confirmation.
+- Empty Trash is the only initial bulk operation and must tolerate partial failure.
 
 ## 5. Classification Model
 
-Readiness classifications used in this audit:
+Allowed classifications:
 
-- `READY`: implementation foundation appears sufficient for the frozen behavior with only normal wiring.
-- `PARTIAL`: meaningful implementation exists, but frozen behavior requires additional design or code.
-- `MISSING`: no implementation matching the frozen behavior was found.
-- `BLOCKED`: implementation should not begin until a product or architecture decision is resolved.
-- `CONFLICT`: current behavior contradicts the frozen product decision.
-- `DEFERRED_BY_FREEZE`: frozen contract explicitly excludes or defers the surface.
+- `EXISTS_CANONICAL`: the existing implementation is canonical for the frozen behavior.
+- `EXISTS_PARTIAL`: usable foundation exists, but frozen behavior needs additional adaptation.
+- `ADAPTER_REQUIRED`: existing surfaces or services can be adapted without asserting a new product decision.
+- `NEW_CONTRACT_REQUIRED`: behavior needs an approved implementation contract before build.
+- `BACKEND_CAPABILITY_REQUIRED`: backend permission/capability work is required.
+- `DATA_CHANGE_REQUIRED`: evidence shows persisted data or schema compatibility work is required.
+- `RELIABILITY_INTEGRATION_REQUIRED`: operation must integrate with the productive mutation/offline contract.
+- `SECURITY_OR_PERMISSION_GAP`: privacy, ownership, role, or household filtering is incomplete.
+- `DEFERRED_BY_PRODUCT`: explicitly deferred by P3/P4.
+- `BLOCKED`: cannot proceed until Control General resolves a dependency.
+
+Every matrix row has one primary classification and optional secondary classifications.
 
 ## 6. Frozen Requirement Readiness Matrix
 
-| Requirement | Frozen behavior | Current implementation | Evidence | Classification | Frontend gap | Backend gap | Data gap | Permission gap | Reliability gap | Test gap | Dependency | Probable owner | Proposed IR | Recommendation |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Quick Actions as create-only | Center Add opens quick creation for Task/Event/Plan only | Implemented with PlannerSheetHost and capability-filtered catalog | `front/mi-front-limpio/navigation/HomeTabNavigator.tsx:168`, `front/mi-front-limpio/components/planner/QuickActionsMenu.tsx:39`, `front/mi-front-limpio/services/planner/plannerQuickActions.ts:88` | READY | None for 11A | None | None | Existing capability gate | Existing create flows use reliability for Task/Event/Plan graph | Existing quick action tests cover absence of Search | None | Frontend | None | Keep stable; do not expand the catalog |
-| Search entry from shell/top bar | Global Search is a top search bar/icon, not a Quick Action tile | AppTopBar supports `rightSlot`, but no search entry is mounted; Planner Search route is inside Planner stack | `front/mi-front-limpio/components/ui/AppTopBar.tsx:10`, `front/mi-front-limpio/navigation/HomeTabNavigator.tsx:217`, `front/mi-front-limpio/navigation/HomeTabNavigator.tsx:148` | PARTIAL | Add shell search entry and navigation ownership | Add global search API | Search index/model absent | Capability needs global treatment | Query should not enqueue; stale/offline state must be designed | Search surface tests missing | IR-11A1-01 | Frontend + Backend | IR-11A1-01 | Build global entry first, keep PlannerSearch as transitional |
-| Productive Global Search active context | Search active Tasks/Events/Plans/Presets as allowed; Inventory excluded | PlannerSearchScreen is explicitly non-productive and has no input/results | `front/mi-front-limpio/screens/planner/PlannerSearchScreen.tsx:1`, `front/mi-front-limpio/services/planner/plannerSearchStates.ts:10`, `backend/src/routes/planner.js:34` | MISSING | Input, result list, modules, navigation targets | `/api/planner/search` or global route missing | Need query projection for entities | Need per-entity visibility and capability filtering | Offline stale/error states needed | No productive search tests | IR-11A1-02 | Backend + Frontend | IR-11A1-02 | Backend-authoritative search; no client merge |
-| Search archived context | Archived content searchable when user selects archived context | No Task/Event/Preset archive implementation; Plan archive blocked | `backend/src/lib/plannerCapabilities.js:84`, `backend/src/services/planner.plans.service.js:242` | BLOCKED | Archived filter UI absent | Archive APIs incomplete | Archived fields inconsistent by entity | Archive capabilities false | Archive mutation runtime incomplete | Archive tests absent | IR-11A1-08 | Backend + Product | IR-11A1-08 | Implement archive contract before archived search |
-| Search Trash context | Trash search only from explicit Trash context | Planner Trash list exists, but no search within it | `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:31`, `backend/src/services/planner.trash.service.js:202` | PARTIAL | Add Trash search/filter affordance | Add query support to trash API or global search context | Preset trash omitted; drafts excluded | Coordinator destructive ops need separate gates | Restore partly reliability-backed | Tests missing | IR-11A1-04 | Frontend + Backend | IR-11A1-04 | Add after Trash aggregation is completed |
-| Attention AppTopBar badge | Shared AppTopBar Attention icon with unresolved count badge | No Attention icon or badge in AppTopBar; only optional `rightSlot` | `front/mi-front-limpio/components/ui/AppTopBar.tsx:56`, `front/mi-front-limpio/navigation/HomeTabNavigator.tsx:217` | MISSING | Add icon, badge, sheet/screen navigation | Add Attention endpoint/count | Need stable attention item model | Need household and personal visibility | Resolution mutation semantics missing | No Attention tests | IR-11A1-05 | Frontend + Backend | IR-11A1-05 | Design unresolved count contract first |
-| Attention list and resolution | Attention shows actionable unresolved items and supports resolution | No global Attention service; Home card shows legacy counts only | `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:270` | MISSING | Global list UI absent | No attention aggregation endpoint | No attention table/projection found | Capability matrix absent | Resolution must be productive/idempotent | No tests | IR-11A1-06 | Backend + Frontend | IR-11A1-06 | Derive signals server-side from existing sources first |
-| Activity tab in shared surface | Activity is second tab; read-only, no badge/read state | Backend Planner activity list exists; no global UI/tab | `backend/src/controllers/planner.activity.controller.js:21`, `backend/src/services/planner.activity.service.js:159` | PARTIAL | Add tab and read-only activity list | Scope/group/pagination contract incomplete | Activity table exists but entity scope limited | Needs privacy minimization | Read-only, no enqueue needed | No global activity tests | IR-11A1-07 | Frontend + Backend | IR-11A1-07 | Reuse backend log after contract hardening |
-| Global Trash aggregation | Trash includes Task/Event/Plan/Preset trash where supported; Drafts excluded | Planner trash aggregates Tasks/Events/Goals/Milestones only | `backend/src/services/planner.trash.service.js:202`, `backend/src/routes/planner.presets-drafts.js:9` | PARTIAL | UI filters lack Presets/Plans naming consistency | Presets missing from aggregation; Plans naming inconsistent with Goals | Preset trash exists; Plans table has trashed_at | Need per-entity restore capabilities | Restore mixed reliability/direct | Tests incomplete | IR-11A1-04 | Backend + Frontend | IR-11A1-04 | Complete aggregation before destructive actions |
-| Drafts excluded from Global Trash | Drafts do not appear in global trash | Current global Planner Trash does not include drafts | `backend/src/services/planner.trash.service.js:202`, `backend/src/services/planner.drafts.service.js:55` | READY_WITH_RISK | Ensure future global trash does not add drafts | Existing draft trash endpoint conflicts with discard freeze | Drafts still have trashed_at | Personal owner rules exist | Draft discard behavior conflicts | Tests currently expect draft trash/restore | IR-11A1-10 | Frontend + Backend | IR-11A1-10 | Preserve exclusion while changing discard semantics |
-| Permanent delete | Only inside Trash; coordinator only; no offline support | No implementation found | `docs/implementation/planner/M11_11A_P4_GLOBAL_SURFACES_PRODUCT_FREEZE.md:92`, `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:216` | MISSING | Add restricted action and confirmation | Add permanent delete endpoints | Need per-entity hard-delete or tombstone policy | Coordinator-only gate absent | Must be online-only and non-queued | No tests | IR-11A1-09 | Backend + Frontend + Data | IR-11A1-09 | Treat as separate destructive-operation vertical |
-| Empty Trash | Only inside Trash; coordinator only; no offline support | No implementation found | `docs/implementation/planner/PLANNER_V1_M11_UX_UI_FREEZE_CONTRACT.md:190`, `backend/src/services/planner.trash.service.js:202` | MISSING | Add empty trash affordance | Add bulk destructive endpoint | Need retention and per-entity semantics | Coordinator-only gate absent | Must block offline | No tests | IR-11A1-09 | Backend + Frontend + Data | IR-11A1-09 | Implement after permanent delete contracts |
-| Task archive | Contextual module archive, not global archive | Capability key exists but denied; no task archive routes found | `backend/src/lib/plannerCapabilities.js:107`, `backend/src/routes/planner.js:59` | MISSING | Task action UI absent | Task archive/unarchive missing | Need `archived_at` evidence/contract | Capability currently false | Runtime adapter lacks archive operation | Tests absent | IR-11A1-08 | Backend + Data + Frontend | IR-11A1-08 | Do not expose archived search until implemented |
-| Event archive | Contextual module archive, not global archive | No event archive routes found | `backend/src/routes/planner.js:70`, `backend/src/lib/plannerCapabilities.js:84` | MISSING | Event action UI absent | Event archive/unarchive missing | Need `archived_at` evidence/contract | Capability missing or false | Runtime adapter lacks archive operation | Tests absent | IR-11A1-08 | Backend + Data + Frontend | IR-11A1-08 | Align with Task archive semantics |
-| Plan archive | Contextual archive for plans/goals | Plan service and migration support archive, but capability is denied | `backend/src/services/planner.plans.service.js:140`, `backend/src/lib/plannerCapabilities.js:125`, `supabase/migrations/20260722040000_m11_3a_plan_graph_foundation.sql:49` | PARTIAL | UI actions may not surface due capability false | Controller maps archive to `goal.archive` | `archived_at` exists | Capability denied all roles | Plan graph write path exists | Need enabled-path tests | IR-11A1-08 | Backend + Product | IR-11A1-08 | Decide whether 11A means enabling existing Plan archive |
-| Preset archive | Contextual archive for Presets | Preset trash/restore exists; archive not found | `backend/src/routes/planner.presets-drafts.js:9`, `front/mi-front-limpio/services/planner/reliability/productiveAdapters.ts:236` | MISSING | Preset archive UI absent | Archive endpoints absent | Need archive field/policy | Capability absent | Runtime adapter lacks archive | Tests absent | IR-11A1-08 | Backend + Data + Frontend | IR-11A1-08 | Clarify Preset archive storage before implementation |
-| Inventory archive | Deferred by freeze | Inventory has delete/soft-delete, no Planner archive | `backend/src/routes/inventory.js:9`, `backend/src/services/inventory.service.js:378` | DEFERRED_BY_FREEZE | None for 11A | None for 11A | Current deleted_at is Inventory-local | None for 11A | None for 11A | Ensure exclusion tests | IR-11A1-11 | Product + Backend | IR-11A1-11 | Explicitly exclude Inventory from 11A global work |
-| Draft discard | Meaningful draft discard is definitive after confirmation | Drafts still support trash and restore | `backend/src/routes/planner.presets-drafts.js:22`, `backend/src/services/planner.drafts.service.js:99`, `front/mi-front-limpio/components/planner/drafts/PlannerDraftsScreen.tsx:190` | CONFLICT | Replace trash/restore discard UI | Replace trash/restore endpoints or hide from UI | Draft table has retention model | Owner-person guard exists | Draft discard currently reliability-backed as recoverable | Existing tests expect recoverable behavior | IR-11A1-10 | Product + Backend + Frontend | IR-11A1-10 | Resolve before Global Trash release |
-| Home Planner summary | Home card remains backend-authored, max 3 Tasks/3 Events/1 Plan | Implemented with single summary request and deterministic service | `front/mi-front-limpio/services/plannerSummary.ts:31`, `backend/src/services/planner.summary.service.js:10` | READY_WITH_RISK | Home has legacy wording and direct complete flow | Summary endpoint exists | Entity eligibility mostly defined | Capability asserted | One-tap complete bypasses reliability runtime | Smoke only; no broad global test | IR-11A1-12 | Frontend | IR-11A1-12 | Keep Home out of Global Surface ownership except entry points |
-| Home Attention card | Global Attention should be AppTopBar, not Home-local surface | Home still renders "Atencion requerida" from summary counts | `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:270` | CONFLICT | Remove or demote after global Attention exists | None | Summary counts not Attention items | Capability inherited from summary | N/A | Tests need update | IR-11A1-12 | Frontend + Product | IR-11A1-12 | Avoid two competing Attention surfaces |
-| AppTopBar shared ownership | AppTopBar owns cross-app entry points | Top bar only receives avatar/household props; `rightSlot` unused | `front/mi-front-limpio/navigation/HomeTabNavigator.tsx:217`, `front/mi-front-limpio/components/ui/AppTopBar.tsx:10` | PARTIAL | Define shell slot composition | Badge/count endpoints needed | N/A | Role-aware display needed | N/A | Shell tests absent | IR-11A1-01 | Frontend | IR-11A1-01 | Add a dedicated global surfaces right slot |
-| More entry for Trash | More -> Papelera entry exists in frozen UX | More currently lists Feed and Inventory only | `front/mi-front-limpio/screens/MoreScreen.tsx:11` | MISSING | Add Papelera navigation | Reuse/complement Trash API | N/A | Capability gate needed | N/A | More navigation tests absent | IR-11A1-04 | Frontend | IR-11A1-04 | Add only after global Trash route is ready |
-| Capability source of truth | Backend capabilities remain authoritative | `plannerCapabilities.js` centralizes capability catalog and role matrix | `backend/src/lib/plannerCapabilities.js:13` | READY_WITH_RISK | Frontend must consume, not infer | Extend catalog for global surfaces | N/A | Need new keys for global trash/attention/destructive ops | N/A | Capability tests need extension | IR-11A1-03 | Backend | IR-11A1-03 | Extend before UI unlock |
-| Privacy and household isolation | Surfaces must be household scoped and personal visibility safe | Summary and activity are household-scoped; Goals personal visibility handled; Tasks lack personal visibility evidence | `backend/src/services/planner.summary.service.js:61`, `backend/src/services/planner.summary.service.js:199`, `backend/src/services/planner.activity.service.js:159` | PARTIAL | UI cannot leak hidden counts | Server filters must be authoritative | Need per-entity visibility inventory | Capabilities alone insufficient | N/A | Privacy regression tests missing | IR-11A1-03 | Backend + QA | IR-11A1-03 | Build shared result sanitizer/filter |
-| Reliability for global mutations | Destructive/restorative mutations must be idempotent; permanent delete is online-only | Productive runtime exists for many operations; direct paths remain | `front/mi-front-limpio/services/planner/reliability/productiveMutations.ts:49`, `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:203`, `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:111` | PARTIAL | Route all eligible global restore/archive through runtime | Ensure idempotency identities backend-side | N/A | Capability checks per mutation | Permanent delete must bypass queue with online guard | Existing reliability tests do not cover global surfaces | IR-11A1-09 | Frontend + Backend | IR-11A1-09 | Separate queued restore from online-only hard delete |
+| Requirement | Frozen behavior | Current implementation | Evidence | Primary classification | Secondary classification | Frontend gap | Backend gap | Data gap | Permission gap | Reliability gap | Test gap | Dependency | Probable owner | Proposed IR | Initial recommendation |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Quick Actions surface | One global Quick Actions surface contains Search bar plus creation actions | Center Add opens `PlannerSheetHost`; current menu renders creation actions | `front/mi-front-limpio/navigation/HomeTabNavigator.tsx:168`, `front/mi-front-limpio/components/planner/PlannerSheetHost.tsx:428`, `front/mi-front-limpio/components/planner/QuickActionsMenu.tsx:39` | EXISTS_PARTIAL | ADAPTER_REQUIRED | Add frozen Search bar and separation from creation grid | None known for creation | None | Existing capability gate for creation | Existing create flows mostly use productive runtime | Quick Actions tests need Search bar expectations | IR-11A-ROUTES-001 | Frontend | IR-11A-ROUTES-001 | Adapt current sheet, preserve creation actions |
+| Search bar inside Quick Actions | `Buscar en HomePlus...` appears inside Quick Actions above creation actions | No Search bar in current Quick Actions menu | `front/mi-front-limpio/components/planner/QuickActionsMenu.tsx:39`, `front/mi-front-limpio/services/planner/plannerQuickActions.ts:88` | ADAPTER_REQUIRED | NEW_CONTRACT_REQUIRED | Add bar and full touch/focus behavior | Search contract absent | Search result projection undecided | Query visibility must be server-filtered | Search is read-only but needs offline/stale states | Tests absent | IR-11A-SEARCH-001 | Frontend + Backend | IR-11A-SEARCH-001 | Add bar as part of Quick Actions, not as another surface |
+| Search full-screen transition | Tapping the bar opens full-screen Search; Quick Actions closes or transitions | PlannerSearch route exists but starts from Planner navigation, not the frozen Quick Actions path | `front/mi-front-limpio/screens/planner/PlannerSearchScreen.tsx:56`, `front/mi-front-limpio/navigation/plannerSearchNavigation.ts:40` | EXISTS_PARTIAL | ADAPTER_REQUIRED | Wire transition, Back, keyboard, focus restoration | Contract for contexts absent | None | Capability check currently simplified on screen | No mutation queue required | Transition tests incomplete | IR-11A-ROUTES-001 | Frontend | IR-11A-ROUTES-001 | Reuse route if compatible, correct origin and transition |
+| Search active Tasks | Initial Search includes active Tasks | Placeholder screen does not query or render results | `front/mi-front-limpio/screens/planner/PlannerSearchScreen.tsx:1`, `backend/src/routes/planner.js:34` | NEW_CONTRACT_REQUIRED | SECURITY_OR_PERMISSION_GAP | Result UI absent | Search behavior absent | Task searchable fields and canonical target need definition | Task visibility must filter before ranking | Read-only; stale/error states needed | Productive Search tests absent | IR-11A-PRIVACY-001 | Backend + Frontend | IR-11A-SEARCH-001 | Implement active Tasks first with server-side filtering |
+| Search active Events | Initial Search includes active Events | Placeholder screen does not query or render results | `front/mi-front-limpio/screens/planner/PlannerSearchScreen.tsx:1`, `backend/src/routes/planner.js:70` | NEW_CONTRACT_REQUIRED | SECURITY_OR_PERMISSION_GAP | Result UI absent | Event search behavior absent | Event searchable fields and date display need definition | Event visibility must filter before ranking | Read-only; stale/error states needed | Productive Search tests absent | IR-11A-PRIVACY-001 | Backend + Frontend | IR-11A-SEARCH-001 | Implement active Events in same active Search package |
+| Search active Plans | Initial Search includes active Plans | Planner/goal services exist, but Search is placeholder | `front/mi-front-limpio/screens/planner/PlannerSearchScreen.tsx:1`, `backend/src/services/planner.plans.service.js:242` | NEW_CONTRACT_REQUIRED | SECURITY_OR_PERMISSION_GAP | Result UI absent | Plan search behavior absent | Plan vs Goal naming must map to canonical destination | Personal/household scope must filter before ranking | Read-only; stale/error states needed | Productive Search tests absent | IR-11A-PRIVACY-001 | Backend + Frontend | IR-11A-SEARCH-001 | Include Plans in active Search, not Presets |
+| Search archived context | Archived context is explicit and staged after Archive | Archive is incomplete for Tasks/Events/Presets; Plan archive exists but capability-denied | `backend/src/services/planner.plans.service.js:140`, `backend/src/lib/plannerCapabilities.js:84`, `backend/src/lib/plannerCapabilities.js:125` | BLOCKED | ADAPTER_REQUIRED | Context tab/filter absent | Contextual archive incomplete | Archive data differs by entity | Archive permissions not enabled/defined | Archive mutations need productive path | Archived Search tests absent | IR-11A-ARCHIVE-001 | Backend + Frontend | IR-11A-SEARCH-001 | Stage after Archive; do not block active Search |
+| Search Trash context | Papelera context is explicit and staged after Global Trash | Planner Trash list exists, no Search context behavior | `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:31`, `backend/src/services/planner.trash.service.js:202` | BLOCKED | ADAPTER_REQUIRED | Context UI absent | Trash result query/filter absent | Retention display contract incomplete | Trash visibility and destructive permissions incomplete | Restore is mixed direct/runtime | Search-in-Papelera tests absent | IR-11A-TRASH-001 | Backend + Frontend | IR-11A-SEARCH-001 | Stage after Global Trash |
+| AppTopBar Attention entry | AppTopBar shows Attention access with unresolved badge | AppTopBar has extensibility slot; no Attention access mounted | `front/mi-front-limpio/components/ui/AppTopBar.tsx:10`, `front/mi-front-limpio/navigation/HomeTabNavigator.tsx:217` | ADAPTER_REQUIRED | NEW_CONTRACT_REQUIRED | Add Attention access and badge only | Count/list contract absent | Attention identity absent | Count must be current person and household filtered | Resolution may need productive path | Shell/badge tests absent | IR-11A-ATTENTION-001 | Frontend + Backend | IR-11A-ROUTES-001 | Use AppTopBar only for Attention/Activity access |
+| Attention count | Badge counts unresolved visible items | No Attention count source found | `front/mi-front-limpio/components/ui/AppTopBar.tsx:56`, `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:270` | NEW_CONTRACT_REQUIRED | SECURITY_OR_PERMISSION_GAP | Badge data source absent | Count behavior absent | Stable unresolved identity absent | Must filter before count | Count updates after resolution needed | Count privacy tests absent | IR-11A-PRIVACY-001 | Backend + Frontend | IR-11A-ATTENTION-001 | Define count from visible unresolved items only |
+| Attention list | Shows items requiring human decision or intervention | Home card uses summary counts, not Attention items | `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:270` | NEW_CONTRACT_REQUIRED | SECURITY_OR_PERMISSION_GAP | Full-screen tab list absent | Attention item behavior absent | Identity/dedupe/source fields absent | Person recipient rules absent | Main action may need productive path | Attention list tests absent | IR-11A-ATTENTION-001 | Backend + Frontend | IR-11A-ATTENTION-001 | Derive or materialize only after contract approval |
+| Attention resolution | Reading/opening does not resolve; valid action resolves | No resolution flow found | `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:270`, `front/mi-front-limpio/services/planner/reliability/productiveMutations.ts:49` | NEW_CONTRACT_REQUIRED | RELIABILITY_INTEGRATION_REQUIRED | Resolution UI absent | Resolution mapping absent | Resolution state absent | Action permissions per item absent | Must be idempotent or confirmed | Resolution tests absent | IR-11A-RELIABILITY-001 | Backend + Frontend | IR-11A-ATTENTION-001 | Map each item to canonical action or canonical Detail |
+| Activity tab | Activity shares full-screen tabs with Attention | Backend activity list exists; no tab UI | `backend/src/controllers/planner.activity.controller.js:21`, `backend/src/services/planner.activity.service.js:159` | EXISTS_PARTIAL | NEW_CONTRACT_REQUIRED | Activity tab absent | Timeline contract incomplete | Grouping fields may need adaptation | Activity privacy filtering must be explicit | Read-only, no queue | Activity tab tests absent | IR-11A-ROUTES-001 | Backend + Frontend | IR-11A-ACTIVITY-001 | Reuse log foundation after grouping/privacy contract |
+| Activity grouping | Group by day, entity, and process where appropriate | Activity service lists chronological rows | `backend/src/services/planner.activity.service.js:159` | ADAPTER_REQUIRED | SECURITY_OR_PERMISSION_GAP | Group rendering absent | Grouping semantics absent | Process correlation may need fields | Hide private titles/details | None | Grouping tests absent | IR-11A-PRIVACY-001 | Backend + Frontend | IR-11A-ACTIVITY-001 | Keep simple timeline, no unread model |
+| Home Attention excerpt | Home shows conditional unresolved Attention excerpt with `Ver todo` | Home has legacy `Atencion requerida` based on summary counts | `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:270` | ADAPTER_REQUIRED | NEW_CONTRACT_REQUIRED | Replace counts with real Attention excerpt | Attention source absent | Item priority/recency absent | Must match visible items | Main actions may need productive path | Home Attention tests absent | IR-11A-ATTENTION-001 | Frontend + Backend | IR-11A-HOME-001 | Adapt Home as hybrid Global Surface |
+| Home Today / Next | Home orients with Today / Next and useful continuity | Home Planner sections show task/event/goal cards | `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:347`, `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:430` | EXISTS_PARTIAL | ADAPTER_REQUIRED | Naming/order may need freeze alignment | Summary already backend-authored | Existing summary projections available | Summary asserts planner view | Inline completion bypass exists | Home tests limited | IR-11A-HOME-001 | Frontend | IR-11A-HOME-001 | Preserve compatible summary foundations |
+| Home continuity | Home gives useful Planner continuity, not full lists | Summary maxes tasks/events/goals and renders limited cards | `backend/src/services/planner.summary.service.js:10`, `front/mi-front-limpio/services/plannerSummary.ts:31` | EXISTS_CANONICAL | RELIABILITY_INTEGRATION_REQUIRED | Avoid redundant gateways | Summary endpoint exists | None known | Capability already asserted | One-tap completion needs runtime alignment | Smoke coverage only | IR-11A-RELIABILITY-001 | Frontend | IR-11A-HOME-001 | Keep backend-authored summary where compatible |
+| Home Inventory exception | Current Inventory exception is allowed in Home only | Home renders Inventory urgency card | `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:67`, `backend/src/routes/inventory.js:9` | EXISTS_CANONICAL | DEFERRED_BY_PRODUCT | Keep exception scoped to Home | No global expansion | None for 11A | Preserve Inventory local permissions | Existing Inventory flows unaffected | Exclusion tests needed | IR-11A-INVENTORY-DEFERRED-001 | Product + Frontend | IR-11A-HOME-001 | Preserve current exception, add guards elsewhere |
+| Global Trash aggregation | Papelera covers Tasks, Events, Plans, Presets; Drafts excluded | Current Planner Trash aggregates Tasks/Events/Goals/Milestones | `backend/src/services/planner.trash.service.js:202`, `backend/src/routes/planner.presets-drafts.js:9` | EXISTS_PARTIAL | ADAPTER_REQUIRED | UI filters/entity labels incomplete | Presets absent; Plan naming inconsistent | Retention fields need display coverage | Entity visibility incomplete | Restore path mixed | Trash tests incomplete | IR-11A-PRIVACY-001 | Backend + Frontend | IR-11A-TRASH-001 | Complete aggregation without adding Drafts |
+| Trash filters | Papelera has filters and local prefiltered access | UI filters only all/tasks/events/goals | `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:31` | ADAPTER_REQUIRED | NEW_CONTRACT_REQUIRED | Add frozen filters and prefilled local origins | Filter contract incomplete | None known | Filter results must be permission-filtered | None | Filter tests absent | IR-11A-ROUTES-001 | Frontend + Backend | IR-11A-TRASH-001 | Align labels to Tasks/Events/Plans/Presets |
+| Local prefiltered Trash entries | Modules can open Papelera prefiltered | No local prefiltered global entries found | `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:31`, `front/mi-front-limpio/screens/MoreScreen.tsx:11` | ADAPTER_REQUIRED | SECURITY_OR_PERMISSION_GAP | Add local entry points where frozen | Support initial filter params | None known | Preserve entity permissions | Restore still must confirm | Route tests absent | IR-11A-ROUTES-001 | Frontend | IR-11A-TRASH-001 | Add after Global Trash route is stable |
+| Restore | Restore depends on entity permission, not coordinator-only | Task/Event restore uses runtime; goal/milestone restore direct | `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:111`, `front/mi-front-limpio/services/planner/reliability/productiveMutations.ts:105` | EXISTS_PARTIAL | RELIABILITY_INTEGRATION_REQUIRED | Mixed restore execution | Backend restore endpoints exist per entity | Broken relation handling needs surfacing | Entity-level permission checks needed | Direct paths need alignment | Restore tests incomplete | IR-11A-RELIABILITY-001 | Backend + Frontend | IR-11A-TRASH-001 | Normalize restore confirmation and blockers |
+| Draft definitive discard | Discard deletes immediately and definitively after confirmation when meaningful | Drafts support trash/restore and recoverable UI | `backend/src/routes/planner.presets-drafts.js:22`, `backend/src/services/planner.drafts.service.js:99`, `front/mi-front-limpio/components/planner/drafts/PlannerDraftsScreen.tsx:190` | NEW_CONTRACT_REQUIRED | DATA_CHANGE_REQUIRED | Replace recoverable UI | Retire or adapt trash/restore behavior | Persisted draft trash fields exist | Owner-only privacy must remain | Discard should not become Trash restore | Existing tests expect old behavior | IR-11A-DRAFT-DISCARD-001 | Product + Backend + Frontend | IR-11A-DRAFT-DISCARD-001 | Correct before Global Trash release |
+| Task Archive | Contextual archive for Tasks | Capability key exists but disabled; route not found | `backend/src/lib/plannerCapabilities.js:107`, `backend/src/routes/planner.js:59` | NEW_CONTRACT_REQUIRED | BACKEND_CAPABILITY_REQUIRED | Contextual UI absent | Archive behavior absent | Archive field/equivalent not evidenced | Capability disabled | Archive runtime absent | Tests absent | IR-11A-ARCHIVE-001 | Backend + Frontend | IR-11A-ARCHIVE-001 | Implement contextual, not global |
+| Event Archive | Contextual archive for Events | No event archive route found | `backend/src/routes/planner.js:70`, `backend/src/lib/plannerCapabilities.js:84` | NEW_CONTRACT_REQUIRED | BACKEND_CAPABILITY_REQUIRED | Contextual UI absent | Archive behavior absent | Archive field/equivalent not evidenced | Capability absent/disabled | Archive runtime absent | Tests absent | IR-11A-ARCHIVE-001 | Backend + Frontend | IR-11A-ARCHIVE-001 | Align with event lifecycle |
+| Plan Archive | Contextual archive for Plans | Service and migration support archive/unarchive, but capability denied | `backend/src/services/planner.plans.service.js:140`, `backend/src/lib/plannerCapabilities.js:125`, `supabase/migrations/20260722040000_m11_3a_plan_graph_foundation.sql:49` | EXISTS_PARTIAL | BACKEND_CAPABILITY_REQUIRED | UI action may be hidden | Existing service path needs freeze alignment | `archived_at` exists | Capability denied all roles | Plan graph write path exists | Enabled-path tests absent | IR-11A-ARCHIVE-001 | Backend + Frontend | IR-11A-ARCHIVE-001 | Decide capability enablement in Archive package |
+| Preset Archive | Contextual archive for Presets | Preset trash/restore exists; archive not found | `backend/src/routes/planner.presets-drafts.js:9`, `front/mi-front-limpio/services/planner/reliability/productiveAdapters.ts:236` | NEW_CONTRACT_REQUIRED | DATA_CHANGE_REQUIRED | Preset archive UI absent | Archive behavior absent | Preset archive storage undecided | Capability absent | Archive runtime absent | Tests absent | IR-11A-ARCHIVE-001 | Backend + Data + Frontend | IR-11A-ARCHIVE-001 | Define contextual Preset archive |
+| Inventory Archive deferred | Inventory archive is functionally approved but technically deferred | Inventory has local delete/search, not Planner archive | `backend/src/routes/inventory.js:9`, `backend/src/services/inventory.service.js:378` | DEFERRED_BY_PRODUCT | SECURITY_OR_PERMISSION_GAP | Guard against accidental global inclusion | No 11A global work | None for 11A | Preserve local Inventory rules | None | Guard tests needed | IR-11A-INVENTORY-DEFERRED-001 | Product + QA | IR-11A-INVENTORY-DEFERRED-001 | Explicitly defer and protect Inventory |
+| Permanent delete | Only inside Papelera, coordinator-only, online-only | Not implemented in Trash UI or service | `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:216`, `backend/src/services/planner.trash.service.js:202` | NEW_CONTRACT_REQUIRED | SECURITY_OR_PERMISSION_GAP | Destructive UI absent | Destructive behavior absent | Entity integrity/retention policy needed | Coordinator-only server enforcement needed | Must not enqueue | Destructive tests absent | IR-11A-TRASH-001 | Backend + Frontend | IR-11A-PERMDELETE-001 | Treat separately from move/restore |
+| Empty Trash | Only inside Papelera, coordinator-only, online-only, partial failure aware | Not implemented | `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:216`, `backend/src/services/planner.trash.service.js:202` | NEW_CONTRACT_REQUIRED | SECURITY_OR_PERMISSION_GAP | Bulk confirmation UI absent | Bulk behavior absent | Partial failure semantics needed | Coordinator-only server enforcement needed | Must not enqueue | Bulk destructive tests absent | IR-11A-PERMDELETE-001 | Backend + Frontend | IR-11A-PERMDELETE-001 | Implement after Trash aggregation |
+| Coordinator permission | Permanent delete and Empty Trash are coordinator-only | Capability model exists but destructive keys absent | `backend/src/lib/plannerCapabilities.js:13`, `backend/src/lib/plannerCapabilities.js:84` | BACKEND_CAPABILITY_REQUIRED | SECURITY_OR_PERMISSION_GAP | UI must hide/disable based on backend | Capability contract needed | None known | Server enforcement mandatory | Online-only behavior required | Permission tests absent | IR-11A-PRIVACY-001 | Backend | IR-11A-PERMDELETE-001 | Enforce server-side; frontend is presentation only |
+| Entity move/restore permission | Move and restore use entity permission, not coordinator-only | Existing routes vary by entity; some restore direct | `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:111`, `backend/src/routes/planner.js:59` | EXISTS_PARTIAL | BACKEND_CAPABILITY_REQUIRED | UI needs per-entity actions | Permission consistency audit needed | None known | Entity-specific permissions required | Restore runtime alignment needed | Permission tests absent | IR-11A-PRIVACY-001 | Backend + Frontend | IR-11A-TRASH-001 | Do not over-restrict restore to coordinator |
+| Privacy | Privacy applies before ranking/count/grouping/results | Summary and activity are household-scoped; gaps remain for personal visibility | `backend/src/services/planner.summary.service.js:61`, `backend/src/services/planner.summary.service.js:199`, `backend/src/services/planner.activity.service.js:159` | SECURITY_OR_PERMISSION_GAP | BACKEND_CAPABILITY_REQUIRED | UI must not infer hidden data | Server filters needed before all projections | Visibility model differs by entity | Household/person/ownership rules need shared handling | Household switch invalidation needed | Privacy tests absent | None | Backend + QA | IR-11A-PRIVACY-001 | Make this first shared foundation |
+| Household switching | Surface context must invalidate on household/person changes | Summary hook reloads on household/person keys; global surfaces not implemented | `front/mi-front-limpio/services/planner/useHomePlannerSummary.ts:270`, `front/mi-front-limpio/components/planner/PlannerSheetHost.tsx:428` | EXISTS_PARTIAL | SECURITY_OR_PERMISSION_GAP | Global surfaces need invalidation rules | Responses must be scoped server-side | None known | Current person/household must match response | Pending mutation scopes must isolate | Household-switch tests incomplete | IR-11A-PRIVACY-001 | Frontend + Backend | IR-11A-ROUTES-001 | Reuse summary/runtime patterns |
+| Reliability | Mutations require canonical confirmation; destructive permanent ops online-only | Productive runtime exists; Home complete and some restore paths bypass it | `front/mi-front-limpio/services/planner/reliability/productiveMutations.ts:49`, `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:203`, `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:111` | RELIABILITY_INTEGRATION_REQUIRED | EXISTS_PARTIAL | Align inline and restore flows | Idempotency/confirmation varies | None known | Permission checks per mutation | Permanent delete must not queue | Global surface reliability tests absent | IR-11A-PRIVACY-001 | Frontend + Backend | IR-11A-RELIABILITY-001 | Normalize reversible mutations; keep hard delete online-only |
+| Geni future process | Geni appears only when implemented and identified | No Geni action in Quick Actions catalog | `front/mi-front-limpio/services/planner/plannerQuickActions.ts:88` | DEFERRED_BY_PRODUCT | EXISTS_CANONICAL | Preserve absence | None | None | Future identity rules needed | Future process correlation only | Guard tests useful | None | Product | IR-11A-INVENTORY-DEFERRED-001 | Keep absent; no placeholder |
 
-## 7. Frontend Readiness
+## 7. Surface Readiness
 
-### 7.1 Shell And Navigation
+### 7.1 Quick Actions
 
-The current shell can host global surfaces but does not yet own them.
+Current creation actions are a valid foundation. The R1 correction is that Quick Actions is not creation-only: it must also contain the Search bar.
 
-Key evidence:
+Current foundations:
 
-- `HomeTabNavigator` mounts `AppTopBar` globally, but only passes `household`, `onPressAvatar`, and `onPressHousehold`.
-- `AppTopBar` supports a generic `rightSlot`, but the navigator does not pass a slot.
-- `PlannerSearch` and `PlannerTrash` are nested inside the Planner stack, not exposed as global cross-app surfaces.
-- `MoreScreen` does not include `Papelera`.
+- The center tab opens `PlannerSheetHost`.
+- `QuickActionsMenu` renders three implemented creation actions.
+- The catalog excludes Templates, Drafts, Inventory, Trash, Archive, lifecycle actions, and module navigation.
 
-Readiness:
+Gap:
 
-- Shell mounting: `READY`
-- AppTopBar extensibility: `READY_WITH_RISK`
-- Global surface routing: `PARTIAL`
-- Global Search entry: `MISSING`
-- Global Attention entry: `MISSING`
-- More -> Trash entry: `MISSING`
+- The `Buscar en HomePlus...` bar is absent from the current Quick Actions menu.
+- Full-screen Search transition from that bar is not wired.
+- Focus restoration and Android Back behavior must be verified for the frozen path.
 
-Technical risk: if global surfaces are added as Planner-only routes, they will conflict with the freeze's shared AppTopBar model and produce duplicate entry points later.
+### 7.2 Search
 
-### 7.2 Quick Actions
+Search is not a separate global entry. It starts from Quick Actions and then opens full-screen.
 
-Quick Actions are aligned with the freeze. The center Add tab calls `sheet.openActions()`, and the menu catalog contains only:
+Current foundations:
 
-- `create_task`
-- `create_event`
-- `create_goal`
+- `PlannerSearchScreen` exists.
+- Search navigation helpers exist.
+- Capability/access helpers exist.
 
-The Quick Actions implementation correctly avoids Search, Inventory, Templates, Trash, Archive, and Drafts.
+Gaps:
 
-One stale label exists in `plannerQuickActions.ts`: a comment still says "Goal is deferred to M5" while create goal/plan is implemented. This is documentation drift, not a functional blocker for 11A.
+- Current screen is intentionally non-productive.
+- No input/results/loading/empty/error result model is implemented.
+- Initial active scope must be limited to Tasks, Events, and Plans.
+- Presets are excluded from initial Search even though they participate in Archive/Papelera.
+- Archived context depends on `IR-11A-ARCHIVE-001`.
+- Papelera context depends on `IR-11A-TRASH-001`.
 
-### 7.3 Search
+### 7.3 AppTopBar, Attention, Activity
 
-Search is not implementation-ready as a product surface. It has a placeholder navigation state machine and capability access checks, but no productive search behavior.
+AppTopBar has a technical extension point, but the frozen use for 11A is Attention access and badge.
 
-Evidence:
+Attention gaps:
 
-- `PlannerSearchScreen.tsx` says it performs no backend requests, input, mocks, query, debounce, ranking, or results.
-- `plannerSearchStates.ts` explicitly does not implement productive states such as typing, loading results, results, empty results, or error.
-- Backend `planner.js` exposes no search endpoint.
+- No count source.
+- No item identity.
+- No deduplication.
+- No recipient/person targeting.
+- No resolution mapping.
+- No tabbed full-screen surface.
+- Home currently shows only legacy summary-derived attention-like counts.
 
-Recommended architecture:
+Activity foundations and gaps:
 
-- Create a backend-authoritative search endpoint.
-- Keep Inventory excluded.
-- Model contexts explicitly: `active`, `archived`, `trash`.
-- Keep Trash search reachable only inside Trash context.
-- Apply capability and visibility filtering server-side.
-- Return normalized result cards with entity type, id, title, subtitle, state, source module, and navigation target.
+- Backend activity logging/listing exists.
+- It is not yet the frozen Activity tab.
+- Grouping by day/entity/process is absent.
+- Privacy minimization and exclusion of technical noise require contract work.
+- Activity must stay read-only, badge-free, and without unread semantics.
 
-### 7.4 Attention And Activity
+### 7.4 Home
 
-Attention is missing. Activity is partially present backend-side.
+Home is a Global Surface and should be adapted, not excluded.
 
-Attention must not be built from Home summary counts alone. The frozen surface requires unresolved actionable items, count semantics, and resolution behavior. Existing signals exist in Tasks and reliability state, but no stable Attention item projection was found.
+Current foundations:
 
-Activity has a backend service that lists `planner_activity_log`, but it is not yet global:
+- Home Planner sections are backed by a single summary request.
+- Summary service projects limited Tasks, Events, and Plan/Goal continuity.
+- Home role variants mount `HomePlannerSections`.
+- Inventory urgency is present as the current approved exception.
 
-- Entity types are limited to task/event/goal/milestone.
-- No grouped day model was found.
-- No pagination cursor was found.
-- No AppTopBar tab/sheet was found.
+Gaps:
 
-Recommended architecture:
-
-- Define a shared "attention activity surface" endpoint family.
-- `GET /api/planner/attention/count`
-- `GET /api/planner/attention`
-- `POST /api/planner/attention/:id/resolve` or entity-native mutation mapping
-- `GET /api/planner/activity`
-- Keep Activity read-only and badge-free.
-- Make Attention badge count server-authored.
+- Attention excerpt must use real unresolved Attention items when available.
+- Home must keep Today / Next and useful continuity without becoming full Planner.
+- Home must exclude Activity, Trash, Archive, permanent Search, and module gateways.
+- One-tap completion should align with productive mutation Reliability.
 
 ### 7.5 Trash
 
-The existing Trash implementation is a useful foundation but not yet the frozen Global Trash.
+Current Trash is a foundation, not the final global surface.
 
-Current included entity types:
+Current foundations:
 
-- Tasks
-- Events
-- Goals
-- Milestones
+- Backend aggregates trashed Tasks, Events, Goals, and Milestones.
+- Frontend Trash screen exists.
+- Restore exists for several entity types.
 
-Current omitted entity types:
+Gaps:
 
-- Presets, despite existing preset trash/restore routes
-- Plans as named frozen entity, though current code uses goals/plans terminology inconsistently
-- Drafts, correctly omitted from global trash but still recoverable in Drafts UI
-- Inventory, correctly excluded or deferred
-
-The current Trash UI supports restore only. Permanent delete and Empty Trash are absent.
-
-Recommended architecture:
-
-- Complete aggregation for supported non-draft Planner entities.
-- Add role-gated coordinator-only destructive actions.
-- Keep permanent delete and Empty Trash online-only and not queued.
-- Keep restore operations reliability-backed where possible.
-- Add `More -> Papelera` only when the global route is ready.
+- More does not expose `Papelera`.
+- Presets are absent from the aggregate despite preset trash/restore support.
+- Plans/Goals naming needs user-facing alignment.
+- Drafts must remain excluded while Draft discard is corrected separately.
+- Retention copy, exact purge date, time remaining, local prefilters, and permissions need alignment.
+- Permanent delete and Empty Trash are separate destructive work under `IR-11A-PERMDELETE-001`.
 
 ### 7.6 Archive
 
-Archive is the least ready frozen surface after Attention.
+Archive is contextual by module.
 
-Findings:
+Current foundations:
 
-- Plan/goal archive exists structurally in the plan graph service and migration.
-- `goal.archive` and `task.archive` capabilities are false for all roles.
-- Task archive routes were not found.
-- Event archive routes were not found.
-- Preset archive routes were not found.
-- Inventory archive is deferred by freeze.
+- Plan graph service has archive/unarchive mechanics.
+- Plan migration includes `archived_at`.
 
-Recommendation: do not implement archived search before the archive model is normalized. The archived context of Search depends on Archive semantics being real and role-safe.
+Gaps:
 
-### 7.7 Draft Discard
+- Plan archive capability is disabled.
+- Task archive behavior is absent.
+- Event archive behavior is absent.
+- Preset archive behavior is absent.
+- Inventory archive is deferred.
+- Archived Search should follow contextual Archive work.
 
-Draft discard is in conflict with the frozen decision.
+### 7.7 Drafts
 
-Current behavior:
+Draft behavior requires correction before Global Trash release.
 
-- Drafts have `trashed_at` and `retention_expires_at`.
-- Draft routes include trash and restore.
-- Drafts UI displays active and trashed drafts.
-- Tests expect draft trash/restore.
+Current evidence:
 
-Frozen behavior:
+- Draft routes support trash and restore.
+- Draft service stores recoverable trash fields.
+- Draft UI shows active and trashed partitions.
+- Existing tests encode recoverable draft behavior.
 
-- Meaningful draft discard requires confirmation.
-- Confirmed discard is immediate and definitive.
-- Drafts do not appear in Global Trash.
+Frozen correction:
 
-Required decision: either replace recoverable draft trash/restore with definitive discard for 11A, or explicitly defer this correction with a signed integration exception. Without that, Global Trash and Drafts behavior will contradict the product freeze.
+- Draft discard is definitive after confirmation when meaningful.
+- Drafts do not appear in Papelera.
+- Do not assume data migration unless persistent compatibility evidence requires it.
 
-## 8. Backend Readiness
+## 8. Integration Requests
 
-### 8.1 Existing Strengths
+All IRs below are:
 
-The backend already has useful primitives:
+`PROPOSED - REQUIRES CONTROL GENERAL APPROVAL`
 
-- Central capability catalog in `plannerCapabilities.js`.
-- Summary endpoint guarded by `planner.view`.
-- Activity logging and listing service.
-- Trash aggregation service.
-- Entity restore/trash endpoints for Tasks, Events, Goals/Milestones, Presets, and Drafts.
-- Plan graph RPC support for archive/unarchive.
+### IR-11A-ROUTES-001
 
-### 8.2 Backend Gaps
+Problem: current routes and navigation paths do not fully match frozen surface ownership and transitions.
 
-Missing or incomplete backend contracts:
+Frozen decision:
 
-- Global search endpoint.
-- Attention count/list/resolve endpoint.
-- Global activity contract with grouping/pagination/privacy minimization.
-- Global trash endpoint covering all supported frozen entity types.
-- Permanent delete endpoint.
-- Empty Trash endpoint.
-- Task/Event/Preset archive endpoints.
-- Online-only enforcement for permanent destructive operations.
-- Capability keys for global surfaces and coordinator-only destructive actions.
-
-### 8.3 Suggested Endpoint Shape
-
-Suggested endpoint grouping:
-
-- `GET /api/planner/global-search`
-- `GET /api/planner/global-trash`
-- `POST /api/planner/global-trash/:entityType/:id/restore`
-- `DELETE /api/planner/global-trash/:entityType/:id`
-- `DELETE /api/planner/global-trash`
-- `GET /api/planner/global-attention/count`
-- `GET /api/planner/global-attention`
-- `POST /api/planner/global-attention/:attentionId/resolve`
-- `GET /api/planner/global-activity`
-
-The exact route names can follow local route conventions, but the ownership should be global-surface oriented rather than hidden inside unrelated module controllers.
-
-## 9. Data Readiness
-
-Data readiness is mixed.
-
-Known available source fields:
-
-- Tasks: `trashed_at` present in trash service queries.
-- Events: `trashed_at` present in trash service queries.
-- Goals/Plans: `trashed_at`, `archived_at`, and terminal state concepts exist in plan graph code.
-- Milestones: trash and restore service support exists.
-- Presets: trash and restore routes exist.
-- Drafts: recoverable trash state exists, but conflicts with freeze.
-- Inventory: local deleted/restock patterns exist, but archive is deferred.
-- Activity: `planner_activity_log` exists as a backend dependency.
-
-Data gaps:
-
-- Search projection/index contract.
-- Attention item projection and stable IDs.
-- Preset inclusion in global trash.
-- Archive fields or policy for Task/Event/Preset.
-- Permanent delete/tombstone/retention policy per entity.
-- Count semantics for Attention.
-- Shared visibility sanitizer across search, attention, activity, and trash.
-
-## 10. Permissions And Privacy Readiness
-
-The capability system is a solid foundation, but 11A needs explicit new keys and tests.
-
-Existing evidence:
-
-- `plannerCapabilities.js` declares itself the single source of truth for Planner capabilities.
-- Summary controller asserts `planner.view`.
-- Summary service filters goals with personal visibility logic.
-- Activity list is household-scoped.
-
-Risks:
-
-- Search can leak private titles/descriptions if implemented by client-side merging or incomplete filters.
-- Activity can leak entity names or actions unless payloads are minimized.
-- Attention counts can leak private item existence if counts include invisible items.
-- Trash can expose deleted content to non-authorized roles without per-entity restore/delete capability checks.
-- Permanent delete and Empty Trash must be coordinator-only, and should not rely on frontend-only gating.
-
-Recommended permission keys:
-
-- `planner.globalSearch.view`
-- `planner.attention.view`
-- `planner.attention.resolve`
-- `planner.activity.view`
-- `planner.trash.view`
-- `planner.trash.restore`
-- `planner.trash.deletePermanent`
-- `planner.trash.empty`
-- `task.archive`
-- `event.archive`
-- `goal.archive`
-- `preset.archive`
-
-## 11. Reliability And Offline Readiness
-
-The productive mutation runtime is a strength. It supports confirmed enqueue behavior, retry/replay, conflict intent, identity stability, cache invalidation, and visual states.
-
-Ready or mostly ready:
-
-- Task create/update/complete/verify/cancel/trash/restore/reactivate.
-- Event create/update/cancel/restore/occurrence override.
-- Plan graph write.
-- Preset trash/restore.
-- Draft trash/restore, though semantics conflict with freeze.
-
-Not ready:
-
-- Global permanent delete.
-- Empty Trash.
-- Archive/unarchive for Task/Event/Preset.
-- Attention resolve if it maps to entity mutations.
-- Search offline/stale result model.
-- Direct Home one-tap task completion, which bypasses the productive runtime.
-- Direct goal/milestone restore from Planner Trash.
-
-Recommendation:
-
-- Queue only reversible or idempotent productive mutations.
-- Make permanent delete and Empty Trash online-only, with explicit network and server confirmation.
-- Use a single global invalidation path for Search, Attention, Activity, Trash, and Home summary after mutations.
-
-## 12. Testing Readiness
-
-Existing useful tests:
-
-- Quick Actions catalog and hidden Search tile expectations.
-- Planner Search transition placeholder tests.
-- Planner summary/Home smoke checks.
-- Reliability runtime tests for replay, identity, retries, user/household switch, and conflict intent.
-- Presets/Drafts integration and frontend tests.
-- Planner M11 contract tests for Goal/Milestone restore version passing.
-
-Missing required tests:
-
-- Productive Global Search active context.
-- Search archived context.
-- Search Trash context.
-- Search privacy and capability filtering.
-- Attention count/list/resolve.
-- Activity global tab and privacy behavior.
-- Global Trash aggregation including Presets and excluding Drafts.
-- Permanent delete coordinator-only behavior.
-- Empty Trash coordinator-only behavior.
-- Online-only enforcement for permanent destructive operations.
-- Archive/unarchive for Task/Event/Preset/Plan.
-- Draft definitive discard.
-- AppTopBar badge and navigation behavior.
-- More -> Papelera navigation.
-- No duplicate Attention/Home-local global surface regression.
-
-## 13. Technical Options
-
-### 13.1 Global Search
-
-Option A: backend-authoritative federated search
-
-- Query each eligible table/service server-side.
-- Apply capability and visibility filters before returning results.
-- Normalize to a shared result shape.
-- Supports active, archived, and trash contexts.
-
-Pros:
-
-- Best privacy posture.
-- Avoids client-side leakage.
-- Easier to test with role fixtures.
-- Matches Home summary's backend-authoritative pattern.
-
-Cons:
-
-- Requires backend work before UI can be truly productive.
-- Requires shared ranking rules.
-
-Recommendation: choose Option A.
-
-Option B: client-side aggregation
-
-- Client calls existing endpoints and merges results locally.
-
-Pros:
-
-- Faster first UI prototype.
-
-Cons:
-
-- Higher privacy risk.
-- More request fan-out.
-- Harder capability behavior.
-- Conflicts with backend-authoritative Home summary precedent.
-
-Recommendation: reject for production implementation.
-
-### 13.2 Attention
-
-Option A: derived server-side attention projection
-
-- Generate attention items from existing entity states such as awaiting verification, conflicts, stale overdue items, and reliability conflict states.
-- Return stable derived IDs and action descriptors.
-
-Pros:
-
-- Avoids new source-of-truth table initially.
-- Easier to keep Attention aligned with existing entity mutations.
-
-Cons:
-
-- Requires careful stable ID and de-duplication rules.
-
-Recommendation: choose Option A for 11A.
-
-Option B: new persisted attention table
-
-- Store attention items independently.
-
-Pros:
-
-- Strong lifecycle control.
-
-Cons:
-
-- Higher migration and synchronization risk.
-- More likely to duplicate entity truth.
-
-Recommendation: defer unless derived model proves insufficient.
-
-### 13.3 Trash And Permanent Delete
-
-Option A: aggregator plus entity-native destructive handlers
-
-- Global Trash lists normalized items.
-- Restore/delete dispatches to entity-specific server handlers.
-- Empty Trash orchestrates entity handlers transactionally where possible.
-
-Pros:
-
-- Respects existing entity logic.
-- Easier to keep capability rules entity-aware.
-
-Cons:
-
-- Needs careful partial failure handling for Empty Trash.
-
-Recommendation: choose Option A.
-
-Option B: direct table-level global hard delete
-
-Pros:
-
-- Simple route surface.
-
-Cons:
-
-- High integrity risk.
-- Can bypass domain invariants and activity logging.
-
-Recommendation: reject.
-
-### 13.4 Archive
-
-Option A: normalize archive as entity-native contextual action
-
-- Add archive/unarchive for Task/Event/Preset.
-- Enable existing Plan archive only after capability and UI decisions.
-- Feed archived search from these entity-native states.
-
-Pros:
-
-- Matches freeze.
-- Avoids accidental global archive page.
-
-Cons:
-
-- Requires schema/API alignment.
-
-Recommendation: choose Option A.
-
-## 14. Open Contradictions
-
-1. Drafts conflict with frozen discard semantics.
-   - Current code supports draft trash/restore.
-   - Freeze requires confirmed discard to be definitive.
-
-2. Home has a local Attention-like section.
-   - Current Home card says "Atencion requerida".
-   - Freeze moves Attention to a shared AppTopBar surface.
-
-3. Plan archive exists but is capability-disabled.
-   - Service and migration support archive/unarchive.
-   - Capability matrix denies archive for every role.
-
-4. Search route exists but intentionally cannot search.
-   - Product freeze expects active Search.
-   - Current screen is a non-productive placeholder.
-
-5. Activity backend exists but not as frozen surface.
-   - Current endpoint is Planner-scoped list activity.
-   - Freeze expects shared surface tab beside Attention.
-
-## 15. Integration Requests
-
-### IR-11A1-01 - Global Surface Shell Ownership
-
-Problem: AppTopBar can host a right slot, but no global Search/Attention entry is mounted and routes are Planner-scoped.
-
-Frozen requirement:
-
-- Search, Attention, and Activity are shared/global surfaces.
-- Attention and Activity live in the shared AppTopBar surface.
-- Quick Actions remain create-only.
+- Quick Actions contains Search bar plus creation actions.
+- Search full-screen starts from Quick Actions.
+- Attention/Activity are reached from AppTopBar.
+- Trash is reached from More and local prefiltered entries.
+- Archive is contextual.
 
 Evidence:
 
-- `front/mi-front-limpio/components/ui/AppTopBar.tsx:10`
+- `front/mi-front-limpio/navigation/HomeTabNavigator.tsx:168`
 - `front/mi-front-limpio/navigation/HomeTabNavigator.tsx:217`
-- `front/mi-front-limpio/navigation/HomeTabNavigator.tsx:148`
+- `front/mi-front-limpio/screens/MoreScreen.tsx:11`
+- `front/mi-front-limpio/navigation/plannerSearchNavigation.ts:40`
 
-Owner: Frontend.
+Classification:
 
-Dependencies: IR-11A1-02, IR-11A1-05, IR-11A1-07.
+- Primary: `ADAPTER_REQUIRED`
+- Secondary: `SECURITY_OR_PERMISSION_GAP`
 
-Scope:
+Ownership probable: Frontend, with backend support for route/context contracts.
 
-- Add explicit global-surface composition to AppTopBar usage.
-- Add Search and Attention entry points.
-- Keep Quick Actions unchanged.
-- Add global routes or modal/sheet hosts owned by the app shell.
+Dependencies:
+
+- `IR-11A-PRIVACY-001`
+
+Minimum scope:
+
+- Quick Actions entry and Search bar origin.
+- Full-screen Search transition, Back, keyboard, focus restoration.
+- Attention/Activity access from AppTopBar.
+- Global Trash from More.
+- Local prefiltered Trash entries.
+- Contextual Archive entry handling.
+- Archived and recovery contexts.
 
 Exclusions:
 
-- No new Quick Actions entries.
-- No Inventory global search.
+- Bottom Navigation redesign.
+- Independent Search access outside Quick Actions.
+- Global Archive screen.
 
-Risk: duplicate or conflicting navigation if existing Planner routes remain primary.
+Risks:
 
-Acceptance criteria:
+- Duplicate navigation paths.
+- Focus loss on Back.
+- Context leakage after household switch.
 
-- AppTopBar shows global Search and Attention according to role/capability.
-- Attention badge is shown only for unresolved Attention count.
-- Activity has no badge/read state.
-- Planner Search is not the only route to Search.
-- Quick Actions catalog still has only Task/Event/Plan creation.
+Acceptance evidence:
 
-Order: implement before user-facing Global Search/Attention UI work.
+- Navigation tests for phone/tablet, Back, focus restoration, and household switching.
+- Audit that Quick Actions remains the Search origin.
 
-### IR-11A1-02 - Backend-Authoritative Global Search
+Suggested order: Package A foundation.
 
-Problem: current Search is a placeholder with no productive query path.
+### IR-11A-PRIVACY-001
 
-Frozen requirement:
+Problem: global surfaces need shared privacy, permission, role, household, ownership, and personal-scope rules before ranking/counting/grouping/results.
 
-- Search is active by default.
-- Archived context is searchable.
-- Trash context is explicit.
-- Inventory is excluded.
+Frozen decision:
+
+- Privacy applies before Search ranking, Attention count, Activity grouping, Trash listing, and Archive exposure.
+- Coordinator does not automatically see private personal content.
+- Frontend visibility does not replace backend authorization.
+
+Evidence:
+
+- `backend/src/lib/plannerCapabilities.js:13`
+- `backend/src/services/planner.summary.service.js:61`
+- `backend/src/services/planner.summary.service.js:199`
+- `backend/src/services/planner.activity.service.js:159`
+
+Classification:
+
+- Primary: `SECURITY_OR_PERMISSION_GAP`
+- Secondary: `BACKEND_CAPABILITY_REQUIRED`
+
+Ownership probable: Backend + QA.
+
+Dependencies: none.
+
+Minimum scope:
+
+- Current user.
+- Active household.
+- Ownership.
+- Personal and household scope.
+- Entity permissions.
+- Filtering before ranking/counting/grouping.
+- Household switch, late responses, logout/login.
+
+Exclusions:
+
+- Freezing concrete capability names before implementation design.
+
+Risks:
+
+- Invisible item count leakage.
+- Private titles in Activity.
+- Unauthorized Trash enumeration.
+
+Acceptance evidence:
+
+- Role and household tests for Search, Attention, Activity, Trash, Archive.
+- Count/list parity tests for Attention.
+
+Suggested order: Package A foundation.
+
+### IR-11A-RELIABILITY-001
+
+Problem: reversible global-surface mutations and Home inline actions need canonical confirmation; permanent destructive operations must stay online-only and out of queue.
+
+Frozen decision:
+
+- Restore and contextual entity actions should not claim success until canonical confirmation.
+- Permanent delete and Empty Trash do not work offline and are not queued.
+
+Evidence:
+
+- `front/mi-front-limpio/services/planner/reliability/productiveMutations.ts:49`
+- `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:203`
+- `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:111`
+
+Classification:
+
+- Primary: `RELIABILITY_INTEGRATION_REQUIRED`
+- Secondary: `EXISTS_PARTIAL`
+
+Ownership probable: Frontend + Backend.
+
+Dependencies:
+
+- `IR-11A-PRIVACY-001`
+
+Minimum scope:
+
+- Home inline completion.
+- Restore from Papelera.
+- Archive/unarchive where applicable.
+- Attention primary actions.
+- Offline/stale/error states.
+- Online-only guard for destructive permanent operations.
+
+Exclusions:
+
+- Queueing permanent delete.
+- Queueing Empty Trash.
+
+Risks:
+
+- False success after failed restore.
+- Duplicate actions after retry.
+- Data loss if hard delete is treated as queued mutation.
+
+Acceptance evidence:
+
+- Runtime tests for restore/archive/Attention actions.
+- Offline blocked tests for permanent destructive actions.
+
+Suggested order: Package A foundation.
+
+### IR-11A-DRAFT-DISCARD-001
+
+Problem: current Drafts are recoverable via trash/restore, while the freeze says discard is immediate and definitive after confirmation for meaningful content.
+
+Frozen decision:
+
+- Drafts stay out of Home, Quick Actions, Search, Attention, Activity, Papelera, and Archive.
+- Discarded Drafts do not restore.
+
+Evidence:
+
+- `backend/src/routes/planner.presets-drafts.js:22`
+- `backend/src/services/planner.drafts.service.js:99`
+- `backend/src/services/planner.drafts.service.js:110`
+- `front/mi-front-limpio/components/planner/drafts/PlannerDraftsScreen.tsx:190`
+
+Classification:
+
+- Primary: `NEW_CONTRACT_REQUIRED`
+- Secondary: `DATA_CHANGE_REQUIRED`
+
+Ownership probable: Product + Backend + Frontend + QA.
+
+Dependencies:
+
+- `IR-11A-PRIVACY-001`
+
+Minimum scope:
+
+- Compatible retirement or adaptation of Draft trash/restore behavior.
+- Confirmation for meaningful Draft discard.
+- Definitive discard semantics.
+- Owner-only privacy.
+- Legacy route/test compatibility decision.
+
+Exclusions:
+
+- Adding Drafts to Papelera.
+- Adding Drafts to Search.
+- Assuming migration without evidence.
+
+Risks:
+
+- Loss of work if confirmation is weak.
+- Old tests preserving obsolete behavior.
+- Existing stored draft trash fields need compatibility handling.
+
+Acceptance evidence:
+
+- Tests proving Drafts are absent from global surfaces.
+- Tests proving meaningful discard requires confirmation and cannot be restored in UI.
+
+Suggested order: Package A foundation; must be complete before Global Trash release.
+
+### IR-11A-INVENTORY-DEFERRED-001
+
+Problem: Inventory has local capabilities that can be accidentally pulled into global Planner surfaces.
+
+Frozen decision:
+
+- Inventory remains excluded from Search, Attention, Activity, Quick Actions, Trash, and Archive for 11A, except the current Home exception.
+- Inventory Archive is product-approved but technically deferred.
+
+Evidence:
+
+- `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:67`
+- `backend/src/routes/inventory.js:9`
+- `backend/src/services/inventory.service.js:198`
+- `backend/src/services/inventory.service.js:378`
+
+Classification:
+
+- Primary: `DEFERRED_BY_PRODUCT`
+- Secondary: `SECURITY_OR_PERMISSION_GAP`
+
+Ownership probable: Product + QA + Frontend + Backend.
+
+Dependencies: transversal.
+
+Minimum scope:
+
+- Guard tests and explicit exclusions.
+- Preserve Home Inventory exception.
+- Preserve local Inventory behavior.
+
+Exclusions:
+
+- Inventory in Search.
+- Inventory inside the Attention surface.
+- Inventory inside the Activity surface.
+- Inventory in Quick Actions.
+- Inventory in Papelera.
+- Inventory in Archive during 11A.
+
+Risks:
+
+- Generic aggregation accidentally exposes Inventory.
+- Product scope creep.
+
+Acceptance evidence:
+
+- Exclusion tests across all global surfaces.
+
+Suggested order: Package A foundation and carried through all packages.
+
+### IR-11A-SEARCH-001
+
+Problem: Search exists only as a placeholder and lacks the frozen Quick Actions origin and productive active results.
+
+Frozen decision:
+
+- Search starts from the bar inside Quick Actions.
+- Full-screen Search opens canonical destinations.
+- Initial normal Search includes active Tasks, Events, and Plans only.
+- Archived and Papelera contexts are explicit staged contexts.
 
 Evidence:
 
 - `front/mi-front-limpio/screens/planner/PlannerSearchScreen.tsx:1`
 - `front/mi-front-limpio/services/planner/plannerSearchStates.ts:10`
+- `front/mi-front-limpio/navigation/plannerSearchNavigation.ts:40`
 - `backend/src/routes/planner.js:34`
 
-Owner: Backend plus Frontend.
+Classification:
 
-Dependencies: IR-11A1-03 and IR-11A1-08.
+- Primary: `NEW_CONTRACT_REQUIRED`
+- Secondary: `SECURITY_OR_PERMISSION_GAP`
 
-Scope:
+Ownership probable: Backend + Frontend.
 
-- Define normalized search result DTO.
-- Implement backend search endpoint.
-- Implement frontend input/results/loading/empty/error states.
-- Support `active`, `archived`, and `trash` contexts.
+Dependencies:
 
-Exclusions:
+- Active context: `IR-11A-PRIVACY-001`, `IR-11A-ROUTES-001`
+- Archived context: `IR-11A-ARCHIVE-001`
+- Papelera context: `IR-11A-TRASH-001`
 
-- Inventory search.
-- Quick Action search tile.
-- Client-side endpoint fan-out as production behavior.
+Minimum scope:
 
-Risk: privacy leakage through titles, descriptions, hidden personal plans, or trash content.
-
-Acceptance criteria:
-
-- Empty query behavior is deterministic.
-- Results are role-filtered server-side.
-- Archived results appear only when archive is implemented and selected.
-- Trash results appear only in explicit Trash context.
-- Offline and server-error states are visible and test-covered.
-
-Order: after capability/privacy keys and before global Search launch.
-
-### IR-11A1-03 - Global Surface Capability And Privacy Contract
-
-Problem: current capability catalog does not define all global surface operations.
-
-Frozen requirement:
-
-- Global surfaces are role-safe and household-safe.
-- Coordinator-only destructive operations are enforced server-side.
-
-Evidence:
-
-- `backend/src/lib/plannerCapabilities.js:13`
-- `backend/src/controllers/planner.summary.controller.js:37`
-- `backend/src/services/planner.summary.service.js:199`
-- `backend/src/services/planner.activity.service.js:159`
-
-Owner: Backend.
-
-Dependencies: none.
-
-Scope:
-
-- Add capabilities for global Search, Attention, Activity, Trash, restore, permanent delete, Empty Trash, and archive.
-- Define entity visibility filters shared by Search, Attention, Activity, and Trash.
-- Add backend tests for role and household isolation.
+- Search bar inside Quick Actions.
+- Full-screen Search.
+- Active Tasks, Events, Plans.
+- Permissions before ranking.
+- Canonical destinations.
+- Loading, empty, error, offline/stale states.
+- Staged archived and Papelera contexts.
 
 Exclusions:
 
-- Frontend-only authorization.
+- Presets in initial normal Search.
+- Drafts.
+- Inventory.
+- People.
+- Settings.
+- Commands.
+- Actions.
+- Routes.
 
-Risk: counts or result rows can leak invisible entity existence.
+Risks:
 
-Acceptance criteria:
+- Search scope creep.
+- Privacy leakage before filtering.
+- Incorrect destination for archived or trashed results.
 
-- Every global-surface endpoint asserts a capability.
-- Every returned row has passed entity-specific visibility filtering.
-- Attention counts match the visible Attention list.
-- Activity payloads are minimized for privacy.
-- Coordinator-only operations fail server-side for other roles.
+Acceptance evidence:
 
-Order: first backend dependency for all global surfaces.
+- Active Search tests for Tasks, Events, Plans only.
+- Exclusion tests for Presets, Drafts, Inventory, People, Settings, commands, actions, and routes.
+- Canonical destination tests.
 
-### IR-11A1-04 - Complete Global Trash Aggregation
+Suggested order: Package B for active context; Package F for staged contexts.
 
-Problem: Trash aggregation exists for Tasks/Events/Goals/Milestones only.
+### IR-11A-ATTENTION-001
 
-Frozen requirement:
+Problem: Attention lacks shared surface, count, item identity, deduplication, recipient rules, and resolution semantics.
 
-- Global Trash is a local filtered trash surface.
-- Drafts do not appear.
-- Permanent delete and Empty Trash exist only inside Trash and are coordinator-only.
+Frozen decision:
 
-Evidence:
-
-- `backend/src/services/planner.trash.service.js:202`
-- `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:31`
-- `backend/src/routes/planner.presets-drafts.js:9`
-
-Owner: Backend plus Frontend.
-
-Dependencies: IR-11A1-03, IR-11A1-09, IR-11A1-10.
-
-Scope:
-
-- Normalize supported Trash entity types.
-- Include Presets if product confirms Presets are in 11A Global Trash.
-- Preserve Draft exclusion.
-- Add More -> Papelera.
-- Add search/filter behavior inside Trash if required by Search context.
-
-Exclusions:
-
-- Inventory archive/trash.
-- Draft Trash inclusion.
-
-Risk: adding Drafts by reusing existing draft trash APIs would violate freeze.
-
-Acceptance criteria:
-
-- Trash lists every supported frozen entity type and no Drafts.
-- Restore is available only where supported and authorized.
-- Trash route is reachable from More.
-- Empty states and loading/error states are tested.
-
-Order: before permanent delete and Empty Trash UI.
-
-### IR-11A1-05 - Attention Count And Badge Contract
-
-Problem: no Attention surface or unresolved count exists.
-
-Frozen requirement:
-
-- AppTopBar shows Attention icon with unresolved badge.
-- Badge belongs only to Attention, not Activity.
+- Attention is accessed from AppTopBar and shares tabs with Activity.
+- Badge counts unresolved visible Attention items only.
+- Reading/opening does not resolve.
+- Each row can expose one primary action plus `Abrir`.
+- Home can show a conditional excerpt.
+- Inventory is excluded initially.
 
 Evidence:
 
-- `front/mi-front-limpio/components/ui/AppTopBar.tsx:56`
+- `front/mi-front-limpio/components/ui/AppTopBar.tsx:10`
+- `front/mi-front-limpio/navigation/HomeTabNavigator.tsx:217`
 - `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:270`
 
-Owner: Backend plus Frontend.
+Classification:
 
-Dependencies: IR-11A1-03.
+- Primary: `NEW_CONTRACT_REQUIRED`
+- Secondary: `RELIABILITY_INTEGRATION_REQUIRED`
 
-Scope:
+Ownership probable: Backend + Frontend.
 
-- Define unresolved Attention item types.
-- Implement count endpoint.
-- Add AppTopBar badge component.
-- Ensure count is role-filtered and household-filtered.
+Dependencies:
 
-Exclusions:
+- `IR-11A-PRIVACY-001`
+- `IR-11A-ROUTES-001`
+- `IR-11A-RELIABILITY-001`
 
-- Activity badge.
-- Home-local Attention replacement before global surface exists.
+Minimum scope:
 
-Risk: badge count mismatch with list if query logic diverges.
-
-Acceptance criteria:
-
-- Count equals unresolved visible Attention items.
-- Count updates after resolution or relevant entity mutation.
-- Empty count hides badge.
-- Household switch invalidates count.
-
-Order: before Attention list launch.
-
-### IR-11A1-06 - Attention List And Resolution Flow
-
-Problem: no global Attention item list or resolution mutation exists.
-
-Frozen requirement:
-
-- Attention shows actionable unresolved items and allows resolution where appropriate.
-
-Evidence:
-
-- No `attention` route or service found in backend route inventory.
-- `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:270` is summary-count based, not real Attention.
-
-Owner: Backend plus Frontend.
-
-Dependencies: IR-11A1-03, IR-11A1-05, IR-11A1-09.
-
-Scope:
-
-- Define Attention item DTO and stable ID.
-- Map resolution to entity-native productive mutations or server actions.
-- Implement list screen/tab.
-- Add empty, loading, forbidden, offline, and conflict states.
+- AppTopBar Attention access.
+- Count and badge.
+- List.
+- Item identity.
+- Deduplication.
+- Recipient/person targeting.
+- Valid resolution.
+- Home excerpt.
 
 Exclusions:
 
-- Activity read/unread semantics.
-- Inventory signals unless separately approved.
+- Inventory.
+- Activity events.
+- Technical logs.
+- Read/unread model.
 
-Risk: over-broad Attention signals can create noisy UX and false badges.
+Risks:
 
-Acceptance criteria:
+- Badge/list mismatch.
+- Noisy or non-actionable items.
+- Invalid resolution removing items prematurely.
 
-- Every item has a clear source entity and allowed action.
-- Resolution is idempotent or safely rejected.
-- Resolved items disappear from unresolved count.
-- Privacy tests cover personal/household isolation.
+Acceptance evidence:
 
-Order: after count contract.
+- Count equals visible unresolved list.
+- Open/read leaves item unresolved.
+- Valid action resolves or opens canonical flow.
+- Home excerpt uses same source.
 
-### IR-11A1-07 - Global Activity Tab
+Suggested order: Package C.
 
-Problem: backend activity list exists but no frozen global Activity tab.
+### IR-11A-ACTIVITY-001
 
-Frozen requirement:
+Problem: activity logging exists, but frozen Activity tab/timeline behavior is not implemented.
 
-- Activity is a tab next to Attention.
-- Activity has no badge and no read state.
+Frozen decision:
+
+- Activity is a chronological timeline in the tab beside Attention.
+- It has no badge, no unread, no inline mutations.
+- It groups by day, entity, and process where appropriate.
+- It excludes technical noise and Inventory initially.
 
 Evidence:
 
 - `backend/src/controllers/planner.activity.controller.js:21`
 - `backend/src/services/planner.activity.service.js:147`
+- `backend/src/services/planner.activity.service.js:159`
 
-Owner: Frontend plus Backend.
+Classification:
 
-Dependencies: IR-11A1-01, IR-11A1-03.
+- Primary: `EXISTS_PARTIAL`
+- Secondary: `NEW_CONTRACT_REQUIRED`
 
-Scope:
+Ownership probable: Backend + Frontend.
 
-- Harden list contract for pagination, grouping, and entity labels.
-- Add Activity tab in shared surface.
-- Keep read-only behavior.
-- Add role-filtering and minimized payloads.
+Dependencies:
+
+- `IR-11A-PRIVACY-001`
+- `IR-11A-ROUTES-001`
+
+Minimum scope:
+
+- Shared tab UI.
+- Simple timeline.
+- Grouping.
+- Privacy minimization.
+- Canonical open destination.
+- Exclusion of technical noise.
 
 Exclusions:
 
-- Activity badge.
-- Read/unread state.
+- Badge.
+- Unread.
+- Mark-all-read.
+- Inline mutations.
+- Inventory.
 
-Risk: activity logs may include stale or overly detailed payloads.
+Risks:
 
-Acceptance criteria:
+- Activity becoming surveillance.
+- Private data in payloads.
 
-- Activity tab renders without badge.
-- Empty/loading/error states are covered.
-- Activity is household-scoped and privacy-filtered.
-- Pagination or bounded limit behavior is specified and tested.
+Acceptance evidence:
 
-Order: can proceed in parallel with Attention after shared shell contract.
+- Timeline grouping tests.
+- Privacy tests.
+- Tests proving no badge/unread affordance.
 
-### IR-11A1-08 - Contextual Archive Completion
+Suggested order: Package C.
 
-Problem: Archive is frozen as contextual, but Task/Event/Preset archive is missing and Plan archive is disabled by capability.
+### IR-11A-ARCHIVE-001
 
-Frozen requirement:
+Problem: contextual Archive is only partially supported and must cover Tasks, Events, Plans, and Presets while keeping Inventory deferred.
 
-- Archive exists as contextual module action for supported modules.
-- No global Archive surface.
-- Inventory archive is deferred.
+Frozen decision:
+
+- Archive is contextual by module.
+- It is separate from completed/closed/cancelled/trash.
+- It preserves history and relationships.
+- It removes entities from active views.
+- It allows unarchive according to permissions.
+- No global Archive screen exists.
 
 Evidence:
 
+- `backend/src/services/planner.plans.service.js:140`
 - `backend/src/lib/plannerCapabilities.js:84`
 - `backend/src/lib/plannerCapabilities.js:107`
 - `backend/src/lib/plannerCapabilities.js:125`
-- `backend/src/services/planner.plans.service.js:140`
 - `backend/src/routes/planner.js:59`
 - `backend/src/routes/planner.presets-drafts.js:9`
 
-Owner: Backend plus Data plus Frontend.
+Classification:
 
-Dependencies: IR-11A1-03.
+- Primary: `NEW_CONTRACT_REQUIRED`
+- Secondary: `BACKEND_CAPABILITY_REQUIRED`
 
-Scope:
+Ownership probable: Backend + Data + Frontend.
 
-- Decide archive storage fields for Task/Event/Preset.
-- Enable or adjust existing Plan archive capability.
-- Add entity-native archive/unarchive endpoints.
-- Add contextual UI actions.
-- Feed archived Search context.
+Dependencies:
+
+- `IR-11A-PRIVACY-001`
+- `IR-11A-RELIABILITY-001`
+- `IR-11A-INVENTORY-DEFERRED-001`
+
+Minimum scope:
+
+- Task Archive.
+- Event Archive.
+- Plan Archive.
+- Preset Archive.
+- Contextual entry.
+- Unarchive.
+- Active list exclusion.
+- Archived Search context.
+- Permissions and Reliability.
 
 Exclusions:
 
-- Global Archive page.
-- Inventory archive.
+- Global Archive screen.
+- Inventory Archive in 11A.
 
-Risk: archived search cannot be correct until archive semantics are normalized.
+Risks:
 
-Acceptance criteria:
+- Misusing operational status as archive.
+- Exposing archived content outside scope.
 
-- Supported entities can archive/unarchive through contextual actions.
-- Archived entities leave active lists and appear in archived context.
-- Capability checks are server-side.
-- Reliability and cache invalidation are test-covered.
+Acceptance evidence:
 
-Order: before archived Search context.
+- Entity archive/unarchive tests.
+- Active list exclusion tests.
+- Archived Search context tests after archive exists.
 
-### IR-11A1-09 - Permanent Delete And Empty Trash Online-Only Destructive Operations
+Suggested order: Package D.
 
-Problem: permanent delete and Empty Trash are frozen but absent.
+### IR-11A-TRASH-001
 
-Frozen requirement:
+Problem: Global Trash exists only as a partial Planner Trash foundation and lacks frozen scope, filters, local prefilters, Presets, retention display, and full permission semantics.
 
-- Permanent delete and Empty Trash are available only inside Trash.
-- Coordinator only.
-- No offline support.
+Frozen decision:
+
+- Papelera is global.
+- More exposes Papelera.
+- Local module entries can open prefiltered Papelera.
+- It includes Tasks, Events, Plans, and Presets.
+- Drafts are excluded.
+- Inventory is deferred.
+- Restore follows entity permissions.
+- Permanent delete is handled by a separate IR.
+
+Evidence:
+
+- `backend/src/services/planner.trash.service.js:202`
+- `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:31`
+- `front/mi-front-limpio/screens/MoreScreen.tsx:11`
+- `backend/src/routes/planner.presets-drafts.js:9`
+
+Classification:
+
+- Primary: `EXISTS_PARTIAL`
+- Secondary: `ADAPTER_REQUIRED`
+
+Ownership probable: Backend + Frontend.
+
+Dependencies:
+
+- `IR-11A-PRIVACY-001`
+- `IR-11A-RELIABILITY-001`
+- `IR-11A-DRAFT-DISCARD-001` before release
+- `IR-11A-INVENTORY-DEFERRED-001`
+
+Minimum scope:
+
+- More -> Papelera.
+- Filters.
+- Local prefiltered entries.
+- Tasks, Events, Plans, Presets.
+- Draft exclusion.
+- Inventory deferral.
+- 30-day retention copy.
+- Restore with entity permissions.
+- Papelera Search context.
+
+Exclusions:
+
+- Permanent delete as part of the same contract.
+- Drafts in Papelera.
+- Inventory in Papelera for 11A.
+
+Risks:
+
+- Drafts leaking into Papelera through existing draft trash data.
+- Restore over-restricted to coordinator.
+- Retention copy not matching exact purge date.
+
+Acceptance evidence:
+
+- Entity coverage tests.
+- Draft exclusion tests.
+- Restore permission tests.
+- Retention copy tests.
+
+Suggested order: Package E.
+
+### IR-11A-PERMDELETE-001
+
+Problem: permanent delete and Empty Trash are frozen destructive operations but absent.
+
+Frozen decision:
+
+- Only inside Papelera.
+- Coordinator-only.
+- Online-only.
+- Not queued.
+- Explicit confirmation.
+- Empty Trash is the only initial bulk operation and tolerates partial failure.
 
 Evidence:
 
 - `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx:216`
 - `backend/src/services/planner.trash.service.js:202`
-- `docs/implementation/planner/M11_11A_P4_GLOBAL_SURFACES_PRODUCT_FREEZE.md:92`
+- `backend/src/lib/plannerCapabilities.js:13`
 
-Owner: Backend plus Frontend plus Data.
+Classification:
 
-Dependencies: IR-11A1-03, IR-11A1-04.
+- Primary: `NEW_CONTRACT_REQUIRED`
+- Secondary: `SECURITY_OR_PERMISSION_GAP`
 
-Scope:
+Ownership probable: Backend + Frontend + QA.
 
-- Define hard-delete or irreversible tombstone policy per entity.
-- Add coordinator-only endpoints.
-- Add online-only frontend guard.
-- Add confirmation UI.
-- Add activity/audit logging if required.
+Dependencies:
 
-Exclusions:
+- `IR-11A-TRASH-001`
+- `IR-11A-PRIVACY-001`
 
-- Offline queueing.
-- Draft discard unless IR-11A1-10 maps it separately.
+Minimum scope:
 
-Risk: data loss, partial empty-trash failure, referential integrity violations.
-
-Acceptance criteria:
-
-- Non-coordinator roles fail server-side.
-- Offline clients cannot start permanent delete or Empty Trash.
-- Empty Trash has deterministic partial failure semantics.
-- All destructive actions have confirmation and tests.
-
-Order: after Global Trash aggregation.
-
-### IR-11A1-10 - Draft Definitive Discard Correction
-
-Problem: current Drafts implementation supports recoverable trash/restore, conflicting with frozen definitive discard.
-
-Frozen requirement:
-
-- Draft discard is definitive after confirmation when content is meaningful.
-- Drafts do not appear in Global Trash.
-
-Evidence:
-
-- `backend/src/services/planner.drafts.service.js:99`
-- `backend/src/services/planner.drafts.service.js:110`
-- `front/mi-front-limpio/components/planner/drafts/PlannerDraftsScreen.tsx:190`
-- `supabase/migrations/20260722050000_m11_4a_presets_drafts_foundation.sql:89`
-
-Owner: Product plus Backend plus Frontend.
-
-Dependencies: IR-11A1-03.
-
-Scope:
-
-- Replace recoverable Draft trash UX with definitive discard.
-- Adjust backend endpoint semantics or hide deprecated endpoints.
-- Update tests that currently expect draft trash/restore.
-- Preserve Draft exclusion from Global Trash.
+- Per-entity permanent delete.
+- Empty Trash.
+- Coordinator-only enforcement.
+- Online-only guard.
+- Confirmation copy.
+- Integrity and relationship behavior.
+- Partial failure behavior.
+- Activity/audit when appropriate.
 
 Exclusions:
 
-- Adding Drafts to Global Trash.
+- Draft discard through Papelera.
+- Multiselect.
+- Bulk restore.
+- Bulk archive.
+- Queued destructive permanent operations.
 
-Risk: migration/data compatibility if existing trashed drafts exist.
+Risks:
 
-Acceptance criteria:
+- Data loss.
+- Referential integrity breakage.
+- False success while offline.
 
-- Meaningful draft discard requires confirmation.
-- Confirmed discard cannot be restored from the UI.
-- Drafts never appear in Global Trash.
-- Old recoverable Draft tests are updated to freeze behavior.
+Acceptance evidence:
 
-Order: before Global Trash release and before 11A signoff.
+- Coordinator-only server tests.
+- Offline blocked tests.
+- Partial failure tests.
+- Confirmation and no-optimistic-success tests.
 
-### IR-11A1-11 - Inventory Exclusion Guard
+Suggested order: Package G.
 
-Problem: Inventory has local deleted/search patterns that could be accidentally pulled into global surfaces.
+### IR-11A-HOME-001
 
-Frozen requirement:
+Problem: Home needs adaptation to the hybrid Global Surface freeze, especially Attention excerpt and Reliability alignment.
 
-- Inventory is excluded from Global Search.
-- Inventory archive is deferred.
+Frozen decision:
 
-Evidence:
-
-- `backend/src/routes/inventory.js:9`
-- `backend/src/services/inventory.service.js:198`
-- `backend/src/services/inventory.service.js:378`
-
-Owner: Product plus Backend plus Frontend.
-
-Dependencies: IR-11A1-02 and IR-11A1-08.
-
-Scope:
-
-- Add explicit tests/assertions that Inventory is excluded from Global Search and Archive.
-- Ensure Inventory local delete/search does not appear in global Planner surfaces.
-
-Exclusions:
-
-- Any new Inventory archive work in 11A.
-
-Risk: accidental inclusion through generic search aggregation.
-
-Acceptance criteria:
-
-- Global Search returns no Inventory results.
-- Archive UI does not show Inventory archive.
-- Existing Inventory flows remain unchanged.
-
-Order: alongside Search and Archive implementation.
-
-### IR-11A1-12 - Home Interaction Alignment
-
-Problem: Home summary is mostly compliant, but Home still contains local Attention-like wording and a direct one-tap complete flow.
-
-Frozen requirement:
-
-- Home consumes backend-authored Planner summary.
-- Global Attention belongs to AppTopBar.
-- Mutations should respect the productive mutation contract where applicable.
+- Home orients, prioritizes, and gives continuity.
+- It contains conditional Attention, Today / Next, useful Planner continuity, current Inventory exception, offline/stale/partial error states.
+- It excludes permanent Search, Activity, Trash, Archive, module gateway grids, full lists, full forms, and duplicate Details.
+- Planner Summary may stay if compatible.
 
 Evidence:
 
-- `front/mi-front-limpio/services/plannerSummary.ts:31`
-- `backend/src/services/planner.summary.service.js:10`
+- `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:67`
 - `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:203`
 - `front/mi-front-limpio/screens/home/HomePlannerSections.tsx:270`
+- `front/mi-front-limpio/services/plannerSummary.ts:31`
+- `backend/src/services/planner.summary.service.js:10`
 
-Owner: Frontend.
+Classification:
 
-Dependencies: IR-11A1-05, IR-11A1-06, IR-11A1-09.
+- Primary: `ADAPTER_REQUIRED`
+- Secondary: `RELIABILITY_INTEGRATION_REQUIRED`
 
-Scope:
+Ownership probable: Frontend + Backend.
 
-- Decide whether Home "Atencion requerida" remains as a summary excerpt, is renamed, or is removed once global Attention ships.
-- Route Home one-tap complete through productive mutation runtime or document an exception.
-- Keep summary request single-owner and backend-authored.
+Dependencies:
+
+- `IR-11A-ATTENTION-001`
+- `IR-11A-RELIABILITY-001`
+- `IR-11A-INVENTORY-DEFERRED-001`
+
+Minimum scope:
+
+- Conditional Attention excerpt.
+- Importance and recency ordering.
+- `Ver todo`.
+- Today / Next.
+- Useful Planner continuity.
+- Current Inventory exception.
+- Activity exclusion.
+- Permanent Search exclusion.
+- Gateway exclusion.
+- Inline completion Reliability.
 
 Exclusions:
 
-- Rebuilding Home Planner summary.
+- Rebuilding Planner Summary if it can adapt.
+- Full Planner lists.
+- Duplicate Details/forms.
 
-Risk: duplicate Attention surfaces and inconsistent completion reliability.
+Risks:
 
-Acceptance criteria:
+- Home becoming a duplicate Planner.
+- Attention excerpt diverging from Attention count/list.
+- Inline completion false success.
 
-- No confusing duplicate Attention ownership.
-- Home completion path follows reliability expectations or has approved exception.
-- Home summary still uses one backend endpoint.
+Acceptance evidence:
 
-Order: after global Attention shell is available.
+- Home tests for excerpt, empty state, Inventory exception, exclusions, and Reliability.
 
-## 16. Dependency Graph
+Suggested order: Package H.
+
+## 9. Technical Options
+
+All options in this section are:
+
+`PROPOSED - NOT FROZEN`
+
+They are implementation recommendations only. They do not create approved contracts, endpoints, schema, indexes, migrations, realtime behavior, or transaction strategy.
+
+### 9.1 Search Option
+
+Provisional recommendation: backend-authoritative Search for active Tasks, Events, and Plans.
+
+Reason:
+
+- Privacy filters can run before ranking.
+- Result shape can preserve canonical destinations.
+- It follows the existing backend-authored Home summary pattern.
+
+Not frozen:
+
+- Concrete route name.
+- Query implementation.
+- Storage/indexing strategy.
+- Pagination mechanics.
+
+### 9.2 Attention Option
+
+Provisional recommendation: derive Attention items server-side from approved entity signals where possible.
+
+Reason:
+
+- Avoids duplicating entity truth too early.
+- Keeps resolution mapped to canonical flows.
+
+Not frozen:
+
+- Whether Attention is derived, persisted, or hybrid.
+- Concrete item ID format.
+- Concrete endpoint names.
+
+### 9.3 Activity Option
+
+Provisional recommendation: reuse current activity log foundation after privacy and grouping hardening.
+
+Reason:
+
+- Existing backend list gives a starting point.
+- Timeline can stay simple.
+
+Not frozen:
+
+- Grouping implementation.
+- Pagination.
+- Event compaction strategy.
+
+### 9.4 Trash Option
+
+Provisional recommendation: keep Global Trash as a normalized aggregation over canonical entity handlers.
+
+Reason:
+
+- Preserves entity-specific restore and permission behavior.
+- Reduces risk of bypassing domain invariants.
+
+Not frozen:
+
+- Aggregator implementation.
+- Handler signatures.
+- Partial failure mechanics for Empty Trash.
+
+### 9.5 Archive Option
+
+Provisional recommendation: implement Archive as contextual entity-native behavior.
+
+Reason:
+
+- Matches P4.
+- Avoids a global Archive surface.
+
+Not frozen:
+
+- Per-entity persistence shape.
+- Capability names.
+- Exact UI placement.
+
+## 10. Dependency Graph
 
 ```mermaid
 flowchart TD
-  A["IR-11A1-03 Capability and privacy contract"] --> B["IR-11A1-01 Shell ownership"]
-  A --> C["IR-11A1-02 Global Search"]
-  A --> D["IR-11A1-04 Global Trash"]
-  A --> E["IR-11A1-05 Attention count"]
-  A --> F["IR-11A1-07 Activity tab"]
-  A --> G["IR-11A1-08 Archive completion"]
-  D --> H["IR-11A1-09 Permanent delete and Empty Trash"]
-  E --> I["IR-11A1-06 Attention list and resolution"]
-  B --> I
-  G --> C
-  C --> J["IR-11A1-11 Inventory exclusion guard"]
-  G --> J
-  E --> K["IR-11A1-12 Home alignment"]
-  I --> K
-  D --> L["IR-11A1-10 Draft definitive discard"]
+  PRIV["IR-11A-PRIVACY-001"]
+  ROUTES["IR-11A-ROUTES-001"]
+  REL["IR-11A-RELIABILITY-001"]
+  DRAFT["IR-11A-DRAFT-DISCARD-001"]
+  INV["IR-11A-INVENTORY-DEFERRED-001"]
+  SEARCH["IR-11A-SEARCH-001"]
+  ATT["IR-11A-ATTENTION-001"]
+  ACT["IR-11A-ACTIVITY-001"]
+  ARCH["IR-11A-ARCHIVE-001"]
+  TRASH["IR-11A-TRASH-001"]
+  PERM["IR-11A-PERMDELETE-001"]
+  HOME["IR-11A-HOME-001"]
+
+  PRIV --> ROUTES
+  PRIV --> REL
+  PRIV --> SEARCH
+  PRIV --> ATT
+  PRIV --> ACT
+  PRIV --> ARCH
+  PRIV --> TRASH
+  PRIV --> PERM
+  PRIV --> HOME
+
+  ROUTES --> SEARCH
+  ROUTES --> ATT
+  ROUTES --> ACT
+  ROUTES --> TRASH
+  REL --> ATT
+  REL --> ARCH
+  REL --> TRASH
+  REL --> HOME
+  DRAFT --> TRASH
+  INV --> SEARCH
+  INV --> ATT
+  INV --> ACT
+  INV --> ARCH
+  INV --> TRASH
+  ARCH --> SEARCH
+  TRASH --> SEARCH
+  TRASH --> PERM
+  ATT --> HOME
 ```
 
-Recommended sequencing:
+## 11. Recommended Sequencing
 
-1. IR-11A1-03 - capability and privacy.
-2. IR-11A1-01 - shell ownership.
-3. IR-11A1-08 - archive completion decision and implementation.
-4. IR-11A1-02 - productive Search.
-5. IR-11A1-05 - Attention count.
-6. IR-11A1-06 - Attention list/resolution.
-7. IR-11A1-07 - Activity tab.
-8. IR-11A1-04 - complete Global Trash aggregation.
-9. IR-11A1-09 - permanent delete and Empty Trash.
-10. IR-11A1-10 - Draft discard correction.
-11. IR-11A1-11 - Inventory exclusion guard.
-12. IR-11A1-12 - Home alignment.
+Package A - Compatibility and shared foundations:
 
-IR-11A1-07 can proceed in parallel with IR-11A1-05/06 after IR-11A1-01 and IR-11A1-03 are complete.
+- `IR-11A-PRIVACY-001`
+- `IR-11A-ROUTES-001`
+- `IR-11A-RELIABILITY-001`
+- `IR-11A-DRAFT-DISCARD-001`
+- `IR-11A-INVENTORY-DEFERRED-001`
 
-## 17. Files And Symbols Inspected
+Goal: shared bases, compatibility corrections, privacy safety, route alignment, Inventory protection, Draft discard correction before Global Trash release.
 
-Frontend:
+Package B - Active Search:
+
+- `IR-11A-SEARCH-001` for active context.
+
+Includes Search bar inside Quick Actions, full-screen Search, Tasks, Events, Plans, permissions, results, canonical destinations, and states. Excludes initially archived context, Papelera context, Inventory, Presets, and Drafts.
+
+Package C - Attention + Activity:
+
+- `IR-11A-ATTENTION-001`
+- `IR-11A-ACTIVITY-001`
+
+Includes shared tabbed surface, AppTopBar Attention access, unresolved badge, Attention list, Activity timeline, no unread, no Activity badge, no Inventory, and no inline mutations in Activity.
+
+Package D - Contextual Archive:
+
+- `IR-11A-ARCHIVE-001`
+
+Includes Tasks, Events, Plans, Presets, and keeps Inventory deferred. Does not include a global Archive screen.
+
+Package E - Global Trash:
+
+- `IR-11A-TRASH-001`
+
+Includes More -> Papelera, filters, local prefiltered entries, Tasks, Events, Plans, Presets, Draft exclusion, Inventory deferral, 30-day retention, purge date, time remaining, and Restore by entity permission.
+
+Package F - Staged Search Contexts:
+
+- Extension of `IR-11A-SEARCH-001`.
+
+Includes Archivados after Archive and Papelera after Global Trash, with recovery/context destinations and status indicators.
+
+Package G - Permanent Delete + Empty Trash:
+
+- `IR-11A-PERMDELETE-001`
+
+Includes only-inside-Papelera, coordinator-only, online-only, permanent delete, Empty Trash, confirmations, integrity, partial failure, and the only initial bulk operation.
+
+Package H - Home Alignment:
+
+- `IR-11A-HOME-001`
+
+Includes conditional Attention excerpt, importance, recency among equal priority, `Ver todo`, Today / Next, Planner continuity, current Inventory exception, Activity exclusion, permanent Search exclusion, module gateway exclusion, and Reliability for inline completion.
+
+Package I - Global QA + Product Polish:
+
+- Later stage only, not implementation in 11A.1.
+
+Includes navigation, privacy, roles, household switching, Search, Attention, Activity, Trash, Archive, permanent delete, Empty Trash, responsive, accessibility, complete states, Reliability, and Product Polish 11C.
+
+## 12. Validation Against R1 Corrections
+
+R1 incompatible interpretations removed:
+
+- Search is not placed in the top bar.
+- Search is not modeled as a separate cross-app entry outside Quick Actions.
+- Quick Actions is not described as only creation.
+- Presets are excluded from initial normal Search.
+- Inventory is deferred outside the current Home exception.
+- Home is included as a Global Surface.
+- Technical options are marked proposed and not frozen.
+- Legacy numbered IRs were replaced by approved `IR-11A-*` IDs.
+- The old classification vocabulary was replaced by the R1 taxonomy.
+
+R1 confirmations:
+
+- Quick Actions contains Search and creation actions.
+- Search starts inside Quick Actions and then opens full-screen.
+- AppTopBar is reserved for Attention access and badge.
+- Activity has no badge or unread state.
+- Trash, Archive, Drafts, and Inventory respect P3/P4.
+- Permanent delete remains coordinator-only and online-only.
+- No implementation contract is approved by this document.
+
+## 13. Evidence Inventory
+
+Frontend evidence:
 
 - `front/mi-front-limpio/navigation/HomeTabNavigator.tsx`
 - `front/mi-front-limpio/components/ui/AppTopBar.tsx`
@@ -1149,10 +1409,6 @@ Frontend:
 - `front/mi-front-limpio/navigation/plannerSearchNavigation.ts`
 - `front/mi-front-limpio/screens/planner/PlannerTrashScreen.tsx`
 - `front/mi-front-limpio/screens/home/HomePlannerSections.tsx`
-- `front/mi-front-limpio/screens/home/HomeCoordinador.tsx`
-- `front/mi-front-limpio/screens/home/HomeAdulto.tsx`
-- `front/mi-front-limpio/screens/home/HomeAdultoMayor.tsx`
-- `front/mi-front-limpio/screens/home/HomeAdolescente.tsx`
 - `front/mi-front-limpio/services/planner/useHomePlannerSummary.ts`
 - `front/mi-front-limpio/services/plannerSummary.ts`
 - `front/mi-front-limpio/services/planner/homeTaskOneTapCompletion.ts`
@@ -1161,7 +1417,7 @@ Frontend:
 - `front/mi-front-limpio/services/plannerDrafts.ts`
 - `front/mi-front-limpio/components/planner/drafts/PlannerDraftsScreen.tsx`
 
-Backend:
+Backend and migration evidence:
 
 - `backend/src/routes/planner.js`
 - `backend/src/routes/planner.presets-drafts.js`
@@ -1177,12 +1433,12 @@ Backend:
 - `backend/src/services/inventory.service.js`
 - `backend/src/lib/plannerCapabilities.js`
 - `backend/src/lib/dataPrivacy.js`
-
-Migrations and tests:
-
 - `supabase/migrations/20260722040000_m11_3a_plan_graph_foundation.sql`
 - `supabase/migrations/20260722050000_m11_4a_presets_drafts_foundation.sql`
 - `supabase/migrations/20260722090001_m11_ola_3_presets_drafts_atomic_replay_fix.sql`
+
+Test evidence:
+
 - `scripts/planner_v1_quick_actions_tests.ts`
 - `scripts/planner_m11_7a_reliability_tests.ts`
 - `scripts/planner_m11_7b_reliability_frontend_tests.ts`
@@ -1192,80 +1448,40 @@ Migrations and tests:
 - `scripts/runtime_smoke_test.js`
 - `tests/run.js`
 
-## 18. Commands Used
-
-Repository and guardrail checks:
-
-```powershell
-git rev-parse 'e43f44ff218349b12b31e3f345f4998fc1e62d92^{commit}'
-git branch --show-current
-git status --short
-git rev-parse HEAD
-git log --oneline -1
-git merge-base --is-ancestor e43f44ff218349b12b31e3f345f4998fc1e62d92 HEAD
-Test-Path .git\MERGE_HEAD
-Test-Path .git\rebase-merge
-Test-Path .git\rebase-apply
-Test-Path .git\CHERRY_PICK_HEAD
-Test-Path .git\BISECT_LOG
-```
-
-Authority and static audit commands:
-
-```powershell
-Get-Content -Raw docs\implementation\planner\PLANNER_V1_M11_FUNCTIONAL_FREEZE.md
-Get-Content -Raw docs\implementation\planner\PLANNER_V1_M11_FINAL_DECISION_REGISTRY.md
-Get-Content -Raw docs\implementation\planner\PLANNER_V1_M11_UX_UI_FREEZE_CONTRACT.md
-Get-Content -Raw docs\implementation\planner\M11_11A_P4_GLOBAL_SURFACES_PRODUCT_FREEZE.md
-Get-Content -Raw docs\implementation\planner\M11_11A_P0_GLOBAL_SURFACES_INVENTORY.md
-Get-Content -Raw docs\implementation\planner\M11_11A_P1_DATA_MODEL_EVIDENCE.md
-Get-Content -Raw docs\implementation\planner\M11_11A_P2_BACKEND_CAPABILITY_PRIVACY_AUDIT.md
-Get-Content -Raw docs\implementation\planner\M11_11A_P2_FRONTEND_NAV_SURFACES_AUDIT.md
-Get-Content -Raw docs\implementation\planner\M11_11A_P2_OFFLINE_RELIABILITY_AUDIT.md
-Get-Content -Raw docs\implementation\planner\M11_11A_P2_TEST_TELEMETRY_AUDIT.md
-Get-Content -Raw docs\implementation\planner\M11_11A_P3_CONFLICTS_AND_DECISIONS.md
-rg -n "PlannerSearch|Search|Attention|Activity|Trash|Archive|Draft|permanent|Empty Trash|Vaciar|Papelera"
-```
-
-Validation and commit commands are recorded in section 22 after execution.
-
-No test suites were executed because the requested work is a read-only technical audit and no code behavior was changed.
-
-## 19. Supabase
+## 14. Supabase
 
 No Supabase command was run.
 
-Supabase migration files were inspected only as static repository artifacts.
+Supabase migration files were inspected only as static repository evidence.
 
-Runtime Supabase status: not contacted.
+## 15. Final Verdict
 
-## 20. Residual Risks
-
-- The target branch already existed at start. Since HEAD matched the required base commit and the tree was clean, this did not affect audit integrity.
-- Some evidence is inferred from absence found through repository search. Implementation hidden behind dynamic imports or generated code could require a follow-up targeted check, but the audited route/service/navigation files are the primary surfaces.
-- Existing tests may encode pre-freeze behavior, especially recoverable Draft trash/restore. Those tests will need intentional updates rather than blind preservation.
-- "Goals" and "Plans" naming remains mixed in code and docs. Archive and Trash implementation should normalize user-facing labels before UI work.
-- Permanent delete and Empty Trash are high-risk destructive operations and require explicit server-side semantics before frontend implementation.
-
-## 21. Final Readiness Verdict
-
-Final verdict:
+Final technical readiness verdict:
 
 `PLANNER_GLOBAL_SURFACES_TECHNICAL_READINESS_READY_WITH_PRECONDITIONS`
 
-The codebase has enough shell, capability, data, and reliability foundation to start 11A implementation. It is not ready for direct broad UI wiring without first resolving the capability/privacy contract, Attention item model, Archive semantics, Trash destructive-operation semantics, and Draft discard conflict.
+This verdict is valid after R1 because:
 
-Required preconditions before implementation signoff:
+- Foundations are sufficient to begin controlled packages.
+- Search is correctly located inside Quick Actions.
+- Quick Actions contains Search plus creation actions.
+- Initial Search scope is active Tasks, Events, and Plans only.
+- Home is treated as a Global Surface.
+- Attention uses AppTopBar access and badge.
+- Activity has no badge or unread.
+- Inventory is excluded and deferred outside the current Home exception.
+- Trash, Archive, Drafts, and destructive operations follow P3/P4.
+- IR IDs and classifications are normalized.
+- Dependencies and sequencing follow the P4 package model.
+- Technical options are not frozen.
 
-- Approve IR-11A1-03 as the first backend dependency.
-- Confirm Archive scope for Task/Event/Plan/Preset and Inventory exclusion.
-- Confirm Draft definitive discard migration/compatibility plan.
-- Confirm permanent delete and Empty Trash data retention semantics.
-- Confirm global shell ownership for Search, Attention, Activity, and Trash navigation.
+Execution verdict for this correction:
 
-## 22. Validation Record
+`PLANNER_GLOBAL_SURFACES_TECHNICAL_READINESS_R1_COMPLETE`
 
-Pre-commit validation:
+## 16. Validation Record
+
+Pre-commit validation for R1:
 
 ```powershell
 git diff --check
@@ -1275,22 +1491,17 @@ git status --short
 
 Results:
 
+- R1 incompatible phrase scan: passed.
 - `git diff --check`: passed.
-- `git diff --stat`: no tracked diff yet because the audit file was still untracked.
-- `git status --short`: only `docs/implementation/planner/M11_11A_1_GLOBAL_SURFACES_TECHNICAL_READINESS_AUDIT.md` was untracked.
-- Test suites: not run; this is a documentation-only technical readiness audit.
+- `git diff --stat`: one documentation file changed.
+- `git status --short`: only this audit file modified.
 
-Staging validation:
+Post-commit validation to be run after commit:
 
 ```powershell
-git diff --cached --check
-git diff --cached --stat
+git diff --check HEAD~1 HEAD
+git show --stat --oneline --summary HEAD
+git status --short
 ```
 
-Results:
-
-- `git diff --cached --check`: passed after removing Markdown trailing spaces from the metadata header.
-- `git diff --cached --stat`: one new audit file, 1296 insertions after final newline normalization.
-- `git status --short`: only the audit file was staged for addition.
-
-Post-commit validation was run after commit and is reported in the final handoff.
+No test suites were executed because R1 is a documentation-only correction.
