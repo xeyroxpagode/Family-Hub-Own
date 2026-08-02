@@ -1,18 +1,19 @@
-# M11 — 11A.P4 Global Surfaces Product Freeze
+# M11 - 11A.P4 Global Surfaces Product Freeze
 
-**MILESTONE:** Planner V1 — 11A.P4 Global Surfaces Product Freeze
+**MILESTONE:** Planner V1 - 11A.P4 Global Surfaces Product Freeze
 **WORKTREE:** `C:\Users\thega\Desktop\HomePlus-worktrees\integration`
 **BRANCH:** `planner-v1-11a-p4-global-surfaces-product-freeze`
-**BASE:** `0d664a173a87cd03ac5e363054b24f1d8425988e`
-**DATE:** 2026-08-02
-**SCOPE:** Documentation-only. No code, contracts, backend, navigation, UI, Supabase, package or lockfile changes.
+**BASE P4 ORIGINAL:** `0d664a173a87cd03ac5e363054b24f1d8425988e`
+**BASE CORRECCIÓN R1:** `7d63f449879f2832a55a950a61999ead5cac903c`
+**FECHA:** 2026-08-02
+**ALCANCE:** Documentación únicamente. Sin código, contratos, backend, navegación, UI, Supabase, paquetes ni lockfiles.
 
 ---
 
-## 1. Freeze status
+## 1. Estado del freeze
 
 ```text
-PLANNER V1 — GLOBAL SURFACES PRODUCT FREEZE
+PLANNER V1 - GLOBAL SURFACES PRODUCT FREEZE
 
 STATUS: FROZEN
 HUMAN APPROVAL: APPROVED
@@ -24,110 +25,111 @@ IMPLEMENTATION: NOT YET AUTHORIZED
 NEXT GATE: 11A.1 Technical Architecture / Contract Readiness Audit
 ```
 
+Esta corrección R1 mejora solamente la calidad documental, la precisión y la
+coherencia interna. No reabre, reemplaza ni amplía ninguna decisión de producto
+P3.
+
 ---
 
-## 2. Authority and precedence
+## 2. Autoridad y precedencia
 
-This document records the Global Surfaces product freeze voted by the P3
-decisions and confirmed on 2026-08-02. It is not a legal authority on its own:
-the canonical frozen authority is `PLANNER_V1_M11_FUNCTIONAL_FREEZE.md`
-version 1.3 which holds the visible rules.
+Este documento registra el Product Freeze de Global Surfaces aprobado por las
+decisiones P3 y confirmado el 2026-08-02. La autoridad funcional canónica es
+`PLANNER_V1_M11_FUNCTIONAL_FREEZE.md` versión 1.3.
 
-This document provides:
+Este documento contiene:
 
-- The full Change Request.
-- The impact analysis.
-- The entity surface matrix.
-- The supersession ledger with remaining technical gaps.
-- The technical audit questions for 11A.1.
-- Implementation exclusions.
-- The traceability chain back through P0/P1/P2.
+- el registro del Change Request;
+- el análisis de impacto;
+- la matriz `Entity / Surface Matrix`;
+- el ledger de reglas superseded con brechas técnicas restantes;
+- las preguntas de auditoría técnica para 11A.1;
+- las exclusiones de implementación;
+- la trazabilidad hacia P0, P1, P2 y P3;
+- las notas de validación de esta corrección R1.
 
-When this document or a P2/P1/P0 research paper conflicts with the Functional
-Freeze v1.3 or the Decision Registry after CR-M11-11A-GLOBAL-SURFACES-001, the
-canonical authorities prevail.
+Si este documento o cualquier artefacto previo P0/P1/P2 contradice
+`PLANNER_V1_M11_FUNCTIONAL_FREEZE.md` versión 1.3 o el Decision Registry después
+de `CR-M11-11A-GLOBAL-SURFACES-001`, prevalecen las autoridades canónicas.
 
 ---
 
 ## 3. Change Request
 
 **CHANGE ID:** CR-M11-11A-GLOBAL-SURFACES-001
-
 **REQUESTER:** Human Product Owner / Control General
+**REASON:** Cerrar Global Surfaces después de 11A.0 Readiness Audit, P0 Factual
+Inventory, P1A-P1D Comparative Research, P2 Integrated Synthesis y las P3 Human
+Decisions.
 
-**REASON:** Close the Global Surfaces after the Readiness Audit (11A.0),
-Factual Inventory (P0), Comparative Research (P1A–P1D), Integrated Synthesis
-(P2) and the P3 Human Decisions.
+### Comportamiento previo superseded
 
-### CURRENT FROZEN BEHAVIOR
+Antes de este Change Request, el freeze histórico y el material de investigación
+todavía contenían reglas que ahora quedan superseded:
 
-Deal honestly with what was in the prior freeze that is being
-modified:
+- Search incluía Drafts visibles, Presets, People, Settings, acciones y rutas.
+- Quick Actions se describía sólo como tiles de creación.
+- Los Drafts persistentes entraban en Trash y tenían recuperación de 30 días.
+- Planner V1 no permitía eliminación permanente manual.
+- Archive estaba concentrado principalmente en Plans.
+- Trash era local de Planner o estaba fragmentado entre Planner y Preset/Draft Trash.
+- Attention y Activity globales no estaban congelados como una superficie común con tabs.
+- Inventory quedaba insinuado de forma demasiado amplia por lenguaje cross-module.
 
-- Search included visible Drafts, Presets, People, Settings, actions and routes.
-- Quick Actions described only as tile creation.
-- Persistent Drafts entered Trash and had 30-day recovery.
-- Planner V1 did not allow manual permanent deletion.
-- Archive was concentrated mainly in Plans.
-- Trash was either Planner-local or fragmented (PlannerTrashScreen) + (PlannerPresetDraftsTrashScreen).
-- Activity/Attention did not have the new frontend distribution closed.
+### Comportamiento aprobado y congelado
 
-### PROPOSED FROZEN BEHAVIOR
+El comportamiento aprobado es el set P3 GS-01 a GS-12, incorporado en las tres
+autoridades:
 
-The P3-voted decisions embedded in section 4 of this document and the
-canonical regulations listed in the Functional Freeze v1.3 section 1.3.
+- `PLANNER_V1_M11_FUNCTIONAL_FREEZE.md` sección 1.3;
+- `PLANNER_V1_M11_FINAL_DECISION_REGISTRY.md` bloque 11A.P3 / CR-M11-11A-GLOBAL-SURFACES-001;
+- `PLANNER_V1_M11_UX_UI_FREEZE_CONTRACT.md` secciones GS-V1 a GS-V11.
 
-### IMPACT ANALYSIS
+### Análisis de impacto
 
-| Dimension | Impact |
+| Dimensión | Impacto congelado o brecha de auditoría |
 |---|---|
-| Product | A single coherent global layer: Home as hybrid orienter, the one Quick Actions+Search surface, Attention+Activity under one surface with tabs, a global Trash with module filters, per-module Archive, the Draft discard model, and the permanent-delete/Empty-Trash gates. Home without module grid/permanent Search bar; Inventory gated. |
-| Frontend | New surfaces and routable contracts for global Search, Attention/Activity tabs, global Trash with entity filters, contextual Archive modules. The existing `PlannerSheetHost` and center-tab-button reuse for the shared QA+Search surface. The current Draft-restore flow will retire. |
-| Backend | New endpoint for global Search (or aggregator atop planner search). Endpoint for global Attention (source, counts). Endpoint for global Trash aggregation. Endpoint for unrecoverable delete (permanent + Empty Trash). Endpoint for Activity feed. Archive-per-entity. |
-| Data / Migrations | Persistent draft-restore data may need a one-time validation/cleanup (self-clean local Drafts on discard). Soft-delete inventory items for global Trash integration (now not yet, later). |
-| API | New serialization schemas: Search result, Attention item, Trash entry, Activity grouped-entry. |
-| Permissions | Coordinator role gains permanent-delete + Empty-Trash permissions inside Trash. Any operator keeps move-to-Trash / restore permissions. Geni is always visually identified. No coordinator auto-gain to private personal data. |
-| Offline / Reliability | Permanent delete / Empty Trash never offline. Otherwise no offline flow change; operations stay queued or deferred as M11.7 defines. |
-| Search / Indexing | Reduced index scope (no Drafts, Presets, People, Settings, Routes). Active scope is Tasks/Events/Plans. Hidden-content context on demand only. |
-| Activity / Attention | Aggregation separated; Activity badge-free; reading/view does not clear Attention. |
-| Privacy | Now applied before every surface rank, badge, group, results and recents. Household reset after every switch; no coordinator auto-full-access. |
-| QA | New acceptance matrices + screen rotation tests for Search, global Trash, Attention/Activity, Archive-per-module. No code terms in UI. |
-| Existing data compatibility | Legacy Plan/Milestone restore from Trash not through reliability yet; archived_at defined with full per-entity rule. |
+| Producto | Capa global coherente: Home híbrida, superficie Quick Actions + Search, Attention + Activity con tabs, Trash global con filtros, Archive contextual, descarte definitivo de Drafts y gates de permanent delete / Empty Trash. |
+| Frontend | Se requieren superficies globales nuevas o adaptadas, pero este P4 no define rutas, componentes ni arquitectura de navegación. 11A.1 debe auditar el estado existente antes de diseñar contratos técnicos. |
+| Backend | El resultado funcional requiere fuentes para Search, Attention, Activity y Trash. 11A.1 debe determinar si se reutilizan capacidades existentes o si hace falta una nueva superficie backend. |
+| Datos | El comportamiento recuperable de Drafts existente debe auditarse para retiro compatible. Inventory Trash y Inventory Archive quedan diferidos hasta polish/contract de Inventory. |
+| API | Este P4 no define datos de intercambio, esquemas ni serialización. 11A.1 debe identificar los contratos necesarios. |
+| Permisos | Coordinator-only aplica para `Eliminar definitivamente` y `Vaciar Papelera`; mover a Trash y restaurar siguen permisos de entidad. La privacidad se filtra antes de cualquier exposición. |
+| Offline / Reliability | Permanent delete y Empty Trash no corren offline. Las demás operaciones mantienen las reglas de confiabilidad vigentes hasta auditoría técnica. |
+| Search | Scope inicial reducido a Tasks, Events y Plans activos; `Archivados` y `Papelera` son contextos explícitos. |
+| Attention / Activity | Attention es accionable y persistente hasta resolución; Activity es cronológica, sin unread ni badge. |
+| QA | Se requiere matriz de aceptación para Search, Trash, Attention/Activity, Archive contextual, responsive y accesibilidad; este P4 no ejecuta pruebas de implementación. |
 
-### RISK
+### Riesgos documentados
 
-- Existing persistent Draft restorable objects conflict with `Descartar` immediate definitive rule.
-- Unrefactored DraftTrash/DraftRestore++ in backend/frontend will be inconsistent unless 11A.1 audit catches them.
-- Permanent Delete / Empty Trash can be executed only by coordinator-by-capability; cannot run offline; partial failure might leave orphan data.
-- Global Trash aggregation pulling from several backend endpoints might aggregate hierarchically (Tasks, Events, Plans, Presets).
-- Hidden-content scope memory that user has to manually filter could annoy if Search interaction not well thought-out.
-- Archive contextual per entity is a modular concept: no group, mass actions.
-- Inventory Archive & Inventory Trash are approved but not to be implemented now because the Inventory restore/ contract/UX is not defined.
-
-### EXPLICIT HUMAN APPROVAL
-
-APPROVED — 2026-08-02
+- Las rutas existentes de Draft restore pueden quedar incompatibles con
+  `Descartar borrador` si 11A.1 no las audita.
+- Permanent delete y Empty Trash son irreversibles; requieren capability,
+  confirmación y tratamiento de falla parcial.
+- Search con contextos ocultos puede filtrar contenido si privacidad y permisos
+  no se aplican antes de ranking/resultados.
+- Activity puede volverse ruidosa o invasiva si incluye eventos técnicos,
+  navegación o lectura pasiva.
+- Inventory no debe entrar prematuramente en Search, Attention, Activity, Trash
+  o Archive antes de su polish/contract.
 
 ---
 
-## 4. P3 human approval
+## 4. Aprobación humana P3
 
-All 12 P3 decisions (GS-01 through GS-12) are frozen as per the human
-approval on 2026-08-02. They live in:
+Las 12 decisiones P3, GS-01 a GS-12, están aprobadas y congeladas desde el
+2026-08-02.
 
-- `PLANNER_V1_M11_FUNCTIONAL_FREEZE.md` section 1.3
-- `PLANNER_V1_M11_FINAL_DECISION_REGISTRY.md` block 11A.P3/CR-M11-11A-GLOBAL-SURFACES-001
-- `PLANNER_V1_M11_UX_UI_FREEZE_CONTRACT.md` sections GS-V1 to GS-V11
-
-No decision may be reopened without a new Change Request.
+Ninguna decisión puede reabrirse sin un nuevo Change Request. Este documento no
+inicia 11A.1 y no autoriza implementación.
 
 ---
 
-## 5. Frozen architecture
+## 5. Arquitectura de producto congelada
+
+La arquitectura congelada es `Global Equilibrada`.
 
 ```text
-Global Equilibrada
-
 Bottom Navigation
   Home
   People
@@ -137,427 +139,593 @@ Bottom Navigation
 
 AppTopBar
   Household switch + role
-  Attention icon (badge when unresolved)
+  Attention icon (badge sólo para Attention sin resolver)
 
-[Seach (inside Add surface)]
-├── Buscar en HomePlus...   = bar
-└── Acciones rápidas
-      Tarea · Evento · Plan
-      Geni (when exists)
+Add surface
+  Buscar en HomePlus...
+  Acciones rápidas
+    Crear tarea
+    Crear evento
+    Crear plan
+    Geni (futuro, sólo cuando esté implementado)
 
 Attention / Activity
-    [Tab: Atención  ]   [Tab: Actividad ]
+  Tab: Atención
+  Tab: Actividad
+
+More
+  Papelera
 ```
 
-Search within `Add` -> full-screen, not in the sheet. Grouped by module/entity.  
-Attention icon -> `Atención&Actividad` screened dual tab.  
-Trash: global with filters (More → Papelera).  
-Archive: contextual per module, accessible from local Planner/etc menus.
-
-To the full navigation map, see P2 §10.2 (Arquitectura B).
+Global Surfaces proyecta entidades existentes. No crea entidades duplicadas, no
+redefine los Details de Planner y no reemplaza los flujos canónicos de cada
+módulo.
 
 ---
 
 ## 6. Home
 
-Responsibility: orient, prioritize and give continuity.
+Home orienta, prioriza y da continuidad.
 
-What Home contains:
+Home contiene:
 
-- visible household context;
-- conditional Attention excerpt (only when >0 real items);
+- contexto activo del household;
+- extracto condicional de Attention, sólo cuando existen ítems reales sin resolver;
 - Today / Next;
-- Planner continuance when valuable;
-- Inventory exception (already supported);
-- offline/stale/partial error states.
+- continuidad de Planner cuando aporta valor;
+- la excepción actual de Inventory;
+- estados offline, stale y de error parcial.
 
-Absent from Home:
+Home no contiene:
 
-- persistent Search bar;
-- back-references to all modules;
-- a module grid;
-- Activity feed/teaser;
-- Trash preview;
-- Archive rows;
-- decorative metrics;
-- full Planner or Inventory lists;
-- full forms.
+- Search persistente;
+- gateways redundantes a módulos;
+- grilla de módulos;
+- Activity;
+- Trash;
+- Archive;
+- métricas decorativas;
+- listas completas de Planner;
+- listas completas de Inventory;
+- formularios completos.
 
-Attention excerpt:
-
-- Appears only when there are items; includes `Ver todo`; resolves not by reading.
-
-Continuity & Today row tap → canonical entity Detail.
-Minimal inline actions only if their safety has been proven and are not the
-freeze immutable rules (future implementation may define but do not start now).
+Las filas en Home abren destinos canónicos. Las acciones inline mínimas sólo
+pueden incorporarse cuando una auditoría técnica posterior pruebe su seguridad;
+este P4 no define esa mecánica.
 
 ---
 
-## 7. Quick Actions and Search
+## 7. Quick Actions y Search
 
 ### Quick Actions
 
-- Open grid (no cards/borders), responsive.
-- Center `+` opens sheet with `Buscar en HomePlus...` above the QA grid.
-- Fixed order: Tarea, Evento, Plan.
-- Duplicates, Templates, Drafts, Inventory, lifecycle, Archive, Trash are excluded.
-- Geni future 4th action (no placeholder).
+El botón central `+` abre una única superficie compartida con Search y Quick
+Actions.
+
+Quick Actions iniciales:
+
+- `Crear tarea`;
+- `Crear evento`;
+- `Crear plan`.
+
+Quedan excluidos de la grilla inicial de Quick Actions:
+
+- Templates;
+- Drafts;
+- Inventory;
+- acciones de lifecycle;
+- Trash;
+- Archive;
+- Search como tile;
+- acciones sobre entidades existentes.
+
+Geni será una cuarta Quick Action futura sólo cuando esté implementado. No debe
+existir un placeholder deshabilitado de Geni antes de eso.
 
 ### Search
 
-- Except from the `Quick Action + Search` sheet → Search bar → full-screen Search.
-- Results by module/entity grouping.
-- Opens canonic destination.
-- No duplicate Detail inside Search.
-- Scope: currently active Tasks, Events, Plans (no Inventory, no Presets, no Drafts, no people/settings/routes).
+Search vive como barra superior dentro de la superficie Quick Actions + Search.
+Al activarse, abre Search full-screen.
 
-Hidden content scopes via explicit chips:
-- `Archivados`
-- `Papelera`
-  (No mix with active results).
+Alcance normal inicial:
 
-SearchResults in Trash context: `En Papelera` + retention time + recover + Delete definitively (coordinator only).
+- Tasks activos;
+- Events activos;
+- Plans activos.
 
----
+Quedan excluidos del Search normal:
 
-## 8. Attention and Activity
+- Inventory Items;
+- Drafts;
+- Presets;
+- People;
+- Settings;
+- rutas;
+- comandos;
+- acciones;
+- elementos archivados;
+- Trash.
 
-### Access
+Contextos explícitos de Search:
 
-Top bar bell icon, badge only when unresolved Attention exists.
+- `Activos`;
+- `Archivados`;
+- `Papelera`.
 
-### Screen
-
-Navegación → `Atención y actividad`, tabs:
-- `Atención` (badge count for current person/household)
-- `Actividad` (no badge)
-
-### Attention rules
-
-- Items that require intervention/decision may contain one primary action + `Abrir`.
-- Reading / viewing does not resolve.
-- Remain until real validated resolution.
-- Group by importance/impact > decision proximity > time proximity > recency.
-- No presentation of anonymous general activity.
-- No Inventory here (initial): Inventory Exception may still exist in Home.
-
-### Activity rules
-
-- Chronological nice plain timeline.
-- Grouped by day, entity, process.
-- NO unread state, NO subtle new dot, NO `Marcar todo como leído`.
-- NO badge.
-- NO inline mutations (open canonical destination).
-- No record of keyboard, navigation, search, sync, app screen visits, technical logs.
-
-#### Gen
-- When Geni process has started & is pending proposal, it appears in Attention.
-  When final and executed, a single row grouped in Activity with "Ver proceso" open to sequence.
-  Three independent rows not allowed.
-- Failed/uncertain Geni process never appears as success: stays/returns to Attention.
-
-Inventory is excluded from global Attention and Activity but may keep its
-existing exception integration in Home.
+Los contextos ocultos nunca se mezclan silenciosamente con resultados activos.
+Search abre destinos canónicos y no implementa un Detail duplicado.
 
 ---
 
-## 9. Geni process representation
+## 8. Attention y Activity
 
-> (Note: Geni is not yet implemented; no placeholder).
+### Acceso
 
-- Attention: Geni identified, pending proposal requiring confirmation.
-- Row: one confirm/abort action + `Abrir`.
-- Activity: grouped row with summary "Geni cambió el..." "Ver proceso".
-- Steps inside an expansion: each shows "Geni action"/"Human action"/"Result".
+El icono de Attention en AppTopBar abre una única superficie full-screen:
+`Atención y actividad`.
+
+El badge del icono cuenta sólo Attention sin resolver para la persona y el
+household actuales. Activity nunca tiene badge.
+
+### Attention
+
+Attention contiene asuntos que requieren intervención o decisión humana.
+
+Reglas:
+
+- leer no resuelve;
+- ver no resuelve;
+- los ítems persisten hasta una resolución válida;
+- cada ítem puede exponer una acción primaria más `Abrir`;
+- los procesos complejos abren Detail o un flujo canónico;
+- Inventory queda excluido inicialmente de Attention global.
+
+Orden:
+
+1. importancia o impacto;
+2. necesidad de decisión directa;
+3. proximidad temporal;
+4. recencia entre prioridades equivalentes.
+
+### Activity
+
+Activity es una línea de tiempo cronológica simple.
+
+Reglas:
+
+- se agrupa por día, entidad y proceso cuando aplica;
+- no tiene estado unread;
+- no tiene punto de novedad;
+- no tiene `Marcar todo como leído`;
+- no tiene badge;
+- no contiene mutaciones inline;
+- tap abre destino canónico;
+- no registra navegación, visitas de pantalla, búsquedas, teclas, sincronización rutinaria ni logs técnicos;
+- Inventory queda excluido inicialmente de Activity global.
+
+---
+
+## 9. Representación de procesos Geni
+
+Geni no está implementado en este freeze y no aparece en el producto hasta que
+se implemente.
+
+Comportamiento futuro congelado:
+
+- Geni aparece como cuarta Quick Action sólo cuando esté implementado;
+- una propuesta Geni pendiente aparece en Attention;
+- Geni siempre se identifica;
+- la persona confirma o rechaza la propuesta;
+- un proceso confirmado y ejecutado aparece en Activity como una fila agrupada;
+- `Ver proceso` muestra autor y orden de cada paso;
+- una operación Geni no debe crear tres filas independientes de Activity;
+- una ejecución fallida o incierta nunca aparece como éxito;
+- Geni no reemplaza Search;
+- los permisos se heredan de la operación canónica propuesta o ejecutada.
 
 ---
 
 ## 10. Trash
 
-Global Trash under "More -> Papelera" with module/entity filters + overflow
-retention of 30 days.
+Existe una única superficie global Trash bajo `More > Papelera`.
 
-Entities recoverable: Tasks, Events, Plans, Presets, Inventory Items (when
-Inventory restore contract is drop-in ready).
+Las entradas locales permitidas pueden abrir la misma superficie Trash
+prefiltrada por módulo o tipo de entidad.
+
+Entidades recuperables:
+
+- Tasks;
+- Events;
+- Plans;
+- Presets;
+- Inventory Items sólo cuando el contrato completo de restore y visualización de
+  Inventory esté implementado.
+
+Drafts no entra en Trash.
+
+Retención:
+
+- 30 días;
+- fecha exacta de purga visible;
+- tiempo restante visible en lenguaje humano.
 
 Restore:
-- Anyone with permissions restores the entity.
-- If broken relations appear, show blocker/dialog/review. No false success.
 
-Permanent delete: only coordinator; explicit confirmation per item/type;
-consequences not rubicon like cannot-undo.
+- requiere permiso vigente sobre la entidad;
+- devuelve la entidad al estado o contexto correspondiente;
+- si hay dependencias rotas, abre revisión o informa el bloqueo;
+- no promete éxito antes de la confirmación canónica.
 
-Empty Papelera: coordinator only; confirmation/high-confirmation + no offline + partial
-failure visible with success and failure groups.
+Mover a Trash:
 
-No administrative bulk selections / multiple selections / restore / delete,
-`Vaciar Papelera` is the single batch action.
-
-Drafts are NOT in trash.
-
-Retention copy: "Se eliminará el 26 de agosto · quedan 24 días", etc.
+- se permite según permisos de la entidad;
+- no se restringe al coordinador salvo que el modelo de permisos de la entidad lo exija.
 
 ---
 
-## 11. Draft discard
+## 11. Descarte de Drafts
 
-Drafts are now:
+Un Draft es trabajo de creación no confirmado, no una entidad productiva
+confirmada.
 
-- Private by creator.
-- Never appear in Home, QuickActions, Search, Attention, Activity, Trash, or Archive.
-- Only operation: `Descartar borrador` = immediate and definitive.
-- No more "Enviar a Papelera" / "Restaurar borrador eliminado".
+Drafts queda:
+
+- fuera de Home;
+- fuera de Search;
+- fuera de Quick Actions;
+- fuera de Attention;
+- fuera de Activity;
+- fuera de Trash;
+- fuera de Archive;
+- privado para su creador mientras exista.
+
+La única operación de descarte es:
+
+```text
+Descartar borrador -> eliminación inmediata y definitiva
+```
+
+Drafts no tiene permanent delete desde Trash porque nunca entra en Trash. El
+comportamiento existente de Draft recuperable debe auditarse después y retirarse
+de forma compatible donde corresponda.
 
 ---
 
 ## 12. Archive
 
-### Archive is contextual
+Archive es contextual por módulo. No existe una pantalla global única de Archive
+en Planner V1.
 
-No single global Archive screen in V1.
+Entidades archivables:
 
-Archivable entities:
-- Plans (existing scope Up to archiving);
-- Tasks, Events, Presets (expanded);
-- Inventory Items (approved result but waits for Inventory polish/contract).
+- Tasks;
+- Events;
+- Plans;
+- Presets;
+- Inventory Items.
 
-Each module shows its own contextual Archive.
+Archive es un estado de visibilidad y preservación. No equivale a Completed,
+Closed, Cancelled ni Trash.
 
-Archive does NOT change completion/cancel/close state:
-- Completed Task + Archive → Still completed, not active, may be unarchived.
-- Canceled Event + Archive → still canceled.
-- Archived Plan -> still closed/completed, can be unarchived.
-- Preset archived → Not shown in library, not offered for creation.
-- Inventory archived → Preserves history and relationships; not in active inventory / alerts.
+Archive:
 
-Archive
+- no cambia el estado operativo;
+- no tiene retención automática;
+- no permite permanent delete directo;
+- permite desarchivar según permisos;
+- permite mover a Trash según permisos.
 
-- has no auto-retention time (no purge).
-- does not allow direct permanent delete.
-- a permitted user may unarchive or move to papeler.
+Inventory Archive está aprobado funcionalmente, pero queda técnicamente diferido
+hasta completar el polish y el contrato canónico de Inventory.
 
 ---
 
-## 13. Permanent delete and Empty Trash
+## 13. Permanent delete y Empty Trash
 
-### Permanent Delete
+### Permanent delete
 
-Only available inside Trash view, for coordinator role only.
+`Eliminar definitivamente`:
 
-Requires:
-- Clear what entity, the type, any extra note.
-- List consequences (can not be undone, can be recovered).
-- Runs after backend confirmation, not offline.
-- Not shown as success until back-end says; if fails, remains.
+- existe sólo dentro de Trash;
+- está disponible sólo para el coordinador;
+- requiere confirmación explícita;
+- muestra tipo de entidad y consecuencias;
+- comunica que no puede deshacerse;
+- no corre offline;
+- no se presenta como éxito antes de la confirmación canónica.
 
 ### Empty Trash
 
-- `Vaciar Papelera` is a batch destructive action inside Trash full screen.
-- Shows count, entity types, consequences.
-- Only coordinator.
-- Does not run offline.
-- Partial batch failure tolerant: successful removed, failed remain tagged.
+`Vaciar Papelera`:
 
-### Regular Trash actions
+- existe sólo dentro de Trash;
+- está disponible sólo para el coordinador;
+- es la única operación masiva inicial;
+- muestra cantidad, tipos de entidad y consecuencias;
+- requiere confirmación explícita;
+- no corre offline;
+- tolera falla parcial;
+- deja los ítems fallidos visibles y diferenciados de los éxitos.
 
-- Move (soft-delete) → anyone with the entity permissions.
-- Restore → anyone with same permissions.
+### Acciones regulares de Trash
 
-### V1 bulk actions exclusion
-
-No additional mass operations:
-- No multiselect
-- No multi-restore
-- No multi-archive
-- No multi-delete (apart from emptyza coordinator).
+- Mover a Trash sigue permisos de entidad.
+- Restore sigue permisos de entidad.
+- No hay multiselect, multi-restore, multi-archive ni multi-delete de ítems seleccionados en el alcance inicial.
 
 ---
 
-## 14. Search hidden-content contexts
+## 14. Contextos de Search para contenido oculto
 
-Search by default shows active content.
+Search por defecto muestra sólo contenido activo dentro de alcance.
 
-Active context: visible for active Tasks, Events, Plans.
-Hidden contexts via explicit chips:
-- `Archivados`
-- `Papelera`
+Los contextos ocultos son explícitos:
 
-They never mix silently with the active default results.
+- `Archivados`;
+- `Papelera`.
 
-For each hidden result:
-- Trash → "En Papelera" + retention time + recovery context.
-- Archive → "Archivado" + archive destination + Desarchivar capability.
+Resultados archivados:
+
+- muestran `Archivado`;
+- abren el contexto Archive;
+- pueden ofrecer `Desarchivar` cuando aplique.
+
+Resultados en Trash:
+
+- muestran `En Papelera`;
+- muestran tiempo de retención;
+- abren contexto de recuperación;
+- pueden ofrecer `Restaurar`;
+- pueden ofrecer `Eliminar definitivamente` sólo al coordinador.
 
 ---
 
-## 15. Privacy and roles
+## 15. Privacidad y roles
 
-Apply BEFORE:
+Permisos y privacidad se aplican antes de cualquier surface, ranking, grouping,
+badge, recent item, resultado, Attention item, Activity item, Trash item o
+Archive item.
 
-rank/badge/recents/grouping/results/Activity/Attention/Trash/Archive etc.
+Filtros obligatorios:
 
-- personal/household filter
-- permission filter
-- owner filter
+- persona actual;
+- household activo;
+- scope personal o household;
+- ownership;
+- role;
+- permisos de entidad.
 
-Rules
+Reglas:
 
-- personal content not disclosed into household feed.
-- Changing household resets badges and recents.
-- Geni is always identified.
-- Activity = collaborative (not surveillance). No keyboard, click logs, syncs.
-- No titles/counts/existence leaking cross-people.
-- Coordinator never auto-gains personal private content, unless rules explicit.
+- el contenido personal nunca filtra hacia el feed household;
+- el cambio de household resetea el contexto global;
+- Geni siempre se identifica;
+- Activity coordina, no vigila;
+- no se revela título, conteo ni existencia de contenido privado de otra persona;
+- el coordinador no obtiene automáticamente acceso a contenido personal privado
+  salvo regla explícita de entidad.
 
 ---
 
 ## 16. Entity / Surface Matrix
 
-| Entity | Home | Search active | Search archived | Search Trash | Quick Actions | Attention | Activity | Trash | Archive | Permanent Delete | Permissions | Canonical destination | Initial implementation status |
+| Entity | Home | Search active | Search archived | Search Trash | Quick Actions | Attention | Activity | Trash | Archive | permanent delete | permissions | canonical destination | initial implementation status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Task | Today/next excerpt | Yes (active) | Yes (explicit archived context) | Yes (explicit trash context) | No (Quick Actions for create only) | Yes (verify, correction, overdue-if-actionable, conflict) | yes (lifecycle/assignment changes & completions) | Yes | Yes (contextual) | No (only coordinator in Trash) | Personal or household scope; coordinator Permanent/Empty Trash | Task Detail | Navigator OK |
-| Event | Today/next | Yes (active) | Yes (explicit archived context) | Yes (explicit trash context) | No (creation only) | Yes (rsvp, conflict, meaningful time change) | Yes (create/edit/cancel/attendance) | Yes, aware of recurrence | Yes (contextual) | No (only coordinator in Trash)  | participant/scope-gate | Event Detail | OK |
-| Plan | Continuity + blocker | Yes (active) | Yes (archive context) | Yes (explicit trash context) | No (creation only) | Yes (blocker/review/uncertain) | Yes (lifecycle/structure) | Yes | Yes (contextual) | No | owner/household role | Plan Detail | OK |
-| Preset | No | No (exempt) | No | Yes (explicit trash context) | No | No | No (library events only) | Yes | Yes (when no active) | No (coordinator in Trash) | template manager | Preset Library/Detail | OK |
-| Draft | **Never** **–** (explicit remove) | Never | Never | Never | Never | Never | Never | Never | Never | Never | Owner-only emptyspace | None | P4 retire draft persistence |
-| Inventory Item | *Exception only* | No (initial) | No (not yet) | No (not yet) | No (no until mature) | No (initial) | No (initial) | Pending (when restore contract ready) | Pending (when ready per module contract) | Pending coordinator (global) | household + sensitive labels guarding | Inventory screen fagsto/item destination  ( when defined") | Inventory disabled in global/global stacks early |
-| Restock request | Attention only through Inventory? | Not in initial search |  |  | Not | Only if awaiting approval |  | After closed | Not |  | coordinator/adult/requester rules (any basic flow) | Inventory request context | _ |
+| Task | Extracto Today / Next cuando sea relevante | Sí, scope activo | Sí, contexto archivado explícito | Sí, contexto Trash explícito | Crear tarea | Sí, verificación, corrección, vencimiento accionable o conflicto | Sí, lifecycle, asignación y completions significativos | Sí | Sí, contextual | Coordinador únicamente, desde Papelera | Permiso de entidad para mover/restore; coordinador para permanent delete y Empty Trash | Task Detail | Existing canonical Detail; global projection pending |
+| Event | Today / Next cuando sea relevante | Sí, scope activo | Sí, contexto archivado explícito | Sí, contexto Trash explícito | Crear evento | Sí, RSVP, conflicto o cambio horario significativo | Sí, create/edit/cancel/attendance significativos | Sí, con recurrencia considerada | Sí, contextual | Coordinador únicamente, desde Papelera | Participación, scope y permisos de entidad; coordinador para permanent delete y Empty Trash | Event Detail | Existing canonical Detail; global projection pending |
+| Plan | Continuidad y bloqueos cuando aporten valor | Sí, scope activo | Sí, contexto archivado explícito | Sí, contexto Trash explícito | Crear plan | Sí, bloqueo, revisión o estado incierto que requiera decisión | Sí, lifecycle y estructura significativos | Sí | Sí, contextual | Coordinador únicamente, desde Papelera | Owner, rol household y permisos de entidad; coordinador para permanent delete y Empty Trash | Plan Detail | Existing canonical Detail; global projection pending |
+| Preset | No | No, excluido de Search normal | Sin participación inicial en Search archived | Sí, contexto Trash explícito cuando sea recuperable | No | No | No global Activity inicial | Sí | Sí, Archive contextual de librería | Coordinador únicamente, desde Papelera | Template manager o permiso de entidad para archive/move/restore; coordinador para permanent delete y Empty Trash | Preset Library / Preset Detail | Existing partial support; audit required |
+| Draft | Never | Never | Never | Never | Never | Never | Never | Never | Never | No aplica; Draft nunca entra en Trash | Owner-only durante su existencia | Recuperación/edición privada existente mientras no se descarte; al descartar, eliminación inmediata definitiva | Existing behavior must be retired compatibly |
+| Inventory Item | Excepción actual de Home permitida | No, excluido inicialmente | No, excluido inicialmente | No, excluido inicialmente hasta existir contrato de Inventory Trash | No | No, excluido inicialmente | No, excluido inicialmente | Aprobado funcionalmente; técnicamente diferido | Aprobado funcionalmente; técnicamente diferido | Coordinador únicamente, desde Papelera sólo después de implementar participación en Inventory Trash | Permisos household/de entidad y guards de sensitive labels; coordinador para permanent delete y Empty Trash después de existir Trash participation | Destino de Inventory Item después de polish/contract de Inventory | Deferred until Inventory polish/contract |
+| Geni future process | No hasta estar implementado | No; no reemplaza Search | No | No | Futura cuarta acción sólo cuando esté implementado | Futura propuesta pendiente que requiere confirmación | Futuro proceso confirmado y ejecutado como una fila agrupada | No es entidad directa de Trash en este freeze | No es entidad directa de Archive en este freeze | Hereda la operación canónica; sin regla independiente de permanent delete en este freeze | Hereda permisos de la operación canónica | Flujo de operación canónica o process detail cuando se implemente | Future - not implemented |
 
 ---
 
 ## 17. Phone / Tablet
 
 Phone:
-- Quick Actions bottom-sheet, Search full-screen, Attention/Activity = tabs full screen, Trash full-screen, Archive contextual (full-screen) open. 
-- text visible.
+
+- Home en una columna.
+- Quick Actions como bottom sheet accesible.
+- Search full-screen.
+- Attention / Activity full-screen con tabs.
+- Trash full-screen.
+- Archive contextual full-screen cuando aplique.
+- Labels visibles.
 
 Tablet:
-- Home: dos columnas (same priority).
-- Search: overlay o split.
-- Trash filters + list elements.
-- Same capacities as phone.
 
-(no, no expand to double/take space.)
+- Home puede usar dos columnas sin cambiar prioridad.
+- Search puede usar overlay o split view.
+- Attention / Activity puede usar lista más detalle.
+- Trash puede usar filtros, lista y contexto de recuperación.
+- Mismas capacidades visibles que phone.
 
 ---
 
-## 18. Accessibility
+## 18. Accesibilidad
 
-- Android 48 dp minimal hit target (iOS 44 pt).
-- Dynamic Type and reflow adapt.
-- All screen readers announce (counts and consequences).
-- Focus visible, order logical.
-- No color-only.
-- Reduce Motion respects the system pref — no extra motion courtesy.
-- Confirmaciones con contexto y pantalla.
-- Severe actions announce No puede deshacerse/restablecer lo pertinente.
-- Offline/stale banner announce.
-- Purge date sentido común date (human-readable).
-
-See more details in the UX/UI Freeze Contract GS-V8 etc.
+- Android: target mínimo de 48 dp.
+- iOS: target mínimo de 44 pt.
+- Dynamic Type y reflow sin clipping.
+- Screen readers anuncian conteos, fechas y consecuencias.
+- Foco visible y orden lógico.
+- Ningún significado depende sólo de color.
+- Reduce Motion respeta la preferencia del sistema.
+- Confirmaciones destructivas con contexto accesible.
+- Estados offline y stale anunciados.
+- Fechas de purga en lenguaje humano.
 
 ---
 
 ## 19. Empty/loading/error/offline states
 
-- Every surface: present empty state helpfully; clicking opens canonical module.
-- Stale und offline: Show data + one header banner.
-- Partial error: Because module failed, but remaining sections appear (no full-page fail).
-- No technical codes, entity talst, raw stacks.
+- Empty states usan lenguaje de producto claro y dirigen al módulo o punto
+  canónico de creación/acceso cuando corresponda.
+- Loading states evitan códigos técnicos e identificadores crudos.
+- Offline y stale mantienen datos válidos visibles cuando sea posible y usan un
+  único banner de superficie.
+- Partial error aísla la fuente fallida y mantiene visibles las secciones sanas.
+- Fatal error ofrece salida segura o retry.
+- Ningún estado expone stack traces, entity IDs ni jerga backend.
 
 ---
 
-20. Superseded rules
+## 20. Superseded rules
 
-Final supersession index with cross-links:
+El siguiente ledger es el registro P4 autoritativo de supersession para Global
+Surfaces. Cada marcador está completo y apunta al Change Request aprobado.
 
-| PARENT | Location in v1.2 FFS | Replacement by CR R1 |
-|--------|------------------------|-----------------------------|
-| Global searchable Drafts, People, settings, actions, routes | §3.1, §4.3, §22 | §1.3.3, §1.3.4 |
-| Quick Actions only "tile-based create" layout | §3.1, §4.3 | §1.3.3 (surface Search + QA combined) |
-| Drafts go to Trash + 30-day recovery | §7.3 Trash retention, §12.5 Draft deletion | §1.3.8 (immediate Discard, definitive) |
-| No automatic immediate permanent deletion | §7.3 Trash retention, §19 (explicit exclusions) | §1.3.10 (Eliminar definitivo + Vaciar Pa, sólo coordinator, inside Trash) |
-| Archive only for completed Plan | §10.3 Plan lifecycle, §10.16 Archive | §1.3.9 (Task, Event, Plan, Preset, Inventory: proposiciones, contextual) |
-| Trash separated or fragmented | §3.2 core entites/link, §13.2 (Phone surfaces) | §1.3.7 (single global, module filters) |
-| Inventory was "cross-module" without clear gate | §3.2 core limites de-feature | §1.3.3-3.5 + entity/surface matrix restricts to Start -->
-| Home earlier with "module gateways, Search at top, Activity, full Inventory" (§13, §22 22 Package D) | | §1.3.2 (#Home híbrida without module grid, no permanent Search, no Inventory-overexposure) |
-| Activity had unread states + no feed arrangement | §14.4 Activity | §1.3.5 — simple chronological / no badge / no middle-immersive inline / Inventory excluded initial |
-| No global Attention tab but separate texts (`Requiere Respuesta` / `Próximo`) | §14.2.1 attention center | §1.3.5 single surface with tab Attention + Activity |
-| No 'coordinator is allowed to permanently delete' previously prohibited | §7.3 (global 07), §19.2 | §1.3.10—coordinator cap, only inside Trash, explicit confirmation |
-| Inventory global participation implicitly presumed by cross-module context | §3.2 cross-module, §21 traceability sums | §6 entity matrix + §18 'excl Drawer initial' |
+| Previous rule | New frozen rule | Updated authority section | Superseded marker | Remaining technical gap |
+|---|---|---|---|---|
+| Global Search incluía Drafts, Presets, People, Settings, acciones y rutas. | Search normal inicial incluye sólo Tasks, Events y Plans activos; los contextos ocultos son explícitos. | Functional Freeze 1.3.4; Registry GS-04; UX/UI GS-V2 | SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 | 11A.1 debe definir fuente de Search, filtrado de seguridad y contrato de rutas. |
+| Quick Actions se describía sólo como tiles de creación. | La acción central abre una superficie Quick Actions + Search, con Search arriba y acciones de creación debajo. | Functional Freeze 1.3.3; Registry GS-03; UX/UI GS-V1 | SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 | 11A.1 debe auditar el host actual de sheet y la transición hacia Search. |
+| Drafts entraban en Trash y eran recuperables durante 30 días. | Drafts nunca entra en Trash; `Descartar borrador` elimina de inmediato y de forma definitiva. | Functional Freeze 1.3.8; Registry GS-08; UX/UI GS-V6 | SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 | 11A.1 debe identificar y retirar compatiblemente los paths de Draft restore. |
+| Planner V1 prohibía eliminación permanente manual inmediata. | `Eliminar definitivamente` y `Vaciar Papelera` existen sólo dentro de Trash y sólo para coordinador. | Functional Freeze 1.3.10; Registry GS-10; UX/UI GS-V7 | SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 | 11A.1 debe verificar capability de coordinador, confirmación y manejo irreversible. |
+| Archive estaba concentrado principalmente en Plans. | Archive es contextual para Tasks, Events, Plans, Presets e Inventory Items; Inventory queda diferido. | Functional Freeze 1.3.9; Registry GS-09; UX/UI GS-V5 | SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 | 11A.1 debe auditar estado Archive por entidad y entry points de módulo. |
+| Trash era local de Planner o fragmentado entre Planner y Preset/Draft Trash. | Existe un único Trash global bajo `More > Papelera`, con filtros por módulo/entidad y entradas locales prefiltradas. | Functional Freeze 1.3.7; Registry GS-07; UX/UI GS-V4 | SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 | 11A.1 debe determinar si reutiliza fuentes existentes o requiere una nueva superficie backend. |
+| Home podía operar como grilla de gateways, con Search permanente, Activity o exposición amplia de Inventory. | Home es híbrida: contexto, extracto de Attention, Today / Next, continuidad Planner, excepción actual de Inventory y estados. Sin grilla de módulos ni Search permanente. | Functional Freeze 1.3.2; Registry GS-02 | SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 | 11A.1 debe auditar proyecciones actuales de Home y retirar patrones incompatibles de forma compatible. |
+| Attention global no era una superficie compartida Attention / Activity con tabs. | Una superficie `Atención y actividad` tiene tabs Attention y Activity; sólo Attention tiene badge por ítems sin resolver. | Functional Freeze 1.3.5; Registry GS-05; UX/UI GS-V3 | SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 | 11A.1 debe determinar fuente de Attention, contrato de conteo y filtros de privacidad. |
+| Activity podía heredar semántica de unread o feed. | Activity es cronológica, sin badge, sin unread y sin mutaciones inline; excluye ruido técnico. | Functional Freeze 1.3.5; Registry GS-05; UX/UI GS-V3 | SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 | 11A.1 debe definir producción, grouping y límites de privacidad de Activity. |
+| Inventory quedaba insinuado como participante global de primer nivel. | Inventory conserva su excepción actual de Home, queda excluido inicialmente de Search, Attention y Activity, y espera polish/contract antes de Trash y Archive. | Functional Freeze 1.3.1, 1.3.4, 1.3.5, 1.3.7, 1.3.9; Registry GS-01, GS-04, GS-05, GS-07, GS-09 | SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 | Inventory polish y contrato de restore/archive siguen siendo prerrequisitos. |
+| Geni estaba ausente de Global Surfaces. | Geni permanece oculto hasta implementarse; propuestas futuras aparecen en Attention y ejecuciones confirmadas aparecen como filas agrupadas de Activity. | Functional Freeze 1.3.3, 1.3.6; Registry GS-06; UX/UI GS-V1, GS-V3, GS-V11 | SUPERSEDED BY CR-M11-11A-GLOBAL-SURFACES-001 | Implementación de Geni y contrato de correlación de proceso quedan diferidos a trabajo aprobado posterior. |
 
 ---
 
-## Technical audit questions (for 11A.1 — DO NOT RESOLVE NOW)
+## 21. Technical audit questions
 
-1. How to provide live Search data for initial active Tasks/Plans/Events
-(grouped) with correct security/RLS filtering.
+Estas preguntas pertenecen a 11A.1. Este P4 no las resuelve y no congela una
+solución técnica.
 
-2. Canonical SearchResult routes -> concrete files that know to open the right
-plan/list/detail.
-
-3. Retiring draft persistent Recovery route (several paths exist already)
-safely without causing UI crash.
-
-4. Migration or compatible cleanup for already-existing persistent Draft rows
-(if any) before disabling Restore.
-
-5. Archive context paths per entity (Overlay chips? How to get Archive
-per-module for Task /Events from Plan.)
- MOIUX
-
-6. Inventory Archive still waiting for Inventory polish: may include
-pantry or supply links.
-
-7. Global Trash aggregation: endpoints or union with local Planner/Preset/maybe Inventory.
-8. Exact restore "previous state" for entities that go through hard-restore.
-9. Coordinator-specific capability: confirm existence of permission node for
-   perm-delete and batch.
-10. Empty Trash: transactional partial failure can be implemented what fallback?
-11. Offline/degraded for the permanent mutation gate drawer (never offline)?
-12. Search hidden scope: how to express active/archived/trash and
-    Presentation states.
-13. Attention source/index and count servers.
-14. Activity producer: grouping entry, not excessive noise.
-15. Geni process correlations (multi-step confirm/exc).
-16. Offline reliability for these global edges.
-17. Privacy / RLS changes for global + blank context.
-18. Retention/30-day count, purge mechanism clean-up.
-
-They must be replied before any implemented.
+1. Search: determinar cómo se consultan, agrupan, filtran por permisos y enrutan
+   Tasks, Events y Plans activos.
+2. Contextos ocultos de Search: determinar cómo representar `Activos`,
+   `Archivados` y `Papelera` sin mezclar resultados.
+3. Attention: determinar la fuente y el contrato técnico, incluyendo si reutiliza
+   capacidades existentes o requiere una nueva superficie backend.
+4. Activity: determinar producción, grouping, retención, filtros de privacidad y
+   exclusión de ruido técnico.
+5. Global Trash: determinar el modelo de fuente para Tasks, Events, Plans,
+   Presets y futuros Inventory Items.
+6. Restore: definir manejo de estado previo y blockers de dependencias por entidad.
+7. Capability destructiva de coordinador: verificar autorización para
+   `Eliminar definitivamente` y `Vaciar Papelera`.
+8. Empty Trash: definir manejo de falla parcial y semántica de confirmación.
+9. Draft discard: auditar paths actuales de Draft restore persistente y planear
+   retiro compatible.
+10. Archive: auditar estado Archive por entidad, entry points de módulo y
+    comportamiento de unarchive.
+11. Inventory: esperar polish y contrato canónico de restore/archive antes de
+    implementar participación en Trash o Archive.
+12. Geni: diferir correlación de proceso, confirmación de propuesta y grouping
+    de Activity hasta un milestone Geni aprobado.
+13. Offline/degraded: confirmar qué acciones encolan, cuáles se bloquean offline
+    y cómo se reporta incertidumbre.
+14. Privacy/RLS: verificar filtros antes de ranking, badges, recents, resultados,
+    Attention, Activity, Trash y Archive.
+15. Retención: definir mecanismo de purga de 30 días y tiempo restante en
+    lenguaje humano sin exponer detalles técnicos.
 
 ---
 
 ## 22. Implementation exclusions
 
-Not in this P4 / Gersen freeze or following commit:
-- No code, No contracts, No rudder, No navigation, no navigation.
-- No backend definitions.
-- No P4 defines any Supabase migration.
-- No push/deep API.
-- No design data-collection stats/tests.
-- No final colors from 11C.
-- Inventory is excluded from Search, Attention, Activity, global Trash initially.
+Este P4 y esta corrección R1 excluyen:
 
-This document does **NOT** start the M11.1A stage. It only freezes the product.
+- cambios de código;
+- implementación UI;
+- implementación de navegación;
+- definiciones backend;
+- contratos API;
+- cambios de esquema de base de datos;
+- migraciones de datos;
+- cambios de paquetes o lockfiles;
+- trabajo en Supabase;
+- polish visual final, colores o styling 11C;
+- participación de Inventory en Search, Attention o Activity globales;
+- implementación de Inventory Trash o Archive antes de Inventory polish/contract;
+- inicio automático de 11A.1.
+
+El resultado de producto está congelado. La arquitectura técnica no está
+congelada.
 
 ---
 
 ## 23. Traceability
 
-- P0 – Mster verified realities baseline.
-- P1A-P1D – research and comparative comparative.
-- P2 – Synthesis M11P2 product&recommendation.
-- P3 – human vote; CR → this document.
+- P0: baseline de realidades verificadas.
+- P1A-P1D: investigación comparativa.
+- P2: síntesis integrada y recomendación.
+- P3: voto humano y aprobación.
+- P4: registro de Product Freeze y actualización de autoridades.
+- R1: corrección documental de este registro P4.
 
-Authoritative flet: `PLANNER_V1_M11_FUNCTIONAL_FREEZE.md` v1.3 + `FINAL_DECISION_REGISTRY` + `UX/UI_FREEZE_CONTRACT` . This +P4 pack closes.
+Documentos autoritativos:
+
+- `PLANNER_V1_M11_FUNCTIONAL_FREEZE.md` versión 1.3;
+- `PLANNER_V1_M11_FINAL_DECISION_REGISTRY.md`;
+- `PLANNER_V1_M11_UX_UI_FREEZE_CONTRACT.md`;
+- este registro P4 de Product Freeze.
+
+File count original de P4:
+
+```text
+4 files total: 3 modified authorities + 1 new P4 document
+```
+
+Archivos cambiados por R1:
+
+```text
+1 file changed: docs/implementation/planner/M11_11A_P4_GLOBAL_SURFACES_PRODUCT_FREEZE.md
+```
 
 ---
 
 ## 24. Validation notes
 
-- ` git diff --check `, `--stat` only documents.
-- No code changed. 4 files + 1 new. No package.lock. No backend. No Supabase.
+La inspección R1 confirmó:
+
+- `PLANNER_V1_M11_FUNCTIONAL_FREEZE.md` está en versión 1.3;
+- original freeze date: 2026-07-22;
+- latest approved revision: 2026-08-02;
+- `CR-M11-11A-GLOBAL-SURFACES-001` está presente;
+- las reglas nuevas de Global Surfaces son autosuficientes en sección 1.3;
+- las reglas históricas incompatibles están marcadas como superseded;
+- no se encontró contradicción activa en las tres autoridades sobre Search,
+  Drafts, Trash, Archive, permanent delete, Home, Attention o Activity;
+- `PLANNER_V1_M11_FINAL_DECISION_REGISTRY.md` contiene GS-01 a GS-12 con
+  `APPROVED_AND_FROZEN`;
+- no queda estado `HUMAN_APPROVAL_REQUIRED` para GS-01 a GS-12;
+- `PLANNER_V1_M11_UX_UI_FREEZE_CONTRACT.md` contiene GS-V1 a GS-V11;
+- el UX/UI contract congela estructura, comportamiento y estados, no colores
+  finales ni polish visual.
+
+Correcciones editoriales R1 en este P4:
+
+- frases incompletas y corruptas corregidas;
+- encabezados Markdown y numeración normalizados;
+- `Entity / Surface Matrix` reconstruida;
+- fila `Geni future process` agregada;
+- fila incompleta de solicitud de reposición retirada;
+- ledger de supersession reconstruido con columnas y marcadores completos;
+- afirmaciones de solución técnica reclasificadas como preguntas o gaps de auditoría;
+- lenguaje de file count corregido.
+
+Validación requerida antes del commit:
+
+```text
+git diff --check
+git diff --stat
+git status --short
+```
+
+Validación requerida después del commit:
+
+```text
+git diff --check HEAD~1 HEAD
+git show --stat --oneline --summary HEAD
+git status --short
+```
 
 ---
 
@@ -574,4 +742,5 @@ MILESTONE: 11A.P4
 CANONICAL AUTHORITY: PLANNER_V1_M11_FUNCTIONAL_FREEZE.md version 1.3
 IMPLEMENTATION: NOT YET AUTHORIZED
 NEXT GATE: 11A.1 Technical Architecture / Contract Readiness Audit
+R1 STATUS: DOCUMENTARY CORRECTION COMPLETE
 ```
