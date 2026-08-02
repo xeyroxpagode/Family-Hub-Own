@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { Animated, ActivityIndicator, View, StyleSheet } from 'react-native';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { Animated, ActivityIndicator, Pressable, View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -23,6 +23,7 @@ import { PlannerPlanStructureEditScreen } from '../screens/planner/PlannerPlanSt
 import { PlannerPlanDetailScreen } from '../screens/planner/PlannerPlanDetailScreen';
 import { PlannerTrashScreen } from '../screens/planner/PlannerTrashScreen';
 import { PlannerSearchScreen } from '../screens/planner/PlannerSearchScreen';
+import { PlannerAttentionActivityScreen } from '../screens/planner/PlannerAttentionActivityScreen';
 import { TaskDetailScreen } from '../screens/planner/TaskDetailScreen';
 import { EventDetailScreen } from '../screens/planner/EventDetailScreen';
 import {
@@ -40,12 +41,68 @@ import { AppTopBar, HouseholdSwitcherSheet, CenterTabButton } from '../component
 import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
 import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
 import { PlannerDeepLinkProvider } from '../services/planner/plannerDeepLinkProvider';
+import { fetchPlannerAttentionRequest } from '../services/planner/plannerAttentionClient';
+import { GLOBAL_SURFACE_GATES_OFF } from '../services/planner/globalSurfaceTypes';
 import { colors, spacing } from '../constants/theme';
 
 const Tab = createBottomTabNavigator<HomeTabParamList>();
 const PlannerStack = createNativeStackNavigator<PlannerStackParamList>();
 
 const AddTabPlaceholder = () => null;
+
+function AttentionTopBarButton({ accessToken, householdId, navigation }: {
+  accessToken: string | null;
+  householdId: string | null;
+  navigation: any;
+}) {
+  const [count, setCount] = useState(0);
+  const requestSeq = useRef(0);
+
+  useEffect(() => {
+    if (!GLOBAL_SURFACE_GATES_OFF.attention.enabled || !accessToken || !householdId) {
+      setCount(0);
+      return;
+    }
+    const controller = new AbortController();
+    const sequence = ++requestSeq.current;
+    void fetchPlannerAttentionRequest({
+      accessToken,
+      limit: 100,
+      signal: controller.signal,
+      timeoutMs: 8000,
+      contextScope: `planner-attention-badge:${householdId}`,
+    }).then((response) => {
+      if (sequence !== requestSeq.current || controller.signal.aborted) return;
+      setCount(response.items.length);
+    }).catch(() => {
+      if (sequence !== requestSeq.current || controller.signal.aborted) return;
+      setCount(0);
+    });
+    return () => controller.abort();
+  }, [accessToken, householdId]);
+
+  if (!GLOBAL_SURFACE_GATES_OFF.attention.enabled) return null;
+
+  return (
+    <Pressable
+      onPress={() => navigation.navigate('PlannerTab', {
+        screen: 'PlannerAttentionActivity',
+        params: { source: 'planner', returnTo: 'previous' },
+      })}
+      style={({ pressed }) => [styles.attentionButton, pressed && styles.attentionButtonPressed]}
+      accessibilityRole="button"
+      accessibilityLabel={count > 0 ? `Abrir Atención y actividad, ${count} asuntos sin resolver` : 'Abrir Atención y actividad'}
+      hitSlop={8}
+    >
+      <HomePlusIcon name="notifications-outline" size={22} color={colors.text.primary} />
+      {count > 0 ? (
+        <View style={styles.attentionBadge} accessibilityLabel={`${count} asuntos sin resolver`}>
+          <Animated.Text style={styles.attentionBadgeText}>{count > 99 ? '99+' : String(count)}</Animated.Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
 
 const TabIcon = ({
   iconKey,
@@ -146,6 +203,7 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="PlannerDraftResume" component={PlannerDraftResumeRoute} />
       <PlannerStack.Screen name="PlannerPresetDraftsTrash" component={PlannerPresetDraftsTrashRoute} />
       <PlannerStack.Screen name="PlannerSearch" component={PlannerSearchScreen} />
+      <PlannerStack.Screen name="PlannerAttentionActivity" component={PlannerAttentionActivityScreen} />
       <PlannerStack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <PlannerStack.Screen name="EventDetail" component={EventDetailScreen} />
     </PlannerStack.Navigator>
@@ -180,7 +238,7 @@ function M3CenterTabButton({ triggerRef }: { triggerRef: React.RefObject<unknown
 
 export function HomeTabNavigator() {
   const { session, authMe } = useAuth();
-  const { currentRole } = useHousehold();
+  const { currentRole, currentHousehold } = useHousehold();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   
@@ -221,6 +279,13 @@ export function HomeTabNavigator() {
         householdRole={householdRole}
         onAvatarPress={handleAvatarPress}
         onHouseholdPress={handleHouseholdPress}
+        rightSlot={(
+          <AttentionTopBarButton
+            accessToken={session?.access_token ?? null}
+            householdId={currentHousehold?.id ?? authMe?.active_household?.id ?? null}
+            navigation={navigation}
+          />
+        )}
       />
 
       <PlannerDeepLinkProvider>
@@ -338,5 +403,32 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.base,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  attentionButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+  },
+  attentionButtonPressed: {
+    backgroundColor: colors.surface.soft,
+  },
+  attentionBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    backgroundColor: colors.terracotta[600],
+  },
+  attentionBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
   },
 });

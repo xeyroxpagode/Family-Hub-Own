@@ -141,8 +141,8 @@ export const GLOBAL_SURFACE_GATES_OFF: Record<GlobalSurfaceId, GlobalSurfaceFeat
   home: { surfaceId: 'home', enabled: true, reason: 'home is a productive Global Surface' },
   quick_actions: { surfaceId: 'quick_actions', enabled: true, reason: 'quick actions is productive' },
   search: { surfaceId: 'search', enabled: true, reason: 'Active Search is productive for Tasks, Events, and Plans' },
-  attention: { surfaceId: 'attention', enabled: false, reason: 'Attention count/list not yet implemented' },
-  activity: { surfaceId: 'activity', enabled: false, reason: 'Activity timeline not yet implemented' },
+  attention: { surfaceId: 'attention', enabled: true, reason: 'Attention count/list projection is productive' },
+  activity: { surfaceId: 'activity', enabled: true, reason: 'Activity timeline projection is productive' },
   trash: { surfaceId: 'trash', enabled: false, reason: 'Global Trash not yet productive' },
   archive: { surfaceId: 'archive', enabled: false, reason: 'Contextual Archive not yet implemented' },
 });

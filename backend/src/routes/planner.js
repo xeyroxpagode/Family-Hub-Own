@@ -6,6 +6,7 @@ const eventsV1Controller = require('../controllers/planner.events.v1.controller'
 const calendarController = require('../controllers/planner.calendar.controller')
 const summaryController = require('../controllers/planner.summary.controller')
 const searchController = require('../controllers/planner.search.controller')
+const attentionController = require('../controllers/planner.attention.controller')
 const goalsController = require('../controllers/planner.goals.controller')
 const plansController = require('../controllers/planner.plans.controller')
 const trashController = require('../controllers/planner.trash.controller')
@@ -40,6 +41,8 @@ router.get('/activity', activityController.listActivity)
 
 router.get('/trash', trashController.getTrash)
 router.get('/search', searchController.searchPlanner)
+
+router.get('/attention', attentionController.getAttention)
 
 router.get('/plans/legacy-compatibility-report', plansController.getLegacyCompatibilityReport)
 router.post('/plans/:id/structure', plansController.applyPlanStructureChangeset)

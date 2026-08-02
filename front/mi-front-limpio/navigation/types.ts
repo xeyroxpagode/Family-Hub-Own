@@ -39,6 +39,7 @@ export type {
   PlannerRootParams,
   PlannerEntityDetailParams,
   PlannerSearchParams,
+  PlannerAttentionActivityParams,
   PlannerRouteName,
   PlannerEntityKind,
   LegacyPlannerEntityKind,
@@ -59,9 +60,11 @@ export {
   buildPlannerRootParams,
   buildPlannerEntityDetailParams,
   buildPlannerSearchParams,
+  buildPlannerAttentionActivityParams,
   parsePlannerRootParams,
   parsePlannerEntityDetailParams,
   parsePlannerSearchParams,
+  parsePlannerAttentionActivityParams,
   stripEphemeralParams,
   normalizePlannerEntityKind,
 } from './plannerNavigationContract';
@@ -103,6 +106,7 @@ export type PlannerStackParamList = {
   TaskDetail: import('./plannerNavigationContract').PlannerEntityDetailParams;
   EventDetail: import('./plannerNavigationContract').PlannerEntityDetailParams;
   PlannerSearch: import('./plannerNavigationContract').PlannerSearchParams;
+  PlannerAttentionActivity: import('./plannerNavigationContract').PlannerAttentionActivityParams;
 };
 
 export type RootStackParamList = AuthStackParamList & PrivateStackParamList;

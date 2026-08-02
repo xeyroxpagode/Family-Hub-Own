@@ -143,6 +143,7 @@ export const ROUTE_NAMES = {
   EventDetail: 'EventDetail',
   PlanDetail: 'GoalDetail',
   PlannerSearch: 'PlannerSearch',
+  PlannerAttentionActivity: 'PlannerAttentionActivity',
   TaskCreate: 'CreateTask',
   TaskEdit: 'EditTask',
   EventCreate: 'CreateEvent',
@@ -169,6 +170,7 @@ export const PLANNER_ROUTE_NAMES: readonly PlannerRouteName[] = [
   ROUTE_NAMES.EventDetail,
   ROUTE_NAMES.PlanDetail,
   ROUTE_NAMES.PlannerSearch,
+  ROUTE_NAMES.PlannerAttentionActivity,
   ROUTE_NAMES.TaskCreate,
   ROUTE_NAMES.TaskEdit,
   ROUTE_NAMES.EventCreate,
@@ -241,6 +243,11 @@ export type PlannerEntityDetailParams = {
  * Search productive screen is NOT implemented in M1.
  */
 export type PlannerSearchParams = {
+  source?: PlannerNavigationSource;
+  returnTo?: PlannerReturnTarget;
+};
+
+export type PlannerAttentionActivityParams = {
   source?: PlannerNavigationSource;
   returnTo?: PlannerReturnTarget;
 };
@@ -326,6 +333,16 @@ export function parsePlannerSearchParams(input: unknown): PlannerSearchParams {
   return dropUndefined(clean);
 }
 
+export function parsePlannerAttentionActivityParams(input: unknown): PlannerAttentionActivityParams {
+  if (input === undefined || input === null) return {};
+  if (typeof input !== 'object' || Array.isArray(input)) return {};
+  const record = input as Record<string, unknown>;
+  const clean: PlannerAttentionActivityParams = {};
+  if (isPlannerNavigationSource(record.source)) clean.source = record.source;
+  if (isPlannerReturnTarget(record.returnTo)) clean.returnTo = record.returnTo;
+  return dropUndefined(clean);
+}
+
 /** Builds a serializable `PlannerRootParams` from a partial input. */
 export function buildPlannerRootParams(
   input: { initialTab?: unknown; source?: unknown } = {},
@@ -396,6 +413,15 @@ export const ENTITY_DETAIL_ROUTES: Readonly<Record<PlannerEntityKind, PlannerRou
 
 export function resolveDetailRouteName(kind: PlannerEntityKind): PlannerRouteName {
   return ENTITY_DETAIL_ROUTES[kind];
+}
+
+export function buildPlannerAttentionActivityParams(
+  input: { source?: unknown; returnTo?: unknown } = {},
+): PlannerAttentionActivityParams {
+  const clean: PlannerAttentionActivityParams = {};
+  if (isPlannerNavigationSource(input.source)) clean.source = input.source;
+  if (isPlannerReturnTarget(input.returnTo)) clean.returnTo = input.returnTo;
+  return dropUndefined(clean);
 }
 
 export function normalizePlannerEntityKind(kind: PlannerEntityKind | LegacyPlannerEntityKind): PlannerEntityKind {

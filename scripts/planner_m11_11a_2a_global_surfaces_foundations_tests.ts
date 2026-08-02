@@ -85,7 +85,7 @@ void (async () => {
     ok(NAV_OWNERSHIP.search.supportsBack && NAV_OWNERSHIP.search.restoresFocus && NAV_OWNERSHIP.search.supportsKeyboard, 'Search transition exposes Back/focus/keyboard contract');
     ok(NAV_OWNERSHIP.attention.originComponent.includes('AppTopBar'), 'Attention ownership reserved to AppTopBar');
     ok(GLOBAL_SURFACE_GATES_OFF.search.enabled, 'Search gate is enabled once 11A.2B makes active Search productive');
-    ok(!GLOBAL_SURFACE_GATES_OFF.attention.enabled, 'Attention visible control remains off without count/list');
+    ok(GLOBAL_SURFACE_GATES_OFF.attention.enabled, 'Attention visible control is enabled after 11A.2C count/list implementation');
     const quick = read('front/mi-front-limpio/components/planner/QuickActionsMenu.tsx');
     const topBar = read('front/mi-front-limpio/components/ui/AppTopBar.tsx');
     const tabs = read('front/mi-front-limpio/navigation/HomeTabNavigator.tsx');
