@@ -240,18 +240,21 @@ export const restoreGoal = (
   accessToken: string,
   goalId: string,
   expectedVersion: number,
-  options?: { idempotencyKey?: string },
+  options?: { idempotencyKey?: string; mutationId?: string; signal?: AbortSignal | null; timeoutMs?: number },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.restore')
   const headers: Record<string, string> = {
     'Idempotency-Key': key,
     'If-Match': String(expectedVersion),
   }
+  if (options?.mutationId) headers['X-Mutation-Id'] = options.mutationId
   return requestJson<PlannerGoalResponse>(`/api/planner/goals/${goalId}/restore`, {
     method: 'POST',
     operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     headers,
+    signal: options?.signal,
+    timeoutMs: options?.timeoutMs,
   });
 };
 
@@ -429,13 +432,14 @@ export const restoreGoalMilestone = (
   goalId: string,
   milestoneId: string,
   expectedVersion: number,
-  options?: { idempotencyKey?: string },
+  options?: { idempotencyKey?: string; mutationId?: string; signal?: AbortSignal | null; timeoutMs?: number },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.goals.milestones.restore')
   const headers: Record<string, string> = {
     'Idempotency-Key': key,
     'If-Match': String(expectedVersion),
   }
+  if (options?.mutationId) headers['X-Mutation-Id'] = options.mutationId
   return requestJson<PlannerGoalMilestoneResponse>(
     `/api/planner/goals/${goalId}/milestones/${milestoneId}/restore`,
     {
@@ -443,6 +447,8 @@ export const restoreGoalMilestone = (
       operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
       accessToken,
       headers,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
     },
   );
 };

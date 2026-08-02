@@ -115,6 +115,22 @@ class SupabaseDraftRepository {
       p_mutation_id: correlation.mutationId ?? null,
     });
   }
+
+  async discard(context, draftId, expectedVersion) {
+    const draft = await this.get(draftId);
+    if (!draft) return { draft: null, outcome: 'noop' };
+    assertDraftOwned(context, draft);
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      assertExpectedVersionMatches(draft.version, expectedVersion);
+    }
+    const { error } = await this.client
+      .from('planner_drafts')
+      .delete()
+      .eq('id', draftId)
+      .eq('owner_person_id', context.personId);
+    if (error) throw createHttpError(500, 'Error interno.', 'internal_error');
+    return { draft: null, outcome: 'discarded' };
+  }
 }
 
 class InMemoryDraftRepository {
@@ -229,6 +245,27 @@ class InMemoryDraftRepository {
     draft.updated_at = nowIso();
     return { draft: cloneJson(draft), outcome: 'updated' };
   }
+
+  /**
+   * IR-11A-DRAFT-DISCARD-001: Definitive discard of a Draft.
+   *
+   * Removes the Draft immediately and permanently. Owner-only. No restore
+   * window, no tombstone, no Trash participation. Idempotent: discarding an
+   * already-removed draft returns a safe noop without throwing 404, so a retry
+   * after a lost response does not surface a false error.
+   */
+  async discard(context, draftId, expectedVersion) {
+    const draft = this.drafts.get(draftId);
+    if (!draft) {
+      return { draft: null, outcome: 'noop' };
+    }
+    assertDraftOwned(context, draft);
+    if (expectedVersion !== null && expectedVersion !== undefined) {
+      assertExpectedVersionMatches(draft.version, expectedVersion);
+    }
+    this.drafts.delete(draftId);
+    return { draft: null, outcome: 'discarded' };
+  }
 }
 
 function normalizeDraftScope(context, body) {
@@ -304,6 +341,10 @@ function createPlannerDraftsService(repositoryFactory = (context) => new Supabas
 
     async restoreDraft(context, draftId, expectedVersion, correlation = {}) {
       return getRepository(context).restore(context, draftId, expectedVersion, correlation);
+    },
+
+    async discardDraft(context, draftId, expectedVersion) {
+      return getRepository(context).discard(context, draftId, expectedVersion);
     },
 
     async prepareActivationPayload(context, draftId) {

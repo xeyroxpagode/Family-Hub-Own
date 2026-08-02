@@ -95,10 +95,9 @@ import {
 import * as plannerApi from '../front/mi-front-limpio/services/api';
 import {
   autosavePlannerDraft,
+  discardPlannerDraft,
   listPlannerDrafts,
   recoverPlannerDraft,
-  restorePlannerDraft,
-  trashPlannerDraft,
 } from '../front/mi-front-limpio/services/plannerDrafts';
 import {
   createPlannerPreset,
@@ -553,7 +552,7 @@ runTest('Preset services build real list/create/edit/revision/trash/restore requ
   assertEqual(apiCalls[0].path, '/api/planner/presets/preset-1/prepare?revision_id=rev-1', 'prepare path');
 });
 
-runTest('Draft visual state, privacy, trash and last-updated labels are safe', () => {
+runTest('Draft visual state, privacy, discard and last-updated labels are safe', () => {
   const active = makeDraft({ id: 'd-active' });
   const householdPrivate = makeDraft({ id: 'd-household', intended_scope: 'household', intended_household_id: HOUSEHOLD });
   const trashed = makeDraft({ id: 'd-trash', trashed_at: iso(7) });
@@ -563,7 +562,7 @@ runTest('Draft visual state, privacy, trash and last-updated labels are safe', (
   assertEqual(classifyDraftsVisualState({ list: [active], isLoading: false, isRefreshing: false, errorKind: 'partial' }), 'partial_error', 'draft partial error');
   assertEqual(classifyDraftsVisualState({ list: [], isLoading: false, isRefreshing: false, errorKind: 'fatal' }), 'fatal_safe_error', 'draft fatal safe error');
   assertEqual(partitionDrafts([active, householdPrivate, trashed]).active.length, 2, 'draft active partition');
-  assertEqual(partitionDrafts([active, householdPrivate, trashed]).trashed.length, 1, 'draft trash partition');
+  assertEqual(partitionDrafts([active, householdPrivate, trashed]).trashed.length, 1, 'legacy trashed drafts partitioned away from active UI');
   ok(isOwnedByUser(active, OWNER), 'owner match');
   ok(!isOwnedByUser(makeDraft({ owner_person_id: OTHER }), OWNER), 'owner mismatch stays private');
   ok(householdPrivate.intended_scope === 'household' && isOwnedByUser(householdPrivate, OWNER), 'intended household remains private to owner');
@@ -571,9 +570,15 @@ runTest('Draft visual state, privacy, trash and last-updated labels are safe', (
   ok(draftLastSavedLabel(active).length > 0, 'last saved label exists');
   assertEqual(draftLastSavedLabel(makeDraft({ last_autosaved_at: '' })), 'Sin guardar', 'missing last saved label safe');
   ok(offersPendingRecovery(active), 'active draft offers recovery');
-  ok(!offersPendingRecovery(trashed), 'trashed draft does not offer recovery');
+  ok(!offersPendingRecovery(trashed), 'legacy trashed draft does not offer recovery');
   assertEqual(DRAFT_OPERATIONALLY_PROJECTED.length, 0, 'no operational draft projection');
-  ok(DRAFT_OPERATIONALLY_PROJECTED_FORBIDDEN.includes('home') && DRAFT_OPERATIONALLY_PROJECTED_FORBIDDEN.includes('search'), 'forbidden projection tags listed');
+  ok(
+    DRAFT_OPERATIONALLY_PROJECTED_FORBIDDEN.includes('home')
+      && DRAFT_OPERATIONALLY_PROJECTED_FORBIDDEN.includes('search')
+      && DRAFT_OPERATIONALLY_PROJECTED_FORBIDDEN.includes('trash')
+      && DRAFT_OPERATIONALLY_PROJECTED_FORBIDDEN.includes('archive'),
+    'forbidden projection tags listed',
+  );
 });
 
 runTest('Draft adapters enforce privacy, meaningful content and safe errors', () => {
@@ -660,7 +665,7 @@ runTest('Autosave reducer covers dirty, debounce/coalescing, out-of-order, retry
   assertEqual(versionedAutosaveIdentity('planner.draft.task', 3).ifMatch, '3', 'versioned identity carries expected version');
 });
 
-runTest('Draft services build real autosave/recover/trash/restore requests', async () => {
+runTest('Draft services build real autosave/recover/discard requests', async () => {
   mockApiResponse({ drafts: [makeDraft()] });
   const list = await listPlannerDrafts(TOKEN);
   assertEqual(list.drafts.length, 1, 'draft list shape');
@@ -681,13 +686,10 @@ runTest('Draft services build real autosave/recover/trash/restore requests', asy
   assertEqual((apiCalls[0].options.headers ?? {})['X-Mutation-Id'], 'mut-auto', 'autosave mutation id');
   assertEqual((apiCalls[0].options.headers ?? {})['Idempotency-Key'], 'idem-auto', 'autosave idempotency');
   ok(!JSON.stringify(apiCalls[0].options.body).includes('owner_person_id'), 'autosave body has no actor authority');
-  mockApiResponse({ data: makeDraft({ trashed_at: iso(9) }), outcome: 'updated', version: 2 });
-  await trashPlannerDraft(TOKEN, 'draft-1', { expectedVersion: 1, mutationId: 'mut-trash', idempotencyKey: 'idem-trash' });
-  assertEqual(apiCalls[0].path, '/api/planner/drafts/draft-1/trash', 'draft trash path');
-  assertEqual((apiCalls[0].options.headers ?? {})['If-Match'], '1', 'draft trash version guard');
-  mockApiResponse({ data: makeDraft(), outcome: 'updated', version: 3 });
-  await restorePlannerDraft(TOKEN, 'draft-1', { expectedVersion: 2, mutationId: 'mut-restore', idempotencyKey: 'idem-restore' });
-  assertEqual(apiCalls[0].path, '/api/planner/drafts/draft-1/restore', 'draft restore path');
+  mockApiResponse({ data: null, outcome: 'discarded', version: null });
+  await discardPlannerDraft(TOKEN, 'draft-1', { expectedVersion: 1, mutationId: 'mut-discard', idempotencyKey: 'idem-discard' });
+  assertEqual(apiCalls[0].path, '/api/planner/drafts/draft-1/discard', 'draft discard path');
+  assertEqual((apiCalls[0].options.headers ?? {})['If-Match'], '1', 'draft discard version guard');
 });
 
 runTest('Form-open adapters preserve source reference only when requested', () => {
@@ -721,7 +723,7 @@ runTest('Architecture files preserve detail-first, no submit-on-apply and safe c
   ok(autosave.includes('does NOT implement') && autosave.includes('parallel mutation identity'), 'autosave has no durable queue or second identity policy');
   ok(form.includes('onCommit') && form.includes('onStartRevision') && form.includes('onPublishRevision'), 'preset form exposes create/revision/publish callbacks');
   ok(form.includes('if (revision) onPublishRevision(revision);'), 'publish revision guarded before submit');
-  ok(draftsScreen.includes('start-from-scratch') && draftsScreen.includes('continue') && draftsScreen.includes('send-to-trash'), 'safe close/recovery actions documented');
+  ok(draftsScreen.includes('definitive discard') && draftsScreen.includes('continue') && !draftsScreen.includes('send-to-trash'), 'safe close/recovery actions documented');
 });
 
 async function main(): Promise<void> {

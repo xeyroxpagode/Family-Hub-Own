@@ -3,7 +3,7 @@ import type { PlannerMutationIntent } from '../plannerMutationIntent';
 import type { PlanGraphWriteRequest, PlanStructureChangesetWriteRequest } from '../plannerPlans';
 import type { CreatePlannerEventPayload, PlannerEvent } from '../../plannerEvents';
 import type { CreatePlannerTaskPayload, PlannerTask, UpdatePlannerTaskPayload } from '../../plannerTasks';
-import type { PlannerDraft, PlannerPreset } from '../../../types/plannerPresetsDrafts';
+import type { PlannerPreset } from '../../../types/plannerPresetsDrafts';
 import { getActivePlannerReliabilityRuntime } from './runtime';
 import type { PlannerOperationEntity, PlannerOperationRecord } from './types';
 
@@ -261,6 +261,46 @@ export async function enqueuePlannerPlanStructureChangeset<TResult = unknown>(
   });
 }
 
+/**
+ * IR-11A-RELIABILITY-001: enqueue Goal restore through the productive mutation
+ * runtime. Previously `restoreGoal` used `requestJson` directly, bypassing
+ * mutation identity, retry, replay/noop, lost response and late response
+ * handling. The plan adapter dispatches `goal.restore` to `restoreGoal`.
+ */
+export async function enqueuePlannerGoalRestore(
+  goalId: string,
+  expectedVersion: number | undefined,
+  options?: ReliabilityIntentOptions,
+): Promise<unknown> {
+  return enqueueConfirmed<{ goalId: string; expectedVersion: number }, unknown>({
+    domain: 'plan',
+    operationType: 'goal.restore',
+    entity: { type: 'plan', id: goalId },
+    payload: { goalId, expectedVersion: expectedVersion ?? 0 },
+    intent: versionedIntent('planner.goals.restore', expectedVersion, options),
+  });
+}
+
+/**
+ * IR-11A-RELIABILITY-001: enqueue Goal Milestone restore through the productive
+ * mutation runtime. Previously `restoreGoalMilestone` used `requestJson`
+ * directly. The plan adapter dispatches `goal.milestone.restore`.
+ */
+export async function enqueuePlannerMilestoneRestore(
+  goalId: string,
+  milestoneId: string,
+  expectedVersion: number | undefined,
+  options?: ReliabilityIntentOptions,
+): Promise<unknown> {
+  return enqueueConfirmed<{ goalId: string; milestoneId: string; expectedVersion: number }, unknown>({
+    domain: 'plan',
+    operationType: 'goal.milestone.restore',
+    entity: { type: 'plan', id: milestoneId },
+    payload: { goalId, milestoneId, expectedVersion: expectedVersion ?? 0 },
+    intent: versionedIntent('planner.goals.milestones.restore', expectedVersion, options),
+  });
+}
+
 export async function enqueuePlannerPresetCreate(
   payload: Record<string, unknown>,
   options?: ReliabilityIntentOptions,
@@ -337,23 +377,3 @@ export const enqueuePlannerPresetTrash = (presetId: string, options?: Reliabilit
   enqueuePlannerPresetVersioned('trash', presetId, options);
 export const enqueuePlannerPresetRestore = (presetId: string, options?: ReliabilityIntentOptions) =>
   enqueuePlannerPresetVersioned('restore', presetId, options);
-
-async function enqueuePlannerDraftVersioned(
-  operationType: 'trash' | 'restore',
-  draftId: string,
-  options?: ReliabilityIntentOptions,
-): Promise<{ draft: PlannerDraft }> {
-  const draft = await enqueueConfirmed<Record<string, never>, PlannerDraft>({
-    domain: 'draft',
-    operationType,
-    entity: { type: 'draft', id: draftId },
-    payload: {},
-    intent: versionedIntent(`planner.drafts.${operationType}`, options?.expectedVersion, options),
-  });
-  return { draft };
-}
-
-export const enqueuePlannerDraftTrash = (draftId: string, options?: ReliabilityIntentOptions) =>
-  enqueuePlannerDraftVersioned('trash', draftId, options);
-export const enqueuePlannerDraftRestore = (draftId: string, options?: ReliabilityIntentOptions) =>
-  enqueuePlannerDraftVersioned('restore', draftId, options);

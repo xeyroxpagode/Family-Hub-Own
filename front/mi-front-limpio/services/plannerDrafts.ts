@@ -70,6 +70,14 @@ export const restorePlannerDraft = (accessToken: string, draftId: string, option
     headers: mutationHeaders('planner.drafts.restore', options),
   });
 
+export const discardPlannerDraft = (accessToken: string, draftId: string, options: MutationOptions) =>
+  requestJson<{ data: null; outcome: 'discarded' | 'noop'; version: null }>(`/api/planner/drafts/${draftId}/discard`, {
+    method: 'POST',
+    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
+    accessToken,
+    headers: mutationHeaders('planner.drafts.discard', options),
+  });
+
 export const preparePlannerDraftActivation = (accessToken: string, draftId: string) =>
   requestJson<{ data: Record<string, unknown>; outcome: string; version: number }>(`/api/planner/drafts/${draftId}/prepare`, {
     accessToken,

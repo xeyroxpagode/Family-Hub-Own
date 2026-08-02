@@ -1,8 +1,8 @@
 /**
  * Planner V1 — M11 Presets/Drafts Frontend — Drafts screen.
  *
- * Lane-owned. Lists the user's OWN drafts (active + trashed partitioned), with
- * recovery actions: continue / start-from-scratch / send-to-trash / restore.
+ * Lane-owned. Lists the user's OWN active drafts with recovery/continue and
+ * definitive discard. Drafts do not enter Trash and cannot be restored.
  *
  * Privacy:
  *  - Each draft row is private to the author. We do NOT render drafts owned
@@ -11,19 +11,16 @@
  *    X) — it does NOT publish to household surfaces.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, TouchableOpacity, View } from 'react-native';
 
 import { plannerStyles as S } from '../../../screens/planner/plannerShared';
 import { AppText } from '../../ui/AppText';
 import { useAuth } from '../../../context/AuthContext';
 import {
+  discardPlannerDraft,
   getPlannerDraft,
   listPlannerDrafts,
 } from '../../../services/plannerDrafts';
-import {
-  enqueuePlannerDraftRestore,
-  enqueuePlannerDraftTrash,
-} from '../../../services/planner/reliability';
 import {
   classifyDraftsVisualState,
   draftEntityKindLabel,
@@ -32,15 +29,15 @@ import {
   offersPendingRecovery,
   partitionDrafts,
 } from './plannerDraftsViewState';
-import type { PlannerDraft, PlannerTemplateEntityType } from '../../../types/plannerPresetsDrafts';
+import type { PlannerDraft } from '../../../types/plannerPresetsDrafts';
 import { openDraft, draftRecoverySafeMessage } from '../../../services/planner/plannerDraftEntry';
+import { hasMeaningfulDraftContent } from '../../../services/planner/plannerDraftAdapters';
 import type { ResolvedPlaceholders } from '../../../services/planner/plannerPlaceholderResolver';
 
 const EMPTY_RESOLVED: ResolvedPlaceholders = {};
 
 type Props = {
   onContinueDraft?: (draft: PlannerDraft) => void;
-  onOpenTrash?: () => void;
   /** Test/Storybook override token. */
   accessTokenOverride?: string;
   /** Test/Storybook override user id. */
@@ -49,7 +46,6 @@ type Props = {
 
 export function PlannerDraftsScreen({
   onContinueDraft,
-  onOpenTrash,
   accessTokenOverride,
   currentUserPersonIdOverride,
 }: Props) {
@@ -100,14 +96,14 @@ export function PlannerDraftsScreen({
 
   const partitions = useMemo(() => partitionDrafts(drafts ?? []), [drafts]);
 
-  const handleRestore = useCallback(
+  const discardDraft = useCallback(
     async (draft: PlannerDraft) => {
       if (!accessToken || !draft.version) return;
       try {
-        await enqueuePlannerDraftRestore(draft.id, {
+        await discardPlannerDraft(accessToken, draft.id, {
           expectedVersion: draft.version,
-          mutationId: `draft_restore_${draft.id}`,
-          idempotencyKey: `draft_restore_${draft.id}_${draft.version}`,
+          mutationId: `draft_discard_${draft.id}`,
+          idempotencyKey: `draft_discard_${draft.id}_${draft.version}`,
         });
         await loadFresh();
       } catch {
@@ -117,21 +113,23 @@ export function PlannerDraftsScreen({
     [accessToken, loadFresh],
   );
 
-  const handleTrash = useCallback(
-    async (draft: PlannerDraft) => {
-      if (!accessToken || !draft.version) return;
-      try {
-        await enqueuePlannerDraftTrash(draft.id, {
-          expectedVersion: draft.version,
-          mutationId: `draft_trash_${draft.id}`,
-          idempotencyKey: `draft_trash_${draft.id}_${draft.version}`,
-        });
-        await loadFresh();
-      } catch {
-        setErrorKind('partial');
+  const handleDiscard = useCallback(
+    (draft: PlannerDraft) => {
+      const runDiscard = () => void discardDraft(draft);
+      if (!hasMeaningfulDraftContent(draft.payload)) {
+        runDiscard();
+        return;
       }
+      Alert.alert(
+        'Descartar borrador',
+        'Este borrador se eliminará definitivamente y no podrá restaurarse.',
+        [
+          { text: 'Seguir editando', style: 'cancel' },
+          { text: 'Descartar borrador', style: 'destructive', onPress: runDiscard },
+        ],
+      );
     },
-    [accessToken, loadFresh],
+    [discardDraft],
   );
 
   const handleContinue = useCallback(
@@ -194,39 +192,9 @@ export function PlannerDraftsScreen({
               currentUserPersonId={currentUserPersonIdOverride ?? ''}
               canRecover={offersPendingRecovery(draft)}
               onContinue={() => void handleContinue(draft.id)}
-              onTrash={() => void handleTrash(draft)}
-              onRestore={undefined}
+              onDiscard={() => handleDiscard(draft)}
             />
           ))}
-          {partitions.trashed.length > 0 ? (
-            <View style={{ marginTop: 16 }}>
-              <AppText variant="bodySmall" weight="700" style={{ marginBottom: 4 }}>
-                Papelera
-              </AppText>
-              {partitions.trashed.map((draft) => (
-                <DraftRow
-                  key={draft.id}
-                  draft={draft}
-                  currentUserPersonId={currentUserPersonIdOverride ?? ''}
-                  canRecover={false}
-                  onContinue={() => void handleContinue(draft.id)}
-                  onTrash={undefined}
-                  onRestore={() => void handleRestore(draft)}
-                />
-              ))}
-              {onOpenTrash ? (
-                <TouchableOpacity
-                  onPress={onOpenTrash}
-                  accessibilityRole="button"
-                  accessibilityLabel="Abrir papelera de borradores"
-                >
-                  <AppText variant="bodySmall" tone="tertiary" style={{ marginTop: 8 }}>
-                    Ver papelera
-                  </AppText>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          ) : null}
         </View>
       ) : null}
       {recoverMessage ? null : null}
@@ -239,15 +207,13 @@ function DraftRow({
   currentUserPersonId,
   canRecover,
   onContinue,
-  onTrash,
-  onRestore,
+  onDiscard,
 }: {
   draft: PlannerDraft;
   currentUserPersonId: string;
   canRecover: boolean;
   onContinue?: () => void;
-  onTrash?: () => void;
-  onRestore?: () => void;
+  onDiscard?: () => void;
 }) {
   const mine = isOwnedByUser(draft, currentUserPersonId);
   if (!mine) return null;
@@ -274,27 +240,15 @@ function DraftRow({
           </AppText>
         </TouchableOpacity>
       ) : null}
-      {onTrash ? (
+      {onDiscard ? (
         <TouchableOpacity
-          onPress={onTrash}
+          onPress={onDiscard}
           accessibilityRole="button"
-          accessibilityLabel="Enviar borrador a papelera"
+          accessibilityLabel="Descartar borrador"
           style={actionGhost}
         >
           <AppText variant="bodySmall" tone="tertiary" weight="700">
-            Papelera
-          </AppText>
-        </TouchableOpacity>
-      ) : null}
-      {onRestore ? (
-        <TouchableOpacity
-          onPress={onRestore}
-          accessibilityRole="button"
-          accessibilityLabel="Restaurar borrador"
-          style={actionBlue}
-        >
-          <AppText variant="bodySmall" tone="inverse" weight="700">
-            Restaurar
+            Descartar borrador
           </AppText>
         </TouchableOpacity>
       ) : null}

@@ -38,7 +38,6 @@
  *   - Capability fetch (owned by `fetchPlannerCapabilitiesCached`).
  */
 
-import { requestJson, OPERATION_KINDS, type RequestJsonOptions } from '../api';
 import { plannerCache } from './plannerCache';
 import { plannerKeys, type HouseholdScope } from './plannerKeys';
 import {
@@ -56,6 +55,7 @@ import {
   type PlannerHomeSummaryV1,
 } from './homeSummaryTypes';
 import { homeSummaryTelemetry } from './homeSummaryTelemetry';
+import { enqueuePlannerTaskComplete } from './reliability/productiveMutations';
 
 // ---------------------------------------------------------------------------
 // 1. Lock registry (per-task, never global)
@@ -223,28 +223,13 @@ export async function completeTaskFromHome(
   // Apply optimistic patch (removes task from summary, decrements counts.tasks).
   optimisticRemoveTaskFromSummary(scope, taskId);
 
-  // Build transport options. The mutation engine maps to If-Match and
-  // Idempotency-Key via Core.
-  const headers: Record<string, string> = {
-    'Idempotency-Key': intent.idempotencyKey ?? '',
-    'If-Match': String(intent.ifMatch ?? version),
-  };
-  if (intent.mutationId) headers['X-Mutation-Id'] = intent.mutationId;
-  const reqOpts: RequestJsonOptions = {
-    accessToken,
-    signal: options.signal,
-    timeoutMs: options.timeoutMs,
-    method: 'POST',
-    operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
-    headers,
-  };
-
   const startedAt = Date.now();
   try {
-    await requestJson<{ task: { id: string; version: number } }>(
-      `/api/planner/tasks/${taskId}/complete`,
-      reqOpts,
-    );
+    await enqueuePlannerTaskComplete(taskId, version, {
+      mutationId: intent.mutationId,
+      idempotencyKey: intent.idempotencyKey,
+      expectedVersion: version,
+    });
     const elapsed = Date.now() - startedAt;
 
     // Validate context: did the household change between patch and success?

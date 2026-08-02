@@ -87,15 +87,10 @@ const autosaveDraft = async (req, res) => {
 
 const trashDraft = async (req, res) => {
   try {
-    const context = await getPlannerContext(req);
-    assertCapability(buildCapabilities(context), 'planner.view');
-    const mutation = requireMutationTransport(req, res, true);
-    const result = await draftsService.trashDraft(context, req.params.id, mutation.expectedVersion, {
-      idempotencyKey: mutation.idempotencyKey,
-      requestId: req.requestId,
-      mutationId: mutation.mutationId,
+    throw Object.assign(new Error('Draft Trash fue reemplazado por Descartar borrador.'), {
+      statusCode: 410,
+      code: 'draft_trash_retired',
     });
-    return sendMutation(res, result, mutation.mutationId);
   } catch (error) {
     return sendApiError(res, error, req);
   }
@@ -103,13 +98,21 @@ const trashDraft = async (req, res) => {
 
 const restoreDraft = async (req, res) => {
   try {
+    throw Object.assign(new Error('Draft Restore fue reemplazado por descarte definitivo.'), {
+      statusCode: 410,
+      code: 'draft_restore_retired',
+    });
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
+const discardDraft = async (req, res) => {
+  try {
     const context = await getPlannerContext(req);
     assertCapability(buildCapabilities(context), 'planner.view');
     const mutation = requireMutationTransport(req, res, true);
-    const result = await draftsService.restoreDraft(context, req.params.id, mutation.expectedVersion, {
-      requestId: req.requestId,
-      mutationId: mutation.mutationId,
-    });
+    const result = await draftsService.discardDraft(context, req.params.id, mutation.expectedVersion);
     return sendMutation(res, result, mutation.mutationId);
   } catch (error) {
     return sendApiError(res, error, req);
@@ -129,6 +132,7 @@ const prepareActivationPayload = async (req, res) => {
 
 module.exports = {
   autosaveDraft,
+  discardDraft,
   getDraft,
   listDrafts,
   prepareActivationPayload,

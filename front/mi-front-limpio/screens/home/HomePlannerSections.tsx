@@ -15,8 +15,6 @@ import { resolveOneTapEligibility } from '../../services/planner/homeTaskOneTapE
 import {
   completeTaskFromHome,
   activeCompletionForTask,
-  tryAcquireCompletionLock,
-  releaseCompletionLock,
   type CompletionOutcome,
 } from '../../services/planner/homeTaskOneTapCompletion';
 import { createPlannerVersionedMutationIntent } from '../../services/planner/plannerMutationIntent';
@@ -202,7 +200,6 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
   // -------------------------------------------------------------------------
   const handleCompleteTask = useCallback(async (task: HomeSummaryTask) => {
     if (!accessToken || !householdId || !myMembershipId) return;
-    if (!tryAcquireCompletionLock(task.id)) return; // double-tap guard
 
     // Re-check eligibility at tap time (capability might have changed).
     const eligibility = resolveOneTapEligibility({
@@ -212,7 +209,6 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
       hasPendingMutation: false,
     });
     if (!eligibility.eligible) {
-      releaseCompletionLock(task.id);
       return;
     }
 

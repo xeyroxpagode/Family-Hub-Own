@@ -1,8 +1,8 @@
 /**
- * Planner V1 — M11 Presets/Drafts Frontend — Trash surface (Presets + Drafts).
+ * Planner V1 — M11 Presets/Drafts Frontend — local Preset Trash surface.
  *
- * Lane-owned single surface that shows trashed presets + trashed drafts (no
- * permanent delete). Offers Restore action consistent with backend restore.
+ * Lane-owned surface that shows trashed presets only. Drafts no longer enter
+ * Trash under CR-M11-11A-GLOBAL-SURFACES-001; Draft discard is definitive.
  *
  * Privacy & safety:
  *  - Shows only safe labels (no UUID/SQLSTATE/payload).
@@ -21,13 +21,9 @@ import {
   listPlannerPresets,
 } from '../../../services/plannerPresets';
 import {
-  listPlannerDrafts,
-} from '../../../services/plannerDrafts';
-import {
-  enqueuePlannerDraftRestore,
   enqueuePlannerPresetRestore,
 } from '../../../services/planner/reliability';
-import type { PlannerDraft, PlannerPreset } from '../../../types/plannerPresetsDrafts';
+import type { PlannerPreset } from '../../../types/plannerPresetsDrafts';
 import type { HouseholdScope } from '../../../services/planner/plannerKeys';
 import { plannerCache } from '../../../services/planner/plannerCache';
 
@@ -41,7 +37,6 @@ export function PlannerPresetDraftsTrashScreen({ accessTokenOverride }: Props) {
   const accessToken = accessTokenOverride ?? session?.access_token;
 
   const [trashedPresets, setTrashedPresets] = useState<readonly PlannerPreset[]>([]);
-  const [trashedDrafts, setTrashedDrafts] = useState<readonly PlannerDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorKind, setErrorKind] = useState<'none' | 'partial' | 'fatal'>('none');
 
@@ -60,9 +55,7 @@ export function PlannerPresetDraftsTrashScreen({ accessTokenOverride }: Props) {
     setErrorKind('none');
     try {
       const presets = await listPlannerPresets(accessToken, { include_trashed: true });
-      const drafts = await listPlannerDrafts(accessToken);
       setTrashedPresets((presets.presets ?? []).filter((p) => p.trashed_at));
-      setTrashedDrafts((drafts.drafts ?? []).filter((d) => d.trashed_at));
     } catch {
       setErrorKind('partial');
     } finally {
@@ -94,26 +87,6 @@ export function PlannerPresetDraftsTrashScreen({ accessTokenOverride }: Props) {
     [accessToken, scope, loadFresh],
   );
 
-  const handleRestoreDraft = useCallback(
-    async (draft: PlannerDraft) => {
-      if (!accessToken || !draft.version) return;
-      try {
-        await enqueuePlannerDraftRestore(draft.id, {
-          expectedVersion: draft.version,
-          mutationId: `draft_restore_${draft.id}`,
-          idempotencyKey: `draft_restore_${draft.id}_${draft.version}`,
-        });
-        if (scope) {
-          plannerCache.invalidateKind('drafts', scope);
-        }
-        await loadFresh();
-      } catch {
-        setErrorKind('partial');
-      }
-    },
-    [accessToken, scope, loadFresh],
-  );
-
   return (
     <ScrollView contentContainerStyle={{ padding: 16 }}>
       <AppText variant="title2" weight="700">
@@ -136,7 +109,7 @@ export function PlannerPresetDraftsTrashScreen({ accessTokenOverride }: Props) {
           </TouchableOpacity>
         </View>
       ) : null}
-      {trashedPresets.length === 0 && trashedDrafts.length === 0 && !loading && errorKind === 'none' ? (
+      {trashedPresets.length === 0 && !loading && errorKind === 'none' ? (
         <AppText variant="body" tone="tertiary" style={{ marginTop: 12 }}>
           La papelera está vacía.
         </AppText>
@@ -165,47 +138,12 @@ export function PlannerPresetDraftsTrashScreen({ accessTokenOverride }: Props) {
           ))}
         </View>
       ) : null}
-      {trashedDrafts.length > 0 ? (
-        <View style={{ marginTop: 16 }}>
-          <AppText variant="bodySmall" weight="700" style={{ marginBottom: 6 }}>
-            Borradores
-          </AppText>
-          {trashedDrafts.map((draft) => (
-            <View key={draft.id} style={[S.row, { justifyContent: 'space-between', marginBottom: 8 }]}>
-              <AppText variant="body" style={{ flex: 1 }}>
-                {kindSafe(draft.entity_type)}
-              </AppText>
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Restaurar borrador"
-                onPress={() => void handleRestoreDraft(draft)}
-                style={blueAction}
-              >
-                <AppText variant="bodySmall" tone="inverse" weight="700">
-                  Restaurar
-                </AppText>
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      ) : null}
       <AppText variant="micro" tone="tertiary" style={{ marginTop: 16 }}>
         Los elementos en la papelera se eliminan definitivamente según la
         configuración del hogar.
       </AppText>
     </ScrollView>
   );
-}
-
-function kindSafe(entity_type: PlannerDraft['entity_type']): string {
-  switch (entity_type) {
-    case 'task':
-      return 'Borrador de tarea';
-    case 'event':
-      return 'Borrador de evento';
-    case 'plan':
-      return 'Borrador de plan';
-  }
 }
 
 const blueAction = {

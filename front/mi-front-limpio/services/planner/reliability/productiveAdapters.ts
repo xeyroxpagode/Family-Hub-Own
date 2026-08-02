@@ -32,6 +32,10 @@ import {
   type UpdatePlannerTaskPayload,
 } from '../../plannerTasks';
 import {
+  restoreGoal,
+  restoreGoalMilestone,
+} from '../../plannerGoals';
+import {
   autosavePlannerDraft,
   restorePlannerDraft,
   trashPlannerDraft,
@@ -86,7 +90,9 @@ export type PlannerReliabilityEventOperationPayload =
 
 export type PlannerReliabilityPlanOperationPayload =
   | { readonly graphWrite: PlanGraphWriteRequest }
-  | { readonly structureChangeset: PlanStructureChangesetWriteRequest };
+  | { readonly structureChangeset: PlanStructureChangesetWriteRequest }
+  | { readonly goalId: string; readonly expectedVersion: number }
+  | { readonly goalId: string; readonly milestoneId: string; readonly expectedVersion: number };
 
 export type PlannerReliabilityPresetOperationPayload =
   | { readonly payload: Parameters<typeof createPlannerPreset>[1] }
@@ -215,6 +221,42 @@ export function createPlannerReliabilityPlanAdapter(): PlannerReliabilityDomainA
           request,
           payload.structureChangeset as PlanStructureChangesetWriteRequest,
           intentFromOperation(operation),
+        );
+        return resultOf(response, 'updated');
+      }
+      // IR-11A-RELIABILITY-001: route Goal/Milestone restore through Reliability
+      // runtime instead of bypassing it with direct requestJson.
+      if (operation.descriptor.operationType === 'goal.restore') {
+        const goalId = String(payload.goalId ?? '');
+        const expectedVersion = Number(payload.expectedVersion ?? 0);
+        const response = await restoreGoal(
+          context.accessToken,
+          goalId,
+          expectedVersion,
+          {
+            idempotencyKey: operation.descriptor.idempotencyKey,
+            mutationId: operation.descriptor.mutationId,
+            signal: context.signal,
+            timeoutMs: context.timeoutMs,
+          },
+        );
+        return resultOf(response, 'updated');
+      }
+      if (operation.descriptor.operationType === 'goal.milestone.restore') {
+        const goalId = String(payload.goalId ?? '');
+        const milestoneId = String(payload.milestoneId ?? '');
+        const expectedVersion = Number(payload.expectedVersion ?? 0);
+        const response = await restoreGoalMilestone(
+          context.accessToken,
+          goalId,
+          milestoneId,
+          expectedVersion,
+          {
+            idempotencyKey: operation.descriptor.idempotencyKey,
+            mutationId: operation.descriptor.mutationId,
+            signal: context.signal,
+            timeoutMs: context.timeoutMs,
+          },
         );
         return resultOf(response, 'updated');
       }
@@ -403,7 +445,11 @@ function invalidateDomain(operation: PlannerOperationRecord, result: PlannerAuth
     const action = rawAction === 'occurrence' ? 'override' : rawAction;
     plannerCache.executeInvalidation({ kind: 'event', action: action as 'create' | 'update' | 'cancel' | 'trash' | 'restore' | 'reactivate' | 'override', entityId }, scope);
   } else if (operation.descriptor.domain === 'plan') {
-    const action = rawAction === 'structure_changeset' ? 'update' : rawAction;
+    const action = rawAction === 'structure_changeset'
+      ? 'update'
+      : rawAction === 'goal'
+      ? 'restore'
+      : rawAction;
     plannerCache.executeInvalidation({ kind: 'plan', action: action as 'create' | 'update' | 'trash' | 'restore' | 'archive', entityId }, scope);
   }
 }

@@ -23,6 +23,7 @@ router.get('/drafts/recover', draftsController.recoverDraft);
 router.get('/drafts', draftsController.listDrafts);
 router.post('/drafts/autosave', draftsController.autosaveDraft);
 router.get('/drafts/:id', draftsController.getDraft);
+router.post('/drafts/:id/discard', draftsController.discardDraft);
 router.post('/drafts/:id/trash', draftsController.trashDraft);
 router.post('/drafts/:id/restore', draftsController.restoreDraft);
 router.get('/drafts/:id/prepare', draftsController.prepareActivationPayload);

@@ -19,10 +19,11 @@ import {
   type TrashItem,
   type TrashFilterType,
 } from '../../services/plannerTrash';
-import { restoreGoal, restoreGoalMilestone } from '../../services/plannerGoals';
 import {
   enqueuePlannerEventRestore,
   enqueuePlannerTaskRestore,
+  enqueuePlannerGoalRestore,
+  enqueuePlannerMilestoneRestore,
 } from '../../services/planner/reliability';
 import { plannerStyles as S } from './plannerShared';
 
@@ -121,7 +122,7 @@ export function PlannerTrashScreen() {
           await enqueuePlannerEventRestore(item.id, item.version);
           break;
         case 'goal':
-          await restoreGoal(accessToken, item.id, item.version);
+          await enqueuePlannerGoalRestore(item.id, item.version);
           break;
         case 'milestone':
           if (!item.parent) {
@@ -132,7 +133,7 @@ export function PlannerTrashScreen() {
             await load(true);
             return;
           }
-          await restoreGoalMilestone(accessToken, item.parent.id, item.id, item.version);
+          await enqueuePlannerMilestoneRestore(item.parent.id, item.id, item.version);
           break;
       }
       setItems((prev) => prev.filter((i) => i.id !== item.id));
