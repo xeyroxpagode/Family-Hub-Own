@@ -15,20 +15,20 @@
 
 import React, { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 
 import { AppText } from '../ui/AppText';
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, radius, spacing } from '../../constants/theme';
+import { ROUTE_NAMES } from '../../navigation/plannerNavigationContract';
 import {
   plannerQuickActions,
   type PlannerQuickActionDefinition,
 } from '../../services/planner/plannerQuickActions';
 import {
   usePlannerSheet,
-  type PlannerSheetController,
 } from '../../context/PlannerSheetContext';
 import {
-  fetchPlannerCapabilitiesCached,
   type PlannerCapabilitiesProjection,
 } from '../../services/plannerCapabilities';
 
@@ -36,7 +36,8 @@ import {
 // Title
 // ---------------------------------------------------------------------------
 
-const MENU_TITLE = 'Crear';
+const QUICK_ACTIONS_TITLE = 'Acciones rápidas';
+const SEARCH_LABEL = 'Buscar en HomePlus...';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,6 +72,7 @@ type QuickActionsMenuProps = {
 
 export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSelected }: QuickActionsMenuProps) {
   const sheet = usePlannerSheet();
+  const navigation = useNavigation<any>();
 
   const handleOpenTask = useCallback(() => {
     if (sheet.isSubmitting) return;
@@ -98,13 +100,25 @@ export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSe
     });
   }, [capabilities, capabilitiesLoading]);
 
+  const searchVisible = capabilitiesLoading || capabilities?.['planner.search'] === true;
+  const searchEnabled = capabilities?.['planner.search'] === true && !sheet.isSubmitting;
+
+  const handleOpenSearch = useCallback(() => {
+    if (!searchEnabled) return;
+    sheet.requestClose('user_request');
+    navigation.navigate(ROUTE_NAMES.PlannerSearch, {
+      source: 'quick_action',
+      returnTo: 'previous',
+    });
+  }, [navigation, searchEnabled, sheet]);
+
   const handlers: Record<string, () => void> = {
     create_task: handleOpenTask,
     create_event: handleOpenEvent,
     create_goal: handleOpenGoal,
   };
 
-  if (visibleActions.length === 0) {
+  if (visibleActions.length === 0 && !searchVisible) {
     // Deny-safe: no visible actions → show empty state.
     // This should not normally happen once capabilities are loaded, but
     // protects against edge cases (e.g. all capabilities revoked).
@@ -118,16 +132,39 @@ export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSe
   }
 
   return (
-    <View>
-      {/* Title */}
-      <View style={styles.titleContainer}>
-        <AppText variant="title3" weight="800">
-          {MENU_TITLE}
+    <View style={styles.container}>
+      {searchVisible ? (
+        <Pressable
+          onPress={handleOpenSearch}
+          disabled={!searchEnabled}
+          style={({ pressed }) => [
+            styles.searchBar,
+            pressed && styles.searchBarPressed,
+            !searchEnabled && styles.searchBarDisabled,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Buscar en HomePlus"
+          accessibilityHint="Abre Search en pantalla completa"
+          accessibilityState={{ disabled: !searchEnabled, busy: capabilitiesLoading }}
+        >
+          <HomePlusIcon
+            name="search-outline"
+            size={20}
+            color={searchEnabled ? colors.text.secondary : colors.text.tertiary}
+          />
+          <AppText variant="body" tone={searchEnabled ? 'secondary' : 'tertiary'} style={styles.searchText}>
+            {SEARCH_LABEL}
+          </AppText>
+        </Pressable>
+      ) : null}
+
+      <View style={styles.sectionTitle}>
+        <AppText variant="bodySmall" weight="800" tone="secondary">
+          {QUICK_ACTIONS_TITLE}
         </AppText>
       </View>
 
-      {/* Action rows */}
-      <View style={[styles.rowsContainer, { gap: spacing[2] }]}>
+      <View style={styles.actionsGrid}>
         {visibleActions.map((action) => {
           const state = getActionState(action, capabilities, sheet.isSubmitting);
           const isDisabled = state === 'disabled';
@@ -139,9 +176,9 @@ export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSe
               onPress={handler}
               disabled={isDisabled}
               style={({ pressed }) => [
-                styles.actionRow,
-                pressed && styles.actionRowPressed,
-                isDisabled && styles.actionRowDisabled,
+                styles.actionCell,
+                pressed && styles.actionCellPressed,
+                isDisabled && styles.actionCellDisabled,
               ]}
               accessibilityRole="button"
               accessibilityLabel={action.accessibilityLabel}
@@ -150,7 +187,6 @@ export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSe
                 busy: sheet.isSubmitting,
               }}
             >
-              {/* Icon circle */}
               <View
                 style={[
                   styles.actionIcon,
@@ -167,29 +203,15 @@ export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSe
                 />
               </View>
 
-              {/* Label + description */}
-              <View style={styles.actionInfo}>
-                <AppText
-                  variant="body"
-                  weight="700"
-                  tone={isDisabled ? 'tertiary' : 'primary'}
-                >
-                  {action.label}
-                </AppText>
-                <AppText
-                  variant="caption"
-                  tone="secondary"
-                >
-                  {action.description}
-                </AppText>
-              </View>
-
-              {/* Chevron */}
-              <HomePlusIcon
-                name="chevron-forward"
-                size={20}
-                color={isDisabled ? colors.text.tertiary : colors.text.tertiary}
-              />
+              <AppText
+                variant="bodySmall"
+                weight="800"
+                tone={isDisabled ? 'tertiary' : 'primary'}
+                align="center"
+                style={styles.actionLabel}
+              >
+                {action.label}
+              </AppText>
             </Pressable>
           );
         })}
@@ -203,48 +225,73 @@ export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSe
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
+  container: {
+    paddingHorizontal: spacing[4],
+    paddingBottom: spacing[2],
+  },
   emptyContainer: {
     paddingHorizontal: spacing[5],
     paddingVertical: spacing[8],
   },
-  titleContainer: {
-    paddingHorizontal: spacing[5],
-    paddingBottom: spacing[3],
-    marginBottom: spacing[2],
-  },
-  rowsContainer: {
-    paddingHorizontal: spacing[4],
-  },
-  actionRow: {
+  searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing[3],
-    borderRadius: radius.lg,
+    minHeight: 52,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    borderRadius: radius.md,
     backgroundColor: colors.surface.soft,
     borderWidth: 1,
     borderColor: colors.border.default,
-    minHeight: 56, // accessible touch target
   },
-  actionRowPressed: {
-    opacity: 0.86,
+  searchBarPressed: {
     backgroundColor: colors.surface.card,
     borderColor: colors.terracotta[300],
   },
-  actionRowDisabled: {
+  searchBarDisabled: {
+    opacity: 0.58,
+  },
+  searchText: {
+    marginLeft: spacing[2],
+    flex: 1,
+  },
+  sectionTitle: {
+    marginTop: spacing[5],
+    marginBottom: spacing[3],
+  },
+  actionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing[2],
+  },
+  actionCell: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 92,
+    minWidth: 96,
+    flexBasis: '31%',
+    flexGrow: 1,
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[3],
+    borderRadius: radius.md,
+  },
+  actionCellPressed: {
+    backgroundColor: colors.surface.soft,
+  },
+  actionCellDisabled: {
     opacity: 0.58,
   },
   actionIcon: {
     width: 44,
     height: 44,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
   actionIconDisabled: {
     opacity: 0.5,
   },
-  actionInfo: {
-    flex: 1,
-    marginLeft: spacing[3],
+  actionLabel: {
+    marginTop: spacing[2],
   },
 });

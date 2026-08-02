@@ -84,12 +84,13 @@ void (async () => {
     assertEqual(NAV_OWNERSHIP.search.originComponent, 'QuickActionsMenu > Search bar', 'Search future origin is Quick Actions');
     ok(NAV_OWNERSHIP.search.supportsBack && NAV_OWNERSHIP.search.restoresFocus && NAV_OWNERSHIP.search.supportsKeyboard, 'Search transition exposes Back/focus/keyboard contract');
     ok(NAV_OWNERSHIP.attention.originComponent.includes('AppTopBar'), 'Attention ownership reserved to AppTopBar');
-    ok(!GLOBAL_SURFACE_GATES_OFF.search.enabled, 'Search gate remains off in this package');
+    ok(GLOBAL_SURFACE_GATES_OFF.search.enabled, 'Search gate is enabled once 11A.2B makes active Search productive');
     ok(!GLOBAL_SURFACE_GATES_OFF.attention.enabled, 'Attention visible control remains off without count/list');
     const quick = read('front/mi-front-limpio/components/planner/QuickActionsMenu.tsx');
     const topBar = read('front/mi-front-limpio/components/ui/AppTopBar.tsx');
     const tabs = read('front/mi-front-limpio/navigation/HomeTabNavigator.tsx');
-    ok(!/Buscar en HomePlus|Search as tile|search tile/i.test(quick), 'Search is not rendered as a tile/control');
+    ok(/Buscar en HomePlus/.test(quick), 'Search bar is rendered inside Quick Actions after 11A.2B');
+    ok(!/Search as tile|search tile/i.test(quick), 'Search is not rendered as a tile');
     ok(!/Buscar en HomePlus|planner search/i.test(topBar), 'Search is not mounted in AppTopBar');
     ok((tabs.match(/name="Add"|name='Add'/g) ?? []).length <= 1, 'Bottom navigation Add ownership not duplicated');
   });

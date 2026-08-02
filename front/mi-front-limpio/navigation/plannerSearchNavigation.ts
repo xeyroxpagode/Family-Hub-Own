@@ -26,7 +26,7 @@ import type { PlannerNavigation } from './plannerNavigationHelpers';
 // 1. Entry source for Search (subset of PlannerNavigationSource)
 // ---------------------------------------------------------------------------
 
-export type PlannerSearchEntrySource = 'planner' | 'unknown';
+export type PlannerSearchEntrySource = 'quick_action' | 'planner' | 'unknown';
 
 // ---------------------------------------------------------------------------
 // 2. Navigate to Planner Search (with gate pre-check)

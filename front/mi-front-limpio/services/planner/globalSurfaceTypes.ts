@@ -4,8 +4,8 @@
  * Internal types for foundations: privacy context, navigation contracts,
  * visibility decisions, entity destinations, and feature/capability gates.
  *
- * NOT: final SearchResult, AttentionItem, ActivityItem, GlobalTrashItem DTOs,
- * permanent delete contract, Empty Trash contract, or Archive DTO.
+ * NOT: AttentionItem, ActivityItem, GlobalTrashItem DTOs, permanent delete
+ * contract, Empty Trash contract, or Archive DTO.
  *
  * Privacy: no Inventory dependency, no hardcoded routes, no frontend-inferred
  * permissions, no content exposure before filtering.
@@ -140,7 +140,7 @@ export type GlobalSurfaceFeatureGate = {
 export const GLOBAL_SURFACE_GATES_OFF: Record<GlobalSurfaceId, GlobalSurfaceFeatureGate> = Object.freeze({
   home: { surfaceId: 'home', enabled: true, reason: 'home is a productive Global Surface' },
   quick_actions: { surfaceId: 'quick_actions', enabled: true, reason: 'quick actions is productive' },
-  search: { surfaceId: 'search', enabled: false, reason: 'Search not yet productive in this package' },
+  search: { surfaceId: 'search', enabled: true, reason: 'Active Search is productive for Tasks, Events, and Plans' },
   attention: { surfaceId: 'attention', enabled: false, reason: 'Attention count/list not yet implemented' },
   activity: { surfaceId: 'activity', enabled: false, reason: 'Activity timeline not yet implemented' },
   trash: { surfaceId: 'trash', enabled: false, reason: 'Global Trash not yet productive' },
