@@ -106,9 +106,15 @@ export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSe
   const handleOpenSearch = useCallback(() => {
     if (!searchEnabled) return;
     sheet.requestClose('user_request');
-    navigation.navigate(ROUTE_NAMES.PlannerSearch, {
-      source: 'quick_action',
-      returnTo: 'previous',
+    navigation.navigate('HomeTabs', {
+      screen: 'PlannerTab',
+      params: {
+        screen: ROUTE_NAMES.PlannerSearch,
+        params: {
+          source: 'quick_action',
+          returnTo: 'previous',
+        },
+      },
     });
   }, [navigation, searchEnabled, sheet]);
 

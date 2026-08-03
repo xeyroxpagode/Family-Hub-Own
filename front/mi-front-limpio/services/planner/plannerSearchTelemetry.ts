@@ -32,7 +32,8 @@ function getEndpoint(): string | null {
     telemetryEndpoint = '';
     return '';
   }
-  telemetryEndpoint = `${baseUrl.replace(/\/+$/, '')}/api/telemetry/event`;
+  // Use relative path - requestJson prepends base URL via buildApiUrl
+  telemetryEndpoint = '/api/telemetry/event';
   return telemetryEndpoint;
 }
 

@@ -85,9 +85,12 @@ function AttentionTopBarButton({ accessToken, householdId, navigation }: {
 
   return (
     <Pressable
-      onPress={() => navigation.navigate('PlannerTab', {
-        screen: 'PlannerAttentionActivity',
-        params: { source: 'planner', returnTo: 'previous' },
+      onPress={() => navigation.navigate('HomeTabs', {
+        screen: 'PlannerTab',
+        params: {
+          screen: 'PlannerAttentionActivity',
+          params: { source: 'planner', returnTo: 'previous' },
+        },
       })}
       style={({ pressed }) => [styles.attentionButton, pressed && styles.attentionButtonPressed]}
       accessibilityRole="button"
