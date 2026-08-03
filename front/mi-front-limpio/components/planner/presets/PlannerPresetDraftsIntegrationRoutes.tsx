@@ -343,7 +343,6 @@ export function PlannerDraftRecoveryRoute() {
     <PlannerDraftsScreen
       currentUserPersonIdOverride={authMe?.person?.id ?? ''}
       onContinueDraft={(draft) => navigation.navigate(ROUTE_NAMES.DraftResume, { draftId: draft.id })}
-      onOpenTrash={() => navigation.navigate(ROUTE_NAMES.PresetDraftsTrash)}
     />
   );
 }
