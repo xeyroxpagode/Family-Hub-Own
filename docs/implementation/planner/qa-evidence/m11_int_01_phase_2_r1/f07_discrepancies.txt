@@ -1,0 +1,33 @@
+F07 discrepancies found in corrected Implementation Report:
+
+1. Lines 188: Claims "74 assertions" for contract tests. Real: 76 assertions as
+   executed by Integration runner at 2026-07-23T23:XX:XXZ. Diff: +2.
+
+2. Lines 212: Claims "68 assertions, executed twice (clean + seed)" for DB suite.
+   Real: 93 assertions in single run (mainSuite only executed once in observed
+   runner output). Diff: +25. (mainSuite run 1 = 93; run 2 if executed would be
+   different count.)
+
+3. Lines 201-202: Claims V2 exports include "withIdempotencyV2". This export was
+   removed in R1 per the correction report. Real exports are: hashIdempotencyRequestV2,
+   invokeAtomicPlannerMutationV2, mapV2RpcError, V2IdempotencyOutcome,
+   callV2ReserveRpc, callV2CompleteRpc. No "withIdempotencyV2" export exists.
+
+4. Lines 193-194: Claims V2IdempotencyOutcome has ".effective, .replay_of,
+   .recovered_from, .error, .audit_id" properties. Real code (lines 310-318
+   of adapter) defines only static constants: RESERVED, REPLAY, NOOP,
+   FAILED_STABLE, IN_FLIGHT, CONFLICT, ABANDONED, RECLAIMED. None of the
+   claimed properties exist.
+
+5. Lines 145-146 of the CANONICAL_ERROR_CODES description in the Implementation
+   Report lists "mutation_rejected", "lease_expired", "state_transition_invalid".
+   These do NOT exist in the actual mutationContracts.js (lines 146-155).
+   Actual codes are 8 well-defined constants; these 3 are fabricated.
+
+6. Table "Archivos modificados/creados" says 14 files but the diff inventory
+   says 12 (8 tracked modified + 8 untracked across git status; the count
+   description was based on an earlier state and is now inaccurate).
+
+These errors constitute material overstatements that fail F07 contract closure
+criteria: "Documentacion coincide" and "Sin afirmacion sobre readiness o adapter
+que describan incorrectamente."

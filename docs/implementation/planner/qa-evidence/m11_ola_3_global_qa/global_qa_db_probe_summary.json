@@ -1,0 +1,238 @@
+{
+  "prefix": "m11_ola3_qa_8378c620",
+  "checks": [
+    {
+      "ok": true,
+      "message": "catalog has create_preset",
+      "details": {
+        "value": "planner_create_preset_v1(text,text,text,jsonb,text,text,text)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "catalog has autosave_draft",
+      "details": {
+        "value": "planner_autosave_draft_v1(text,text,text,uuid,uuid,uuid,jsonb,text,integer)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "catalog has write_plan",
+      "details": {
+        "value": "write_planner_plan_graph_rpc(text,text,text,text,text,uuid,uuid,integer,integer,jsonb,text)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "catalog has create_event",
+      "details": {
+        "value": "create_planner_event_v1(jsonb,text,text,text,uuid,uuid,text,uuid,text,text)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "catalog has mutate_task",
+      "details": {
+        "value": "mutate_planner_task_v0(uuid,uuid,text,integer,jsonb,text,text,text,text,text)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "no duplicate migration versions",
+      "details": {
+        "duplicates": []
+      }
+    },
+    {
+      "ok": true,
+      "message": "private helper not executable by authenticated: planner_v2_append_audit",
+      "details": {}
+    },
+    {
+      "ok": true,
+      "message": "private helper not executable by authenticated: planner_v2_complete_idempotency",
+      "details": {}
+    },
+    {
+      "ok": true,
+      "message": "private helper not executable by authenticated: planner_v2_reserve_idempotency",
+      "details": {}
+    },
+    {
+      "ok": true,
+      "message": "authenticated direct mutations revoked: planner_drafts",
+      "details": {
+        "relname": "planner_drafts",
+        "ins": false,
+        "upd": false,
+        "del": false
+      }
+    },
+    {
+      "ok": true,
+      "message": "authenticated direct mutations revoked: planner_event_participants",
+      "details": {
+        "relname": "planner_event_participants",
+        "ins": false,
+        "upd": false,
+        "del": false
+      }
+    },
+    {
+      "ok": true,
+      "message": "authenticated direct mutations revoked: planner_events",
+      "details": {
+        "relname": "planner_events",
+        "ins": false,
+        "upd": false,
+        "del": false
+      }
+    },
+    {
+      "ok": true,
+      "message": "authenticated direct mutations revoked: planner_plans",
+      "details": {
+        "relname": "planner_plans",
+        "ins": false,
+        "upd": false,
+        "del": false
+      }
+    },
+    {
+      "ok": true,
+      "message": "authenticated direct mutations revoked: planner_preset_revisions",
+      "details": {
+        "relname": "planner_preset_revisions",
+        "ins": false,
+        "upd": false,
+        "del": false
+      }
+    },
+    {
+      "ok": true,
+      "message": "authenticated direct mutations revoked: planner_presets",
+      "details": {
+        "relname": "planner_presets",
+        "ins": false,
+        "upd": false,
+        "del": false
+      }
+    },
+    {
+      "ok": true,
+      "message": "duplicate preset RPC calls both execute",
+      "details": {
+        "firstPreset": "60e8085a-4838-4127-8e20-278d0f595cf2",
+        "secondPreset": "2e5f6ba3-3524-4cf6-941b-f14a2d7159a6",
+        "sameMutationId": "m11_ola3_qa_8378c620-same-mutation"
+      }
+    },
+    {
+      "ok": true,
+      "message": "preset metadata update succeeds",
+      "details": {}
+    },
+    {
+      "ok": true,
+      "message": "same preset update mutation with old version does not replay",
+      "details": {
+        "code": "P0001",
+        "message": "version_conflict"
+      }
+    },
+    {
+      "ok": true,
+      "message": "draft autosave retry noops by client draft key",
+      "details": {}
+    },
+    {
+      "ok": true,
+      "message": "draft trash succeeds",
+      "details": {}
+    },
+    {
+      "ok": true,
+      "message": "same draft trash mutation with old version does not replay",
+      "details": {
+        "code": "P0001",
+        "message": "version_conflict"
+      }
+    },
+    {
+      "ok": true,
+      "message": "draft RLS hides another owner drafts",
+      "details": {
+        "count": 0
+      }
+    },
+    {
+      "ok": true,
+      "message": "inactive household member cannot autosave household draft",
+      "details": {
+        "code": "42501",
+        "message": "member_not_active"
+      }
+    },
+    {
+      "ok": true,
+      "message": "authenticated direct draft insert is blocked",
+      "details": {
+        "code": "42501",
+        "message": "permission denied for table planner_drafts"
+      }
+    },
+    {
+      "ok": true,
+      "message": "authenticated direct preset insert is blocked",
+      "details": {
+        "code": "42501",
+        "message": "permission denied for table planner_presets"
+      }
+    },
+    {
+      "ok": true,
+      "message": "QA probe fixture cleanup is zero",
+      "details": {
+        "users": 0,
+        "people": 0,
+        "households": 0,
+        "presets": 0,
+        "drafts": 0
+      }
+    }
+  ],
+  "findings": [
+    {
+      "id": "QA-PD-01",
+      "severity": "P1",
+      "message": "Preset create is not idempotent: same mutation/request payload creates a second preset.",
+      "details": {
+        "firstPreset": "60e8085a-4838-4127-8e20-278d0f595cf2",
+        "secondPreset": "2e5f6ba3-3524-4cf6-941b-f14a2d7159a6"
+      }
+    },
+    {
+      "id": "QA-PD-02",
+      "severity": "P1",
+      "message": "Preset update retry with same mutation returns version_conflict instead of stable replay.",
+      "details": {
+        "sqlstate": "P0001"
+      }
+    },
+    {
+      "id": "QA-PD-03",
+      "severity": "P1",
+      "message": "Draft trash retry with same mutation returns version_conflict instead of stable replay.",
+      "details": {
+        "sqlstate": "P0001"
+      }
+    }
+  ],
+  "cleanup": {
+    "users": 0,
+    "people": 0,
+    "households": 0,
+    "presets": 0,
+    "drafts": 0
+  }
+}

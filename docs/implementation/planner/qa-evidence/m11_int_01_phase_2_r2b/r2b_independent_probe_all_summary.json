@@ -1,0 +1,414 @@
+{
+  "findings": [
+    {
+      "id": "M11-INT01-P2-R2B-F02-ARRAY-OBJECT-HASH-MISMATCH",
+      "severity": "HIGH",
+      "vector": "array_of_objects",
+      "observed": {
+        "jsHash": "4dcb825cd9c7e498a9eb206540e7cc85cd07bddf0a773756804cd8198460f04d",
+        "sqlHash": "45c8c25830a025c94e493bf8f2533a57838f8c93017745ee5308a68de16c93db"
+      },
+      "expected": "JS hashIdempotencyRequestV2 equals PostgreSQL planner_canonical_request_hash_v2 for array-of-objects payloads"
+    }
+  ],
+  "static": {
+    "digest_signatures": [
+      {
+        "nspname": "extensions",
+        "proname": "digest",
+        "args": "bytea, text",
+        "result": "bytea"
+      },
+      {
+        "nspname": "extensions",
+        "proname": "digest",
+        "args": "text, text",
+        "result": "bytea"
+      }
+    ],
+    "helpers": [
+      {
+        "proname": "planner_canonical_jsonb_text_v2",
+        "security_definer": true,
+        "config": "search_path=pg_catalog, public",
+        "public_exec": false,
+        "anon_exec": false,
+        "auth_exec": false
+      },
+      {
+        "proname": "planner_canonical_request_hash_v2",
+        "security_definer": true,
+        "config": "search_path=pg_catalog, public",
+        "public_exec": false,
+        "anon_exec": false,
+        "auth_exec": false
+      },
+      {
+        "proname": "planner_canonical_request_text_v2",
+        "security_definer": true,
+        "config": "search_path=pg_catalog, public",
+        "public_exec": false,
+        "anon_exec": false,
+        "auth_exec": false
+      },
+      {
+        "proname": "planner_v2_append_audit",
+        "security_definer": true,
+        "config": "search_path=pg_catalog, public",
+        "public_exec": false,
+        "anon_exec": false,
+        "auth_exec": false
+      },
+      {
+        "proname": "planner_v2_complete_idempotency",
+        "security_definer": true,
+        "config": "search_path=pg_catalog, public",
+        "public_exec": false,
+        "anon_exec": false,
+        "auth_exec": false
+      },
+      {
+        "proname": "planner_v2_recover_idempotency",
+        "security_definer": true,
+        "config": "search_path=pg_catalog, public",
+        "public_exec": false,
+        "anon_exec": false,
+        "auth_exec": false
+      },
+      {
+        "proname": "planner_v2_reserve_idempotency",
+        "security_definer": true,
+        "config": "search_path=pg_catalog, public",
+        "public_exec": false,
+        "anon_exec": false,
+        "auth_exec": false
+      }
+    ]
+  },
+  "f02": {
+    "vectors": [
+      {
+        "label": "qa_original",
+        "jsHash": "071c536d4eb0ca83f814eba3003f53f7118b1fad87fb7712136c5878d94d5bde",
+        "sqlHash": "071c536d4eb0ca83f814eba3003f53f7118b1fad87fb7712136c5878d94d5bde"
+      },
+      {
+        "label": "ascii",
+        "jsHash": "0c0582f961723784cdc3b94d199d7409e2c85526fdb67c9aa0f2b043e28a4c28",
+        "sqlHash": "0c0582f961723784cdc3b94d199d7409e2c85526fdb67c9aa0f2b043e28a4c28"
+      },
+      {
+        "label": "unicode_acute_a",
+        "jsHash": "557aa8152d5436cb0b71efc079e0bb257707a47a920b81185a01d0de207075dd",
+        "sqlHash": "557aa8152d5436cb0b71efc079e0bb257707a47a920b81185a01d0de207075dd"
+      },
+      {
+        "label": "unicode_enye",
+        "jsHash": "e37217480392921df1324511bf88b55fb0e97dd1a8e558720d71eae09652da41",
+        "sqlHash": "e37217480392921df1324511bf88b55fb0e97dd1a8e558720d71eae09652da41"
+      },
+      {
+        "label": "unicode_u_umlaut",
+        "jsHash": "d07be0f5d1ad463a340977567595205e2e94ab2f7a53cbebe8d9bc8b32609188",
+        "sqlHash": "d07be0f5d1ad463a340977567595205e2e94ab2f7a53cbebe8d9bc8b32609188"
+      },
+      {
+        "label": "emoji",
+        "jsHash": "2237a57ded934d27a93725cccecb7e14b6a2a4d4915f4f4c06d4bcb2d3ffe00f",
+        "sqlHash": "2237a57ded934d27a93725cccecb7e14b6a2a4d4915f4f4c06d4bcb2d3ffe00f"
+      },
+      {
+        "label": "escaped_quote_string",
+        "jsHash": "04a177f74ebf4e7532f76f1c4d8d4627680582ca4ca41bca624c60f096f60e07",
+        "sqlHash": "04a177f74ebf4e7532f76f1c4d8d4627680582ca4ca41bca624c60f096f60e07"
+      },
+      {
+        "label": "newline_string",
+        "jsHash": "a9de3ee5ee1a464967d2cc23620763c80b83db3e684b2f7900b7a443474df59f",
+        "sqlHash": "a9de3ee5ee1a464967d2cc23620763c80b83db3e684b2f7900b7a443474df59f"
+      },
+      {
+        "label": "crlf",
+        "jsHash": "9ed6c0628156a48c30c3e0b19f8f26e1c762407613da947ab96a647e666e8f58",
+        "sqlHash": "9ed6c0628156a48c30c3e0b19f8f26e1c762407613da947ab96a647e666e8f58"
+      },
+      {
+        "label": "tab",
+        "jsHash": "2105f56ac6a4580cbb573db733a540f92f5cfce0ad6659dfbc693824a051a31e",
+        "sqlHash": "2105f56ac6a4580cbb573db733a540f92f5cfce0ad6659dfbc693824a051a31e"
+      },
+      {
+        "label": "backslash",
+        "jsHash": "ef1d81347b256b823f7cecfcb3c0b3c7fd845fec862a5d8f0fa227d52646fbe3",
+        "sqlHash": "ef1d81347b256b823f7cecfcb3c0b3c7fd845fec862a5d8f0fa227d52646fbe3"
+      },
+      {
+        "label": "multiple_backslashes",
+        "jsHash": "9f562b30a52818ee7d057f9ba11a5c4dc2ddce2e00bbbdcd57abaf3fc55e3bef",
+        "sqlHash": "9f562b30a52818ee7d057f9ba11a5c4dc2ddce2e00bbbdcd57abaf3fc55e3bef"
+      },
+      {
+        "label": "quote_newline",
+        "jsHash": "0af0318e1dc97d24385ad72ec10d6ca8b51a2cd8ee321ba7eaefa06dc82af84d",
+        "sqlHash": "0af0318e1dc97d24385ad72ec10d6ca8b51a2cd8ee321ba7eaefa06dc82af84d"
+      },
+      {
+        "label": "multiline_description",
+        "jsHash": "acd185340afa94308893949e138ec2e19dbc1b2a7c9986343ee17ccd8b79821e",
+        "sqlHash": "acd185340afa94308893949e138ec2e19dbc1b2a7c9986343ee17ccd8b79821e"
+      },
+      {
+        "label": "empty_string",
+        "jsHash": "65ed04488a5bbdddf0731d0d3caeb76d09b1ce6cf0d2c2c65345269d5035075c",
+        "sqlHash": "65ed04488a5bbdddf0731d0d3caeb76d09b1ce6cf0d2c2c65345269d5035075c"
+      },
+      {
+        "label": "payload_null",
+        "jsHash": "1cc8a7a4784dfda3283c159b1d8fdb34ca9601e2ee30f8f26d613640a4db6bb1",
+        "sqlHash": "1cc8a7a4784dfda3283c159b1d8fdb34ca9601e2ee30f8f26d613640a4db6bb1"
+      },
+      {
+        "label": "object_null_property",
+        "jsHash": "0304b2f2f8252af04c42819f111eb91f58ac328d883d1090b19c25c2a34f91b9",
+        "sqlHash": "0304b2f2f8252af04c42819f111eb91f58ac328d883d1090b19c25c2a34f91b9"
+      },
+      {
+        "label": "null_in_array",
+        "jsHash": "df53744738ec13dae1bae5fcb1aa8d3610c994532cf22afab004eea2eee67fb3",
+        "sqlHash": "df53744738ec13dae1bae5fcb1aa8d3610c994532cf22afab004eea2eee67fb3"
+      },
+      {
+        "label": "nested_object",
+        "jsHash": "6124c298178a859ad6b5c035963daf6642c699c35694efd7815aaa75d2aedfb4",
+        "sqlHash": "6124c298178a859ad6b5c035963daf6642c699c35694efd7815aaa75d2aedfb4"
+      },
+      {
+        "label": "array_of_objects",
+        "jsHash": "4dcb825cd9c7e498a9eb206540e7cc85cd07bddf0a773756804cd8198460f04d",
+        "sqlHash": "45c8c25830a025c94e493bf8f2533a57838f8c93017745ee5308a68de16c93db"
+      },
+      {
+        "label": "keys_order_a",
+        "jsHash": "f58e8d00fbe7499288a82d05ba6450c1236358f8671b7af6542122c14a3deb76",
+        "sqlHash": "f58e8d00fbe7499288a82d05ba6450c1236358f8671b7af6542122c14a3deb76"
+      },
+      {
+        "label": "keys_order_b",
+        "jsHash": "f58e8d00fbe7499288a82d05ba6450c1236358f8671b7af6542122c14a3deb76",
+        "sqlHash": "f58e8d00fbe7499288a82d05ba6450c1236358f8671b7af6542122c14a3deb76"
+      },
+      {
+        "label": "arrays_order_a",
+        "jsHash": "10d0b1792f4fc9a8b5fe8758bc80a94274fc1b611560a373f991d93b8e7521df",
+        "sqlHash": "10d0b1792f4fc9a8b5fe8758bc80a94274fc1b611560a373f991d93b8e7521df"
+      },
+      {
+        "label": "arrays_order_b",
+        "jsHash": "99391da2e93c6922fe22d5c8e48b8e85574705e73054ac99c42ce27a3c97e5a0",
+        "sqlHash": "99391da2e93c6922fe22d5c8e48b8e85574705e73054ac99c42ce27a3c97e5a0"
+      },
+      {
+        "label": "target_uuid",
+        "jsHash": "ed3458a77559402ab318cabd44e943f7c3072cf16e6da7816fabf7c1aadcf5d7",
+        "sqlHash": "ed3458a77559402ab318cabd44e943f7c3072cf16e6da7816fabf7c1aadcf5d7"
+      },
+      {
+        "label": "expected_version",
+        "jsHash": "80b640f7c83375542945225701da4ddf32d18d93d63e81be6cb988a4dcab8673",
+        "sqlHash": "80b640f7c83375542945225701da4ddf32d18d93d63e81be6cb988a4dcab8673"
+      },
+      {
+        "label": "personal_scope",
+        "jsHash": "016dfcccc1851f7754a3b34916179fc6cdfed832e9938f0459d07bc6acc20195",
+        "sqlHash": "016dfcccc1851f7754a3b34916179fc6cdfed832e9938f0459d07bc6acc20195"
+      },
+      {
+        "label": "household_scope",
+        "jsHash": "8f65af2093ebe8c19350c6f1f9cc2d3a89b61c501ff76696b512043bcd8450ab",
+        "sqlHash": "8f65af2093ebe8c19350c6f1f9cc2d3a89b61c501ff76696b512043bcd8450ab"
+      },
+      {
+        "label": "combined_escapables",
+        "jsHash": "58a2b991a4a0f8b03a9ee8ec24b49b19912c24e20ac7e3ca4fb42b18667980f9",
+        "sqlHash": "58a2b991a4a0f8b03a9ee8ec24b49b19912c24e20ac7e3ca4fb42b18667980f9"
+      },
+      {
+        "label": "long_text",
+        "jsHash": "f82932624d95975fdeeeedf9cf85e85678ee03d0abfee88519a4495b35646147",
+        "sqlHash": "f82932624d95975fdeeeedf9cf85e85678ee03d0abfee88519a4495b35646147"
+      },
+      {
+        "label": "json_control_chars",
+        "jsHash": "912fc3cae51117303beb6013fd91d0416b01857dc2973d807e584d8fd71e4ce1",
+        "sqlHash": "912fc3cae51117303beb6013fd91d0416b01857dc2973d807e584d8fd71e4ce1"
+      },
+      {
+        "label": "unicode_quotes_multiline",
+        "jsHash": "0a987d5314b2a3f01a4e667010ce497f81a145b88d9c9cad50f73f2721fbff80",
+        "sqlHash": "0a987d5314b2a3f01a4e667010ce497f81a145b88d9c9cad50f73f2721fbff80"
+      }
+    ]
+  },
+  "f01": {},
+  "r1n1": {
+    "role_table_grants": [
+      {
+        "grantee": "anon",
+        "privilege_type": "INSERT",
+        "is_grantable": "NO"
+      },
+      {
+        "grantee": "anon",
+        "privilege_type": "SELECT",
+        "is_grantable": "NO"
+      },
+      {
+        "grantee": "anon",
+        "privilege_type": "UPDATE",
+        "is_grantable": "NO"
+      },
+      {
+        "grantee": "authenticated",
+        "privilege_type": "INSERT",
+        "is_grantable": "NO"
+      },
+      {
+        "grantee": "authenticated",
+        "privilege_type": "SELECT",
+        "is_grantable": "NO"
+      },
+      {
+        "grantee": "authenticated",
+        "privilege_type": "UPDATE",
+        "is_grantable": "NO"
+      }
+    ],
+    "PUBLIC": {
+      "can_delete": false,
+      "can_truncate": false,
+      "can_references": false,
+      "can_trigger": false,
+      "can_select": false,
+      "can_insert": false,
+      "can_update": false
+    },
+    "anon": {
+      "can_delete": false,
+      "can_truncate": false,
+      "can_references": false,
+      "can_trigger": false,
+      "can_select": true,
+      "can_insert": true,
+      "can_update": true
+    },
+    "authenticated": {
+      "can_delete": false,
+      "can_truncate": false,
+      "can_references": false,
+      "can_trigger": false,
+      "can_select": true,
+      "can_insert": true,
+      "can_update": true
+    },
+    "anon_legacy_surface": {
+      "select": true,
+      "insert": true,
+      "update": true
+    }
+  },
+  "f04": {},
+  "f05": {},
+  "f06": {
+    "rows": [
+      {
+        "idempotency_key": "qa_r2b_m11_int_01_f06_bad_400",
+        "response_status": 400,
+        "key_state": "failed_stable",
+        "has_actor_person": true,
+        "has_actor_account": true,
+        "scope_type": "household",
+        "household_scope": true
+      },
+      {
+        "idempotency_key": "qa_r2b_m11_int_01_f06_expired_no_response",
+        "response_status": 0,
+        "key_state": "abandoned",
+        "has_actor_person": true,
+        "has_actor_account": true,
+        "scope_type": "household",
+        "household_scope": true
+      },
+      {
+        "idempotency_key": "qa_r2b_m11_int_01_f06_ok_200",
+        "response_status": 200,
+        "key_state": "completed",
+        "has_actor_person": true,
+        "has_actor_account": true,
+        "scope_type": "household",
+        "household_scope": true
+      },
+      {
+        "idempotency_key": "qa_r2b_m11_int_01_f06_ok_201",
+        "response_status": 201,
+        "key_state": "completed",
+        "has_actor_person": true,
+        "has_actor_account": true,
+        "scope_type": "household",
+        "household_scope": true
+      },
+      {
+        "idempotency_key": "qa_r2b_m11_int_01_f06_precondition_412",
+        "response_status": 412,
+        "key_state": "failed_stable",
+        "has_actor_person": true,
+        "has_actor_account": true,
+        "scope_type": "household",
+        "household_scope": true
+      },
+      {
+        "idempotency_key": "qa_r2b_m11_int_01_f06_server_500",
+        "response_status": 500,
+        "key_state": "abandoned",
+        "has_actor_person": true,
+        "has_actor_account": true,
+        "scope_type": "household",
+        "household_scope": true
+      }
+    ]
+  },
+  "cleanup": {
+    "post primary probe zero": {
+      "idempotency_fixtures": 0,
+      "leases": 0,
+      "qa_tables": 0,
+      "qa_functions": 0,
+      "temp_relations": 0,
+      "idle_transactions": 0
+    },
+    "cleanup sensitivity initial zero": {
+      "idempotency_fixtures": 0,
+      "leases": 0,
+      "qa_tables": 0,
+      "qa_functions": 0,
+      "temp_relations": 0,
+      "idle_transactions": 0
+    },
+    "cleanup sensitivity dirty zero": {
+      "idempotency_fixtures": 1,
+      "leases": 0,
+      "qa_tables": 0,
+      "qa_functions": 0,
+      "temp_relations": 0,
+      "idle_transactions": 0
+    },
+    "cleanup sensitivity post-clean zero": {
+      "idempotency_fixtures": 0,
+      "leases": 0,
+      "qa_tables": 0,
+      "qa_functions": 0,
+      "temp_relations": 0,
+      "idle_transactions": 0
+    }
+  },
+  "assertions": 270
+}

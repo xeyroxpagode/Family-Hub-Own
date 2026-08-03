@@ -1,0 +1,104 @@
+﻿[
+    {
+        "Path":  "backend/src/lib/mutationContracts.js",
+        "SHA256":  "aec6739c4315150cd63bfc1bef40c9da1df1a7423b3e620b124f7b110cf24be3",
+        "Size":  6668,
+        "LastWriteTimeUtc":  "2026-07-22T23:40:20.3170410Z"
+    },
+    {
+        "Path":  "backend/src/lib/plannerIdempotencyAdapter.js",
+        "SHA256":  "d28d822130f70c871dda0d102b0d8cac98e27b3212773208ce7fe121db836a25",
+        "Size":  14227,
+        "LastWriteTimeUtc":  "2026-07-24T18:02:14.4509058Z"
+    },
+    {
+        "Path":  "backend/src/lib/plannerMutationContracts.js",
+        "SHA256":  "41efcb88c24232a8989f4648bdff7dc458c4ae3decdd3ce02c17626a6030e644",
+        "Size":  884,
+        "LastWriteTimeUtc":  "2026-07-22T23:40:32.2128469Z"
+    },
+    {
+        "Path":  "backend/src/services/planner.context.service.js",
+        "SHA256":  "9ec0313331462f0e7d64a5addba9320a6bffae77cb2f82135b5daf5190678484",
+        "Size":  4946,
+        "LastWriteTimeUtc":  "2026-07-22T23:39:59.6850093Z"
+    },
+    {
+        "Path":  "docs/implementation/planner/M11_INT_01_PHASE_2_R1_CORRECTION_REPORT.md",
+        "SHA256":  "9bb8ecf59d262c4b2b8bc1c078c253bf75fc773fc54e3ae31e83da6740f0b4e7",
+        "Size":  14301,
+        "LastWriteTimeUtc":  "2026-07-23T21:52:41.0181049Z"
+    },
+    {
+        "Path":  "docs/implementation/planner/M11_INT_01_PHASE_2_R2_CORRECTION_REPORT.md",
+        "SHA256":  "cc8456ee6281c0ebfadf63ce653ec98508461137b3de6bc217d2c7ee18f11765",
+        "Size":  14964,
+        "LastWriteTimeUtc":  "2026-07-24T18:19:33.6959273Z"
+    },
+    {
+        "Path":  "docs/implementation/planner/M11_INT_01_PHASE_2_SHARED_FOUNDATION_IMPLEMENTATION_REPORT.md",
+        "SHA256":  "931f7e243b9188855c98f71191f647c386dab6a4641576c249b514b45c59d8df",
+        "Size":  7894,
+        "LastWriteTimeUtc":  "2026-07-24T18:20:01.8308831Z"
+    },
+    {
+        "Path":  "docs/implementation/planner/M11_SHARED_IDEMPOTENCY_RESOLUTION_REPORT.md",
+        "SHA256":  "c23aefefe9abb4a7911e069caba7a8e54af2df0d5cb9553f4cf5ccdcddcf7ae1",
+        "Size":  27165,
+        "LastWriteTimeUtc":  "2026-07-22T21:57:05.0172903Z"
+    },
+    {
+        "Path":  "docs/implementation/planner/PLANNER_V1_INTEGRATION_QUEUE.md",
+        "SHA256":  "c3e213e5e38b09f285bdd9eb1f36687b84fa18064f68aeb96ed8ad7e2388738a",
+        "Size":  18473,
+        "LastWriteTimeUtc":  "2026-07-24T18:20:13.5051446Z"
+    },
+    {
+        "Path":  "docs/implementation/planner/PLANNER_V1_MIGRATION_LEDGER.md",
+        "SHA256":  "0438a95706bed360aa352e5199f2db291fd29cb8c7f801af42fecfbe02f32757",
+        "Size":  6909,
+        "LastWriteTimeUtc":  "2026-07-24T18:20:21.6353394Z"
+    },
+    {
+        "Path":  "docs/implementation/planner/PLANNER_V1_PARALLEL_ACTIVATION_REPORT.md",
+        "SHA256":  "042a24fe96869593c69a403a4bf903bf5aa3e4236bc91c6c0ed4972f9e40eef5",
+        "Size":  10206,
+        "LastWriteTimeUtc":  "2026-07-22T18:58:31.3925869Z"
+    },
+    {
+        "Path":  "docs/implementation/planner/PLANNER_V1_PARALLEL_OWNERSHIP_MATRIX.md",
+        "SHA256":  "9dd003fb2a03ea080b948eb2767e29d5cc5bb92bc1a0c7f0ba334a45ab315033",
+        "Size":  11031,
+        "LastWriteTimeUtc":  "2026-07-24T17:02:14.0759950Z"
+    },
+    {
+        "Path":  "docs/implementation/planner/PLANNER_V1_PARALLEL_SHARED_CONTRACTS.md",
+        "SHA256":  "089e11f4936ddda4fa320934b5a47c924f70ef49442902c1cab16761a137cc5f",
+        "Size":  18411,
+        "LastWriteTimeUtc":  "2026-07-24T17:02:09.0650534Z"
+    },
+    {
+        "Path":  "scripts/planner_m11_int_01_shared_contract_tests.js",
+        "SHA256":  "b479f84aba0e5ef5509d1a687980fd51975cbb7a4feff687f1c563dbd18ba94f",
+        "Size":  24472,
+        "LastWriteTimeUtc":  "2026-07-24T18:05:10.5871364Z"
+    },
+    {
+        "Path":  "scripts/planner_m11_int_01_shared_database_tests.js",
+        "SHA256":  "3f182c5285f69a3ebb9f39dba004cf44c39d0d54f47136fac3ba740c50e65f3a",
+        "Size":  62640,
+        "LastWriteTimeUtc":  "2026-07-24T18:05:45.4892412Z"
+    },
+    {
+        "Path":  "scripts/planner_m11_int_01_shared_test_runner.js",
+        "SHA256":  "61989c50714a4f06c49745486b038f958785745c76fcfe8eed4221e196097bd8",
+        "Size":  5914,
+        "LastWriteTimeUtc":  "2026-07-24T18:11:17.8719379Z"
+    },
+    {
+        "Path":  "supabase/migrations/20260722090000_m11_int_01_shared_mutation_authority_foundation.sql",
+        "SHA256":  "60780867f9f5bb7f11305b09876c55287485d0cb03aaee01bbfaeda191090ed0",
+        "Size":  41827,
+        "LastWriteTimeUtc":  "2026-07-24T03:22:47.7207221Z"
+    }
+]
