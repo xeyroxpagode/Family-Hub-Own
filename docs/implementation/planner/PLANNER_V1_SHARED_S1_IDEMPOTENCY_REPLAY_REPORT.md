@@ -284,17 +284,19 @@ Confirmado vía `pg_proc`:
 
 ## 13. Commit
 
-A crear (NO ejecutado automáticamente):
+COMMIT:
+888c4b0 fix(planner): harden shared idempotency replay authority
 
-```
-fix(planner): harden shared idempotency replay authority
-```
+ESTADO:
+commit creado, working tree limpio, sin push.
 
-Single commit con 3 archivos modificados + 1 nuevo:
+FILES IN COMMIT:
+5 archivos, incluyendo el propio informe:
 - `backend/src/lib/plannerIdempotencyAdapter.js`
 - `supabase/migrations/20260803120000_planner_v2_reserve_idempotency_mutation_dedupe.sql`
 - `tests/db/run.js`
 - `scripts/planner_m11_int_01_shared_s1_matrix_tests.js` (nuevo)
+- `docs/implementation/planner/PLANNER_V1_SHARED_S1_IDEMPOTENCY_REPLAY_REPORT.md` (este informe)
 
-El commit NO se crea automáticamente mientras se completen los gates (migración local pase,
-matriz DB pase, sin raw 23505, working tree con sólo cambios S1). Todos los gates están PASS.
+Todos los gates pasaron antes del commit: migración local aplicada, matriz DB PASS,
+sin raw 23505, working tree con sólo cambios S1.
