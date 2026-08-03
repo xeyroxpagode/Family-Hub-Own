@@ -7,6 +7,17 @@
 --          differs, raise explicit P0008 conflict instead of letting the
 --          planner_idempotency_keys_mutation_uidx unique index throw 23505
 --          (which surfaces as 500 internal_error).
+-- R2 correction (S1-DEF-01): the original version used `SELECT * INTO
+--          v_mutation_row ... LIMIT 1 FOR UPDATE` and then tested
+--          `IF v_mutation_row IS NOT NULL THEN ...`. PL/pgSQL treats a
+--          composite variable as NULL only when every column is NULL, so a
+--          row that has at least one NULL column (which is the V2 case:
+--          actor_member_id is intentionally NULL on every reserve) is reported
+--          as NULL by `IS NOT NULL`. That makes the dedupe block a no-op for
+--          any V2 row, defeating the whole point of this migration. The
+--          corrected implementation tests the row by its primary key `id`
+--          column (always NOT NULL after creation) instead of the composite
+--          record-nullness predicate.
 -- Does NOT: change any domain tables, only the V2 reservation helper.
 
 begin;
@@ -30,10 +41,11 @@ set search_path = pg_catalog, public
 as $$
 declare
   v_existing public.planner_idempotency_keys%rowtype;
+  v_mutation_id uuid;
+  v_idempotency_id uuid;
   v_lease_token uuid;
   v_lease_expiry timestamptz;
   v_inserted boolean;
-  v_mutation_row public.planner_idempotency_keys%rowtype;
 begin
   if p_actor_account_id is null
     or p_actor_person_id is null
@@ -54,49 +66,62 @@ begin
   end if;
 
   -- ---- Mutation_id deduplication check (BEFORE insert) ----
-  -- If a row with the same mutation_id already exists for this
-  -- actor/scope/operation, the unique index on mutation_id would throw
-  -- 23505 on INSERT. We intercept that case here to return canonical
-  -- replay (if hash matches) or explicit conflict (if hash differs).
-  select *
-  into v_mutation_row
+  -- If a row with the same mutation_id already exists for this actor/scope/
+  -- operation, the unique index on mutation_id would throw 23505 on INSERT. We
+  -- intercept that case here to return canonical replay (if hash matches) or
+  -- explicit conflict (if hash differs).
+  --
+  -- We probe via the row's `id` (PRIMARY KEY, NOT NULL) rather than the
+  --      `%rowtype IS NOT NULL` predicate. PL/pgSQL only reports a composite
+  --      as NOT NULL when EVERY column is NOT NULL, which fails for every V2
+  --      row (actor_member_id is intentionally NULL for the V2 identity path).
+  --      S1-DEF-01: the original probe was a silent no-op and leaked 23505.
+  select id
+  into v_idempotency_id
   from public.planner_idempotency_keys
   where mutation_id = p_mutation_id
   limit 1
   for update;
 
-  if v_mutation_row is not null then
+  if v_idempotency_id is not null then
+    -- Lock and read the full row.
+    select *
+    into v_existing
+    from public.planner_idempotency_keys
+    where id = v_idempotency_id
+    for update;
+
     -- Replay is only canonical when actor, scope, operation, mutation_id and
     -- payload_hash all match. Same mutation_id with a different actor/scope,
     -- operation or payload is an explicit idempotency conflict.
-    if v_mutation_row.actor_person_id = p_actor_person_id
-      and v_mutation_row.scope_type = p_scope_type
-      and v_mutation_row.scope_id = p_scope_id
-      and v_mutation_row.operation = p_operation
-      and v_mutation_row.payload_hash = p_payload_hash
+    if v_existing.actor_person_id = p_actor_person_id
+      and v_existing.scope_type = p_scope_type
+      and v_existing.scope_id = p_scope_id
+      and v_existing.operation = p_operation
+      and v_existing.payload_hash = p_payload_hash
     then
       -- Exact replay: same identity + same payload
-      if v_mutation_row.key_state in ('completed', 'failed_stable') then
+      if v_existing.key_state in ('completed', 'failed_stable') then
         return jsonb_build_object(
           'outcome', 'replay',
-          'idempotency_id', v_mutation_row.id,
-          'response_status', v_mutation_row.response_status,
-          'response_body', v_mutation_row.response_body,
-          'key_state', v_mutation_row.key_state
+          'idempotency_id', v_existing.id,
+          'response_status', v_existing.response_status,
+          'response_body', v_existing.response_body,
+          'key_state', v_existing.key_state
         );
       end if;
       -- In-flight with same hash: let contender wait
-      if v_mutation_row.key_state = 'in_flight'
-         and v_mutation_row.lease_expiry > now()
-         and v_mutation_row.lease_token is not null
+      if v_existing.key_state = 'in_flight'
+         and v_existing.lease_expiry > now()
+         and v_existing.lease_token is not null
       then
         raise exception
           'La operacion ya se esta procesando. Reintentá en unos segundos.'
           using errcode = 'P0009';
       end if;
       -- Expired/abandoned with same hash: reclaim
-      if v_mutation_row.key_state in ('in_flight', 'abandoned')
-         and (v_mutation_row.lease_expiry <= now() or v_mutation_row.lease_token is null)
+      if v_existing.key_state in ('in_flight', 'abandoned')
+         and (v_existing.lease_expiry <= now() or v_existing.lease_token is null)
       then
         v_lease_token := gen_random_uuid();
         v_lease_expiry := now() + (p_lease_seconds || ' seconds')::interval;
@@ -108,10 +133,10 @@ begin
             last_seen_at = now(),
             response_status = 0,
             response_body = jsonb_build_object('__inflight', true)
-        where id = v_mutation_row.id;
+        where id = v_idempotency_id;
         return jsonb_build_object(
           'outcome', 'reserved',
-          'idempotency_id', v_mutation_row.id,
+          'idempotency_id', v_idempotency_id,
           'lease_token', v_lease_token,
           'lease_expiry', v_lease_expiry,
           'reclaimed', true
@@ -123,7 +148,7 @@ begin
     end if;
 
     -- Same mutation_id BUT different actor/scope/operation/payload_hash:
-    -- explicit conflict, never blind success.
+    -- explicit conflict, never blind success, never raw 23505.
     raise exception
       'La operacion ya fue procesada con otros datos.'
       using errcode = 'P0008';
@@ -168,9 +193,10 @@ begin
 
   get diagnostics v_inserted = row_count;
 
-  -- Whether inserted or existing, lock and read the row
-  select *
-  into v_existing
+  -- Whether inserted or existing, lock and read the row by identity.
+  -- Use the same `id`-probe pattern to avoid the composite-nullness pitfall.
+  select id
+  into v_idempotency_id
   from public.planner_idempotency_keys
   where actor_person_id = p_actor_person_id
     and scope_type = p_scope_type
@@ -179,16 +205,21 @@ begin
     and idempotency_key = p_idempotency_key
   for update;
 
-  if v_existing is null then
+  if v_idempotency_id is null then
     raise exception 'V2 reservation row missing after arbitration.'
       using errcode = 'XX000';
   end if;
+
+  select *
+  into v_existing
+  from public.planner_idempotency_keys
+  where id = v_idempotency_id;
 
   -- If we just inserted: success (in_flight with our lease)
   if v_inserted then
     return jsonb_build_object(
       'outcome', 'reserved',
-      'idempotency_id', v_existing.id,
+      'idempotency_id', v_idempotency_id,
       'lease_token', v_lease_token,
       'lease_expiry', v_lease_expiry
     );
@@ -202,7 +233,7 @@ begin
     then
       return jsonb_build_object(
         'outcome', 'replay',
-        'idempotency_id', v_existing.id,
+        'idempotency_id', v_idempotency_id,
         'response_status', v_existing.response_status,
         'response_body', v_existing.response_body,
         'key_state', v_existing.key_state
@@ -265,11 +296,11 @@ begin
         last_seen_at = now(),
         response_status = 0,
         response_body = jsonb_build_object('__inflight', true)
-    where id = v_existing.id;
+    where id = v_idempotency_id;
 
     return jsonb_build_object(
       'outcome', 'reserved',
-      'idempotency_id', v_existing.id,
+      'idempotency_id', v_idempotency_id,
       'lease_token', v_lease_token,
       'lease_expiry', v_lease_expiry,
       'reclaimed', true
@@ -288,6 +319,6 @@ revoke all on function public.planner_v2_reserve_idempotency(
 
 comment on function public.planner_v2_reserve_idempotency(
   uuid, uuid, text, uuid, text, text, text, text, text, integer
-) is 'Integration-owned V2 atomic reservation helper with mutation_id deduplication. Not executable by PUBLIC/anon/authenticated.';
+) is 'Integration-owned V2 atomic reservation helper with mutation_id deduplication. Probes the row by PRIMARY KEY id to avoid the PL/pgSQL composite-nullness pitfall. Not executable by PUBLIC/anon/authenticated.';
 
 commit;

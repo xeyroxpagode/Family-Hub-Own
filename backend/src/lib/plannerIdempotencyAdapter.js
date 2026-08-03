@@ -101,13 +101,15 @@ const mapRpcError = (error, operation) => {
     )
   }
 
+  // S1 contract enforcement: raw SQL errors (23505, constraint names, hints,
+  // SQLSTATE, stack traces) MUST NOT cross the HTTP boundary. The fallback is
+  // a canonical 500 internal_error with no internals exposed. Operation is
+  // attached as a structured field for telemetry only, never sent to clients.
   const httpError = createHttpError(
     500,
-    error?.message ?? 'Error inesperado al reservar idempotencia.',
-    error?.code ?? 'idempotency_reserve_failed',
+    'Error inesperado al reservar idempotencia.',
+    CANONICAL_ERROR_CODES.INTERNAL_ERROR,
   )
-  httpError.details = error?.details
-  httpError.hint = error?.hint
   httpError.operation = operation
   return httpError
 }
@@ -141,7 +143,7 @@ const callCompleteRpc = async (context, options, responseStatus, responseBody) =
   if (error) {
     const mapped = mapRpcError(error, options.operation)
     mapped.statusCode = 500
-    mapped.code = 'idempotency_complete_failed'
+    mapped.code = CANONICAL_ERROR_CODES.INTERNAL_ERROR
     throw mapped
   }
 }
