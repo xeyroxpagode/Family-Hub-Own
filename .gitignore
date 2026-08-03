@@ -6,6 +6,9 @@ supabase/_pulled_backups/
 supabase/snippets/
 /node_modules/
 /scripts/compiled/
+/scripts/compiled-reliability/
+/scripts/compiled-reliability-frontend/
+/scripts/compiled-reliability-repro/
 /scripts/scripts/
 /.env
 /.env.local

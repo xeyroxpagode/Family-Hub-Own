@@ -473,7 +473,7 @@ export function buildPlanLifecycleWrite(
     expectedPlanVersion: null,
     payload: {
       transition,
-      closed_reason: transition === 'close' ? options.closedReason ?? null : undefined,
+      closed_reason: transition === 'close' ? (options.closedReason ?? null) : null,
     },
   };
 }

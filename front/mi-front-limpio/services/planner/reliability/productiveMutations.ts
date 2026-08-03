@@ -242,7 +242,7 @@ export async function enqueuePlannerPlanGraphWrite<TResult = unknown>(
   return enqueueConfirmed<{ graphWrite: PlanGraphWriteRequest }, TResult>({
     domain: 'plan',
     operationType,
-    entity: { type: 'plan', id: String((request as { plan?: { id?: unknown } }).plan?.id ?? '') || undefined },
+    entity: plannerPlanEntity(request.planId),
     payload: { graphWrite: request },
     intent,
   });
@@ -255,10 +255,15 @@ export async function enqueuePlannerPlanStructureChangeset<TResult = unknown>(
   return enqueueConfirmed<{ structureChangeset: PlanStructureChangesetWriteRequest }, TResult>({
     domain: 'plan',
     operationType: 'structure_changeset',
-    entity: { type: 'plan', id: String((request as { planId?: unknown; plan_id?: unknown }).planId ?? (request as { plan_id?: unknown }).plan_id ?? '') || undefined },
+    entity: plannerPlanEntity(request.planId),
     payload: { structureChangeset: request },
     intent,
   });
+}
+
+function plannerPlanEntity(planId: string | null | undefined): PlannerOperationEntity {
+  if (!planId) return { type: 'plan' };
+  return { type: 'plan', id: planId };
 }
 
 /**

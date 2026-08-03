@@ -147,6 +147,21 @@ const throwSupabaseError = (error) => {
     )
   }
 
+  // 23505 = unique_violation on planner_idempotency_keys_mutation_uidx
+  // This happens when the same mutation_id is reused with a different
+  // idempotency_key (for example, frontend double-submit after sheet didn't
+  // close). The V2 reserve helper now intercepts this before INSERT, but as a
+  // defensive layer we also map it here.
+  const duplicateMutationId = error?.code === '23505'
+    && (
+      error?.constraint === 'planner_idempotency_keys_mutation_uidx'
+      || String(error?.message ?? '').includes('planner_idempotency_keys_mutation_uidx')
+      || String(error?.details ?? '').includes('mutation_id')
+    )
+  if (duplicateMutationId) {
+    throw createHttpError(409, 'La operacion ya fue procesada con otros datos.', 'idempotency_conflict')
+  }
+
   const isRlsViolation =
     error.code === '42501' ||
     error.code === 'PGRST301' ||

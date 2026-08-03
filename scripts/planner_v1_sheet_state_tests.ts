@@ -238,6 +238,26 @@ function runTests() {
     assertEqual(r.activeIntentId, 'intent-1', 'activeIntentId should stay');
   });
 
+  test('success close requires matching SUBMIT_END before REQUEST_CLOSE', () => {
+    let r = reduce(INITIAL_STATE, INITIAL_CONTEXT, { type: 'OPEN_TASK', input: taskOpen });
+    r = reduce(r.state, r, { type: 'SUBMIT_BEGIN', intentId: 'mut-create-1' });
+    r = reduce(r.state, r, { type: 'SUBMIT_END', intentId: 'mut-create-1' });
+    r = reduce(r.state, r, { type: 'REQUEST_CLOSE', reason: 'success' });
+    assertTrue(isSheetClosed(r.state), 'success should close after matching submit end');
+    assertFalse(r.isSubmitting, 'isSubmitting should be false after success close');
+    assertEqual(r.activeIntentId, null, 'activeIntentId should be null after success close');
+  });
+
+  test('success close remains blocked after stale SUBMIT_END', () => {
+    let r = reduce(INITIAL_STATE, INITIAL_CONTEXT, { type: 'OPEN_TASK', input: taskOpen });
+    r = reduce(r.state, r, { type: 'SUBMIT_BEGIN', intentId: 'mut-create-1' });
+    r = reduce(r.state, r, { type: 'SUBMIT_END', intentId: 'task_intent' });
+    r = reduce(r.state, r, { type: 'REQUEST_CLOSE', reason: 'success' });
+    assertEqual(r.state.kind, 'task_form', 'stale submit end should leave sheet open');
+    assertTrue(r.isSubmitting, 'isSubmitting should stay true after stale submit end');
+    assertEqual(r.activeIntentId, 'mut-create-1', 'activeIntentId should stay after stale submit end');
+  });
+
   // --- Double open/close safety ---
   test('double REQUEST_CLOSE safe', () => {
     let r = reduce(INITIAL_STATE, INITIAL_CONTEXT, { type: 'OPEN_ACTIONS' });

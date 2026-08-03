@@ -4,6 +4,7 @@ import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native'
 
 import { AppText, ErrorState } from '../../components/ui';
 import { useAuth } from '../../context/AuthContext';
+import { ApiError } from '../../services/api';
 import {
   ROUTE_NAMES,
   parsePlannerEntityDetailParams,
@@ -68,6 +69,13 @@ export function PlannerPlanDetailScreen() {
       await enqueuePlannerPlanGraphWrite(request, createPlanWriteIntent(request), 'update');
       await load();
     } catch (err) {
+      if (transition === 'activate' && err instanceof ApiError && err.code === 'invalid_transition') {
+        Alert.alert(
+          'Plan incompleto',
+          'Todavía no se puede activar este Plan porque le falta estructura: agregá al menos un hito, requisito o condición medible antes de activarlo.',
+        );
+        return;
+      }
       Alert.alert('Planner', err instanceof Error ? err.message : 'No pudimos actualizar el plan.');
     }
   }, [accessToken, load]);

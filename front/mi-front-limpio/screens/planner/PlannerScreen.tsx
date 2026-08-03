@@ -110,7 +110,7 @@ export function PlannerScreen() {
   const processedNavKeyRef = useRef<string | null>(null);
   /** Current planner context identity (updated on every context change). */
   const currentContextIdentityRef = useRef<PlannerContextIdentity | null>(null);
-  const { session, authMe } = useAuth();
+  const { session, authMe, authMeLoading } = useAuth();
   const accessToken = session?.access_token;
   const { currentHousehold } = useHousehold();
 
@@ -189,10 +189,10 @@ export function PlannerScreen() {
       authenticatedUserId: accountId,
       activeHouseholdId: householdId,
       authResolved: Boolean(accessToken && accountId),
-      householdResolved: Boolean(householdId),
+      householdResolved: !authMeLoading,
     });
     return () => runtime?.dispose();
-  }, [accessToken, accountId, householdId]);
+  }, [accessToken, accountId, householdId, authMeLoading]);
 
   // When the context changes ( accountId/householdId), start a new
   // hydration generation, reset preferences readiness, and load the

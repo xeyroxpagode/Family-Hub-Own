@@ -191,10 +191,19 @@ function TaskFormHost() {
         );
       }
       plannerQuickActionsTelemetry.submitSucceeded('task', accessToken);
-      sheet.endSubmit('task_intent');
+      // Release the submit lock with the SAME intent id that was passed to
+      // beginSubmit. Otherwise the reducer treats SUBMIT_END as a stale
+      // event (activeIntentId !== event.intentId), isSubmitting stays true,
+      // REQUEST_CLOSE is blocked by the reducer, and the sheet never closes.
+      // This is exactly the path that produced "POST 201 + submit_succeeded
+      // but the sheet stays open, Cerrar disabled and the same mutation_id
+      // re-sent on a second tap".
+      if (createMutationId) {
+        sheet.endSubmit(createMutationId);
+      }
       sheet.requestClose('success');
     },
-    [sheet, currentHousehold, accessToken],
+    [sheet, currentHousehold, accessToken, createMutationId],
   );
 
   const onError = useCallback(
@@ -262,10 +271,16 @@ function EventFormHost() {
         );
       }
       plannerQuickActionsTelemetry.submitSucceeded('event', accessToken);
-      sheet.endSubmit('event_intent');
+      // See TaskFormHost.onSaved: the submit lock MUST be released with the
+      // same intent id that beginSubmit received, otherwise the reducer
+      // treats SUBMIT_END as stale and the sheet never closes (the 22023 /
+      // 201 -> sheet stays open chain observed on Android).
+      if (createMutationId) {
+        sheet.endSubmit(createMutationId);
+      }
       sheet.requestClose('success');
     },
-    [sheet, currentHousehold, accessToken],
+    [sheet, currentHousehold, accessToken, createMutationId],
   );
 
   return (
@@ -325,7 +340,7 @@ function GoalFormHost() {
   }, [sheet]);
 
   const onSaved = useCallback(
-    (message: string) => {
+    (_message: string) => {
       // Directed invalidation for goal create
       if (currentHousehold) {
         plannerCache.executeInvalidation(
@@ -334,10 +349,15 @@ function GoalFormHost() {
         );
       }
       plannerQuickActionsTelemetry.submitSucceeded('goal', accessToken);
-      sheet.endSubmit('goal_intent');
+      // See TaskFormHost.onSaved: the submit lock MUST be released with the
+      // same intent id that beginSubmit received, otherwise the reducer
+      // treats SUBMIT_END as stale and the sheet never closes.
+      if (createMutationId) {
+        sheet.endSubmit(createMutationId);
+      }
       sheet.requestClose('success');
     },
-    [sheet, currentHousehold, accessToken],
+    [sheet, currentHousehold, accessToken, createMutationId],
   );
 
   const onError = useCallback(

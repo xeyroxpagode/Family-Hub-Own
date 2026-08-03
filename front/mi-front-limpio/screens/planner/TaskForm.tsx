@@ -33,6 +33,7 @@ import {
   type PlannerGoal,
 } from '../../services/plannerGoals';
 import { createIdempotencyKey } from '../../services/idempotency';
+import { omitUndefinedPlannerPayloadProperties } from '../../services/planner/plannerPayloadFilter';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
@@ -207,6 +208,11 @@ export function TaskForm({
 
   const taskCreateKeyRef = useRef(createIdempotencyKey('planner.tasks.create'));
   const taskUpdateKeyRef = useRef(createIdempotencyKey('planner.tasks.update'));
+  // Re-entry guard for the submit button. `saving` state React flag is async
+  // (the next render disables the button); within the same JS tick the form
+  // could receive a second onPress from a double tap before re-render. The
+  // ref is synchronous, so it blocks immediately.
+  const submitInFlightRef = useRef(false);
 
   const isFormReadyForSubmit = useMemo(() => {
     if (authLoading || loading || saving) return false;
@@ -361,7 +367,20 @@ export function TaskForm({
   };
 
   const submit = async () => {
+    // Re-entry guard: a single logical submit must drive at most one
+    // enqueuePlannerTaskCreate / Update call. Without this guard, a fast
+    // double tap can start a second submit BEFORE the React `saving` state
+    // re-render disables the button; that second submit reuses the same
+    // stable mutation id (the sheet host owns one intent per form open) and
+    // hits the backend as a duplicate mutation_id, which the backend V2
+    // reserve previously escalated to 500 instead of returning replay.
+    if (submitInFlightRef.current) {
+      return;
+    }
+    submitInFlightRef.current = true;
+
     if (authLoading) {
+      submitInFlightRef.current = false;
       const message = 'Estamos preparando tu sesión. Intentá de nuevo en un momento.';
       setError(message);
       Alert.alert('Planner', message);
@@ -369,6 +388,7 @@ export function TaskForm({
     }
 
     if (loading) {
+      submitInFlightRef.current = false;
       const message = 'Estamos preparando el formulario. Intentá de nuevo en un momento.';
       setError(message);
       Alert.alert('Planner', message);
@@ -376,6 +396,7 @@ export function TaskForm({
     }
 
     if (!accessToken) {
+      submitInFlightRef.current = false;
       const message = 'No hay sesión activa para guardar la tarea.';
       setError(message);
       Alert.alert('Planner', message);
@@ -383,17 +404,20 @@ export function TaskForm({
     }
 
     if (!title.trim()) {
+      submitInFlightRef.current = false;
       setTitleTouched(true);
       setError('Agregá un título para la tarea.');
       return;
     }
 
     if (!dueDate.trim() || !isValidDate(dueDate.trim())) {
+      submitInFlightRef.current = false;
       setError('Elegí una fecha para la tarea.');
       return;
     }
 
     if (!tipoId) {
+      submitInFlightRef.current = false;
       setError('Seleccioná un tipo para la tarea.');
       return;
     }
@@ -404,7 +428,7 @@ export function TaskForm({
         ? category.trim()
         : tipoOption?.category ?? 'General';
 
-    const payload: CreatePlannerTaskPayload = {
+    const payload: CreatePlannerTaskPayload = omitUndefinedPlannerPayloadProperties({
       title: title.trim(),
       description: description.trim() || undefined,
       priority,
@@ -414,7 +438,7 @@ export function TaskForm({
       assigned_to_member_id: assignedMemberId || undefined,
       requires_verification: requiresVerification,
       goal_id: goalId ?? null,
-    };
+    });
 
     if (tipoOption?.templateKey) {
       payload.template_key = tipoOption.templateKey;
@@ -500,6 +524,7 @@ export function TaskForm({
       Alert.alert('Planner', message);
     } finally {
       setSaving(false);
+      submitInFlightRef.current = false;
     }
   };
 

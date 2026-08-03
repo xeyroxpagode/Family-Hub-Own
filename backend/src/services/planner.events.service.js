@@ -11,6 +11,13 @@ const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
 const isTrueQuery = (value) => value === true || value === 'true' || value === '1'
 const throwSupabaseError = (error) => {
+  if (error?.code === 'P0008') {
+    throw createHttpError(409, 'La operación ya fue procesada con otros datos.', 'idempotency_conflict')
+  }
+  if (error?.code === 'P0009') {
+    throw createHttpError(409, 'La operación ya se está procesando. Reintentá en unos segundos.', 'idempotency_in_flight')
+  }
+
   const isRlsViolation =
     error.code === '42501' ||
     error.code === 'PGRST301' ||
@@ -18,6 +25,20 @@ const throwSupabaseError = (error) => {
 
   if (isRlsViolation) {
     throw createHttpError(403, 'No tenés permiso para realizar esta acción sobre eventos.', 'rls_violation')
+  }
+
+  if (['22023', '22P02', '22003', '22007', '23514', '23503', '23502'].includes(error?.code)) {
+    throw createHttpError(400, 'Revisá el horario del evento: fecha, hora de inicio, hora de fin y recurrencia deben ser válidos.', 'validation_error')
+  }
+
+  const duplicateMutationId = error?.code === '23505'
+    && (
+      error?.constraint === 'planner_idempotency_keys_mutation_uidx'
+      || String(error?.message ?? '').includes('planner_idempotency_keys_mutation_uidx')
+      || String(error?.details ?? '').includes('mutation_id')
+    )
+  if (duplicateMutationId) {
+    throw createHttpError(409, 'La operación ya fue procesada con otros datos.', 'idempotency_conflict')
   }
 
   const httpError = createHttpError(500, error.message, error.code ?? 'internal_error')
@@ -153,18 +174,35 @@ const createEvent = async (context, body) => {
   const endsAt = parseOptionalIsoDate(body?.ends_at, 'ends_at')
   validateEventDates({ startsAt, endsAt })
 
+  const isAllDay = Boolean(body?.all_day)
+  const locationName = hasOwn(body, 'location_name') ? normalizeString(body.location_name) : ''
+  const recurrence = validateRecurrence(body?.recurrence)
+  const scheduling = isAllDay
+    ? {
+        type: 'all_day',
+        startDate: startsAt.toISOString().slice(0, 10),
+        endDate: (endsAt ?? startsAt).toISOString().slice(0, 10),
+      }
+    : {
+        type: 'timed',
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt ? endsAt.toISOString() : null,
+        durationMinutes: null,
+        timeZone: 'UTC',
+      }
+
   const payload = {
-    household_id: context.householdId,
+    scope: 'household',
+    householdId: context.householdId,
     title,
     description: hasOwn(body, 'description') ? normalizeString(body.description) || null : null,
-    starts_at: startsAt.toISOString(),
-    ends_at: endsAt ? endsAt.toISOString() : null,
-    all_day: Boolean(body?.all_day),
-    location_name: hasOwn(body, 'location_name') ? normalizeString(body.location_name) || null : null,
-    recurrence: validateRecurrence(body?.recurrence),
-    status: 'scheduled',
-    created_by_member_id: context.membershipId,
-    created_by_person_id: context.personId,
+    scheduling,
+    location: locationName
+      ? { type: 'other', payload: { display_name: locationName } }
+      : null,
+    ...(recurrence === 'none' ? {} : { recurrenceRule: { frequency: recurrence, interval: 1 } }),
+    lifecycle: 'scheduled',
+    attendanceRequired: false,
   }
 
   const operation = 'planner.events.v0.create'
@@ -190,7 +228,7 @@ const createEvent = async (context, body) => {
     p_operation: operation,
   })
 
-  const event = result?.body?.data?.event ?? result
+  const event = result?.data?.event ?? result?.body?.data?.event ?? result?.event ?? result
   recordPlannerActivity(context, {
     entityType: 'event',
     entityId: event.id,
