@@ -164,3 +164,77 @@ export type PlannerPlanGraphWriteResult<T> = {
   planVersion?: number;
   operationId: string;
 };
+
+// ---------------------------------------------------------------------------
+// P1 CANONICAL PLAN STRUCTURE DOMAIN CONTRACT
+// ---------------------------------------------------------------------------
+
+export type PlanStructureSnapshot = PlannerPlanGraphDto;
+
+export type PlanMilestone = PlannerPlanMilestone;
+
+export type PlanMeasurement = PlannerPlanMeasurement;
+
+export type PlanManualCondition = PlannerPlanManualCondition;
+
+export type PlanRequirement = PlannerPlanRequirement;
+
+export type PlanStructureIndicator = PlannerPlanIndicators;
+
+export type PlanActivationReadiness =
+  | 'NO_USEFUL_STRUCTURE'
+  | 'NECESSARY_REQUIREMENT_PENDING'
+  | 'READY'
+  | 'BACKEND_ONLY_UNKNOWN';
+
+export type PlanCompletionReadiness = {
+  readonly canComplete: boolean;
+  readonly blockers: readonly PlanCompletionBlocker[];
+};
+
+export type PlanCompletionBlocker =
+  | { readonly kind: 'not_active'; readonly label: string }
+  | { readonly kind: 'already_completed'; readonly label: string }
+  | { readonly kind: 'necessary_requirements_pending'; readonly requirementIds: readonly string[]; readonly label: string }
+  | { readonly kind: 'version_conflict'; readonly label: string };
+
+export type PlanStructureMutationOutcome = 'confirmed' | 'noop' | 'replay' | 'version_conflict' | 'invalid_transition' | 'rollback';
+
+export type PlanStructureMutationResult = {
+  readonly outcome: PlanStructureMutationOutcome;
+  readonly snapshot: PlanStructureSnapshot | null;
+  readonly version: number;
+  readonly planVersion: number;
+  readonly operationId: string;
+};
+
+export type PlanStructureOperationKind = 'add' | 'update' | 'trash' | 'restore' | 'reorder' | 'parent_change';
+
+export type PlanStructureOperation = {
+  readonly localId: string;
+  readonly entityType: 'milestone' | 'measurement' | 'manual_condition' | 'requirement';
+  readonly operation: PlanStructureOperationKind;
+  readonly entityId: string | null;
+  readonly expectedVersion: number | null;
+  readonly payload: Readonly<Record<string, unknown>>;
+};
+
+export type PlanStructureChangeset = {
+  readonly planId: string;
+  readonly expectedPlanVersion: number;
+  readonly operations: readonly PlanStructureOperation[];
+};
+
+export type PlanExternalReferenceShape = {
+  readonly externalReferenceType: 'task' | 'event';
+  readonly externalReferenceId: string | null;
+  readonly necessary: boolean;
+  readonly satisfied: boolean;
+};
+
+export type PlanRequirementHierarchyNode = {
+  readonly id: string;
+  readonly parentRequirementId: string | null;
+  readonly sortOrder: number;
+  readonly children: readonly PlanRequirementHierarchyNode[];
+};
