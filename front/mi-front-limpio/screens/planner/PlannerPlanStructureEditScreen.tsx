@@ -6,16 +6,27 @@ import { AppText, ErrorState } from '../../components/ui';
 import { useAuth } from '../../context/AuthContext';
 import { parsePlannerEntityDetailParams, type PlannerEntityDetailParams } from '../../navigation/plannerNavigationContract';
 import {
-  buildPlanStructureChangesetWrite,
   createPlanStructureWriteIntent,
   getCanonicalPlanGraph,
-  type PlanStructureDraft,
 } from '../../services/planner/plannerPlans';
+import type { PlanClassification } from '../../types/PlannerPlan';
 import type { PlannerMutationIntent } from '../../services/planner/plannerMutationIntent';
 import { enqueuePlannerPlanStructureChangeset } from '../../services/planner/reliability';
 import { tracePlanWrite } from '../../services/planner/planWriteTrace';
 import { createPlanWriteSingleFlightGate } from '../../services/planner/planWriteSingleFlight';
-import { PlannerPlanStructureEditorSurface } from './PlannerPlansSurfaces';
+import {
+  buildMilestoneEditorDraft,
+  addMilestoneToDraft,
+  updateMilestoneInDraft,
+  removeMilestoneFromDraft,
+  moveMilestoneUp,
+  moveMilestoneDown,
+  buildMilestoneChangeset,
+  resetLocalIdSeq,
+  type MilestoneEditorDraft,
+  type MilestoneEditorDraftEntry,
+} from '../../services/planner/planMilestoneEditor';
+import { PlannerMilestoneEditorSurface } from './PlannerPlansSurfaces';
 import { plannerStyles as S } from './plannerShared';
 import { colors, spacing } from '../../constants/theme';
 
@@ -33,7 +44,7 @@ export function PlannerPlanStructureEditScreen() {
     }
   }, [route.params]);
 
-  const [draft, setDraft] = useState<PlanStructureDraft | null>(null);
+  const [editorDraft, setEditorDraft] = useState<MilestoneEditorDraft | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [pendingIntent, setPendingIntent] = useState<PlannerMutationIntent | null>(null);
@@ -48,12 +59,9 @@ export function PlannerPlanStructureEditScreen() {
     setLoading(true);
     setError(null);
     try {
+      resetLocalIdSeq(0);
       const graph = await getCanonicalPlanGraph({ accessToken }, params.entityId);
-      setDraft({
-        planId: graph.plan.id,
-        expectedPlanVersion: graph.plan.version,
-        nodes: [],
-      });
+      setEditorDraft(buildMilestoneEditorDraft(graph));
       setPendingIntent(null);
       pendingIntentRef.current = null;
       submitGateRef.current.clear();
@@ -69,16 +77,24 @@ export function PlannerPlanStructureEditScreen() {
     if (isFocused) void load();
   }, [isFocused, load]);
 
-  const handleSubmit = useCallback(async () => {
+  const handleSave = useCallback(async () => {
     tracePlanWrite({
       operation: 'structure',
       stage: 'ui_handler_invocation',
       surface: 'PlannerPlanStructureEditScreen',
       instanceTag: instanceTagRef.current,
-      planId: draft?.planId,
+      planId: editorDraft?.planId,
     });
-    if (!accessToken || !draft) return;
-    const operationKey = `${draft.planId}:${draft.expectedPlanVersion}`;
+    if (!accessToken || !editorDraft) return;
+
+    const changeset = buildMilestoneChangeset(editorDraft);
+    if (!changeset) {
+      setSyncMessage('Estructura sin cambios.');
+      navigation.goBack();
+      return;
+    }
+
+    const operationKey = `${editorDraft.planId}:${editorDraft.baseVersion}`;
     if (!submitGateRef.current.acquire(operationKey)) {
       tracePlanWrite({
         operation: 'structure',
@@ -87,16 +103,36 @@ export function PlannerPlanStructureEditScreen() {
         instanceTag: instanceTagRef.current,
         mutationId: pendingIntentRef.current?.mutationId,
         idempotencyKey: pendingIntentRef.current?.idempotencyKey,
-        planId: draft?.planId,
+        planId: editorDraft?.planId,
       });
       return;
     }
-    const decision = buildPlanStructureChangesetWrite(draft);
-    if (!decision.canSubmit) {
-      submitGateRef.current.release(operationKey);
-      return;
-    }
-    const intent = pendingIntentRef.current ?? pendingIntent ?? createPlanStructureWriteIntent(decision.remoteRequest);
+
+    const remoteRequest = {
+      planId: changeset.planId,
+      expectedPlanVersion: changeset.expectedPlanVersion,
+      operations: changeset.operations.map((op) => ({
+        localId: op.localId,
+        entityType: op.entityType,
+        action: op.operation === 'add' ? 'create' as const
+          : op.operation === 'trash' ? 'trash' as const
+          : 'update' as const,
+        entityId: op.entityId ?? null,
+        expectedVersion: op.expectedVersion ?? null,
+        classification: (op.payload.classification as PlanClassification | undefined) ?? undefined,
+        sortOrder: op.payload.sort_order !== undefined
+          ? Number(op.payload.sort_order)
+          : op.payload.sortOrder !== undefined
+          ? Number(op.payload.sortOrder)
+          : undefined,
+        payload: op.payload,
+      })),
+    };
+
+    const intent = (pendingIntentRef.current
+      ?? pendingIntent
+      ?? createPlanStructureWriteIntent({ expectedPlanVersion: editorDraft.baseVersion }));
+
     if (!pendingIntentRef.current) {
       tracePlanWrite({
         operation: 'structure',
@@ -105,13 +141,14 @@ export function PlannerPlanStructureEditScreen() {
         instanceTag: instanceTagRef.current,
         mutationId: intent.mutationId,
         idempotencyKey: intent.idempotencyKey,
-        planId: draft.planId,
+        planId: editorDraft.planId,
       });
     }
     pendingIntentRef.current = intent;
     setPendingIntent(intent);
     setSubmitting(true);
     setSyncMessage('Guardando estructura...');
+
     try {
       tracePlanWrite({
         operation: 'structure',
@@ -120,20 +157,18 @@ export function PlannerPlanStructureEditScreen() {
         instanceTag: instanceTagRef.current,
         mutationId: intent.mutationId,
         idempotencyKey: intent.idempotencyKey,
-        planId: draft.planId,
+        planId: editorDraft.planId,
       });
       const result = await enqueuePlannerPlanStructureChangeset<{
         data: { plan: { id: string; version: number } };
         noop?: boolean;
-      }>(decision.remoteRequest, intent);
-      setDraft({
-        planId: result.data.plan.id,
-        expectedPlanVersion: result.data.plan.version,
-        nodes: [],
-      });
+      }>(remoteRequest, intent);
+
+      submitGateRef.current.release(operationKey);
       setPendingIntent(null);
       pendingIntentRef.current = null;
-      setSyncMessage(result.noop ? 'Estructura sin cambios.' : 'Estructura actualizada.');
+      setSyncMessage('Estructura actualizada.');
+
       tracePlanWrite({
         operation: 'structure',
         stage: 'terminal_callback',
@@ -141,11 +176,17 @@ export function PlannerPlanStructureEditScreen() {
         instanceTag: instanceTagRef.current,
         mutationId: intent.mutationId,
         idempotencyKey: intent.idempotencyKey,
-        planId: draft.planId,
-        status: result.noop ? 'noop' : 'confirmed',
+        planId: editorDraft.planId,
+        status: 'confirmed',
       });
+
+      navigation.goBack();
     } catch (err) {
-      setSyncMessage('No pudimos confirmar el guardado. Tus cambios siguen en pantalla.');
+      const isConflict = err instanceof Error && (err as any).code === 'version_conflict';
+      setSyncMessage(isConflict
+        ? 'Otra persona edito la estructura. Recarga para continuar.'
+        : 'No pudimos confirmar el guardado. Tus cambios siguen en pantalla.');
+
       tracePlanWrite({
         operation: 'structure',
         stage: 'terminal_callback',
@@ -153,15 +194,36 @@ export function PlannerPlanStructureEditScreen() {
         instanceTag: instanceTagRef.current,
         mutationId: intent.mutationId,
         idempotencyKey: intent.idempotencyKey,
-        planId: draft.planId,
+        planId: editorDraft.planId,
         status: err instanceof Error ? err.name : 'error',
       });
+
       Alert.alert('Planner', err instanceof Error ? err.message : 'No pudimos guardar la estructura.');
     } finally {
       submitGateRef.current.release(operationKey);
       setSubmitting(false);
     }
-  }, [accessToken, draft, pendingIntent]);
+  }, [accessToken, editorDraft, pendingIntent, navigation]);
+
+  const handleAddMilestone = useCallback((entry: Omit<MilestoneEditorDraftEntry, 'localId' | 'sortOrder'>) => {
+    setEditorDraft((draft) => (draft ? addMilestoneToDraft(draft, entry) : draft));
+  }, []);
+
+  const handleEditMilestone = useCallback((localId: string, patch: Partial<Pick<MilestoneEditorDraftEntry, 'title' | 'completionMode'>>) => {
+    setEditorDraft((draft) => (draft ? updateMilestoneInDraft(draft, localId, patch) : draft));
+  }, []);
+
+  const handleRemoveMilestone = useCallback((localId: string) => {
+    setEditorDraft((draft) => (draft ? removeMilestoneFromDraft(draft, localId) : draft));
+  }, []);
+
+  const handleMoveMilestoneUp = useCallback((localId: string) => {
+    setEditorDraft((draft) => (draft ? moveMilestoneUp(draft, localId) : draft));
+  }, []);
+
+  const handleMoveMilestoneDown = useCallback((localId: string) => {
+    setEditorDraft((draft) => (draft ? moveMilestoneDown(draft, localId) : draft));
+  }, []);
 
   if (loading) {
     return (
@@ -174,7 +236,7 @@ export function PlannerPlanStructureEditScreen() {
     );
   }
 
-  if (error || !draft) {
+  if (error || !editorDraft) {
     return (
       <View style={[S.safe, { padding: spacing[5] }]}>
         <ErrorState
@@ -188,11 +250,16 @@ export function PlannerPlanStructureEditScreen() {
   }
 
   return (
-    <PlannerPlanStructureEditorSurface
-      draft={draft}
+    <PlannerMilestoneEditorSurface
+      editorDraft={editorDraft}
       submitting={submitting}
       syncMessage={syncMessage}
-      onSubmit={() => void handleSubmit()}
+      onAddMilestone={handleAddMilestone}
+      onEditMilestone={handleEditMilestone}
+      onRemoveMilestone={handleRemoveMilestone}
+      onMoveMilestoneUp={handleMoveMilestoneUp}
+      onMoveMilestoneDown={handleMoveMilestoneDown}
+      onSave={() => void handleSave()}
       onCancel={() => navigation.goBack()}
     />
   );

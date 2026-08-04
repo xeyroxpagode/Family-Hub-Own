@@ -21,7 +21,18 @@ import {
   type PlanSummaryProjection,
 } from '../../services/planner/plannerPlans';
 import { tracePlanWrite } from '../../services/planner/planWriteTrace';
-import type { PlannerPlanGraphDto } from '../../types/PlannerPlan';
+import {
+  MILESTONE_COMPLETION_MODE_LABELS,
+  addMilestoneToDraft,
+  removeMilestoneFromDraft,
+  updateMilestoneInDraft,
+  moveMilestoneUp,
+  moveMilestoneDown,
+  validateMilestoneEntry,
+  type MilestoneEditorDraft,
+  type MilestoneEditorDraftEntry,
+} from '../../services/planner/planMilestoneEditor';
+import type { PlannerPlanGraphDto, PlanMilestone } from '../../types/PlannerPlan';
 
 type PlansRootProps = {
   readonly plans: readonly PlanSummaryProjection[];
@@ -54,6 +65,19 @@ type StructureEditorProps = {
   readonly onCancel: () => void;
   readonly submitting?: boolean;
   readonly syncMessage?: string | null;
+};
+
+type MilestoneEditorProps = {
+  readonly editorDraft: MilestoneEditorDraft;
+  readonly submitting?: boolean;
+  readonly syncMessage?: string | null;
+  readonly onAddMilestone: (entry: Omit<MilestoneEditorDraftEntry, 'localId' | 'sortOrder'>) => void;
+  readonly onEditMilestone: (localId: string, patch: Partial<Pick<MilestoneEditorDraftEntry, 'title' | 'description' | 'completionMode'>>) => void;
+  readonly onRemoveMilestone: (localId: string) => void;
+  readonly onMoveMilestoneUp: (localId: string) => void;
+  readonly onMoveMilestoneDown: (localId: string) => void;
+  readonly onSave: () => void;
+  readonly onCancel: () => void;
 };
 
 export function PlannerPlansRootSurface({
@@ -391,6 +415,262 @@ export function PlannerPlanStructureEditorSurface({
   );
 }
 
+export function PlannerMilestoneEditorSurface({
+  editorDraft,
+  submitting = false,
+  syncMessage = null,
+  onAddMilestone,
+  onEditMilestone,
+  onRemoveMilestone,
+  onMoveMilestoneUp,
+  onMoveMilestoneDown,
+  onSave,
+  onCancel,
+}: MilestoneEditorProps) {
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newMode, setNewMode] = useState<PlanMilestone['completionMode']>('manual');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editMode, setEditMode] = useState<PlanMilestone['completionMode']>('manual');
+
+  const addEntry = (): Omit<MilestoneEditorDraftEntry, 'localId' | 'sortOrder'> => ({
+    title: newTitle.trim(),
+    completionMode: newMode,
+  });
+  const addErrors = showAddForm ? validateMilestoneEntry(addEntry()) : [];
+
+  const handleStartAdd = () => {
+    setNewTitle('');
+    setNewMode('manual');
+    setEditingId(null);
+    setShowAddForm(true);
+  };
+
+  const handleConfirmAdd = () => {
+    if (addErrors.length > 0) return;
+    const entry = addEntry();
+    if (!entry.title) return;
+    onAddMilestone(entry);
+    setNewTitle('');
+    setShowAddForm(false);
+  };
+
+  const handleStartEdit = (entry: MilestoneEditorDraftEntry) => {
+    setEditingId(entry.localId);
+    setEditTitle(entry.title);
+    setEditMode(entry.completionMode);
+    setShowAddForm(false);
+  };
+
+  const handleConfirmEdit = () => {
+    if (!editingId) return;
+    const trimmedTitle = editTitle.trim();
+    if (!trimmedTitle) return;
+    onEditMilestone(editingId, { title: trimmedTitle, completionMode: editMode });
+    setEditingId(null);
+  };
+
+  const handleCancelForm = () => {
+    setShowAddForm(false);
+    setEditingId(null);
+  };
+
+  const isFirstEntry = (localId: string) => editorDraft.entries.length > 0 && editorDraft.entries[0].localId === localId;
+  const isLastEntry = (localId: string) => editorDraft.entries.length > 0 && editorDraft.entries[editorDraft.entries.length - 1].localId === localId;
+
+  return (
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <AppText variant="title2">Editar hitos</AppText>
+            <AppText variant="bodySmall" tone="secondary">
+              {editorDraft.entries.length} hito{editorDraft.entries.length !== 1 ? 's' : ''}
+            </AppText>
+          </View>
+          <AppButton
+            title="Agregar hito"
+            variant="secondary"
+            onPress={handleStartAdd}
+            disabled={submitting || showAddForm}
+            accessibilityLabel="Agregar hito"
+            leftSlot={<HomePlusIcon name="add" size={18} color={colors.text.primary} />}
+          />
+        </View>
+
+        {syncMessage ? (
+          <View style={styles.priorityBlock} accessibilityLiveRegion="polite">
+            <AppText variant="bodySmall" tone="secondary">{syncMessage}</AppText>
+          </View>
+        ) : null}
+
+        {showAddForm ? (
+          <View style={styles.milestoneFormSection}>
+            <AppText variant="title3">Nuevo hito</AppText>
+            <TextInput
+              value={newTitle}
+              onChangeText={setNewTitle}
+              placeholder="Titulo del hito"
+              placeholderTextColor={colors.text.muted}
+              style={styles.input}
+              accessibilityLabel="Titulo del nuevo hito"
+              editable={!submitting}
+            />
+            <View style={styles.segmented} accessibilityRole="radiogroup" accessibilityLabel="Modo de completado">
+              {(['manual', 'automatic'] as const).map((option) => (
+                <Pressable
+                  key={option}
+                  style={[styles.segment, newMode === option && styles.segmentActive]}
+                  onPress={() => setNewMode(option)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: newMode === option }}
+                  disabled={submitting}
+                >
+                  <AppText variant="bodySmall" tone={newMode === option ? 'inverse' : 'secondary'} weight="700">
+                    {MILESTONE_COMPLETION_MODE_LABELS[option]}
+                  </AppText>
+                </Pressable>
+              ))}
+            </View>
+            {addErrors.length > 0 ? (
+              <View style={styles.warningBox} accessibilityRole="alert">
+                {addErrors.map((error) => (
+                  <AppText key={error} variant="bodySmall" tone="warning">{error}</AppText>
+                ))}
+              </View>
+            ) : null}
+            <View style={styles.actionRow}>
+              <AppButton
+                title="Agregar"
+                disabled={addErrors.length > 0 || !newTitle.trim() || submitting}
+                onPress={handleConfirmAdd}
+                accessibilityLabel="Confirmar nuevo hito"
+              />
+              <AppButton title="Cancelar" variant="ghost" onPress={handleCancelForm} disabled={submitting} accessibilityLabel="Cancelar nuevo hito" />
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.section}>
+          {editorDraft.entries.length === 0 && !showAddForm ? (
+            <View style={styles.stateShell}>
+              <AppText variant="body" tone="secondary">Sin hitos todavia.</AppText>
+              <AppText variant="caption" tone="tertiary">Toca Agregar hito para comenzar.</AppText>
+            </View>
+          ) : (
+            editorDraft.entries.map((entry) => {
+              const isEditing = editingId === entry.localId;
+              return (
+                <View key={entry.localId} style={styles.milestoneRow}>
+                  {isEditing ? (
+                    <View style={[styles.milestoneFormSection, { marginBottom: 0, borderWidth: 0 }]}>
+                      <TextInput
+                        style={styles.input}
+                        value={editTitle}
+                        onChangeText={setEditTitle}
+                        placeholder="Titulo del hito"
+                        placeholderTextColor={colors.text.muted}
+                        accessibilityLabel="Editar titulo del hito"
+                        editable={!submitting}
+                      />
+                      <View style={styles.segmented} accessibilityRole="radiogroup" accessibilityLabel="Modo de hito">
+                        {(['manual', 'automatic'] as const).map((option) => (
+                          <Pressable
+                            key={option}
+                            style={[styles.segment, editMode === option && styles.segmentActive]}
+                            onPress={() => { if (!submitting) setEditMode(option); }}
+                            accessibilityRole="radio"
+                            accessibilityState={{ checked: editMode === option }}
+                          >
+                            <AppText
+                              variant="bodySmall"
+                              tone={editMode === option ? 'inverse' : 'secondary'}
+                              weight="700"
+                            >
+                              {MILESTONE_COMPLETION_MODE_LABELS[option]}
+                            </AppText>
+                          </Pressable>
+                        ))}
+                      </View>
+                      <View style={styles.actionRow}>
+                        <AppButton
+                          title="Guardar"
+                          disabled={!editTitle.trim() || submitting}
+                          onPress={handleConfirmEdit}
+                          accessibilityLabel="Guardar edicion de hito"
+                        />
+                        <AppButton title="Cancelar" variant="ghost" onPress={handleCancelForm} disabled={submitting} accessibilityLabel="Cancelar edicion" />
+                      </View>
+                    </View>
+                  ) : (
+                    <>
+                      <View style={{ flex: 1, gap: spacing[1] }}>
+                        <AppText variant="bodySmall" weight="800" numberOfLines={2}>{entry.title}</AppText>
+                        <AppText variant="caption" tone="secondary">
+                          {MILESTONE_COMPLETION_MODE_LABELS[entry.completionMode]}
+                        </AppText>
+                      </View>
+                      <View style={styles.rowActionsCompact}>
+                        <AppButton
+                          variant="icon"
+                          onPress={() => handleStartEdit(entry)}
+                          accessibilityLabel={`Editar ${entry.title}`}
+                          leftSlot={<HomePlusIcon name="create" size={16} color={colors.text.secondary} />}
+                          disabled={submitting}
+                        />
+                        <AppButton
+                          variant="icon"
+                          onPress={() => onRemoveMilestone(entry.localId)}
+                          accessibilityLabel={`Eliminar ${entry.title}`}
+                          leftSlot={<HomePlusIcon name="trash" size={16} color={colors.terracotta[500]} />}
+                          disabled={submitting}
+                        />
+                        <AppButton
+                          variant="icon"
+                          onPress={() => onMoveMilestoneUp(entry.localId)}
+                          accessibilityLabel={`Subir ${entry.title}`}
+                          disabled={submitting || isFirstEntry(entry.localId)}
+                          leftSlot={<HomePlusIcon name="chevron-up" size={16} color={isFirstEntry(entry.localId) ? colors.text.muted : colors.text.secondary} />}
+                        />
+                        <AppButton
+                          variant="icon"
+                          onPress={() => onMoveMilestoneDown(entry.localId)}
+                          accessibilityLabel={`Bajar ${entry.title}`}
+                          disabled={submitting || isLastEntry(entry.localId)}
+                          leftSlot={<HomePlusIcon name="chevron-down" size={16} color={isLastEntry(entry.localId) ? colors.text.muted : colors.text.secondary} />}
+                        />
+                      </View>
+                    </>
+                  )}
+                </View>
+              );
+            })
+          )}
+        </View>
+
+        <View style={styles.actionRow}>
+          <AppButton
+            title={submitting ? 'Guardando...' : 'Guardar estructura'}
+            disabled={submitting}
+            onPress={() => {
+              tracePlanWrite({
+                operation: 'structure',
+                stage: 'ui_handler_invocation',
+                surface: 'PlannerMilestoneEditorSurface',
+                planId: editorDraft.planId,
+              });
+              onSave();
+            }}
+            accessibilityLabel="Guardar estructura del plan"
+          />
+          <AppButton title="Cancelar" variant="ghost" onPress={onCancel} disabled={submitting} accessibilityLabel="Cancelar" />
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 function PlanRootSectionView({
   section,
   onOpenPlan,
@@ -594,5 +874,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[2],
     justifyContent: 'center',
+  },
+  milestoneRow: {
+    minHeight: 72,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.card,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    ...shadows.card,
+  },
+  milestoneFormSection: {
+    gap: spacing[3],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    backgroundColor: colors.surface.soft,
+    padding: spacing[4],
+    marginBottom: spacing[2],
+  },
+  rowActionsCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
 });
