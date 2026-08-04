@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, View } from 'react-native';
 import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native';
 
@@ -13,6 +13,8 @@ import {
 } from '../../services/planner/plannerPlans';
 import type { PlannerMutationIntent } from '../../services/planner/plannerMutationIntent';
 import { enqueuePlannerPlanStructureChangeset } from '../../services/planner/reliability';
+import { tracePlanWrite } from '../../services/planner/planWriteTrace';
+import { createPlanWriteSingleFlightGate } from '../../services/planner/planWriteSingleFlight';
 import { PlannerPlanStructureEditorSurface } from './PlannerPlansSurfaces';
 import { plannerStyles as S } from './plannerShared';
 import { colors, spacing } from '../../constants/theme';
@@ -37,6 +39,9 @@ export function PlannerPlanStructureEditScreen() {
   const [pendingIntent, setPendingIntent] = useState<PlannerMutationIntent | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const submitGateRef = useRef(createPlanWriteSingleFlightGate());
+  const pendingIntentRef = useRef<PlannerMutationIntent | null>(null);
+  const instanceTagRef = useRef(`structure:${Math.random().toString(36).slice(2, 8)}`);
 
   const load = useCallback(async () => {
     if (!accessToken || !params.entityId) return;
@@ -50,6 +55,8 @@ export function PlannerPlanStructureEditScreen() {
         nodes: [],
       });
       setPendingIntent(null);
+      pendingIntentRef.current = null;
+      submitGateRef.current.clear();
       setSyncMessage(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No pudimos preparar la estructura.');
@@ -63,14 +70,58 @@ export function PlannerPlanStructureEditScreen() {
   }, [isFocused, load]);
 
   const handleSubmit = useCallback(async () => {
-    if (!accessToken || !draft || submitting) return;
+    tracePlanWrite({
+      operation: 'structure',
+      stage: 'ui_handler_invocation',
+      surface: 'PlannerPlanStructureEditScreen',
+      instanceTag: instanceTagRef.current,
+      planId: draft?.planId,
+    });
+    if (!accessToken || !draft) return;
+    const operationKey = `${draft.planId}:${draft.expectedPlanVersion}`;
+    if (!submitGateRef.current.acquire(operationKey)) {
+      tracePlanWrite({
+        operation: 'structure',
+        stage: 'submit_blocked_inflight',
+        surface: 'PlannerPlanStructureEditScreen',
+        instanceTag: instanceTagRef.current,
+        mutationId: pendingIntentRef.current?.mutationId,
+        idempotencyKey: pendingIntentRef.current?.idempotencyKey,
+        planId: draft?.planId,
+      });
+      return;
+    }
     const decision = buildPlanStructureChangesetWrite(draft);
-    if (!decision.canSubmit) return;
-    const intent = pendingIntent ?? createPlanStructureWriteIntent(decision.remoteRequest);
+    if (!decision.canSubmit) {
+      submitGateRef.current.release(operationKey);
+      return;
+    }
+    const intent = pendingIntentRef.current ?? pendingIntent ?? createPlanStructureWriteIntent(decision.remoteRequest);
+    if (!pendingIntentRef.current) {
+      tracePlanWrite({
+        operation: 'structure',
+        stage: 'intent_created',
+        surface: 'PlannerPlanStructureEditScreen',
+        instanceTag: instanceTagRef.current,
+        mutationId: intent.mutationId,
+        idempotencyKey: intent.idempotencyKey,
+        planId: draft.planId,
+      });
+    }
+    pendingIntentRef.current = intent;
     setPendingIntent(intent);
     setSubmitting(true);
     setSyncMessage('Guardando estructura...');
     try {
+      tracePlanWrite({
+        operation: 'structure',
+        stage: 'enqueue_call',
+        surface: 'PlannerPlanStructureEditScreen',
+        instanceTag: instanceTagRef.current,
+        mutationId: intent.mutationId,
+        idempotencyKey: intent.idempotencyKey,
+        planId: draft.planId,
+      });
       const result = await enqueuePlannerPlanStructureChangeset<{
         data: { plan: { id: string; version: number } };
         noop?: boolean;
@@ -81,14 +132,36 @@ export function PlannerPlanStructureEditScreen() {
         nodes: [],
       });
       setPendingIntent(null);
+      pendingIntentRef.current = null;
       setSyncMessage(result.noop ? 'Estructura sin cambios.' : 'Estructura actualizada.');
+      tracePlanWrite({
+        operation: 'structure',
+        stage: 'terminal_callback',
+        surface: 'PlannerPlanStructureEditScreen',
+        instanceTag: instanceTagRef.current,
+        mutationId: intent.mutationId,
+        idempotencyKey: intent.idempotencyKey,
+        planId: draft.planId,
+        status: result.noop ? 'noop' : 'confirmed',
+      });
     } catch (err) {
       setSyncMessage('No pudimos confirmar el guardado. Tus cambios siguen en pantalla.');
+      tracePlanWrite({
+        operation: 'structure',
+        stage: 'terminal_callback',
+        surface: 'PlannerPlanStructureEditScreen',
+        instanceTag: instanceTagRef.current,
+        mutationId: intent.mutationId,
+        idempotencyKey: intent.idempotencyKey,
+        planId: draft.planId,
+        status: err instanceof Error ? err.name : 'error',
+      });
       Alert.alert('Planner', err instanceof Error ? err.message : 'No pudimos guardar la estructura.');
     } finally {
+      submitGateRef.current.release(operationKey);
       setSubmitting(false);
     }
-  }, [accessToken, draft, pendingIntent, submitting]);
+  }, [accessToken, draft, pendingIntent]);
 
   if (loading) {
     return (

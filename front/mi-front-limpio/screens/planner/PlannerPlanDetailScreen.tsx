@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, View } from 'react-native';
 import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native';
 
@@ -18,6 +18,8 @@ import {
   type PlanLifecycleTransition,
 } from '../../services/planner/plannerPlans';
 import { enqueuePlannerPlanGraphWrite } from '../../services/planner/reliability';
+import { tracePlanWrite } from '../../services/planner/planWriteTrace';
+import { createPlanWriteSingleFlightGate } from '../../services/planner/planWriteSingleFlight';
 import type { PlannerPlanGraphDto } from '../../types/PlannerPlan';
 import { PlannerPlanDetailSurface } from './PlannerPlansSurfaces';
 import { plannerStyles as S } from './plannerShared';
@@ -40,6 +42,8 @@ export function PlannerPlanDetailScreen() {
   const [graph, setGraph] = useState<PlannerPlanGraphDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const lifecycleGateRef = useRef(createPlanWriteSingleFlightGate());
+  const instanceTagRef = useRef(`detail:${Math.random().toString(36).slice(2, 8)}`);
 
   const load = useCallback(async () => {
     if (!accessToken || !params.entityId) return;
@@ -61,22 +65,88 @@ export function PlannerPlanDetailScreen() {
   const handleLifecycle = useCallback(async (actionKey: string, detail: PlanDetailProjection) => {
     if (!accessToken || actionKey === 'edit_structure') return;
     const transition = actionKey as PlanLifecycleTransition;
+    const operation = transition === 'activate' ? 'activate' : 'lifecycle';
+    const inFlightKey = `${detail.summary.id}:${transition}:${detail.summary.version}`;
+    tracePlanWrite({
+      operation,
+      stage: 'ui_handler_invocation',
+      surface: 'PlannerPlanDetailScreen',
+      instanceTag: instanceTagRef.current,
+      planId: detail.summary.id,
+    });
+    if (!lifecycleGateRef.current.acquire(inFlightKey)) {
+      tracePlanWrite({
+        operation,
+        stage: 'submit_blocked_inflight',
+        surface: 'PlannerPlanDetailScreen',
+        instanceTag: instanceTagRef.current,
+        planId: detail.summary.id,
+      });
+      return;
+    }
     try {
       const request = buildPlanLifecycleWrite(
         { id: detail.summary.id, version: detail.summary.version },
         transition,
       );
-      await enqueuePlannerPlanGraphWrite(request, createPlanWriteIntent(request), 'update');
+      const intent = createPlanWriteIntent(request);
+      tracePlanWrite({
+        operation,
+        stage: 'intent_created',
+        surface: 'PlannerPlanDetailScreen',
+        instanceTag: instanceTagRef.current,
+        mutationId: intent.mutationId,
+        idempotencyKey: intent.idempotencyKey,
+        planId: detail.summary.id,
+      });
+      tracePlanWrite({
+        operation,
+        stage: 'enqueue_call',
+        surface: 'PlannerPlanDetailScreen',
+        instanceTag: instanceTagRef.current,
+        mutationId: intent.mutationId,
+        idempotencyKey: intent.idempotencyKey,
+        planId: detail.summary.id,
+      });
+      await enqueuePlannerPlanGraphWrite(request, intent, 'update');
+      tracePlanWrite({
+        operation,
+        stage: 'terminal_callback',
+        surface: 'PlannerPlanDetailScreen',
+        instanceTag: instanceTagRef.current,
+        mutationId: intent.mutationId,
+        idempotencyKey: intent.idempotencyKey,
+        planId: detail.summary.id,
+        status: 'confirmed',
+      });
       await load();
     } catch (err) {
       if (transition === 'activate' && err instanceof ApiError && err.code === 'invalid_transition') {
+        tracePlanWrite({
+          operation,
+          stage: 'terminal_callback',
+          surface: 'PlannerPlanDetailScreen',
+          instanceTag: instanceTagRef.current,
+          planId: detail.summary.id,
+          status: 'invalid_transition',
+        });
         Alert.alert(
           'Plan incompleto',
           'Todavía no se puede activar este Plan porque le falta estructura: agregá al menos un hito, requisito o condición medible antes de activarlo.',
         );
         return;
       }
+      tracePlanWrite({
+        operation,
+        stage: 'terminal_callback',
+        surface: 'PlannerPlanDetailScreen',
+        instanceTag: instanceTagRef.current,
+        planId: detail.summary.id,
+        status: err instanceof Error ? err.name : 'error',
+      });
       Alert.alert('Planner', err instanceof Error ? err.message : 'No pudimos actualizar el plan.');
+    } finally {
+      lifecycleGateRef.current.release(inFlightKey);
     }
   }, [accessToken, load]);
 

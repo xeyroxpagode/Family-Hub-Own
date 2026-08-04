@@ -62,10 +62,10 @@ import {
 import { plannerCache } from '../../services/planner/plannerCache';
 import { plannerQuickActionsTelemetry } from '../../services/planner/plannerQuickActionsTelemetry';
 import { openGoalDetail } from '../../navigation/plannerNavigationHelpers';
-import {
-  createPlanWriteIntent,
-  type PlanGraphWriteRequest,
-} from '../../services/planner/plannerPlans';
+import type { PlanGraphWriteRequest } from '../../services/planner/plannerPlans';
+import { createPlannerMutationIntent } from '../../services/planner/plannerMutationIntent';
+import { tracePlanWrite } from '../../services/planner/planWriteTrace';
+import { createPlanWriteSingleFlightGate } from '../../services/planner/planWriteSingleFlight';
 import { enqueuePlannerPlanGraphWrite } from '../../services/planner/reliability';
 
 // ---------------------------------------------------------------------------
@@ -387,6 +387,28 @@ function PlanFormHost() {
   const { session } = useAuth();
   const accessToken = session?.access_token;
   const [error, setError] = useState<string | null>(null);
+  const instanceTagRef = useRef(`sheet:${Math.random().toString(36).slice(2, 8)}`);
+  const submitGateRef = useRef(createPlanWriteSingleFlightGate());
+
+  const mold = sheet.state as PlannerSheetState & { kind: 'plan_form' };
+
+  // Stable intent per sheet lifecycle. Recreated only when the sheet opens
+  // for a new plan form (state.kind changes from a different kind to plan_form).
+  // This prevents double identity from inline intent creation.
+  const intentRef = useRef<PlannerMutationIntent | null>(null);
+  if (!intentRef.current && mold.mode === 'create') {
+    intentRef.current = createPlannerMutationIntent({ kind: 'create', entityKind: 'planner.plan' });
+    tracePlanWrite({
+      operation: 'create',
+      stage: 'intent_created',
+      surface: 'PlannerSheetHost.PlanFormHost',
+      instanceTag: instanceTagRef.current,
+      mutationId: intentRef.current.mutationId,
+      idempotencyKey: intentRef.current.idempotencyKey,
+    });
+  }
+  const intent = intentRef.current;
+  const createMutationId = intent?.mutationId;
 
   const onClose = useCallback(() => {
     sheet.requestClose('user_request');
@@ -394,12 +416,40 @@ function PlanFormHost() {
 
   const onSubmit = useCallback(
     async (request: PlanGraphWriteRequest) => {
+      tracePlanWrite({
+        operation: 'create',
+        stage: 'submit_callback',
+        surface: 'PlannerSheetHost.PlanFormHost',
+        instanceTag: instanceTagRef.current,
+        mutationId: intent?.mutationId,
+        idempotencyKey: intent?.idempotencyKey,
+      });
       if (!accessToken) {
         setError('No hay sesion activa.');
         return;
       }
+      if (!intent) return;
 
-      const intent = createPlanWriteIntent(request);
+      // Double-tap guard: only one submission inflight at a time.
+      if (!submitGateRef.current.acquire(intent.mutationId)) {
+        tracePlanWrite({
+          operation: 'create',
+          stage: 'submit_blocked_inflight',
+          surface: 'PlannerSheetHost.PlanFormHost',
+          instanceTag: instanceTagRef.current,
+          mutationId: intent.mutationId,
+          idempotencyKey: intent.idempotencyKey,
+        });
+        return;
+      }
+      tracePlanWrite({
+        operation: 'create',
+        stage: 'enqueue_call',
+        surface: 'PlannerSheetHost.PlanFormHost',
+        instanceTag: instanceTagRef.current,
+        mutationId: intent.mutationId,
+        idempotencyKey: intent.idempotencyKey,
+      });
       sheet.beginSubmit(intent.mutationId);
       setError(null);
       try {
@@ -412,14 +462,33 @@ function PlanFormHost() {
         }
         plannerQuickActionsTelemetry.submitSucceeded('goal', accessToken);
         sheet.endSubmit(intent.mutationId);
+        tracePlanWrite({
+          operation: 'create',
+          stage: 'terminal_callback',
+          surface: 'PlannerSheetHost.PlanFormHost',
+          instanceTag: instanceTagRef.current,
+          mutationId: intent.mutationId,
+          idempotencyKey: intent.idempotencyKey,
+          status: 'confirmed',
+        });
         sheet.requestClose('success');
       } catch (err) {
         plannerQuickActionsTelemetry.submitFailed('goal', 'plan_create_failed', accessToken);
         setError(err instanceof Error ? err.message : 'No pudimos crear el plan.');
         sheet.endSubmit(intent.mutationId);
+        tracePlanWrite({
+          operation: 'create',
+          stage: 'terminal_callback',
+          surface: 'PlannerSheetHost.PlanFormHost',
+          instanceTag: instanceTagRef.current,
+          mutationId: intent.mutationId,
+          idempotencyKey: intent.idempotencyKey,
+          status: err instanceof Error ? err.name : 'error',
+        });
+        submitGateRef.current.release(intent.mutationId);
       }
     },
-    [accessToken, currentHousehold, sheet],
+    [accessToken, currentHousehold, sheet, intent],
   );
 
   return (
@@ -434,7 +503,7 @@ function PlanFormHost() {
       <PlannerPlanMinimalCreateSurface
         initialScope={currentHousehold ? 'household' : 'personal'}
         householdId={currentHousehold?.id ?? null}
-        onSubmit={(request) => void onSubmit(request)}
+        onSubmit={onSubmit}
         onCancel={onClose}
       />
     </View>

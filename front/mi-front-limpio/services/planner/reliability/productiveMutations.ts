@@ -1,5 +1,6 @@
 import { ApiError, generateMutationId, OPERATION_KINDS } from '../../api';
 import type { PlannerMutationIntent } from '../plannerMutationIntent';
+import { tracePlanWrite, type PlanWriteTraceOperation } from '../planWriteTrace';
 import type { PlanGraphWriteRequest, PlanStructureChangesetWriteRequest } from '../plannerPlans';
 import type { CreatePlannerEventPayload, PlannerEvent } from '../../plannerEvents';
 import type { CreatePlannerTaskPayload, PlannerTask, UpdatePlannerTaskPayload } from '../../plannerTasks';
@@ -54,6 +55,17 @@ async function enqueueConfirmed<TPayload, TResult>(
     throw new ApiError('Planner todavia esta preparando la sincronizacion. Proba de nuevo en un momento.', 0, 'planner_reliability_runtime_unavailable');
   }
 
+  if (input.domain === 'plan') {
+    tracePlanWrite({
+      operation: traceOperationForPlanInput(input.operationType, input.payload),
+      stage: 'runtime_enqueue',
+      surface: 'productiveMutations.enqueueConfirmed',
+      mutationId: input.intent.mutationId,
+      idempotencyKey: input.intent.idempotencyKey,
+      planId: planIdForTrace(input.payload),
+    });
+  }
+
   const record = await runtime.enqueueAndFlush(input);
   if (record.state === 'confirmed') {
     clearRememberedIntent(input.intent);
@@ -70,6 +82,30 @@ async function enqueueConfirmed<TPayload, TResult>(
     0,
     record.state === 'uncertain' ? 'planner_reliability_uncertain' : 'planner_reliability_pending',
   );
+}
+
+function traceOperationForPlanInput(operationType: string, payload: unknown): PlanWriteTraceOperation {
+  if (operationType === 'structure_changeset') return 'structure';
+  const graphWrite = planGraphWriteForTrace(payload);
+  if (graphWrite?.action === 'create') return 'create';
+  if (graphWrite?.payload && (graphWrite.payload as { transition?: unknown }).transition === 'activate') return 'activate';
+  return 'lifecycle';
+}
+
+function planGraphWriteForTrace(payload: unknown): PlanGraphWriteRequest | null {
+  if (payload && typeof payload === 'object' && 'graphWrite' in payload) {
+    return (payload as { graphWrite?: PlanGraphWriteRequest }).graphWrite ?? null;
+  }
+  return null;
+}
+
+function planIdForTrace(payload: unknown): string | null {
+  const graphWrite = planGraphWriteForTrace(payload);
+  if (graphWrite?.planId) return graphWrite.planId;
+  if (payload && typeof payload === 'object' && 'structureChangeset' in payload) {
+    return (payload as { structureChangeset?: PlanStructureChangesetWriteRequest }).structureChangeset?.planId ?? null;
+  }
+  return null;
 }
 
 function apiErrorFromConflict(record: PlannerOperationRecord): ApiError {

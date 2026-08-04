@@ -39,6 +39,7 @@ import {
 } from './plannerTransportContracts';
 import type { PlannerVisualStateKind } from './plannerVisualStates';
 import { getPlannerMotionSpec } from './plannerMotion';
+import { tracePlanWrite, type PlanWriteTraceOperation } from './planWriteTrace';
 
 export type PlanListFilters = {
   readonly scope?: PlanScope;
@@ -360,6 +361,15 @@ export async function writeCanonicalPlanGraph<TData>(
   const path = input.planId
     ? `/api/planner/plans/${encodeURIComponent(input.planId)}/mutations`
     : '/api/planner/plans';
+  const operation = traceOperationForGraphWrite(input);
+  tracePlanWrite({
+    operation,
+    stage: 'requestJson',
+    surface: 'plannerPlans.writeCanonicalPlanGraph',
+    mutationId: intent.mutationId,
+    idempotencyKey: intent.idempotencyKey,
+    planId: input.planId ?? null,
+  });
   const response = await requestJson<unknown>(path, {
     accessToken: request.accessToken,
     signal: request.signal,
@@ -372,6 +382,15 @@ export async function writeCanonicalPlanGraph<TData>(
     operationKind: intent.operationKind,
     body,
   });
+  tracePlanWrite({
+    operation,
+    stage: 'response',
+    surface: 'plannerPlans.writeCanonicalPlanGraph',
+    mutationId: intent.mutationId,
+    idempotencyKey: intent.idempotencyKey,
+    planId: input.planId ?? null,
+    status: 'ok',
+  });
   return normalizePlannerMutationResult<TData>(response, {
     mutationId: intent.mutationId,
     idempotencyKey: intent.idempotencyKey,
@@ -383,6 +402,14 @@ export async function writeCanonicalPlanStructureChangeset(
   input: PlanStructureChangesetWriteRequest,
   intent: PlannerMutationIntent = createPlanStructureWriteIntent(input),
 ): Promise<PlannerMutationResult<PlannerPlanGraphDto>> {
+  tracePlanWrite({
+    operation: 'structure',
+    stage: 'requestJson',
+    surface: 'plannerPlans.writeCanonicalPlanStructureChangeset',
+    mutationId: intent.mutationId,
+    idempotencyKey: intent.idempotencyKey,
+    planId: input.planId,
+  });
   const response = await requestJson<unknown>(`/api/planner/plans/${encodeURIComponent(input.planId)}/structure`, {
     accessToken: request.accessToken,
     signal: request.signal,
@@ -397,10 +424,25 @@ export async function writeCanonicalPlanStructureChangeset(
       operations: serializeStructureOperations(input.operations),
     },
   });
+  tracePlanWrite({
+    operation: 'structure',
+    stage: 'response',
+    surface: 'plannerPlans.writeCanonicalPlanStructureChangeset',
+    mutationId: intent.mutationId,
+    idempotencyKey: intent.idempotencyKey,
+    planId: input.planId,
+    status: 'ok',
+  });
   return normalizePlannerMutationResult<PlannerPlanGraphDto>(response, {
     mutationId: intent.mutationId,
     idempotencyKey: intent.idempotencyKey,
   });
+}
+
+function traceOperationForGraphWrite(input: PlanGraphWriteRequest): PlanWriteTraceOperation {
+  if (input.action === 'create') return 'create';
+  if (input.payload && (input.payload as { transition?: unknown }).transition === 'activate') return 'activate';
+  return 'lifecycle';
 }
 
 export function createPlanWriteIntent(input: Pick<PlanGraphWriteRequest, 'entityType' | 'action' | 'expectedVersion'>): PlannerMutationIntent {

@@ -20,6 +20,7 @@ import {
   type PlanStructureDraft,
   type PlanSummaryProjection,
 } from '../../services/planner/plannerPlans';
+import { tracePlanWrite } from '../../services/planner/planWriteTrace';
 import type { PlannerPlanGraphDto } from '../../types/PlannerPlan';
 
 type PlansRootProps = {
@@ -43,7 +44,7 @@ type PlanDetailProps = {
 type MinimalCreateProps = {
   readonly initialScope?: MinimalPlanCreatePayload['scope'];
   readonly householdId?: string | null;
-  readonly onSubmit: (request: ReturnType<typeof buildMinimalPlanCreateWrite>, mode: 'create' | 'draft') => void;
+  readonly onSubmit: (request: ReturnType<typeof buildMinimalPlanCreateWrite>) => void;
   readonly onCancel: () => void;
 };
 
@@ -292,14 +293,20 @@ export function PlannerPlanMinimalCreateSurface({
         <AppButton
           title="Crear plan"
           disabled={!canCreate}
-          onPress={() => onSubmit(buildMinimalPlanCreateWrite(payload), 'create')}
+          onPress={() => {
+            tracePlanWrite({ operation: 'create', stage: 'ui_handler_invocation', surface: 'PlannerPlanMinimalCreateSurface' });
+            onSubmit(buildMinimalPlanCreateWrite(payload));
+          }}
           accessibilityLabel="Crear plan"
         />
         <AppButton
           title="Guardar como borrador"
           variant="secondary"
           disabled={!canDraft}
-          onPress={() => onSubmit(buildMinimalPlanCreateWrite({ ...payload, outcome: 'save_draft' }), 'draft')}
+          onPress={() => {
+            tracePlanWrite({ operation: 'create', stage: 'ui_handler_invocation', surface: 'PlannerPlanMinimalCreateSurface' });
+            onSubmit(buildMinimalPlanCreateWrite({ ...payload, outcome: 'save_draft' }));
+          }}
           accessibilityLabel="Guardar como borrador"
         />
         <AppButton title="Cancelar" variant="ghost" onPress={onCancel} accessibilityLabel="Cancelar" />
@@ -366,7 +373,15 @@ export function PlannerPlanStructureEditorSurface({
           <AppButton
             title={submitting ? 'Guardando...' : 'Guardar estructura'}
             disabled={submitting || errors.length > 0 || !decision.canSubmit}
-            onPress={() => onSubmit(decision)}
+            onPress={() => {
+              tracePlanWrite({
+                operation: 'structure',
+                stage: 'ui_handler_invocation',
+                surface: 'PlannerPlanStructureEditorSurface',
+                planId: draft.planId,
+              });
+              onSubmit(decision);
+            }}
             accessibilityLabel="Guardar estructura del plan"
           />
           <AppButton title="Cancelar" variant="ghost" onPress={onCancel} accessibilityLabel="Cancelar" />

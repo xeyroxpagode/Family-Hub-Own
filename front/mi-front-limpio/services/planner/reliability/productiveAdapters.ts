@@ -51,6 +51,7 @@ import {
   updatePlannerPresetRevisionDraft,
 } from '../../plannerPresets';
 import { plannerCache, type HouseholdScope } from '../plannerCache';
+import { tracePlanWrite, type PlanWriteTraceOperation } from '../planWriteTrace';
 import {
   writeCanonicalPlanGraph,
   writeCanonicalPlanStructureChangeset,
@@ -216,6 +217,15 @@ export function createPlannerReliabilityPlanAdapter(): PlannerReliabilityDomainA
     async execute(operation, context) {
       const request = requestOf(context);
       const payload = requirePayload(operation) as Record<string, unknown>;
+      tracePlanWrite({
+        operation: traceOperationForPlanOperation(operation, payload),
+        stage: 'adapter_execute',
+        surface: 'productiveAdapters.plan',
+        mutationId: operation.descriptor.mutationId,
+        idempotencyKey: operation.descriptor.idempotencyKey,
+        localOperationId: operation.descriptor.localOperationId,
+        planId: planIdForPlanOperation(payload),
+      });
       if (operation.descriptor.operationType === 'structure_changeset') {
         const response = await writeCanonicalPlanStructureChangeset(
           request,
@@ -273,6 +283,21 @@ export function createPlannerReliabilityPlanAdapter(): PlannerReliabilityDomainA
     },
     isRealtimeSignalRelated: defaultRealtimeRelated,
   };
+}
+
+function traceOperationForPlanOperation(operation: PlannerOperationRecord, payload: Record<string, unknown>): PlanWriteTraceOperation {
+  if (operation.descriptor.operationType === 'structure_changeset') return 'structure';
+  const graphWrite = payload.graphWrite as PlanGraphWriteRequest | undefined;
+  if (graphWrite?.action === 'create') return 'create';
+  if (graphWrite?.payload && (graphWrite.payload as { transition?: unknown }).transition === 'activate') return 'activate';
+  return 'lifecycle';
+}
+
+function planIdForPlanOperation(payload: Record<string, unknown>): string | null {
+  const graphWrite = payload.graphWrite as PlanGraphWriteRequest | undefined;
+  if (graphWrite?.planId) return graphWrite.planId;
+  const structure = payload.structureChangeset as PlanStructureChangesetWriteRequest | undefined;
+  return structure?.planId ?? null;
 }
 
 export function createPlannerReliabilityPresetAdapter(): PlannerReliabilityDomainAdapter<PlannerReliabilityPresetOperationPayload> {

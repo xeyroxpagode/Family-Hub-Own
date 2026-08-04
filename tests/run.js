@@ -237,6 +237,18 @@ const commands = {
       { env },
     );
   },
+  'planner-v1-plan-duplicate-dispatch': () => {
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Planner V1 PLAN-DUP-01 duplicate dispatch tests',
+      'node',
+      ['scripts/compiled/scripts/planner_v1_plan_duplicate_dispatch_tests.js'],
+      { env },
+    );
+  },
   'runtime-smoke': () => runCommand(
     'Frontend runtime smoke',
     'node',
@@ -262,7 +274,7 @@ const suites = {
   'core-backend': ['testing-core', 'core-backend'],
   'core-frontend': ['compile-frontend-tests', 'core-frontend'],
   core: ['testing-core', 'core-backend', 'compile-frontend-tests', 'core-frontend'],
-  planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration', 'planner-v1-s2-runtime-owner', 'planner-v1-s2-terminal-contract', 'planner-v1-s2-runtime-composition'],
+  planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-plan-duplicate-dispatch', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration', 'planner-v1-s2-runtime-owner', 'planner-v1-s2-terminal-contract', 'planner-v1-s2-runtime-composition'],
   home: ['planner-v1-m9'],
   'planner-m1': ['compile-frontend-tests', 'planner-v1-m1'],
   'planner-m2': ['compile-frontend-tests', 'planner-v1-m2'],
@@ -282,6 +294,7 @@ const suites = {
   'planner-frontend-tasks': ['compile-frontend-tests', 'planner-v1-frontend-tasks'],
   'planner-frontend-events': ['compile-frontend-tests', 'planner-v1-frontend-events'],
   'planner-frontend-plans': ['compile-frontend-tests', 'planner-v1-frontend-plans'],
+  'planner-plan-duplicate-dispatch': ['compile-frontend-tests', 'planner-v1-plan-duplicate-dispatch'],
   'planner-presets-drafts': ['compile-frontend-tests', 'planner-v1-presets-drafts'],
   'planner-presets-drafts-integration': ['compile-frontend-tests', 'planner-v1-presets-drafts-integration'],
   'planner-shared-s2-runtime': ['compile-frontend-tests', 'planner-v1-s2-runtime-owner'],
