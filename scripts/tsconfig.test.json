@@ -40,9 +40,13 @@
     "../scripts/planner_v1_presets_drafts_integration_tests.ts",
     "../front/mi-front-limpio/services/core/*.ts",
     "../front/mi-front-limpio/services/planner/*.ts",
+    "../front/mi-front-limpio/services/planner/reliability/*.ts",
     "../front/mi-front-limpio/services/plannerPreferences.ts",
     "../front/mi-front-limpio/navigation/plannerNavigationContract.ts",
-    "../front/mi-front-limpio/navigation/plannerSearchNavigation.ts"
+    "../front/mi-front-limpio/navigation/plannerSearchNavigation.ts",
+    "../scripts/planner_v1_shared_s2_runtime_owner_tests.ts",
+    "../scripts/planner_v1_shared_s2_terminal_contract_tests.ts",
+    "../scripts/planner_v1_shared_s2_runtime_composition_tests.ts"
   ],
   "exclude": ["node_modules"]
 }

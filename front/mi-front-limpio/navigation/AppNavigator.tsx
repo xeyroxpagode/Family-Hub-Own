@@ -13,6 +13,7 @@ import { LoginScreen } from '../screens/Login';
 import { ForgotPasswordScreen } from '../screens/ForgotPassword';
 import { UpdatePasswordScreen } from '../screens/UpdatePassword';
 import { HomeTabNavigator } from './HomeTabNavigator';
+import { PlannerReliabilityRuntimeOwner } from '../components/planner/PlannerReliabilityRuntimeOwner';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { InventarioScreen } from '../screens/inventory/InventarioScreen';
 import { FeedFamiliarScreen } from '../screens/feed/FeedFamiliarScreen';
@@ -176,6 +177,7 @@ const PrivateNavigator = () => {
   // Pending join token takes priority: process the invitation before anything else
   if (pendingJoinToken) {
     return (
+      <PlannerReliabilityRuntimeOwner ownerSurface="AppShellPrivate-PendingJoin">
       <PrivateStack.Navigator screenOptions={{ headerShown: false }}>
         <PrivateStack.Screen
           name="JoinHousehold"
@@ -187,6 +189,7 @@ const PrivateNavigator = () => {
         <PrivateStack.Screen name="HouseholdSelectionFallback" component={HouseholdSelectionFallbackScreen} />
         <PrivateStack.Screen name="AccessSuspendedFallback" component={AccessSuspendedFallbackScreen} />
       </PrivateStack.Navigator>
+      </PlannerReliabilityRuntimeOwner>
     );
   }
 
@@ -194,7 +197,15 @@ const PrivateNavigator = () => {
   // initialRouteName solo aplica en el primer mount; cambios posteriores de
   // currentHousehold NO resetean el stack, permitiendo que navigate/replace
   // post-creación permanezca en P03InvitarPersonas sin ser pisado.
+  // S2: the Reliability runtime Owner is mounted ONCE here, above every
+  // PrivateStack.Screen (HomeTabs, Profile, Inventory, FeedFamiliar and the
+  // various Fallbacks). It is *not* keyed by household — owner detects
+  // scope changes itself via its readiness effect and disposes+reopens
+  // deterministically. Keying it by household would force a full unmount
+  // on every switch (which would dispose the runtime TWICE: once via
+  // React unmount cleanup, once because we pass to a new key).
   return (
+    <PlannerReliabilityRuntimeOwner ownerSurface="AppShellPrivate">
     <PrivateStack.Navigator
       key={initialPrivateRoute}
       screenOptions={{ headerShown: false }}
@@ -211,6 +222,7 @@ const PrivateNavigator = () => {
       <PrivateStack.Screen name="Inventory" component={InventarioScreen} />
       <PrivateStack.Screen name="FeedFamiliar" component={FeedFamiliarScreen} />
     </PrivateStack.Navigator>
+    </PlannerReliabilityRuntimeOwner>
   );
 };
 

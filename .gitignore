@@ -8,6 +8,7 @@ supabase/snippets/
 /scripts/compiled/
 /scripts/compiled-reliability/
 /scripts/compiled-reliability-frontend/
+/scripts/compiled-reliability-integration/
 /scripts/compiled-reliability-repro/
 /scripts/scripts/
 /.env

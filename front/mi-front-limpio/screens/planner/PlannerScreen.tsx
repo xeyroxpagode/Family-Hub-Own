@@ -83,7 +83,17 @@ import {
   type PlannerSearchAccess,
 } from '../../services/planner/plannerSearchAccess';
 import { getActiveDeepLinkCoordinator } from '../../services/planner/plannerDeepLinkCoordinator';
-import { openPlannerReliabilityRuntimeForSession } from '../../services/planner/reliability';
+import { getActivePlannerReliabilityRuntime } from '../../services/planner/reliability';
+// S2-R1: Reliability runtime ownership moved to PlannerReliabilityRuntimeOwner
+// (mounted by PrivateNavigator above HomeTabs). PlannerScreen no longer opens
+// the runtime itself so Quick Actions and Home can submit productively before
+// the user enters PlannerTab. This file only CONSUMES the runtime that the
+// Owner opened: every access flows through `getActivePlannerReliabilityRuntime()`
+// or the productive mutations (which call that helper themselves).
+//
+// Development-only instrumentation below confirms (a) that PlannerScreen still
+// does NOT open / dispose any runtime, and (b) that the global runtime is the
+// same instance the Owner holds across mount/unmount.
 
 // ---------------------------------------------------------------------------
 // 1. M3/M6 — PlannerScreen does not own Task/Event sheet Modal (M3).
@@ -91,6 +101,16 @@ import { openPlannerReliabilityRuntimeForSession } from '../../services/planner/
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TAB: PlannerTabKey = 'tasks';
+
+function plannerScreenDevLog(event: string, details: Record<string, unknown>): void {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    try {
+      console.log(`[PlannerScreen] ${event}`, details);
+    } catch {
+      // No-op: dev-only logs must never break screen mount.
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 2. M7 — Planner context identity and transition coordination.
@@ -176,23 +196,15 @@ export function PlannerScreen() {
   // M6: Preference hydration (generation-guarded, context-scoped)
   // -------------------------------------------------------------------------
 
-  // Account ID is the authenticated user's auth_user_id (unique per account),
-  // NOT the household creator's person ID. This ensures preferences are
-  // scoped per-account, not per-household-creator.
+  // --- M6: Account ID is the authenticated user's auth_user_id (unique per
+  // account), NOT the household creator's person ID. This ensures preferences
+  // are scoped per-account, not per-household-creator. S2 relocates Reliability
+  // runtime ownership to PlannerReliabilityRuntimeOwner (mounted above
+  // HomeTabs by HomeTabNavigator) so it no longer depends on PlannerScreen
+  // mounting; PlannerScreen thus no longer opens the runtime itself.
   const accountId = authMe?.person?.auth_user_id ?? null;
   const householdId = currentHousehold?.id ?? null;
   const contextKey = accountId && householdId ? `${accountId}::${householdId}` : null;
-
-  useEffect(() => {
-    const runtime = openPlannerReliabilityRuntimeForSession({
-      accessToken,
-      authenticatedUserId: accountId,
-      activeHouseholdId: householdId,
-      authResolved: Boolean(accessToken && accountId),
-      householdResolved: !authMeLoading,
-    });
-    return () => runtime?.dispose();
-  }, [accessToken, accountId, householdId, authMeLoading]);
 
   // When the context changes ( accountId/householdId), start a new
   // hydration generation, reset preferences readiness, and load the
@@ -443,8 +455,40 @@ export function PlannerScreen() {
     useCallback(() => {
       setRefreshKey((value) => value + 1);
       void loadSummary(true);
+      // S2-R1 dev-only: confirm the global runtime is alive when PlannerScreen
+      // gains focus, WITHOUT having PlannerScreen open or replace it. The
+      // runtime MUST be the same instance the PrivateNavigator-level Owner
+      // opened at authenticated-shell mount.
+      const runtime = getActivePlannerReliabilityRuntime();
+      plannerScreenDevLog('focus', {
+        hasActiveRuntime: Boolean(runtime),
+        runtimeHouseholdId: runtime?.partition.activeHouseholdId ?? null,
+        runtimeAuthenticatedUserId: runtime?.partition.authenticatedUserId ?? null,
+      });
     }, [loadSummary]),
   );
+
+  // S2-R1 dev-only mount/unmount instrumentation: confirms that this screen
+  // does NOT call any open/dispose. Only logs the observed runtime identity.
+  useEffect(() => {
+    const runtime = getActivePlannerReliabilityRuntime();
+    plannerScreenDevLog('mounted', {
+      openedRuntime: false,
+      disposedRuntime: false,
+      observedActiveRuntime: Boolean(runtime),
+      observedHouseholdId: runtime?.partition.activeHouseholdId ?? null,
+      observedAuthenticatedUserId: runtime?.partition.authenticatedUserId ?? null,
+    });
+    return () => {
+      const after = getActivePlannerReliabilityRuntime();
+      plannerScreenDevLog('unmounting', {
+        disposedRuntime: false,
+        activeRuntimeAfter: Boolean(after),
+        activeHouseholdIdAfter: after?.partition.activeHouseholdId ?? null,
+      });
+    };
+  }, []);
+
 
   // -------------------------------------------------------------------------
   // 4. Refresh — never replaces existing content; non-blocking indicator.

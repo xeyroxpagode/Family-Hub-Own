@@ -201,6 +201,42 @@ const commands = {
       { env },
     );
   },
+  'planner-v1-s2-runtime-owner': () => {
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Planner V1 Shared S2 Runtime Owner tests',
+      'node',
+      ['scripts/compiled/scripts/planner_v1_shared_s2_runtime_owner_tests.js'],
+      { env },
+    );
+  },
+  'planner-v1-s2-terminal-contract': () => {
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Planner V1 Shared S2 Terminal Contract tests',
+      'node',
+      ['scripts/compiled/scripts/planner_v1_shared_s2_terminal_contract_tests.js'],
+      { env },
+    );
+  },
+  'planner-v1-s2-runtime-composition': () => {
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Planner V1 Shared S2 Runtime Composition tests',
+      'node',
+      ['scripts/compiled/scripts/planner_v1_shared_s2_runtime_composition_tests.js'],
+      { env },
+    );
+  },
   'runtime-smoke': () => runCommand(
     'Frontend runtime smoke',
     'node',
@@ -226,7 +262,7 @@ const suites = {
   'core-backend': ['testing-core', 'core-backend'],
   'core-frontend': ['compile-frontend-tests', 'core-frontend'],
   core: ['testing-core', 'core-backend', 'compile-frontend-tests', 'core-frontend'],
-  planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration'],
+  planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration', 'planner-v1-s2-runtime-owner', 'planner-v1-s2-terminal-contract', 'planner-v1-s2-runtime-composition'],
   home: ['planner-v1-m9'],
   'planner-m1': ['compile-frontend-tests', 'planner-v1-m1'],
   'planner-m2': ['compile-frontend-tests', 'planner-v1-m2'],
@@ -248,6 +284,9 @@ const suites = {
   'planner-frontend-plans': ['compile-frontend-tests', 'planner-v1-frontend-plans'],
   'planner-presets-drafts': ['compile-frontend-tests', 'planner-v1-presets-drafts'],
   'planner-presets-drafts-integration': ['compile-frontend-tests', 'planner-v1-presets-drafts-integration'],
+  'planner-shared-s2-runtime': ['compile-frontend-tests', 'planner-v1-s2-runtime-owner'],
+  'planner-shared-s2-terminal': ['compile-frontend-tests', 'planner-v1-s2-terminal-contract'],
+  'planner-shared-s2-composition': ['compile-frontend-tests', 'planner-v1-s2-runtime-composition'],
   'g0.3': ['compile-frontend-tests', 'g0.3'],
   'g0.4': ['g0.4-contracts', 'g0.4-db', 'integration-g0.4'],
   'feature-flags': ['g0.4-contracts'],

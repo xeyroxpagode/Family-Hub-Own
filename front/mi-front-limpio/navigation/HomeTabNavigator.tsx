@@ -273,6 +273,13 @@ export function HomeTabNavigator() {
   // inside PlannerSheetHost (actions menu). The local state here is removed;
   // the CenterTabButton delegates to PlannerSheetProvider.
 
+  // S2: The Reliability runtime Owner is mounted ONCE in `PrivateNavigator`
+  // (AppNavigator) above this `HomeTabNavigator`, so it covers HomeTabs,
+  // Quick Actions, Profile and the fallback screens. It survives tab screen
+  // unmounts (e.g. navigating away from PlannerTab) and does NOT depend on
+  // PlannerScreen mounting. We deliberately do NOT key anything by household
+  // here: the Owner detects household changes itself.
+
   return (
     <View style={styles.container}>
       <AppTopBar
