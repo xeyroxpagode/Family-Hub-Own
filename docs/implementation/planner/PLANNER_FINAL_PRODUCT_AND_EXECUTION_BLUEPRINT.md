@@ -1,8 +1,108 @@
 # PLANNER FINAL PRODUCT AND EXECUTION BLUEPRINT
 
-STATUS: `PHASE_0_DRAFT — NOT FROZEN`
+STATUS: `PHASE_0_PRODUCT_MODEL_PROPOSED — NOT FROZEN`
 
-This document is an initial Phase 0A skeleton. It records confirmed evidence, already-approved decisions, open questions, and links to audits. It does not freeze unresolved product decisions and must not be treated as a Phase 1 implementation plan.
+This document records confirmed evidence, already-approved decisions, Phase 0B product recommendations, open technical validations, and deferred items. It does not freeze unresolved product decisions and must not be treated as a Phase 1 implementation plan.
+
+## 0. Phase 0B Product Model Summary
+
+Phase 0B executed product stress tests across daily, complex, extreme, migration, retention, draft, preset, verification, Attention, and Activity scenarios.
+
+Authoritative result document:
+
+| Source | Status |
+|---|---|
+| `docs/implementation/planner/PLANNER_PHASE_0B_PRODUCT_STRESS_TEST_RESULTS.md` | `PLANNER_PHASE_0B_PRODUCT_STRESS_TESTS_COMPLETE` |
+
+### Confirmed Evidence
+
+| Area | Evidence |
+|---|---|
+| Plan root | Current `planner_plans` is canonical root; legacy `planner_goals` remains productive and must be migrated/resolved safely |
+| Reliability | Current mutation identity, idempotency, replay, and single-flight remain mandatory for writes |
+| Plan graph | Current supports milestones, measurements, manual conditions, requirements, lifecycle, trash, archive metadata |
+| Tasks | Task fulfillment, verification, correction, self-verification guard, cancellation, trash/restore exist; image evidence model is missing |
+| Events | Event V1 supports scope, timezone, recurrence series/occurrence identity, participants, RSVP; Plan binding remains incomplete |
+| Presets/Drafts | Backend tables/routes exist; HomePlus immutability exists; live Draft TTL and temporary attachments are missing |
+| Attention | Backend sources exist; frontend action semantics need runtime validation |
+| Activity | Legacy activity exists; Current Plan graph activity/detail is split/missing |
+| Retention | Draft/Preset trash TTL exists; Task/Event/Goal/Plan trash TTL/hard purge policy is inconsistent or missing |
+
+### Decided By User
+
+| Decision |
+|---|
+| Plan will be the future root |
+| V1 is the baseline for practical fluency |
+| Current remains authority for Reliability, security, mutation identity, idempotency, replay, scopes, permissions, Plan graph, and canonical contracts |
+| Progress must not be isolated by a single mode |
+| HomePlus original Presets are immutable |
+| Draft is not Trash or Archive |
+| Draft must have expiration |
+| Verification must be able to use images |
+| Activity needs its own Detail |
+| Attention primary action and Open are distinct actions |
+| Recurrence distinguishes series and occurrence |
+| Product Freeze precedes implementation |
+
+### Recommended For Approval
+
+| Topic | Recommendation |
+|---|---|
+| Plan model | Plan is a flexible root combining Tasks, Events, Milestones, Measurements, and Requirements; it is not a single-mode progress entity |
+| Progress | Hybrid model: qualitative summary, primary resolved count, specific indicators, percentage only for natural Measurements |
+| Task/Event links | Use two dimensions per Plan link: importance (`principal`/`de apoyo`) and effect (`contributes`, `context`, `blocks_activation`, `blocks_completion`, `defines_date`, `final_event`) |
+| Manual Condition | Do not expose as a default visible product surface; keep internal/migration-only unless DB validation proves a visible need |
+| Plan lifecycle | Keep Draft, Active, Paused, Completed, Closed; treat Blocked/At risk/Ready to complete as projections |
+| Task lifecycle | Use human labels and make verification/correction explicit; verified-required Tasks count only when verified |
+| Event lifecycle | Do not add a universal Event `realizado`; Plan contribution is link-effect-specific |
+| Presets | Task presets inline/prefill, Event presets prefill, Plan presets produce reviewable Draft blueprints |
+| Drafts | Contextual sheet/banner recovery plus secondary central recovery; 30-day live TTL renewed on edit |
+| Forms | Context-specific quick forms with progressive advanced fields; Plan uses create-base -> Detail |
+| Evidence | Evidence belongs to completion attempts, not a mutable Task root field |
+| Attention | Primary action resolves the issue; Open navigates separately |
+| Activity Detail | Dedicated privacy-safe detail surface with redacted metadata and separate navigation actions |
+| Retention | Cancelled, Completed, Closed, Archive, Trash, Draft expiration, Evidence, and Activity use different domain rules |
+| Legacy migration UX | Target one Current Plan root with automatic/guided Goal migration and temporary safe route resolver |
+
+### Open Technical Validation
+
+| Topic | Validation required |
+|---|---|
+| Task-only and Event-only Plan activation | DB validation: Current activation currently requires Milestone, Measurement, or Manual Condition |
+| Plan-Task link | DB validation: durable binding, per-link importance/effect, cross-Plan cardinality, satisfaction from Task lifecycle |
+| Plan-Event link | DB validation: durable binding, final Event FK/reference, recurrence occurrence identity |
+| External Requirement use | DB validation: whether it can carry link semantics or dedicated link table is needed |
+| Draft TTL | DB validation: live `expires_at`, cleanup job, warning projection |
+| Draft attachments | DB/storage validation: temporary owner-only attachments |
+| Evidence | DB/storage/RLS validation: attempts, files, thumbnails, upload queue, retention, downloads |
+| Attention | Runtime validation: primary action vs Open handlers, stale item invalidation, permission loss |
+| Activity | DB/runtime validation: Current Plan graph activity, Activity Detail DTO, redaction |
+| Archive/Trash | DB/runtime validation: archive capability reachability, TTL, purge blockers, restore behavior |
+| Legacy migration | DB/runtime validation: bridge creation, Home route resolver, task link migration, Search/Home consistency |
+| Offline | Runtime validation: Draft/evidence/reliability replay and uncertain state copy |
+
+### Deferred
+
+| Topic | Reason |
+|---|---|
+| Scope editing after creation | Needs separate privacy and permission decision |
+| Full requirement hierarchy UI | Not necessary for the default product model; flat blockers should ship first if approved |
+| Generic dependency graph | Stress tests did not justify introducing dependencies beyond Requirements and link effects |
+| Attention snooze/dismiss | Useful later but not required for the primary action queue contract |
+| Universal weighted progress | Rejected for now; no deferred implementation without explicit future approval |
+
+### Phase 0B Rejected Options
+
+| Option | Classification | Reason |
+|---|---|---|
+| Universal Plan percentage | `FAIL_MISLEADING` | Combines incompatible units and hides blockers |
+| Weighted progress | `FAIL_TOO_COMPLEX` | Requires configuration and creates false precision |
+| Visible Manual Condition default editor | `FAIL_REDUNDANT` | Duplicates Milestone, Requirement, Task, and Measurement |
+| One long universal create form | `FAIL_TOO_COMPLEX` | Slows daily actions and ignores context |
+| Immediate Plan creation from Preset | `FAIL_UNSAFE` | Multi-entity generation can orphan data without preview/atomicity |
+| Long-term visible Goal/Plan double root | `FAIL_MISLEADING` | Duplicates user objectives and breaks navigation semantics |
+| Mutable single Task evidence field | `FAIL_UNSAFE` | Cannot preserve correction attempts/history safely |
 
 ## 1. Vision
 
@@ -484,7 +584,7 @@ Minimum scenario groups:
 
 ## 24. Execution
 
-Execution is not frozen in 0A.
+Execution is not frozen after 0B.
 
 Provisional sequencing constraints:
 
@@ -500,9 +600,10 @@ Potential phases to define later:
 
 | Phase | Status |
 |---|---|
-| 0B Product stress tests and decision register update | NEXT |
-| 0C DB/backend validation for selected decisions | DEFERRED |
-| 1+ Implementation lots | BLOCKED until 0B/0C |
+| 0B Product stress tests and decision register update | COMPLETE |
+| 0C/0D DB/backend/runtime validation for selected decisions | NEXT |
+| Product Freeze | BLOCKED until technical validation and user approval |
+| 1+ Implementation lots | BLOCKED until Product Freeze |
 
 ## 25. Definition of Done
 

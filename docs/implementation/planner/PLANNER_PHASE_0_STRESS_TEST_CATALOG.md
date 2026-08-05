@@ -1,6 +1,6 @@
 # PLANNER PHASE 0 - STRESS TEST CATALOG
 
-STATUS: `PHASE_0A_CATALOG_DRAFT`
+STATUS: `PHASE_0B_STRESS_TESTED — PRODUCT_MODEL_PROPOSED — NOT FROZEN`
 
 This catalog is the required input for Phase 0B. A proposed feature is not considered useful just because it succeeds in one favorable case. It should demonstrate value across multiple scenarios and should survive product, DB, runtime, privacy, reliability, and retention pressure.
 
@@ -488,3 +488,153 @@ This catalog is the required input for Phase 0B. A proposed feature is not consi
 | Archive/Trash/Retention | 20, 21, 22, 23 |
 | Privacy | 6, 17, 24, 26 |
 | Reliability | 18, 27, 28 |
+
+## Phase 0B Added Scenarios
+
+These scenarios were added during Phase 0B because several product decisions needed more pressure than the original catalog provided.
+
+### 31. Reforma de una habitacion
+
+| Field | Definition |
+|---|---|
+| Persona | Household coordinator managing renovation work |
+| Context | Physical project with phases, budget, materials, and optional contractor appointments |
+| Objective | Finish the room without confusing budget, milestones, tasks, and approvals |
+| Ideal journey | Create Plan, add milestones for phases, tasks for work, measurement for budget, requirements for approvals/materials |
+| Entities | Plan, Milestone, Task, Measurement, Requirement, Event |
+| States | draft, active, blocked, paused optional, completed/closed, archived |
+| Edge cases | Budget exceeded, material unavailable, contractor no-show, room usable before all optional tasks finish |
+| Dangerous failure | Weighted progress hides a critical unfinished requirement |
+| Technical evidence required | Measurement history, requirement completion blockers, Plan lifecycle confirmations |
+| Decisions tested | Measurement vs Milestone, Requirement role, hybrid progress, close vs complete |
+
+### 32. Viaje familiar
+
+| Field | Definition |
+|---|---|
+| Persona | Parent coordinating trip |
+| Context | Travel dates, bookings, documents, packing, and post-trip cleanup |
+| Objective | Keep commitments and preparation visible without turning every date into a blocker |
+| Ideal journey | Plan from preset, final/travel Events, required documents, packing Tasks, milestone for booking complete |
+| Entities | Plan, Event, Task, Requirement, Milestone, Preset, Activity |
+| States | draft, active, ready to travel, completed, archived |
+| Edge cases | Passport missing, flight moved, optional packing task cancelled, trip cancelled |
+| Dangerous failure | Final Event cancelled and Plan still appears ready/completed |
+| Technical evidence required | Event link effect, final event binding, recurrence/occurrence-safe navigation when applicable |
+| Decisions tested | Event effect metadata, final Event, Plan preset Draft blueprint, cancelled/closed semantics |
+
+### 33. Proyecto escolar
+
+| Field | Definition |
+|---|---|
+| Persona | Student or parent helping student |
+| Context | Deliverable with deadline, phases, review, and optional evidence/submission |
+| Objective | Track sections and final submission without requiring complex setup |
+| Ideal journey | Create Plan quickly, add milestones for research/draft/final, tasks for actions, event deadline |
+| Entities | Plan, Milestone, Task, Event, Evidence candidate |
+| States | draft, active, awaiting review optional, completed |
+| Edge cases | Teacher deadline changes, task awaiting verification, milestone reopened after correction |
+| Dangerous failure | Task in review counts as completed and Plan closes too early |
+| Technical evidence required | Verification state contribution, milestone reopen, Event date update |
+| Decisions tested | Task verification in progress, Milestone lifecycle, progress summary |
+
+### 34. Organizacion de documentos
+
+| Field | Definition |
+|---|---|
+| Persona | Adult organizing personal/household documents |
+| Context | Privacy-sensitive sorting, scanning, and storage |
+| Objective | Complete important categories without leaking personal documents |
+| Ideal journey | Plan with tasks or milestones, optional measurement for document count, personal scope when needed |
+| Entities | Plan, Task, Milestone, Measurement, Activity |
+| States | active, completed, closed if abandoned |
+| Edge cases | Personal documents in household shell, missing document, trashed scan task restored |
+| Dangerous failure | Activity or Search leaks private document names |
+| Technical evidence required | Scope/RLS, Activity redaction, Trash restore with links |
+| Decisions tested | Privacy, Activity Detail, Task vs Plan boundary, retention |
+
+### 35. Compra importante
+
+| Field | Definition |
+|---|---|
+| Persona | Household decision maker |
+| Context | Research, budget, approvals, vendor appointment, final purchase |
+| Objective | Avoid buying before budget/approval and preserve decision history |
+| Ideal journey | Plan with budget measurement, requirements for approval, tasks for research, optional Event for appointment |
+| Entities | Plan, Measurement, Requirement, Task, Event, Activity |
+| States | draft, active, blocked, completed/closed |
+| Edge cases | Purchase cancelled, budget exceeded, approval removed, vendor Event rescheduled |
+| Dangerous failure | Supporting research Task completion marks Plan ready while budget blocker remains |
+| Technical evidence required | Requirement blocker projection, measurement target operator, Plan close reason |
+| Decisions tested | Requirement role, Measurement role, closed vs completed, hybrid progress |
+
+### 36. Cuidado recurrente de mascota
+
+| Field | Definition |
+|---|---|
+| Persona | Household member responsible for pet care |
+| Context | Recurring care tasks, vet events, medicine tracking, optional weight measurement |
+| Objective | Keep routine visible without treating the Plan as permanently incomplete |
+| Ideal journey | Preset creates recurring tasks/events and optional measurement; Plan stays active while care plan exists |
+| Entities | Task, Event, Measurement, Plan, Preset, Attention |
+| States | active routine, current occurrence pending/completed, paused optional, closed when care plan ends |
+| Edge cases | Missed dose, vet Event cancelled, medicine measurement reaches zero, household member unavailable |
+| Dangerous failure | Universal Plan percentage is meaningless for ongoing recurrence |
+| Technical evidence required | Recurrence series/occurrence handling, Attention for missed/correction items, Measurement history |
+| Decisions tested | Recurring Plan semantics, Event recurrence, Measurement, Attention |
+
+## Phase 0B Stress Test Matrix
+
+| ID | Scenario | Flow tested | Proposal | Result | Friction | Ambiguity | Risk | Simplification | Decisions affected | Recommendation |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | Limpieza semanal familiar | Routine tasks, assignments, verification | Task-first recurring routine with optional Plan | `PASS_WITH_SIMPLIFICATION` | Low if preset/inline | Whether weekly Plan closes | Duplicate completion, stale verification | Keep Task preset fastest; Plan only for coordinated routine | Presets, verification, recurrence, cancelled | Use Task/Plan preset depending complexity |
+| 2 | Preparar un cumpleanos | Plan with final Event and Tasks | Plan Draft blueprint | `PASS` | Medium | Final Event vs date target | Event cancellation completing Plan incorrectly | Event effect defaults | Plan preset, Event link, progress | Plan preset creates Draft with final Event |
+| 3 | Organizar una mudanza | Complex blockers, milestones, events | Mixed Plan graph | `PASS` | Medium-high but justified | Requirement hierarchy depth | Blockers hidden in tree | Flat blockers first | Requirement, archive, lifecycle | Use milestones + requirements + tasks/events |
+| 4 | Ahorrar para una compra | Numeric tracking | Measurement-primary Plan | `PASS` | Low | Whether supporting tasks matter | Fake percent/history loss | Measurement card primary | Measurement, progress | Measurement can be primary |
+| 5 | Mantenimiento de un auto | Appointment plus prep/evidence | Event + Tasks with evidence candidate | `PASS` | Low-medium | Context vs blocker Event | Appointment accidentally blocks | Default existing Event as context | Event link, evidence, archive | Event effect must be explicit when blocking/final |
+| 6 | Turno medico | Privacy-sensitive personal Event | Personal Event with optional Task | `CONDITIONAL_PASS` | Low | Household shell scope | Privacy leak | Scope label and redacted Activity | Privacy, forms, Activity | Personal remains owner-only across surfaces |
+| 7 | Tarea verificable con imagen | Evidence/review/correction | Evidence per completion attempt | `NEEDS_DB_VALIDATION` | Medium | Upload vs review state | Orphan evidence/self-verify | Clear upload/review labels | Evidence, Attention | Do not ship image verification without storage/RLS |
+| 8 | Evento recurrente modificado | Occurrence edit | Series/occurrence scopes | `NEEDS_RUNTIME_VALIDATION` | Medium | This occurrence vs series | Whole series changed accidentally | Scope picker copy | Recurrence | Preserve Current recurrence contract |
+| 9 | Plan con Tasks principales/secundarias | Importance/effect | Two-dimensional link | `NEEDS_DB_VALIDATION` | Medium | Principal vs blocking | Secondary blocks unexpectedly | Defaults hide effect unless needed | Links, progress | Importance visible, effect smart/advanced |
+| 10 | Plan con Events contexto/intermedio/final | Event effects | Effect metadata | `NEEDS_DB_VALIDATION` | Medium | Date/checkpoint/final | All Events treated same | Defaults by entry point | Event links, final Event | Separate context/date/final/block effects |
+| 11 | Plan con milestones | Milestone editor/lifecycle | Milestones as phases | `PASS` | Low-medium | Manual vs automatic | Duplicate changeset | Use manual default | Milestone role | Milestone is primary phase signal |
+| 12 | Plan con measurement | Numeric target | Measurement history and target reached | `PASS` | Low | Unit/operator changes | Misleading percent | Clear unit labels | Measurement, progress | Measurement can activate/complete after human action |
+| 13 | Plan con requirement bloqueante | Activation/completion blockers | Requirement as blocker | `PASS_WITH_SIMPLIFICATION` | Medium | Requirement vs Task | Requirement-only Plan useless | Show blockers only when meaningful | Requirement, lifecycle | Requirement is condition, not catch-all link |
+| 14 | Salir de Task y guardar Draft | Dirty leave | Owner-only Draft | `PASS` | Low | Draft vs Task | Accidental productive create | Sheet/banner recovery | Drafts, offline | Autosave + explicit discard |
+| 15 | Crear Task existiendo Draft | Compatible draft selection | Contextual chooser | `PASS` | Low | Multiple drafts | Wrong draft overwritten | Continue/new/discard choices | Draft entry, TTL | Do not block when no compatible Draft |
+| 16 | Aplicar Preset HomePlus | Built-in preset | Immutable prepare/apply | `PASS` | Low | Edit original? | Mutating HomePlus preset | Save copy as mine | HomePlus presets | Original remains immutable |
+| 17 | Crear Preset personal | Save repeated setup | Personal editable preset | `PASS` | Medium | Household visibility | Personal leak | Source labels | Presets, privacy | Personal preset owner-only |
+| 18 | Aplicar Plan Preset multi-entidad | Multi-entity generation | Plan Draft blueprint | `NEEDS_DB_VALIDATION` | Medium-high | Productive vs draft | Partial orphan entities | Preview Draft first | Presets, links, Reliability | No immediate apply until atomicity proven |
+| 19 | Cancelar Task vinculada a Plan | Link/progress update | Cancel excludes and asks for blockers | `NEEDS_DB_VALIDATION` | Medium | Cancel = done? | Blocks forever/counts done | Confirm for principal/blocking | Task lifecycle, links | Cancelled never counts completed |
+| 20 | Archivar Plan con linked items | Terminal archive | Archive Plan only | `PASS_WITH_SIMPLIFICATION` | Low | Linked active items | Cascading archive unexpectedly | Confirmation for active recurrence | Archive, links | Archive does not cascade to Tasks/Events |
+| 21 | Trash Task and restore | Recoverable delete | Trash excludes/restores | `PASS` | Low | Cancelled vs trashed | Restore without Plan refresh | Recompute on restore | Trash, links | Trash first, hard delete later by policy |
+| 22 | Draft expiration | TTL | 30-day live TTL renewed on edit | `NEEDS_DB_VALIDATION` | Low | Silent expiry | Lost work or stale buildup | 7-day warning | Drafts, retention | Approve 30 days with warning |
+| 23 | Trash expiration | Recoverable window | Per-domain Trash TTL | `NEEDS_DB_VALIDATION` | Medium | Entity-specific purge | Broken references | Block purge when referenced | Trash, retention | Domain-specific purge rules |
+| 24 | Activity Detail | Explain history | Dedicated detail | `PASS` | Low | Detail vs entity open | Privacy leak | Redacted DTO | Activity, privacy | Activity Detail is separate surface |
+| 25 | Attention verification | Action queue | Verify distinct from Open | `NEEDS_RUNTIME_VALIDATION` | Low | Same action handler | Item stale after verify | Primary/secondary actions | Attention, verification | Verify opens action flow; Open navigates |
+| 26 | Personal vs household | Scope isolation | Owner/household projections | `CONDITIONAL_PASS` | Low | Shell context | Private leak | Scope labels/cache reset | Privacy | Validate RLS and cache invalidation |
+| 27 | Offline/reconnect | Draft/replay | Preserve intent with Reliability | `NEEDS_RUNTIME_VALIDATION` | Medium | Pending upload vs submitted | Duplicate/lost writes | Explicit pending states | Reliability, Drafts, evidence | Offline Draft first; replay idempotently |
+| 28 | Duplicate tap/replay | Single-flight | One backend effect | `NEEDS_RUNTIME_VALIDATION` | Low | Stale terminal | Duplicate entities | Disable + operation identity | Reliability | Keep REC-0A validation before implementation |
+| 29 | Migracion Goal legacy | Existing V1 Goal | One Plan root target | `NEEDS_DB_VALIDATION` | Medium | Goal vs Plan | Broken Home navigation | Temporary resolver | Migration, root | Auto/guided migration with fallback resolver |
+| 30 | Home legacy entity | Home navigation | Resolve Goal before Plan Detail | `NEEDS_DB_VALIDATION` | Low | Search vs Home mismatch | Plan no encontrado | Route resolver | Home, navigation | Home never passes raw Goal ID to Plan Detail |
+| 31 | Reforma habitacion | Physical project | Milestones + budget + blockers | `PASS` | Medium | Budget vs progress | Critical blocker hidden | Hybrid progress | Measurement, Requirement | Use measurement for budget only |
+| 32 | Viaje familiar | Travel preparation | Plan Draft with Events/Requirements | `PASS` | Medium | Event role | Cancelled trip not closed | Final Event confirmation | Event link, Preset | Plan preset Draft, final event effect |
+| 33 | Proyecto escolar | Deadline deliverable | Milestones + Tasks + Event | `PASS` | Low-medium | Review state | Pending review counted done | Verification rule | Task lifecycle, Milestone | Review blocks essential contribution |
+| 34 | Organizacion documentos | Privacy sorting | Task/Milestone Plan | `CONDITIONAL_PASS` | Low | Personal vs household | Activity leak | Personal scope labels | Privacy, Activity | Redacted Activity Detail required |
+| 35 | Compra importante | Budget/approval/purchase | Measurement + Requirement + Tasks | `PASS` | Medium | Research vs blocker | Buy before approval | Requirement blocker | Requirement, Measurement | Budget/approval can block close/complete |
+| 36 | Cuidado mascota recurrente | Ongoing routine | Recurring Tasks/Events + optional Plan | `PASS_WITH_SIMPLIFICATION` | Low with preset | Completion of ongoing Plan | Meaningless percent | Routine status/next item | Recurrence, progress | Keep Plan active until care plan ends |
+
+## Phase 0B Catalog Recommendations
+
+| Topic | Recommendation | Rejected |
+|---|---|---|
+| Plan model | Mixed root with sections and lifecycle | One progress mode |
+| Progress | Hybrid qualitative + primary count + separate indicators | Universal or weighted percentage |
+| Links | Importance + effect per Plan link | `goal_id` or untyped external requirement as complete answer |
+| Manual Condition | Internal/migration-only by default | Visible default editor |
+| Presets | Inline/prefill for Task/Event, Draft blueprint for Plan | Immediate Plan creation |
+| Drafts | Contextual recovery + 30-day TTL | Always-blocking modal or no TTL |
+| Verification | Evidence per completion attempt | Mutable Task evidence field |
+| Attention | Primary action distinct from Open | Navigation-only queue |
+| Activity | Dedicated privacy-safe detail | Raw metadata/direct navigation only |
+| Retention | Domain-specific rules | Same TTL/hard delete for all domains |
