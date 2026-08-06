@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
-import type { HomeTabParamList, PlannerStackParamList } from './types';
+import type { HomeTabParamList, MoreStackParamList, PlannerStackParamList } from './types';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
 import { HomeCoordinador } from '../screens/home/HomeCoordinador';
@@ -12,6 +12,7 @@ import { HomeAdulto } from '../screens/home/HomeAdulto';
 import { HomeAdolescente } from '../screens/home/HomeAdolescente';
 import { HomeAdultoMayor } from '../screens/home/HomeAdultoMayor';
 import { FamilyScreen } from '../screens/FamilyScreen';
+import { InventarioScreen } from '../screens/inventory/InventarioScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { PlannerScreen } from '../screens/planner/PlannerScreen';
 import { CreateTaskScreen } from '../screens/planner/CreateTaskScreen';
@@ -37,8 +38,8 @@ import {
 } from '../components/planner/presets/PlannerPresetDraftsIntegrationRoutes';
 import { MoreScreen } from '../screens/MoreScreen';
 import { APP_ICONS, HomePlusIcon } from '../constants/icons';
-import { AppTopBar, HouseholdSwitcherSheet, CenterTabButton } from '../components/ui';
-import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
+import { AppTopBar, HouseholdSwitcherSheet } from '../components/ui';
+import { PlannerSheetProvider } from '../context/PlannerSheetContext';
 import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
 import { PlannerDeepLinkProvider } from '../services/planner/plannerDeepLinkProvider';
 import { fetchPlannerAttentionRequest } from '../services/planner/plannerAttentionClient';
@@ -47,8 +48,7 @@ import { colors, spacing } from '../constants/theme';
 
 const Tab = createBottomTabNavigator<HomeTabParamList>();
 const PlannerStack = createNativeStackNavigator<PlannerStackParamList>();
-
-const AddTabPlaceholder = () => null;
+const MoreStack = createNativeStackNavigator<MoreStackParamList>();
 
 function AttentionTopBarButton({ accessToken, householdId, navigation }: {
   accessToken: string | null;
@@ -213,31 +213,14 @@ function PlannerStackScreen() {
   );
 }
 
-function FamilyStackScreen() {
-  return <FamilyScreen />;
-}
-
 function MoreStackScreen() {
-  return <MoreScreen />;
+  return (
+    <MoreStack.Navigator screenOptions={{ headerShown: false }}>
+      <MoreStack.Screen name="MoreHome" component={MoreScreen} />
+      <MoreStack.Screen name="Family" component={FamilyScreen} />
+    </MoreStack.Navigator>
+  );
 }
-
-// ---------------------------------------------------------------------------
-// M3: CenterTabButton adapter that delegates to PlannerSheetProvider.
-// Replaces the legacy local `showQuickActions` state in HomeTabNavigator.
-// ---------------------------------------------------------------------------
-
-function M3CenterTabButton({ triggerRef }: { triggerRef: React.RefObject<unknown> }) {
-  const sheet = usePlannerSheet();
-
-  const handlePress = useCallback(() => {
-    if (sheet.isSubmitting) return;
-    sheet.openActions();
-  }, [sheet]);
-
-  return <CenterTabButton onPress={handlePress} />;
-}
-
-// ---------------------------------------------------------------------------
 
 export function HomeTabNavigator() {
   const { session, authMe } = useAuth();
@@ -264,14 +247,6 @@ export function HomeTabNavigator() {
   const tabBarBg = colors.terracotta[500];
   const tabBarHeight = isAdultoMayor ? 84 : 72;
   const bottomPadding = Math.max(insets.bottom, spacing[3]);
-
-  // M3: The CenterTabButton's trigger ref will be set by the button itself
-  // and consumed by PlannerSheetHost for focus restoration.
-  const addButtonTriggerRef = useRef<unknown>(null);
-
-  // M3 legacy adapter: the QuickActionSheet still exists as presentational
-  // inside PlannerSheetHost (actions menu). The local state here is removed;
-  // the CenterTabButton delegates to PlannerSheetProvider.
 
   // S2: The Reliability runtime Owner is mounted ONCE in `PrivateNavigator`
   // (AppNavigator) above this `HomeTabNavigator`, so it covers HomeTabs,
@@ -329,25 +304,15 @@ export function HomeTabNavigator() {
           />
 
           <Tab.Screen
-            name="PeopleTab"
-            component={FamilyStackScreen}
+            name="InventoryTab"
+            component={InventarioScreen}
             options={{
               tabBarIcon: ({ focused }) => (
                 <TabIcon
-                  iconKey="people"
-                  label="Familia"
+                  iconKey="inventory"
+                  label="Inventario"
                   focused={focused}
                 />
-              ),
-            }}
-          />
-
-          <Tab.Screen
-            name="AddTab"
-            component={AddTabPlaceholder}
-            options={{
-              tabBarButton: () => (
-                <M3CenterTabButton triggerRef={addButtonTriggerRef} />
               ),
             }}
           />

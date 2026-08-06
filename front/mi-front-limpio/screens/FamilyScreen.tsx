@@ -1,8 +1,10 @@
 ﻿import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 
 import { AppText, AppScreen } from '../components/ui';
-import { spacing } from '../constants/theme';
+import { colors, spacing } from '../constants/theme';
+import { HomePlusIcon } from '../constants/icons';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
 import {
@@ -32,6 +34,7 @@ import {
 import { createInvitation, revokeInvitation, type Invitation } from '../services/invitations';
 
 export const FamilyScreen = () => {
+  const navigation = useNavigation<any>();
   const { session, authMe, authMeLoading } = useAuth();
   const { currentHousehold } = useHousehold();
   const accessToken = session?.access_token ?? null;
@@ -400,6 +403,17 @@ export const FamilyScreen = () => {
   return (
     <AppScreen scroll bottomInset="tab" background="base" contentContainerStyle={styles.content}>
       <View style={styles.header}>
+        {navigation.canGoBack() ? (
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel="Volver a Más"
+            hitSlop={8}
+          >
+            <HomePlusIcon name="chevron-back-outline" size={22} color={colors.text.primary} />
+          </Pressable>
+        ) : null}
         <View style={{ flex: 1 }}>
           <AppText variant="title1">Familia</AppText>
           <AppText variant="bodySmall" tone="secondary">
@@ -487,7 +501,17 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: spacing[3],
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface.soft,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
   },
 });

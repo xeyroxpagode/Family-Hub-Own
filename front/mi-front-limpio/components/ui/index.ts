@@ -6,7 +6,6 @@ export * from './AppInput';
 export * from './AppScreen';
 export * from './AppText';
 export * from './AppTopBar';
-export * from './CenterTabButton';
 export * from './EmptyState';
 export * from './ErrorState';
 export * from './GlassSurface';

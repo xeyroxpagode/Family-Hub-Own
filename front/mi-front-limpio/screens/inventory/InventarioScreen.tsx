@@ -55,6 +55,11 @@ const CATEGORIES: Array<{ key: InventoryCategoryKey; label: string; emoji: strin
   { key: 'general', label: 'General', emoji: '📦' },
 ];
 
+const FILTER_CATEGORIES: Array<{ key: InventoryCategoryKey | 'all'; label: string; emoji: string }> = [
+  { key: 'all', label: 'Todos', emoji: '✨' },
+  ...CATEGORIES,
+];
+
 const EMPTY_FORM: FormState = {
   template_id: null,
   name: '',
@@ -81,18 +86,6 @@ const statusCopy = {
   low: { label: 'Stock bajo', variant: 'warning' as const },
   ok: { label: 'En stock', variant: 'success' as const },
 };
-
-function StatCard({ label, value, tone }: { label: string; value: number; tone: 'primary' | 'warning' | 'danger' }) {
-  const color = tone === 'danger' ? colors.danger.base : tone === 'warning' ? colors.warning.base : colors.sage[600];
-  const backgroundColor = tone === 'danger' ? colors.danger.soft : tone === 'warning' ? colors.warning.soft : colors.sage[50];
-
-  return (
-    <View style={[styles.statCard, { backgroundColor }]}>
-      <AppText variant="title3" style={{ color }}>{value}</AppText>
-      <AppText variant="caption" tone="secondary" align="center">{label}</AppText>
-    </View>
-  );
-}
 
 function InventoryItemCard({
   item,
@@ -136,109 +129,123 @@ function InventoryItemCard({
       </View>
 
       <View style={styles.quantityRow}>
-        <AppText variant="title2">{formatQuantity(item.quantity)}</AppText>
+        <View>
+          <AppText variant="title2">{formatQuantity(item.quantity)}</AppText>
+          <AppText variant="caption" tone="tertiary">unidades disponibles</AppText>
+        </View>
         <View style={styles.quickActions}>
-          <TouchableOpacity style={styles.iconButton} onPress={onConsume} disabled={busy} accessibilityRole="button">
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={onConsume}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={`Restar una unidad de ${item.name}`}
+          >
             <HomePlusIcon name="remove" size={18} color={colors.text.primary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton} onPress={onAdd} disabled={busy} accessibilityRole="button">
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={onAdd}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={`Sumar una unidad a ${item.name}`}
+          >
             <HomePlusIcon name="add" size={18} color={colors.text.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton} onPress={onOutOfStock} disabled={busy} accessibilityRole="button">
-            <HomePlusIcon name="alert-circle" size={18} color={colors.danger.base} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton} onPress={onEdit} disabled={busy} accessibilityRole="button">
-            <HomePlusIcon name="create-outline" size={18} color={colors.terracotta[600]} />
           </TouchableOpacity>
         </View>
       </View>
 
-      <TouchableOpacity style={styles.deleteLink} onPress={onDelete} disabled={busy} accessibilityRole="button">
-        <AppText variant="caption" tone="danger" weight="700">Eliminar</AppText>
-      </TouchableOpacity>
+      <View style={styles.itemSecondaryActions}>
+        <TouchableOpacity
+          style={styles.secondaryAction}
+          onPress={onOutOfStock}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel={`Marcar ${item.name} sin stock`}
+        >
+          <HomePlusIcon name="remove-circle-outline" size={18} color={colors.danger.base} />
+          <AppText variant="caption" tone="danger" weight="700">Sin stock</AppText>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.secondaryAction}
+          onPress={onEdit}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel={`Editar ${item.name}`}
+        >
+          <HomePlusIcon name="create-outline" size={18} color={colors.terracotta[600]} />
+          <AppText variant="caption" weight="700">Editar</AppText>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.secondaryAction}
+          onPress={onDelete}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel={`Eliminar ${item.name}`}
+        >
+          <HomePlusIcon name="trash-outline" size={18} color={colors.danger.base} />
+          <AppText variant="caption" tone="danger" weight="700">Eliminar</AppText>
+        </TouchableOpacity>
+      </View>
     </AppCard>
   );
 }
 
-function InventoryAlertsCard({
-  lowStockItems,
-  outOfStockItems,
+function RestockRequestsSection({
   pendingRequests,
   canApprove,
   busyRequestId,
   onApprove,
   onReject,
 }: {
-  lowStockItems: InventoryItem[];
-  outOfStockItems: InventoryItem[];
   pendingRequests: InventoryRestockRequest[];
   canApprove: boolean;
   busyRequestId: string | null;
   onApprove: (request: InventoryRestockRequest) => void;
   onReject: (request: InventoryRestockRequest) => void;
 }) {
-  if (lowStockItems.length === 0 && outOfStockItems.length === 0 && pendingRequests.length === 0) {
-    return null;
-  }
+  if (pendingRequests.length === 0) return null;
 
   return (
-    <AppCard variant="warning" padding="default" highlighted style={styles.alertsCard}>
-      <View style={styles.sectionHeader}>
-        <View style={styles.sectionTitleRow}>
-          <HomePlusIcon name="alert-circle" size={18} color={colors.warning.strong} />
-          <AppText variant="title3" tone="warning">Atencion de stock</AppText>
-        </View>
+    <View style={styles.restockSection}>
+      <View style={styles.sectionTitleRow}>
+        <HomePlusIcon name="cart-outline" size={18} color={colors.text.secondary} />
+        <AppText variant="title3">Reposiciones pendientes</AppText>
       </View>
-
-      {outOfStockItems.slice(0, 3).map((item) => (
-        <AppText key={`out-${item.id}`} variant="bodySmall" tone="secondary">
-          Sin stock: {item.name}
-        </AppText>
-      ))}
-      {lowStockItems.slice(0, 3).map((item) => (
-        <AppText key={`low-${item.id}`} variant="bodySmall" tone="secondary">
-          Stock bajo: {item.name} ({formatQuantity(item.quantity)})
-        </AppText>
-      ))}
-
-      {pendingRequests.length > 0 ? (
-        <View style={styles.requestsBlock}>
-          <AppText variant="caption" tone="warning" weight="700">
-            Reposiciones pendientes
-          </AppText>
-          {pendingRequests.slice(0, 3).map((request) => (
-            <View key={request.id} style={styles.requestRow}>
-              <View style={{ flex: 1 }}>
-                <AppText variant="bodySmall" weight="700">{request.suggested_title}</AppText>
-                <AppText variant="caption" tone="tertiary">
-                  {request.suggested_description || 'Stock bajo detectado desde Inventario.'}
-                </AppText>
-              </View>
-              {canApprove ? (
-                <View style={styles.requestActions}>
-                  <TouchableOpacity
-                    style={styles.requestApprove}
-                    onPress={() => onApprove(request)}
-                    disabled={busyRequestId === request.id}
-                    accessibilityRole="button"
-                  >
-                    <HomePlusIcon name="checkmark" size={16} color={colors.success.strong} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.requestReject}
-                    onPress={() => onReject(request)}
-                    disabled={busyRequestId === request.id}
-                    accessibilityRole="button"
-                  >
-                    <HomePlusIcon name="close" size={16} color={colors.danger.strong} />
-                  </TouchableOpacity>
-                </View>
-              ) : null}
+      {pendingRequests.map((request) => (
+        <View key={request.id} style={styles.restockRow}>
+          <View style={styles.restockCopy}>
+            <AppText variant="bodySmall" weight="700">{request.suggested_title}</AppText>
+            <AppText variant="caption" tone="tertiary">
+              {request.suggested_description || 'Reposicion creada desde Inventario.'}
+            </AppText>
+          </View>
+          {canApprove ? (
+            <View style={styles.restockActions}>
+              <TouchableOpacity
+                style={styles.restockApprove}
+                onPress={() => onApprove(request)}
+                disabled={busyRequestId === request.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Enviar ${request.suggested_title} al Planner`}
+              >
+                <HomePlusIcon name="arrow-forward" size={16} color={colors.success.strong} />
+                <AppText variant="caption" weight="700">Enviar</AppText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.restockDismiss}
+                onPress={() => onReject(request)}
+                disabled={busyRequestId === request.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Descartar reposicion ${request.suggested_title}`}
+              >
+                <HomePlusIcon name="close" size={16} color={colors.text.secondary} />
+              </TouchableOpacity>
             </View>
-          ))}
+          ) : null}
         </View>
-      ) : null}
-    </AppCard>
+      ))}
+    </View>
   );
 }
 
@@ -254,31 +261,29 @@ export const InventarioScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState<InventoryCategoryKey>('kitchen');
+  const [category, setCategory] = useState<InventoryCategoryKey | 'all'>('all');
   const [modalVisible, setModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
   const [busyRequestId, setBusyRequestId] = useState<string | null>(null);
-
   const canApproveRestock = currentRole === 'coordinador' || currentRole === 'adulto';
-
-  const lowStockItems = useMemo(
-    () => items.filter((item) => getItemStatus(item) === 'low'),
-    [items],
+  const activeCategory = useMemo(
+    () => FILTER_CATEGORIES.find((entry) => entry.key === category) ?? FILTER_CATEGORIES[0],
+    [category],
   );
 
-  const outOfStockItems = useMemo(
-    () => items.filter((item) => getItemStatus(item) === 'out'),
-    [items],
+  const visibleTemplates = useMemo(
+    () => templates.filter((template) => category === 'all' || template.category_key === category).slice(0, 8),
+    [category, templates],
   );
 
   const filteredItems = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
     return items.filter((item) => {
-      const matchesCategory = item.category_key === category;
+      const matchesCategory = category === 'all' || item.category_key === category;
       const matchesSearch = !normalizedSearch || item.name.toLowerCase().includes(normalizedSearch);
       return matchesCategory && matchesSearch;
     });
@@ -464,7 +469,7 @@ export const InventarioScreen = () => {
       await refresh(false);
       Alert.alert('Tarea creada', 'La reposicion fue enviada al Planner.');
     } catch (err) {
-      Alert.alert('No pudimos aprobar', err instanceof ApiError ? err.message : 'Intenta nuevamente.');
+      Alert.alert('No pudimos enviar', err instanceof ApiError ? err.message : 'Intenta nuevamente.');
     } finally {
       setBusyRequestId(null);
     }
@@ -478,7 +483,7 @@ export const InventarioScreen = () => {
       await rejectInventoryRestockRequest(accessToken, request.id);
       await refresh(false);
     } catch (err) {
-      Alert.alert('No pudimos rechazar', err instanceof ApiError ? err.message : 'Intenta nuevamente.');
+      Alert.alert('No pudimos descartar', err instanceof ApiError ? err.message : 'Intenta nuevamente.');
     } finally {
       setBusyRequestId(null);
     }
@@ -505,7 +510,7 @@ export const InventarioScreen = () => {
           <View style={{ flex: 1 }}>
             <AppText variant="title1">Inventario</AppText>
             <AppText variant="bodySmall" tone="secondary">
-              {currentHousehold?.nombre ?? 'Hogar activo'} · Cocina y alacena
+              {currentHousehold?.nombre ?? 'Hogar activo'}
             </AppText>
           </View>
           <AppButton
@@ -517,24 +522,8 @@ export const InventarioScreen = () => {
           </AppButton>
         </View>
 
-        <View style={styles.statsRow}>
-          <StatCard label="Items" value={items.length} tone="primary" />
-          <StatCard label="Bajo stock" value={lowStockItems.length} tone="warning" />
-          <StatCard label="Sin stock" value={outOfStockItems.length} tone="danger" />
-        </View>
-
-        <InventoryAlertsCard
-          lowStockItems={lowStockItems}
-          outOfStockItems={outOfStockItems}
-          pendingRequests={pendingRequests}
-          canApprove={canApproveRestock}
-          busyRequestId={busyRequestId}
-          onApprove={(request) => void handleApproveRequest(request)}
-          onReject={(request) => void handleRejectRequest(request)}
-        />
-
         <AppInput
-          label="Buscar"
+          label="Buscar en inventario"
           variant="search"
           value={search}
           onChangeText={setSearch}
@@ -543,7 +532,7 @@ export const InventarioScreen = () => {
         />
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
-          {CATEGORIES.map((entry) => (
+          {FILTER_CATEGORIES.map((entry) => (
             <TouchableOpacity
               key={entry.key}
               style={[styles.categoryChip, category === entry.key && styles.categoryChipActive]}
@@ -566,13 +555,15 @@ export const InventarioScreen = () => {
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <HomePlusIcon name="sparkles" size={18} color={colors.terracotta[600]} />
-              <AppText variant="title3">Agregar rapido</AppText>
+              <View>
+                <AppText variant="title3">Agregar rapido</AppText>
+                <AppText variant="caption" tone="tertiary">{activeCategory.label}</AppText>
+              </View>
             </View>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templateScroll}>
-            {templates
-              .filter((template) => template.category_key === 'kitchen')
-              .map((template) => (
+          {visibleTemplates.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templateScroll}>
+              {visibleTemplates.map((template) => (
                 <TouchableOpacity
                   key={template.id}
                   style={styles.templateChip}
@@ -583,7 +574,8 @@ export const InventarioScreen = () => {
                   <AppText variant="caption" weight="700">{template.name}</AppText>
                 </TouchableOpacity>
               ))}
-          </ScrollView>
+            </ScrollView>
+          ) : null}
         </View>
 
         {loading ? (
@@ -595,28 +587,46 @@ export const InventarioScreen = () => {
           <ErrorState description={error} onRetry={() => void refresh()} style={styles.stateBlock} />
         ) : filteredItems.length === 0 ? (
           <EmptyState
-            title="Todavia no hay items"
-            description={search ? 'No encontramos items con ese filtro.' : 'Agrega productos de cocina para empezar a controlar stock.'}
+            title={search ? 'No encontramos items' : `No hay items en ${activeCategory.label}`}
+            description={search ? 'Prueba con otro nombre o cambia de categoria.' : 'Agrega un producto para empezar a controlar su stock.'}
             actionLabel="Agregar item"
             onAction={openCreate}
             style={styles.stateBlock}
           />
         ) : (
-          <View style={styles.itemsList}>
-            {filteredItems.map((item) => (
-              <InventoryItemCard
-                key={item.id}
-                item={item}
-                busy={busyItemId === item.id}
-                onAdd={() => accessToken && void mutateItem(item, () => addInventoryQuantity(accessToken, item.id, 1))}
-                onConsume={() => accessToken && void mutateItem(item, () => consumeInventoryQuantity(accessToken, item.id, 1))}
-                onOutOfStock={() => accessToken && void mutateItem(item, () => markInventoryItemOutOfStock(accessToken, item.id))}
-                onEdit={() => openEdit(item)}
-                onDelete={() => handleDelete(item)}
-              />
-            ))}
+          <View style={styles.itemsSection}>
+            <View style={styles.itemsSectionHeader}>
+              <AppText variant="title3">{search ? 'Resultados' : activeCategory.label}</AppText>
+              <AppText variant="caption" tone="secondary" weight="700">
+                {filteredItems.length} {filteredItems.length === 1 ? 'item' : 'items'}
+              </AppText>
+            </View>
+            <View style={styles.itemsList}>
+              {filteredItems.map((item) => (
+                <InventoryItemCard
+                  key={item.id}
+                  item={item}
+                  busy={busyItemId === item.id}
+                  onAdd={() => accessToken && void mutateItem(item, () => addInventoryQuantity(accessToken, item.id, 1))}
+                  onConsume={() => accessToken && void mutateItem(item, () => consumeInventoryQuantity(accessToken, item.id, 1))}
+                  onOutOfStock={() => accessToken && void mutateItem(item, () => markInventoryItemOutOfStock(accessToken, item.id))}
+                  onEdit={() => openEdit(item)}
+                  onDelete={() => handleDelete(item)}
+                />
+              ))}
+            </View>
           </View>
         )}
+
+        {!loading && !error ? (
+          <RestockRequestsSection
+            pendingRequests={pendingRequests}
+            canApprove={canApproveRestock}
+            busyRequestId={busyRequestId}
+            onApprove={(request) => void handleApproveRequest(request)}
+            onReject={(request) => void handleRejectRequest(request)}
+          />
+        ) : null}
       </AppScreen>
 
       <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={closeModal}>
@@ -707,25 +717,6 @@ const styles = StyleSheet.create({
     gap: spacing[3],
     marginBottom: spacing[4],
   },
-  statsRow: {
-    flexDirection: 'row',
-    gap: spacing[3],
-    marginBottom: spacing[4],
-  },
-  statCard: {
-    flex: 1,
-    minHeight: 76,
-    borderRadius: radius.lg,
-    padding: spacing[3],
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing[1],
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-  },
-  alertsCard: {
-    marginBottom: spacing[4],
-  },
   sectionHeader: {
     marginBottom: spacing[3],
   },
@@ -733,39 +724,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[2],
-  },
-  requestsBlock: {
-    marginTop: spacing[3],
-    paddingTop: spacing[3],
-    borderTopWidth: 1,
-    borderTopColor: colors.border.subtle,
-    gap: spacing[2],
-  },
-  requestRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    paddingVertical: spacing[2],
-  },
-  requestActions: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  requestApprove: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.pill,
-    backgroundColor: colors.success.soft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  requestReject: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.pill,
-    backgroundColor: colors.danger.soft,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   searchInput: {
     marginBottom: spacing[3],
@@ -826,6 +784,55 @@ const styles = StyleSheet.create({
   itemsList: {
     gap: spacing[3],
     paddingBottom: spacing[6],
+  },
+  itemsSection: {
+    gap: spacing[3],
+  },
+  itemsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  restockSection: {
+    marginTop: spacing[2],
+    paddingTop: spacing[5],
+    paddingBottom: spacing[6],
+    gap: spacing[3],
+    borderTopWidth: 1,
+    borderTopColor: colors.border.subtle,
+  },
+  restockRow: {
+    gap: spacing[2],
+    paddingVertical: spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.subtle,
+  },
+  restockCopy: {
+    gap: spacing[1],
+  },
+  restockActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  restockApprove: {
+    minHeight: 40,
+    paddingHorizontal: spacing[3],
+    borderRadius: radius.pill,
+    backgroundColor: colors.success.soft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
+  },
+  restockDismiss: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
   },
   itemCard: {
     marginBottom: spacing[1],
@@ -896,9 +903,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  deleteLink: {
-    alignSelf: 'flex-start',
+  itemSecondaryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing[2],
     marginTop: spacing[3],
+  },
+  secondaryAction: {
+    minHeight: 40,
+    paddingHorizontal: spacing[2],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
   },
   modalOverlay: {
     flex: 1,

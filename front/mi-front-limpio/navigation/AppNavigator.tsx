@@ -15,7 +15,6 @@ import { UpdatePasswordScreen } from '../screens/UpdatePassword';
 import { HomeTabNavigator } from './HomeTabNavigator';
 import { PlannerReliabilityRuntimeOwner } from '../components/planner/PlannerReliabilityRuntimeOwner';
 import { ProfileScreen } from '../screens/ProfileScreen';
-import { InventarioScreen } from '../screens/inventory/InventarioScreen';
 import { FeedFamiliarScreen } from '../screens/feed/FeedFamiliarScreen';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -198,7 +197,7 @@ const PrivateNavigator = () => {
   // currentHousehold NO resetean el stack, permitiendo que navigate/replace
   // post-creación permanezca en P03InvitarPersonas sin ser pisado.
   // S2: the Reliability runtime Owner is mounted ONCE here, above every
-  // PrivateStack.Screen (HomeTabs, Profile, Inventory, FeedFamiliar and the
+  // PrivateStack.Screen (HomeTabs, Profile, FeedFamiliar and the
   // various Fallbacks). It is *not* keyed by household — owner detects
   // scope changes itself via its readiness effect and disposes+reopens
   // deterministically. Keying it by household would force a full unmount
@@ -219,7 +218,6 @@ const PrivateNavigator = () => {
       <PrivateStack.Screen name="HouseholdSelectionFallback" component={HouseholdSelectionFallbackScreen} />
       <PrivateStack.Screen name="AccessSuspendedFallback" component={AccessSuspendedFallbackScreen} />
       <PrivateStack.Screen name="ProfileScreen" component={ProfileScreen} />
-      <PrivateStack.Screen name="Inventory" component={InventarioScreen} />
       <PrivateStack.Screen name="FeedFamiliar" component={FeedFamiliarScreen} />
     </PrivateStack.Navigator>
     </PlannerReliabilityRuntimeOwner>

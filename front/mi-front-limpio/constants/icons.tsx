@@ -6,10 +6,10 @@ type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 export const APP_ICONS = {
   bottomTabs: {
     home: 'home',
+    inventory: 'archive',
     people: 'people',
     planner: 'calendar',
     more: 'ellipsis-horizontal',
-    add: 'add',
   },
   quickActions: {
     createTask: 'checkbox',

@@ -15,16 +15,19 @@ export type PrivateStackParamList = {
   HouseholdSelectionFallback: undefined;
   AccessSuspendedFallback: undefined;
   ProfileScreen: undefined;
-  Inventory: undefined;
   FeedFamiliar: undefined;
 };
 
 export type HomeTabParamList = {
   HomeTab: undefined;
-  PeopleTab: undefined;
-  AddTab: undefined;
+  InventoryTab: undefined;
   PlannerTab: undefined;
   MoreTab: undefined;
+};
+
+export type MoreStackParamList = {
+  MoreHome: undefined;
+  Family: undefined;
 };
 
 // Re-export the canonical Planner V1 navigation authority (M1).

@@ -248,7 +248,7 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
       <InventoryUrgencyCard
         alerts={inventoryAlerts}
         variant={variant}
-        onPress={() => navigation.navigate('Inventory')}
+        onPress={() => navigation.navigate('InventoryTab')}
       />
 
       {/* Global error state */}

@@ -20,13 +20,13 @@ const MODULES = [
     isDemo: true,
   },
   {
-    id: 'inventory',
-    label: 'Inventario',
-    description: 'Cosas del hogar',
-    icon: 'archive',
+    id: 'family',
+    label: 'Familia',
+    description: 'Personas, roles y accesos',
+    icon: 'people',
     color: colors.sage[600],
     bg: colors.sage[50],
-    screen: 'Inventory' as const,
+    screen: 'Family' as const,
     isDemo: false,
   },
 ];
