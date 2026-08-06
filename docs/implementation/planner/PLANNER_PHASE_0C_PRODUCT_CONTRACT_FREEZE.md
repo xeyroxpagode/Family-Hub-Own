@@ -94,7 +94,7 @@ When Phase 0C freezes a product behavior that still needs implementation support
 | Draft terms | Creation Draft and Plan En preparación are separate concepts and must not share visible label `Borrador` |
 | Plan Preset flow | Preset preview creates no productive entities; confirmation creates Plan En preparación; activation materializes prepared Tasks/Events |
 | Activation | A Plan can activate with at least one useful primary Task, Event, Milestone, or Measurement, and no pending activation Requirements |
-| Manual Condition | Remove from canonical product; legacy maps to Milestone or Requirement |
+| Manual Condition | Remove from canonical product; legacy maps to Milestone |
 | Importance | Two levels only: Principal and De apoyo |
 | Requirements | Mandatory only; states Pendiente, Satisfecho, Anulado; annulment is audited |
 | Plan links | Task/Event each belongs to zero or one Plan at most; no many-to-many |
@@ -147,7 +147,7 @@ A Plan has no single mandatory progress mode. A Plan can be simple or complex, i
 | Attention item | Action queue item with primary/secondary actions | `PRODUCT_FROZEN` |
 | Activity row/detail | Audit/history projection and read-only detail | `PRODUCT_FROZEN` |
 
-Manual Condition is not canonical. Legacy Manual Condition cases migrate or represent as Milestone when they mean an achieved checkpoint, or Requirement when they mean an external mandatory condition.
+Manual Condition is not canonical. Legacy Manual Condition cases migrate to Milestone. Milestone is the single canonical representation of an achieved checkpoint or phase reached. Requirement remains an independent canonical entity for external or prerequisite mandatory conditions, and is not the migration target for Manual Condition.
 
 ## 7. Relationships
 

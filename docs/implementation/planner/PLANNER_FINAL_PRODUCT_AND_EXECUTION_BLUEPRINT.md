@@ -100,7 +100,7 @@ The visible word `Borrador` must not be used for both Creation Draft and Plan En
 | Attention item | Actionable item with primary resolution action and secondary Open action |
 | Activity row/detail | Audit/history projection, with permission-safe detail |
 
-Manual Condition is not an entity users can add, select, chip, configure, or use as a progress mode. Legacy Manual Condition data maps to Milestone or Requirement depending meaning.
+Manual Condition is not an entity users can add, select, chip, configure, or use as a progress mode. Legacy Manual Condition data migrates to Milestone. Milestone is the single canonical representation of an achieved checkpoint or phase reached. Requirement remains an independent canonical entity for external or prerequisite mandatory conditions, and is not the migration target for Manual Condition.
 
 ## 5. Creation Draft And Plan Preparation
 
@@ -159,7 +159,9 @@ Legacy mapping:
 | Legacy meaning | Final representation |
 |---|---|
 | Achieved result/checkpoint | Milestone |
-| External mandatory condition | Requirement |
+| External or prerequisite mandatory condition | Requirement (independent canonical entity; not a Manual Condition migration target) |
+
+Manual Condition migrates to Milestone only. Milestone is the single canonical representation of an achieved checkpoint or phase reached. Requirement remains an independent canonical entity for external or prerequisite mandatory conditions sourced from outside the Plan; it is not the migration target for Manual Condition legacy data.
 
 Physical deletion/migration is `OPEN_TECHNICAL_VALIDATION`.
 
