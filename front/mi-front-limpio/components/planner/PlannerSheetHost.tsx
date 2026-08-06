@@ -67,6 +67,7 @@ import { createPlannerMutationIntent } from '../../services/planner/plannerMutat
 import { tracePlanWrite } from '../../services/planner/planWriteTrace';
 import { createPlanWriteSingleFlightGate } from '../../services/planner/planWriteSingleFlight';
 import { enqueuePlannerPlanGraphWrite } from '../../services/planner/reliability';
+import { usePlanCompositionTrace } from '../../services/planner/planCompositionTrace';
 
 // ---------------------------------------------------------------------------
 // 1. Heading map (a11y announcement text)
@@ -310,6 +311,9 @@ function GoalFormHost() {
   const { currentHousehold } = useHousehold();
   const { session } = useAuth();
   const accessToken = session?.access_token;
+  // REC-0A — record mount/unmount of the Goal form host (legacy Goal Quick
+  // Create flow that still coexists with the Plan form host).
+  void usePlanCompositionTrace('GoalFormHost');
 
   const mold = sheet.state as PlannerSheetState & { kind: 'goal_form' };
 
@@ -389,6 +393,8 @@ function PlanFormHost() {
   const [error, setError] = useState<string | null>(null);
   const instanceTagRef = useRef(`sheet:${Math.random().toString(36).slice(2, 8)}`);
   const submitGateRef = useRef(createPlanWriteSingleFlightGate());
+  // REC-0A — record mount/unmount of the Plan form host.
+  void usePlanCompositionTrace('PlanFormHost');
 
   const mold = sheet.state as PlannerSheetState & { kind: 'plan_form' };
 
@@ -517,6 +523,9 @@ function PlanFormHost() {
 export function PlannerSheetHost() {
   const sheet = usePlannerSheet();
   const insets = useSafeAreaInsets();
+  // REC-0A — record mount/unmount of the single sheet host. There should be
+  // exactly one alive instance per authenticated shell.
+  void usePlanCompositionTrace('PlannerSheetHost');
 
   const { state, isOpen, isSubmitting, triggerRef, requestClose } = sheet;
 
