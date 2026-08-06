@@ -1,10 +1,10 @@
 # PLANNER FINAL PRODUCT AND EXECUTION BLUEPRINT
 
-STATUS: `PHASE_0C_PRODUCT_CONTRACT_FROZEN - TECHNICAL_VALIDATION_PENDING`
+STATUS: `PHASE_0D_TECHNICAL_ARCHITECTURE_AND_ROADMAP_FROZEN - PHASE_0_FREEZE_PENDING`
 
-This Blueprint is the frozen Planner product contract after Phase 0C. It defines what the product must do, which UX behaviors are canonical, which lifecycle/progress/retention/permission rules are frozen, and which alternatives are rejected. It does not define DB architecture, migrations, endpoints, Storage, RLS, jobs, backfills, replay mechanics, or implementation order; those belong to Phase 0D.
+This Blueprint is the frozen Planner product and technical execution contract after Phase 0D-B. It defines what the product must do, which UX behaviors are canonical, which lifecycle/progress/retention/permission rules are frozen, and which technical architecture, migrations, endpoints, Storage, RLS, jobs, backfills, replay mechanics, and implementation order are frozen for execution.
 
-Implementation remains blocked until technical validation is complete.
+Implementation remains blocked until the user approves Phase 0 Freeze.
 
 ## 0. Product Freeze Summary
 
@@ -17,15 +17,21 @@ Implementation remains blocked until technical validation is complete.
 | Forms and surfaces | `PRODUCT_FROZEN` |
 | Copy | `PRODUCT_FROZEN` |
 | Permissions | `PRODUCT_FROZEN` at conceptual actor level |
-| Technical architecture | `OPEN_TECHNICAL_VALIDATION` |
-| Phase 0 overall | Not fully frozen until 0D |
-| Implementation | Blocked |
+| Technical architecture | `TECHNICAL_FROZEN` |
+| Phase 0 overall | `PHASE_0_FREEZE_PENDING` |
+| Implementation | Blocked until user approval |
 
 Authoritative Phase 0C report:
 
 | Source | Result |
 |---|---|
 | `docs/implementation/planner/PLANNER_PHASE_0C_PRODUCT_CONTRACT_FREEZE.md` | `PLANNER_PHASE_0C_PRODUCT_CONTRACT_FROZEN` |
+
+Authoritative Phase 0D-B report:
+
+| Source | Result |
+|---|---|
+| `docs/implementation/planner/PLANNER_PHASE_0D_B_TECHNICAL_ARCHITECTURE_AND_EXECUTION_ROADMAP.md` | `PLANNER_PHASE_0D_TECHNICAL_ARCHITECTURE_AND_ROADMAP_FROZEN` |
 
 Decision hierarchy used:
 
@@ -68,7 +74,7 @@ Future AI may suggest simpler structure, explain status, or summarize context. A
 | Term | Product meaning | Status |
 |---|---|---|
 | Plan | Canonical root for organized objectives | `PRODUCT_FROZEN` |
-| Goal | Legacy productive root that must migrate/resolve into Plan | `PRODUCT_FROZEN`, `OPEN_TECHNICAL_VALIDATION` |
+| Goal | Legacy productive root that must migrate/resolve into Plan | `PRODUCT_FROZEN`, `TECHNICAL_FROZEN` migration roadmap |
 | Creation Draft | Owner-only, non-productive saved form payload | `PRODUCT_FROZEN` |
 | Plan En preparación | Real Plan already created, not executing yet | `PRODUCT_FROZEN` |
 | Task | Executable action | `PRODUCT_FROZEN` |
@@ -78,7 +84,7 @@ Future AI may suggest simpler structure, explain status, or summarize context. A
 | Requirement | Mandatory external/prerequisite condition for activation or completion | `PRODUCT_FROZEN` |
 | Manual Condition | Legacy/technical concept only; no canonical visible surface | Legacy/migration only, no final product contract |
 | Preset | Reusable configuration/template | `PRODUCT_FROZEN` |
-| Evidence | Completion-attempt proof | `PRODUCT_FROZEN`, `OPEN_TECHNICAL_VALIDATION` |
+| Evidence | Completion-attempt proof | `PRODUCT_FROZEN`, `TECHNICAL_FROZEN` architecture |
 | Attention | Action queue | `PRODUCT_FROZEN` |
 | Activity Detail | Redacted read-only detail for an Activity row | `PRODUCT_FROZEN` |
 
@@ -138,7 +144,7 @@ Elegir Preset de Plan
 -> Plan Activo
 ```
 
-Before `Crear Plan`: no productive Plan, Tasks, or Events exist. After `Crear Plan`: Plan En preparación exists, Milestones/Measurements/Requirements are structure, prepared Tasks/Events appear only inside the Plan, and prepared Tasks/Events do not appear in Planner Tasks, Calendar, productive Attention, active assignments, or recurrences. Activation materializes all remaining prepared Tasks/Events as one product intention. Technical atomicity is `OPEN_TECHNICAL_VALIDATION`.
+Before `Crear Plan`: no productive Plan, Tasks, or Events exist. After `Crear Plan`: Plan En preparación exists, Milestones/Measurements/Requirements are structure, prepared Tasks/Events appear only inside the Plan, and prepared Tasks/Events do not appear in Planner Tasks, Calendar, productive Attention, active assignments, or recurrences. Activation materializes all remaining prepared Tasks/Events as one product intention. Phase 0D-B freezes activation as a single backend transactional operation with idempotent materialization.
 
 ## 7. Activation
 
@@ -146,7 +152,7 @@ Before `Crear Plan`: no productive Plan, Tasks, or Events exist. After `Crear Pl
 
 A Plan can activate when it contains at least one useful principal element: prepared Task, prepared Event, Milestone, or Measurement. A Plan cannot activate with pending activation Requirements. Requirements may be satisfied or annulled according to contract. Activation requires human confirmation. Empty Plans cannot activate.
 
-The previous technical limitation requiring Milestone, Measurement, or Manual Condition is not final product behavior. 0D must resolve or adapt implementation.
+The previous technical limitation requiring Milestone, Measurement, or Manual Condition is not final product behavior. Phase 0D-B resolves the target architecture: activation accepts useful principal prepared Tasks, prepared Events, Milestones, or Measurements and rejects pending activation Requirements.
 
 ## 8. Manual Condition
 
@@ -163,7 +169,7 @@ Legacy mapping:
 
 Manual Condition migrates to Milestone only. Milestone is the single canonical representation of an achieved checkpoint or phase reached. Requirement remains an independent canonical entity for external or prerequisite mandatory conditions sourced from outside the Plan; it is not the migration target for Manual Condition legacy data.
 
-Physical deletion/migration is `OPEN_TECHNICAL_VALIDATION`.
+Physical deletion/migration is frozen as staged backfill, read bridge, write cutover, read cutover, and legacy removal. Manual Condition legacy migrates only to Milestone.
 
 ## 9. Importance
 
@@ -212,7 +218,7 @@ Avoid duplicate obligations:
 | A value must be reached | Principal Measurement |
 | External/prerequisite condition outside those entities | Requirement |
 
-Do not create both a principal Task `Firmar contrato` and Requirement `Completar Task Firmar contrato` unless 0D proves an integration need that does not duplicate UX.
+Do not create both a principal Task `Firmar contrato` and Requirement `Completar Task Firmar contrato`. Phase 0D-B freezes Requirements as independent mandatory gates and Plan-Task as a dedicated execution link.
 
 ## 11. Plan-Task And Plan-Event Links
 
@@ -433,7 +439,7 @@ Activity row opens Activity Detail. Detail shows what happened, who, when, visib
 
 ## 27. Cancelled, Trash, Retention, Purge
 
-`PRODUCT_FROZEN`, with purge mechanics `OPEN_TECHNICAL_VALIDATION`
+`PRODUCT_FROZEN`, with purge mechanics `TECHNICAL_FROZEN`
 
 | State/action | Retention contract |
 |---|---|
@@ -456,7 +462,7 @@ Task and Event do not have Archive as main lifecycle. Plan Completed or Closed c
 
 ## 29. Goal To Plan Migration
 
-`PRODUCT_FROZEN`, implementation `OPEN_TECHNICAL_VALIDATION`
+`PRODUCT_FROZEN`, implementation roadmap `TECHNICAL_FROZEN`
 
 Target: one visible Plan entity, one final PlanDetail route, one list, one Detail, one Home projection, one Search, one Trash, one progress model. Migration is automatic when unequivocal, guided only for conflicts, not manual for every Goal, not convert-only-on-open as primary strategy, and not long-term dual visible roots.
 
@@ -464,7 +470,7 @@ Preserve title, description, compatible category, semantically equivalent dates,
 
 ## 30. Resolver And Routes
 
-`PRODUCT_FROZEN`, implementation `OPEN_TECHNICAL_VALIDATION`
+`PRODUCT_FROZEN`, implementation roadmap `TECHNICAL_FROZEN`
 
 During transition, Legacy Goal resolver receives ID, determines Goal or Plan, opens valid destination, uses mapping when present, and avoids Plan not found. Final route is PlanDetail. GoalDetail is a legacy ambiguous physical name and must not permanently represent Plans.
 
@@ -472,7 +478,7 @@ Home and Search must use consistent Plan projection and safe resolution.
 
 ## 31. Scope And Privacy
 
-`PRODUCT_FROZEN`, implementation `OPEN_TECHNICAL_VALIDATION`
+`PRODUCT_FROZEN`, implementation roadmap `TECHNICAL_FROZEN`
 
 Scope can edit after creation only when actor has permission, consequences are shown, members/assignees/links/Activity/cache/visibility are resolved, and scope does not change silently. Personal data must not leak to household through implicit links. Personal entity linked to household Plan is blocked unless explicitly shared.
 
@@ -590,12 +596,12 @@ Do not expose technical terms to normal users: DTO, graph, mutation, fulfillment
 | Task | Quick/contextual | Creation Draft | Pendiente | N/A | Via Plan link | Hecha or Verificada | Cancelada | Reactivada | No main archive | Manual/auto | Cancelled 30d, auto Trash 7d, manual Trash 30d | Yes | Review/correction/upload | Pending/uncertain; evidence upload gated |
 | Event | Quick/calendar/contextual | Creation Draft | Scheduled | N/A | Via Plan link | Resolved only by Plan-specific rule | Cancelled | Reactivated where allowed | No main archive | Manual/auto | Cancelled 30d, auto Trash 7d, manual Trash 30d | Yes | RSVP/final/attention cases | Pending/uncertain recurrence edits |
 | Plan | Blank or Preset preview | Creation Draft before create; En preparación after create | En preparación | Human Activar Plan | Structure/link chip | Human Completar Plan | Use Cerrado, not Cancelled | Reabrir Plan | Terminal only | Manual | Manual Trash 30d; Archive no expiry | Yes | Blocked/review required | Activation/completion uncertain until confirmed |
-| Milestone | In Plan structure | Plan preparation only | Pending | Can make Plan activatable | Yes | Completed milestone counts | Remove/replace, not cancelled primary lifecycle | Reopen milestone | Through Plan only | Structure trash/removal validation 0D | 0D | Yes | Blocker/progress | Structure write replay 0D |
-| Measurement | In Plan structure | Plan preparation only | Not reached/current | Can make Plan activatable | Yes | Target reached counts | Remove/replace, not cancelled primary lifecycle | Correct/update history | Through Plan only | 0D | 0D | Yes | At-risk/blocker projections | Value write replay 0D |
-| Requirement | In Plan structure | Plan preparation only | Pendiente | Blocks if activation gate | Not applicable | Satisfied/annulled for gate | Annul, not cancel | Reopen/reset validation 0D | Through Plan only | 0D | 0D | Yes, especially annul | Blocker item | Gate replay/idempotency 0D |
-| Preset | HomePlus/personal/family | Preset revision draft, not Creation Draft | Published/revision state | N/A | N/A | N/A | N/A | Restore revision/trash as allowed | No archive for HomePlus/personal first version | Personal Trash | Personal Trash 30d | Use/applied/edit events where relevant | N/A | Prepare/apply replay 0D |
+| Milestone | In Plan structure | Plan preparation only | Pending | Can make Plan activatable | Yes | Completed milestone counts | Remove/replace, not cancelled primary lifecycle | Reopen milestone | Through Plan only | Structure removal via Plan graph | Plan retention follows Plan | Yes | Blocker/progress | Structure write replay |
+| Measurement | In Plan structure | Plan preparation only | Not reached/current | Can make Plan activatable | Yes | Target reached counts | Remove/replace, not cancelled primary lifecycle | Correct/update history | Through Plan only | Structure removal via Plan graph | Plan retention follows Plan | Yes | At-risk/blocker projections | Value write replay |
+| Requirement | In Plan structure | Plan preparation only | Pendiente | Blocks if activation gate | Not applicable | Satisfied/annulled for gate | Annul, not cancel | Reset | Through Plan only | Structure removal via Plan graph | Plan retention follows Plan | Yes, especially annul | Blocker item | Gate replay/idempotency |
+| Preset | HomePlus/personal/family | Preset revision draft, not Creation Draft | Published/revision state | N/A | N/A | N/A | N/A | Restore revision/trash as allowed | No archive for HomePlus/personal first version | Personal Trash | Personal Trash 30d | Use/applied/edit events where relevant | N/A | Prepare/apply replay |
 | Draft | Autosave/explicit keep | Itself | Live | N/A | N/A | Confirm creates entity or continue | Discard/expire | Continue before expiry | No | Not product Trash | 30d from last edit | No family Activity | Private expiry warning | Local/offline recovery |
-| Evidence | Completion attempt | Draft attachment validation 0D | Pending upload | N/A | N/A | Review outcome | Purged with policy | Correction creates new attempt | No | With owning entity policy | 0D | Redacted | Upload failed | Upload queue pending |
+| Evidence | Completion attempt | Draft attachment validation follows owner-only Draft rules | Pending upload | N/A | N/A | Review outcome | Purged with policy | Correction creates new attempt | No | With owning entity policy | Owner entity retention | Redacted | Upload failed | Upload queue pending |
 
 ## 37. Transition Matrix
 
@@ -706,11 +712,33 @@ This is a future implementation gate, not implemented by 0C.
 | Single-flight | Duplicate submit prevention works |
 | Android runtime | Acceptance passes on Android runtime |
 
-## 39. Open Technical Validation For 0D
+## 39. Technical Architecture Freeze From Phase 0D-B
 
-`OPEN_TECHNICAL_VALIDATION`
+`TECHNICAL_FROZEN`
 
-0D must validate representation of prepared Tasks/Events, atomic activation, Plan-Task link, Plan-Event link, zero-or-one cardinality, Principal/De apoyo constraints, Requirement activation/completion gates, audited annulment, Manual Condition migration/removal, progress projections, final Event resolution, Task/Event recurrence relationship, Plan pause orchestration, Plan preset atomicity, Draft live TTL, Draft attachments, evidence attempt tables, Storage, thumbnails, upload queue, RLS, retention, Cancelled 30 days, automatic Trash 7 days, manual Trash 30 days, cleanup jobs, hard delete, tombstones, Activity Detail DTO, Attention handlers, Goal migration, bridge, `task.goal_id` migration, Home resolver, Search consistency, route renaming, cache invalidation, offline replay, idempotency, and REC-0A duplicate execution.
+Phase 0D-B freezes the final technical architecture for prepared Tasks/Events, atomic activation, dedicated Plan-Task links, dedicated Plan-Event links, zero-or-one cardinality, Principal/De apoyo constraints, Requirement activation/completion gates, audited annulment, Manual Condition migration to Milestone, progress projections, Final Event resolution, Task/Event recurrence relationship, Plan pause orchestration, Plan preset atomicity, Draft live TTL, Draft attachments, evidence attempt tables, Storage, thumbnails, upload queue, RLS, retention, Cancelled 30 days, automatic Trash 7 days, manual Trash 30 days, cleanup jobs, hard delete, tombstones, Activity Detail DTO, Attention handlers, Goal migration, bridge, `task.goal_id` migration, Home resolver, Search consistency, route renaming, cache invalidation, offline replay, idempotency, and REC-0A runtime evidence sequencing.
+
+Implementation is still blocked. Remaining work after this Blueprint is runtime validation, implementation, migration execution, QA, Android acceptance, and user approval of Phase 0 Freeze. No central architecture decision remains delegated to implementation.
+
+### 39.1 Canonical Technical Decisions
+
+| Area | Frozen decision |
+|---|---|
+| Plan root | `planner_plans` remains canonical; Goal becomes legacy bridge and migration source only |
+| Plan-Task | dedicated canonical link with `plan_id`, `task_id`, `importance`, `function`, ordering, version, zero-or-one Task membership |
+| Plan-Event | dedicated canonical link with series/occurrence binding, `importance`, `function`, Final Event outcome, zero-or-one Event binding |
+| Prepared items | Plan-owned prepared Task/Event tables; hidden and non-productive until activation |
+| Activation | one backend transaction validates, materializes, links, creates recurrence, activates Plan, logs Activity, returns graph |
+| Requirements | mandatory gates only; states Pending/Satisfied/Annulled; annulment requires permission, reason, actor, timestamp, Activity |
+| Manual Condition | legacy rows migrate only to Milestone; no final visible product surface |
+| Evidence | completion attempts plus evidence rows, private Storage bucket, signed access, thumbnails, upload queue |
+| Retention | Cancelled 30d, auto-Trash 7d, manual Trash 30d, hard delete when safe, minimal tombstone when references require |
+| Reliability | Current PlannerMutationIntent, durable queue, idempotency, replay, single-flight, observer sink remain mandatory |
+| REC-0A | first implementation mini-lot gathers runtime trace before any duplicate-dispatch fix |
+
+### 39.2 Implementation Roadmap Reference
+
+The total roadmap is authoritative in `PLANNER_PHASE_0D_B_TECHNICAL_ARCHITECTURE_AND_EXECUTION_ROADMAP.md` and starts with `REC-0A`, then proceeds through schema/RLS, Reliability adapters, graph backend, prepared items, atomic activation, lifecycle, Plan-Task, Plan-Event, evidence, drafts/presets, Attention/Activity, Goal migration, UI/read cutover, retention/purge, integrated QA, and legacy removal.
 
 ## 40. Deferred Post MVP
 
@@ -772,15 +800,21 @@ The terms `Manual Condition`, `blocks_activation`, `blocks_completion`, `many-to
 | One Plan per Task/Event vs many-to-many | Zero-or-one cardinality frozen |
 | Recurrent Plan vs completed cycle | Plan stays Active; occurrences complete |
 | Draft expiry vs real Plan expiry | Draft expires; Plan En preparación does not auto-expire |
+| External requirement links vs Plan-Task/Plan-Event ownership | Dedicated canonical links own Task/Event Plan membership; Requirements remain mandatory gates |
+| `task.goal_id` vs Plan root | `task.goal_id` is legacy bridge only and is not a final Plan link |
+| `confirm_unresolved` vs Requirement gates | Completion bypass is replaced by audited Requirement annulment |
+| Evidence product contract vs missing Current tables | 0D-B freezes completion attempts, evidence rows, Storage, thumbnails, upload queue, and purge behavior |
+| Purge vs Activity integrity | Hard delete is used when safe; minimal tombstone is used only when references require stable identity |
 
 ## 43. Execution Gate
 
-No productive implementation may start from this Blueprint alone. Phase 0D must produce the technical validation, DB/backend/runtime plan, migration mechanics, Reliability/replay plan, RLS/storage/retention design, and implementation ordering. Phase 1 remains blocked until Phase 0D is accepted.
+No productive implementation may start from this Blueprint alone. Phase 0D-B freezes the technical architecture and roadmap, but Phase 0 Freeze still requires explicit user approval. Phase 1 remains blocked until that approval is granted.
 
 ## 44. Final Verdict
 
 ```text
-PHASE_0C_PRODUCT_CONTRACT_FROZEN - TECHNICAL_VALIDATION_PENDING
+PHASE_0D_TECHNICAL_ARCHITECTURE_AND_ROADMAP_FROZEN
+PHASE_0_FREEZE_PENDING
 ```
 
-Product is frozen. Technical validation is pending. Implementation remains blocked.
+Product is frozen. Technical architecture and roadmap are frozen. Implementation remains blocked until the user approves Phase 0 Freeze.
