@@ -127,14 +127,14 @@ export const typography = {
     fontSize: 34,
     lineHeight: 42,
     fontWeight: '700',
-    letterSpacing: -0.4,
+    letterSpacing: 0,
   },
   title1: {
     fontFamily: systemSans,
     fontSize: 28,
     lineHeight: 36,
     fontWeight: '700',
-    letterSpacing: -0.2,
+    letterSpacing: 0,
   },
   title2: {
     fontFamily: systemSans,
@@ -285,6 +285,16 @@ export const motion = {
   sheet: 320,
   success: 420,
   max: 500,
+  scale: {
+    button: 0.98,
+    icon: 0.95,
+    card: 0.99,
+    tab: 0.97,
+  },
+  spring: {
+    press: { damping: 22, stiffness: 360, mass: 0.7 },
+    release: { damping: 16, stiffness: 280, mass: 0.8 },
+  },
 } as const;
 
 export const touchTargets = {

@@ -748,7 +748,7 @@ export function EventForm({
       </View>
       {recurrence ? <EventRecurrenceSummary recurrence={recurrence} /> : null}
       <View style={eventStyles.actionRow}>
-        {onCancel ? <AppButton title="Cerrar" variant="ghost" onPress={onCancel} /> : null}
+        {onCancel ? <AppButton variant="icon" onPress={onCancel} accessibilityLabel="Cerrar formulario"><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton> : null}
         <AppButton
           title={form.status === 'submitting' ? 'Guardando' : mode === 'edit' ? 'Guardar cambios' : 'Crear evento'}
           loading={form.status === 'submitting'}

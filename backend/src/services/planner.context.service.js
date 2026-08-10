@@ -66,6 +66,7 @@ const getPlannerContext = async (req) => {
     personId: person.id,
     membershipId: membership.id,
     role: membership.role,
+    membershipStatus: membership.status,
   }
 }
 

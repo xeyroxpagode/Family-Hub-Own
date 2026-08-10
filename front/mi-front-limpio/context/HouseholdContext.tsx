@@ -81,7 +81,7 @@ export const HouseholdProvider = ({ children }: { children: React.ReactNode }) =
 
     return [{
       id: activeMembership.id,
-      user_id: user?.id ?? authMe?.person?.auth_user_id ?? activeMembership.person_id,
+      user_id: authMe?.person?.id ?? activeMembership.person_id,
       household_id: currentHousehold.id,
       rol: currentRole ?? 'adulto',
       joined_at: activeMembership.joined_at ?? activeMembership.created_at,

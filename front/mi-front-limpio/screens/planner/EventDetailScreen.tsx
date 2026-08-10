@@ -227,7 +227,7 @@ export function EventDetailScreen() {
             style={styles.backBtn}
             onPress={handleBack}
             accessibilityRole="button"
-            accessibilityLabel="Volver a Planner"
+            accessibilityLabel="Volver a Calendario"
           >
             <HomePlusIcon name="chevron-back-outline" size={22} color={colors.text.primary} />
           </TouchableOpacity>

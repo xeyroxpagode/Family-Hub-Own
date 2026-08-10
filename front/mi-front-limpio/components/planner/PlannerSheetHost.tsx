@@ -30,9 +30,12 @@ import {
   ScrollView,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { HomePlusIcon } from '../../constants/icons';
+import { colors, spacing } from '../../constants/theme';
 import { plannerStyles as S } from '../../screens/planner/plannerShared';
 import { AppText } from '../ui/AppText';
 import { usePlannerSheet } from '../../context/PlannerSheetContext';
@@ -523,11 +526,17 @@ function PlanFormHost() {
 export function PlannerSheetHost() {
   const sheet = usePlannerSheet();
   const insets = useSafeAreaInsets();
+  const { height: viewportHeight } = useWindowDimensions();
   // REC-0A — record mount/unmount of the single sheet host. There should be
   // exactly one alive instance per authenticated shell.
   void usePlanCompositionTrace('PlannerSheetHost');
 
   const { state, isOpen, isSubmitting, triggerRef, requestClose } = sheet;
+  const contentManagesVerticalScroll = state.kind === 'task_form'
+    || state.kind === 'event_form'
+    || state.kind === 'goal_form'
+    || state.kind === 'plan_form';
+  const isFormSheet = contentManagesVerticalScroll;
 
   // Back handler ref (stable identity for addEventListener/removeEventListener)
   const backHandlerRef = useRef<ReturnType<typeof BackHandler.addEventListener> | null>(null);
@@ -618,10 +627,7 @@ export function PlannerSheetHost() {
       }}
     >
       <Pressable
-        style={[
-          S.sheetBackdrop,
-          { paddingBottom: insets.bottom },
-        ]}
+        style={S.sheetBackdrop}
         onPress={() => {
           if (canClose) {
             Keyboard.dismiss();
@@ -635,10 +641,7 @@ export function PlannerSheetHost() {
         importantForAccessibility="no"
       >
         <Pressable
-          style={[
-            S.sheetPanel,
-            { marginBottom: insets.bottom },
-          ]}
+          style={[S.sheetPanel, isFormSheet && { height: Math.max(360, viewportHeight - insets.top - spacing[3]) }]}
           onPress={(e) => e.stopPropagation()}
           accessibilityRole="none"
           accessibilityLabel={
@@ -673,26 +676,22 @@ export function PlannerSheetHost() {
               }
               disabled={!canClose}
             >
-              <AppText
-                variant="micro"
-                tone={canClose ? 'tertiary' : 'tertiary'}
-                weight="700"
-                style={{ opacity: canClose ? 1 : 0.4 }}
-              >
-                Cerrar
-              </AppText>
+              <HomePlusIcon name="close" size={20} color={colors.text.tertiary} style={{ opacity: canClose ? 1 : 0.4 }} />
             </TouchableOpacity>
           </View>
 
-          {/* Content area */}
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {content}
-          </ScrollView>
+          {/* Forms own their keyboard-aware vertical scroll; other sheets use the host scroll. */}
+          {contentManagesVerticalScroll ? content : (
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {content}
+            </ScrollView>
+          )}
         </Pressable>
       </Pressable>
     </Modal>

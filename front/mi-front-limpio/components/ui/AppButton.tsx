@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   View,
   type PressableProps,
   type StyleProp,
@@ -9,8 +8,9 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { colors, radius, spacing, touchTargets } from '../../constants/theme';
+import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
 import { AppText } from './AppText';
+import { InteractivePressable, type InteractionHaptic } from './InteractivePressable';
 
 export type AppButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'glass' | 'icon';
 export type AppButtonSize = 'sm' | 'md' | 'lg';
@@ -25,6 +25,7 @@ export type AppButtonProps = Omit<PressableProps, 'children' | 'style'> & {
   rightSlot?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
+  haptic?: InteractionHaptic;
 };
 
 const sizeStyles: Record<
@@ -78,21 +79,42 @@ export function AppButton({
   accessibilityLabel,
   style,
   textStyle,
+  haptic,
   ...props
 }: AppButtonProps) {
   const isDisabled = disabled || loading;
   const buttonSize = sizeStyles[size];
   const buttonVariant = variantStyles[variant];
   const isIcon = variant === 'icon';
+  const buttonContent = (
+    <>
+      {leftSlot ? <View>{leftSlot}</View> : null}
+      {title ? (
+        <AppText
+          variant={buttonSize.textVariant}
+          tone={buttonVariant.textTone}
+          weight="700"
+          style={textStyle}
+        >
+          {title}
+        </AppText>
+      ) : (
+        children
+      )}
+      {rightSlot ? <View>{rightSlot}</View> : null}
+    </>
+  );
 
   return (
-    <Pressable
+    <InteractivePressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       disabled={isDisabled}
       {...props}
-      style={({ pressed }) => [
+      haptic={haptic ?? (variant === 'primary' || variant === 'danger' ? 'medium' : variant === 'icon' ? 'light' : 'none')}
+      pressScale={isIcon ? motion.scale.icon : motion.scale.button}
+      style={[
         {
           minHeight: buttonSize.minHeight,
           minWidth: isIcon ? buttonSize.minHeight : touchTargets.normal,
@@ -104,35 +126,22 @@ export function AppButton({
           justifyContent: 'center',
           flexDirection: 'row',
           gap: spacing[2],
-          opacity: isDisabled ? 0.58 : pressed ? 0.86 : 1,
-          transform: [{ scale: pressed && !isDisabled ? 0.98 : 1 }],
         },
         buttonVariant.container,
         style,
       ]}
     >
       {loading ? (
-        <ActivityIndicator
-          color={buttonVariant.textTone === 'inverse' ? colors.text.inverse : colors.terracotta[600]}
-        />
+        <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ opacity: 0 }}>{buttonContent}</View>
+          <ActivityIndicator
+            style={{ position: 'absolute' }}
+            color={buttonVariant.textTone === 'inverse' ? colors.text.inverse : colors.terracotta[600]}
+          />
+        </View>
       ) : (
-        <>
-          {leftSlot ? <View>{leftSlot}</View> : null}
-          {title ? (
-            <AppText
-              variant={buttonSize.textVariant}
-              tone={buttonVariant.textTone}
-              weight="700"
-              style={textStyle}
-            >
-              {title}
-            </AppText>
-          ) : (
-            children
-          )}
-          {rightSlot ? <View>{rightSlot}</View> : null}
-        </>
+        buttonContent
       )}
-    </Pressable>
+    </InteractivePressable>
   );
 }

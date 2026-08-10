@@ -1,4 +1,5 @@
 export * from './ActionPill';
+export * from './ActionSheet';
 export * from './AppAvatar';
 export * from './AppButton';
 export * from './AppCard';
@@ -10,6 +11,7 @@ export * from './EmptyState';
 export * from './ErrorState';
 export * from './GlassSurface';
 export * from './HouseholdSwitcherSheet';
+export * from './InteractivePressable';
 export * from './QuickActionSheet';
 export * from './Skeleton';
 export * from './UndoToast';

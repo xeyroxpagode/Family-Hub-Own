@@ -144,7 +144,7 @@ export const InviteLinkSheet: React.FC<InviteLinkSheetProps> = ({
         >
           <View style={styles.handleRow}>
             <View style={styles.handle} />
-            <AppButton title="Cerrar" variant="ghost" size="sm" onPress={onClose} style={styles.closeButton} />
+            <AppButton variant="icon" size="sm" onPress={onClose} style={styles.closeButton} accessibilityLabel="Cerrar invitacion"><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
           </View>
 
           <ScrollView

@@ -40,6 +40,7 @@ import { useAppRefresh } from '../../context/AppRefreshContext';
 import { addDays, dateToYMD, plannerStyles as S, priorityLabels, priorityLabelsWithLegacy } from './plannerShared';
 import { colors } from '../../constants/theme';
 import { HomePlusIcon, type HomePlusIconName } from '../../constants/icons';
+import { DatePickerSheet, FormActionRow, TimePickerSheet, formatHumanDate } from '../../components/ui';
 
 type TaskFormProps = {
   mode: 'create' | 'edit';
@@ -190,6 +191,7 @@ export function TaskForm({
   const [noteExpanded, setNoteExpanded] = useState(false);
   const [legacyMissingDate, setLegacyMissingDate] = useState(false);
   const [inputFocus, setInputFocus] = useState<string | null>(null);
+  const [activePicker, setActivePicker] = useState<'date' | 'time' | null>(null);
   const [goalId, setGoalId] = useState<string | null>(routeGoalId ?? null);
   const [goals, setGoals] = useState<PlannerGoal[]>([]);
   const [entityVersion, setEntityVersion] = useState<number>(1);
@@ -546,8 +548,8 @@ export function TaskForm({
           <View style={styles.compactHeader}>
             <Text style={styles.formTitle}>{mode === 'edit' ? 'Editar tarea' : 'Nueva tarea'}</Text>
             {!embedded ? (
-              <TouchableOpacity style={styles.headerCloseButton} onPress={closeForm}>
-                <Text style={styles.headerCloseText}>Cerrar</Text>
+              <TouchableOpacity style={styles.headerCloseButton} onPress={closeForm} accessibilityRole="button" accessibilityLabel="Cerrar formulario">
+                <HomePlusIcon name="close" size={20} color={colors.text.secondary} />
               </TouchableOpacity>
             ) : null}
           </View>
@@ -768,7 +770,7 @@ export function TaskForm({
                   </TouchableOpacity>
                 );
               })}
-              <TouchableOpacity style={styles.moreDateButton} onPress={() => setShowMore(true)}>
+              <TouchableOpacity style={styles.moreDateButton} onPress={() => setActivePicker('date')}>
                 <HomePlusIcon name="calendar" size={18} color={colors.terracotta[600]} />
                 <Text style={styles.moreDateText}>Más fechas</Text>
               </TouchableOpacity>
@@ -825,34 +827,9 @@ export function TaskForm({
 
             {showMore ? (
               <View style={styles.detailsBody}>
-                <View style={styles.inlineInputs}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.fieldLabel}>Fecha exacta</Text>
-                    <TextInput
-                      style={[styles.input, inputFocus === 'dueDate' && styles.inputFocused]}
-                      value={dueDate}
-                      onChangeText={(value) => {
-                        setDueDate(value);
-                        setLegacyMissingDate(false);
-                      }}
-                      onFocus={() => setInputFocus('dueDate')}
-                      onBlur={() => setInputFocus(null)}
-                      placeholder="2026-07-08"
-                      placeholderTextColor={colors.text.muted}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.fieldLabel}>Hora</Text>
-                    <TextInput
-                      style={[styles.input, inputFocus === 'dueTime' && styles.inputFocused]}
-                      value={dueTime}
-                      onChangeText={setDueTime}
-                      onFocus={() => setInputFocus('dueTime')}
-                      onBlur={() => setInputFocus(null)}
-                      placeholder="14:30"
-                      placeholderTextColor={colors.text.muted}
-                    />
-                  </View>
+                <View style={{ gap: 8 }}>
+                  <FormActionRow label="Fecha" value={formatHumanDate(dueDate)} onPress={() => setActivePicker('date')} />
+                  <FormActionRow label="Hora" value={dueTime || 'Sin hora'} onPress={() => setActivePicker('time')} />
                 </View>
 
                 {tipoId === 'other' ? (
@@ -892,6 +869,8 @@ export function TaskForm({
             </Text>
           </TouchableOpacity>
         </View>
+        <DatePickerSheet visible={activePicker === 'date'} value={dueDate} onClose={() => setActivePicker(null)} onConfirm={(nextDate) => { selectDate(nextDate); setActivePicker(null); }} />
+        <TimePickerSheet visible={activePicker === 'time'} value={dueTime || '09:00'} onClose={() => setActivePicker(null)} onConfirm={(nextTime) => { setDueTime(nextTime); setActivePicker(null); }} />
       </View>
     </Pressable>
   );
@@ -910,6 +889,7 @@ export function TaskForm({
 const styles = StyleSheet.create({
   formShell: {
     flex: 1,
+    position: 'relative',
   },
   embeddedContent: {
     paddingBottom: 112,

@@ -254,7 +254,7 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
       {/* Global error state */}
       {status === 'recoverable_error' || status === 'forbidden' ? (
         <ErrorState
-          title={status === 'forbidden' ? 'Sin permiso' : 'No pudimos cargar Planner'}
+          title={status === 'forbidden' ? 'Sin permiso' : 'No pudimos cargar Calendario'}
           description={state.errorCode === 'planner_forbidden'
             ? 'No tienes permiso para ver el Planner.'
             : 'Error al cargar el resumen. Puedes reintentar.'}

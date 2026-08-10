@@ -548,8 +548,8 @@ export function GoalForm({
             </AppText>
           </View>
           {!embedded ? (
-            <TouchableOpacity style={styles.closeButton} onPress={closeForm}>
-            <AppText variant="micro" tone="tertiary" weight="700">Cerrar</AppText>
+            <TouchableOpacity style={styles.closeButton} onPress={closeForm} accessibilityRole="button" accessibilityLabel="Cerrar formulario">
+            <HomePlusIcon name="close" size={20} color={colors.text.secondary} />
             </TouchableOpacity>
           ) : null}
         </View>

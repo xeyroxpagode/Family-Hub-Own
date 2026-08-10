@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Keyboard,
+  Platform,
   Pressable,
   Switch,
   Text,
@@ -29,8 +30,10 @@ import { createIdempotencyKey } from '../../services/idempotency';
 import { omitUndefinedPlannerPayloadProperties } from '../../services/planner/plannerPayloadFilter';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
+import { HomePlusIcon } from '../../constants/icons';
 import { buildLocalIso, dateToYMD, addDays, plannerStyles as S, recurrenceLabels } from './plannerShared';
 import { colors } from '../../constants/theme';
+import { DatePickerSheet, FormActionRow, TimePickerSheet, formatHumanDate } from '../../components/ui';
 
 type EventFormProps = {
   mode: 'create' | 'edit';
@@ -139,6 +142,7 @@ export function EventForm({
   const [locationName, setLocationName] = useState('');
   const [recurrence, setRecurrence] = useState<PlannerEventRecurrence>('none');
   const [entityVersion, setEntityVersion] = useState<number | null>(null);
+  const [activePicker, setActivePicker] = useState<'date' | 'start' | 'end' | null>(null);
 
   const eventCreateKeyRef = useRef(createIdempotencyKey('planner.events.create'));
   const eventUpdateKeyRef = useRef(createIdempotencyKey('planner.events.update'));
@@ -460,10 +464,12 @@ onPress: async () => {
       <Text style={[S.emptyText, { marginTop: 12 }]}>Cargando formulario...</Text>
     </View>
   ) : (
-    <Pressable style={{ flex: 1 }} onPress={handlePressOutside}>
-      <KeyboardAwareScrollView
+    <View style={{ flex: 1, position: 'relative' }}>
+      <Pressable style={{ flex: 1 }} onPress={handlePressOutside}>
+        <KeyboardAwareScrollView
         style={embedded ? undefined : S.scroll}
         contentContainerStyle={embedded ? { paddingBottom: 26 } : S.content}
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         keyboardShouldPersistTaps="handled"
         enableOnAndroid={true}
         extraScrollHeight={48}
@@ -477,9 +483,11 @@ onPress: async () => {
                 : 'Agendá un momento importante para que todos estén al tanto.'}
             </Text>
           </View>
-          <TouchableOpacity style={S.secondaryBtn} onPress={closeForm}>
-            <Text style={S.secondaryText}>Cerrar</Text>
-          </TouchableOpacity>
+          {!embedded ? (
+            <TouchableOpacity style={[S.secondaryBtn, { width: 44, paddingHorizontal: 0 }]} onPress={closeForm} accessibilityRole="button" accessibilityLabel="Cerrar formulario">
+              <HomePlusIcon name="close" size={20} color={colors.text.secondary} />
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         {error ? (
@@ -561,15 +569,7 @@ onPress: async () => {
           </View>
 
           <View style={S.eventFormSection}>
-            <Text style={S.formLabelHuman}>Fecha</Text>
-            <TextInput
-              style={[S.eventFormInput, S.eventFormInputFocus, validateDate(date) && dateTouched && { borderColor: colors.danger.base }]}
-              value={date}
-              onChangeText={setDate}
-              onFocus={() => { if (error) setError(null); }}
-              placeholder="2024-06-15"
-              placeholderTextColor={colors.text.tertiary}
-            />
+            <FormActionRow label="Fecha" value={getDateLabel(date) || formatHumanDate(date)} onPress={() => setActivePicker('date')} />
             {validateDate(date) && dateTouched ? (
               <Text style={S.formErrorInline}>{validateDate(date)}</Text>
             ) : (
@@ -586,29 +586,13 @@ onPress: async () => {
             <View style={S.eventFormSection}>
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={S.formLabelHuman}>Hora de inicio</Text>
-                  <TextInput
-                    style={[S.eventFormInput, S.eventFormInputFocus, validateTime(startTime) && startTimeTouched && { borderColor: colors.danger.base }]}
-                    value={startTime}
-                    onChangeText={setStartTime}
-                    onFocus={() => { if (error) setError(null); }}
-                    placeholder="09:00"
-                    placeholderTextColor={colors.text.tertiary}
-                  />
+                  <FormActionRow label="Hora de inicio" value={startTime} onPress={() => setActivePicker('start')} />
                   {validateTime(startTime) && startTimeTouched ? (
                     <Text style={S.formErrorInline}>{validateTime(startTime)}</Text>
                   ) : null}
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={S.formLabelHuman}>Hora de fin</Text>
-                  <TextInput
-                    style={[S.eventFormInput, S.eventFormInputFocus, validateTime(endTime) && endTimeTouched && { borderColor: colors.danger.base }]}
-                    value={endTime}
-                    onChangeText={setEndTime}
-                    onFocus={() => { if (error) setError(null); }}
-                    placeholder="18:30"
-                    placeholderTextColor={colors.text.tertiary}
-                  />
+                  <FormActionRow label="Hora de fin" value={endTime} onPress={() => setActivePicker('end')} />
                   {validateTime(endTime) && endTimeTouched ? (
                     <Text style={S.formErrorInline}>{validateTime(endTime)}</Text>
                   ) : null}
@@ -678,8 +662,12 @@ onPress: async () => {
             <Text style={S.dangerText}>Cancelar evento</Text>
           </TouchableOpacity>
         ) : null}
-      </KeyboardAwareScrollView>
-    </Pressable>
+        </KeyboardAwareScrollView>
+      </Pressable>
+      <DatePickerSheet visible={activePicker === 'date'} value={date} onClose={() => setActivePicker(null)} onConfirm={(nextDate) => { setDate(nextDate); setDateTouched(true); setError(null); setActivePicker(null); }} />
+      <TimePickerSheet visible={activePicker === 'start'} value={startTime} onClose={() => setActivePicker(null)} onConfirm={(nextTime) => { setStartTime(nextTime); setStartTimeTouched(true); setError(null); setActivePicker(null); }} />
+      <TimePickerSheet visible={activePicker === 'end'} value={endTime} onClose={() => setActivePicker(null)} onConfirm={(nextTime) => { setEndTime(nextTime); setEndTimeTouched(true); setError(null); setActivePicker(null); }} />
+    </View>
   );
 
   if (embedded) {

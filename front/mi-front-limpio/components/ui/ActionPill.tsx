@@ -1,8 +1,9 @@
 import React from 'react';
-import { Pressable, View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
+import { View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, radius, spacing, touchTargets } from '../../constants/theme';
+import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
 import { AppText } from './AppText';
+import { InteractivePressable } from './InteractivePressable';
 
 export type ActionPillTone = 'default' | 'primary' | 'success' | 'warning';
 
@@ -55,13 +56,16 @@ export function ActionPill({
   const isDisabled = Boolean(disabled);
 
   return (
-    <Pressable
+    <InteractivePressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ selected, disabled: isDisabled }}
       disabled={isDisabled}
       {...props}
-      style={({ pressed }) => [
+      haptic="light"
+      pressScale={motion.scale.button}
+      pressedOpacity={0.88}
+      style={[
         {
           minHeight: touchTargets.normal,
           paddingHorizontal: spacing[4],
@@ -74,8 +78,6 @@ export function ActionPill({
           justifyContent: 'center',
           flexDirection: 'row',
           gap: spacing[2],
-          opacity: isDisabled ? 0.52 : pressed ? 0.84 : 1,
-          transform: [{ scale: pressed && !isDisabled ? 0.98 : 1 }],
         },
         style,
       ]}
@@ -84,6 +86,6 @@ export function ActionPill({
       <AppText variant="micro" tone={toneStyle.textTone} weight="700">
         {label}
       </AppText>
-    </Pressable>
+    </InteractivePressable>
   );
 }

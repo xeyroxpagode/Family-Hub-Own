@@ -1,7 +1,8 @@
 import React from 'react';
-import { Pressable, View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
+import { View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, radius, shadows, spacing } from '../../constants/theme';
+import { colors, motion, radius, shadows, spacing } from '../../constants/theme';
+import { InteractivePressable } from './InteractivePressable';
 
 export type AppCardVariant =
   | 'default'
@@ -107,19 +108,18 @@ export function AppCard({
   }
 
   return (
-    <Pressable
+    <InteractivePressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
-      style={({ pressed }) => [
+      haptic="light"
+      pressScale={motion.scale.card}
+      pressedOpacity={0.94}
+      style={[
         cardStyle,
-        {
-          opacity: pressed ? 0.9 : 1,
-          transform: [{ scale: pressed ? 0.985 : 1 }],
-        },
       ]}
     >
       {inner}
-    </Pressable>
+    </InteractivePressable>
   );
 }

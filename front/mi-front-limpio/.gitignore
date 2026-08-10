@@ -7,6 +7,13 @@ node_modules/
 .expo/
 dist/
 web-build/
+.expo-verify-web/
+.expo-calendar-verify/
+.expo-motion-verify/
+.expo-action-sheets-verify/
+.expo-navbar-schedules-verify/
+.expo-week-navigator-verify/
+.expo-week-navigator-final-verify/
 expo-env.d.ts
 
 # Native

@@ -186,12 +186,7 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
             <AppText variant="title3" weight="800">
               Cambiar hogar
             </AppText>
-            <AppButton
-              variant="ghost"
-              size="sm"
-              onPress={onRequestClose}
-              title="Cerrar"
-            />
+            <AppButton variant="icon" size="sm" onPress={onRequestClose} accessibilityLabel="Cerrar selector de hogar"><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
           </View>
 
           <ScrollView

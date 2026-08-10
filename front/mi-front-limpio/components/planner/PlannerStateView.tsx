@@ -121,7 +121,7 @@ function describe(state: PlannerShellState): ChromeDescriptor {
         iconColor: colors.warning.strong,
         iconBgColor: colors.warning.soft,
         title: 'Sin conexión',
-        description: 'Necesitamos conexión para cargar Planner. Reintentá cuando vuelva.',
+        description: 'Necesitamos conexión para cargar Calendario. Reintentá cuando vuelva.',
         primaryLabel: 'Reintentar',
       };
     case 'forbidden':
@@ -130,7 +130,7 @@ function describe(state: PlannerShellState): ChromeDescriptor {
         iconColor: colors.danger.text,
         iconBgColor: colors.danger.soft,
         title: 'Sin acceso a Planner',
-        description: 'No tenés permiso para ver Planner en este hogar.',
+        description: 'No tenés permiso para ver Calendario en este hogar.',
         primaryLabel: 'Salir',
         secondaryLabel: 'Ajustes',
       };
@@ -169,7 +169,7 @@ function describe(state: PlannerShellState): ChromeDescriptor {
         iconColor: colors.danger.text,
         iconBgColor: colors.danger.soft,
         title: 'Planner no está disponible',
-        description: 'Algo falló al cargar Planner. Podés reintentar o salir.',
+        description: 'Algo falló al cargar Calendario. Podés reintentar o salir.',
         primaryLabel: 'Reintentar',
         secondaryLabel: 'Salir',
       };

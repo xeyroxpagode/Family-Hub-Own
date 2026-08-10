@@ -12,6 +12,7 @@ const plansController = require('../controllers/planner.plans.controller')
 const trashController = require('../controllers/planner.trash.controller')
 const activityController = require('../controllers/planner.activity.controller')
 const capabilitiesController = require('../controllers/planner.capabilities.controller')
+const schedulesController = require('../controllers/planner.schedules.controller')
 const presetsDraftsRouter = require('./planner.presets-drafts')
 const { plannerObservabilityMiddleware } = require('../lib/plannerObservability')
 
@@ -43,6 +44,13 @@ router.get('/trash', trashController.getTrash)
 router.get('/search', searchController.searchPlanner)
 
 router.get('/attention', attentionController.getAttention)
+
+router.get('/schedules', schedulesController.listSchedules)
+router.post('/schedules', schedulesController.createSchedule)
+router.patch('/schedules/:id', schedulesController.updateSchedule)
+router.delete('/schedules/:id', schedulesController.deleteSchedule)
+router.get('/schedules/privacy', schedulesController.getMyPrivacy)
+router.put('/schedules/privacy', schedulesController.updateMyPrivacy)
 
 router.get('/plans/legacy-compatibility-report', plansController.getLegacyCompatibilityReport)
 router.post('/plans/:id/structure', plansController.applyPlanStructureChangeset)

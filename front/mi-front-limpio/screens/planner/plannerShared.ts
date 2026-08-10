@@ -230,7 +230,7 @@ export const getViewDateRange = (view: 'day' | 'week' | 'month', date: Date): { 
   }
   if (view === 'week') {
     const start = new Date(date);
-    start.setDate(start.getDate() - start.getDay());
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
     end.setDate(end.getDate() + 6);
@@ -259,7 +259,7 @@ export const formatDate = (value?: string | null) => {
 
 export const getWeekDays = (centerDate: Date) => {
   const start = new Date(centerDate);
-  start.setDate(start.getDate() - centerDate.getDay());
+  start.setDate(start.getDate() - ((centerDate.getDay() + 6) % 7));
   
   return Array.from({ length: 7 }, (_, i) => {
     const date = addDays(start, i);

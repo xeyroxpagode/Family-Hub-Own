@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,6 +12,8 @@ import {
   View,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { AppButton, AppCard, AppInput, AppScreen, AppText, EmptyState, ErrorState } from '../../components/ui';
@@ -63,8 +66,8 @@ const FILTER_CATEGORIES: Array<{ key: InventoryCategoryKey | 'all'; label: strin
 const EMPTY_FORM: FormState = {
   template_id: null,
   name: '',
-  emoji: '🍚',
-  category_key: 'kitchen',
+  emoji: '📦',
+  category_key: 'general',
   quantity: '1',
   low_stock_threshold: '1',
 };
@@ -86,6 +89,9 @@ const statusCopy = {
   low: { label: 'Stock bajo', variant: 'warning' as const },
   ok: { label: 'En stock', variant: 'success' as const },
 };
+
+const getCategoryEmoji = (categoryKey: InventoryCategoryKey) =>
+  CATEGORIES.find((entry) => entry.key === categoryKey)?.emoji ?? EMPTY_FORM.emoji;
 
 function InventoryItemCard({
   item,
@@ -227,7 +233,7 @@ function RestockRequestsSection({
                 onPress={() => onApprove(request)}
                 disabled={busyRequestId === request.id}
                 accessibilityRole="button"
-                accessibilityLabel={`Enviar ${request.suggested_title} al Planner`}
+                accessibilityLabel={`Enviar ${request.suggested_title} al Calendario`}
               >
                 <HomePlusIcon name="arrow-forward" size={16} color={colors.success.strong} />
                 <AppText variant="caption" weight="700">Enviar</AppText>
@@ -249,9 +255,50 @@ function RestockRequestsSection({
   );
 }
 
+function QuickAddSection({
+  templates,
+  categoryLabel,
+  onSelect,
+}: {
+  templates: InventoryTemplate[];
+  categoryLabel: string;
+  onSelect: (template: InventoryTemplate) => void;
+}) {
+  if (templates.length === 0) return null;
+
+  return (
+    <View style={styles.templatesSection}>
+      <View style={styles.sectionHeader}>
+        <View style={styles.sectionTitleRow}>
+          <HomePlusIcon name="sparkles" size={18} color={colors.terracotta[600]} />
+          <View>
+            <AppText variant="title3">Agregar rapido</AppText>
+            <AppText variant="caption" tone="tertiary">{categoryLabel}</AppText>
+          </View>
+        </View>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templateScroll}>
+        {templates.map((template) => (
+          <TouchableOpacity
+            key={template.id}
+            style={styles.templateChip}
+            onPress={() => onSelect(template)}
+            accessibilityRole="button"
+            accessibilityLabel={`Agregar ${template.name}`}
+          >
+            <Text style={styles.templateEmoji}>{template.emoji || '📦'}</Text>
+            <AppText variant="caption" weight="700">{template.name}</AppText>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 export const InventarioScreen = () => {
   const { session } = useAuth();
   const { currentHousehold, currentRole } = useHousehold();
+  const insets = useSafeAreaInsets();
   const accessToken = session?.access_token ?? null;
 
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -275,7 +322,7 @@ export const InventarioScreen = () => {
   );
 
   const visibleTemplates = useMemo(
-    () => templates.filter((template) => category === 'all' || template.category_key === category).slice(0, 8),
+    () => category === 'all' ? [] : templates.filter((template) => template.category_key === category).slice(0, 8),
     [category, templates],
   );
 
@@ -283,7 +330,7 @@ export const InventarioScreen = () => {
     const normalizedSearch = search.trim().toLowerCase();
 
     return items.filter((item) => {
-      const matchesCategory = category === 'all' || item.category_key === category;
+      const matchesCategory = normalizedSearch.length > 0 || category === 'all' || item.category_key === category;
       const matchesSearch = !normalizedSearch || item.name.toLowerCase().includes(normalizedSearch);
       return matchesCategory && matchesSearch;
     });
@@ -355,8 +402,9 @@ export const InventarioScreen = () => {
   }, [currentHousehold?.id, refresh]);
 
   const openCreate = () => {
+    const categoryKey = category === 'all' ? 'general' : category;
     setEditingItem(null);
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, category_key: categoryKey, emoji: getCategoryEmoji(categoryKey) });
     setModalVisible(true);
   };
 
@@ -365,7 +413,7 @@ export const InventarioScreen = () => {
     setForm({
       template_id: template.id,
       name: template.name,
-      emoji: template.emoji || '🍚',
+      emoji: template.emoji || EMPTY_FORM.emoji,
       category_key: template.category_key,
       quantity: formatQuantity(template.default_quantity),
       low_stock_threshold: formatQuantity(template.default_low_stock_threshold),
@@ -460,6 +508,19 @@ export const InventarioScreen = () => {
     ]);
   };
 
+  const handleMarkOutOfStock = (item: InventoryItem) => {
+    if (!accessToken) return;
+
+    Alert.alert('Marcar sin stock', `Vas a dejar ${item.name} en 0 unidades.`, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Marcar sin stock',
+        style: 'destructive',
+        onPress: () => void mutateItem(item, () => markInventoryItemOutOfStock(accessToken, item.id)),
+      },
+    ]);
+  };
+
   const handleApproveRequest = async (request: InventoryRestockRequest) => {
     if (!accessToken) return;
 
@@ -467,7 +528,7 @@ export const InventarioScreen = () => {
     try {
       await approveInventoryRestockRequest(accessToken, request.id);
       await refresh(false);
-      Alert.alert('Tarea creada', 'La reposicion fue enviada al Planner.');
+      Alert.alert('Tarea creada', 'La reposicion fue enviada al Calendario.');
     } catch (err) {
       Alert.alert('No pudimos enviar', err instanceof ApiError ? err.message : 'Intenta nuevamente.');
     } finally {
@@ -527,7 +588,7 @@ export const InventarioScreen = () => {
           variant="search"
           value={search}
           onChangeText={setSearch}
-          placeholder="Harina, leche, arroz..."
+          placeholder="Buscar en todo el inventario"
           containerStyle={styles.searchInput}
         />
 
@@ -551,33 +612,6 @@ export const InventarioScreen = () => {
           ))}
         </ScrollView>
 
-        <View style={styles.templatesSection}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionTitleRow}>
-              <HomePlusIcon name="sparkles" size={18} color={colors.terracotta[600]} />
-              <View>
-                <AppText variant="title3">Agregar rapido</AppText>
-                <AppText variant="caption" tone="tertiary">{activeCategory.label}</AppText>
-              </View>
-            </View>
-          </View>
-          {visibleTemplates.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templateScroll}>
-              {visibleTemplates.map((template) => (
-                <TouchableOpacity
-                  key={template.id}
-                  style={styles.templateChip}
-                  onPress={() => openTemplate(template)}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.templateEmoji}>{template.emoji || '🍚'}</Text>
-                  <AppText variant="caption" weight="700">{template.name}</AppText>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          ) : null}
-        </View>
-
         {loading ? (
           <View style={styles.loadingBlock}>
             <ActivityIndicator color={colors.terracotta[500]} />
@@ -586,13 +620,16 @@ export const InventarioScreen = () => {
         ) : error ? (
           <ErrorState description={error} onRetry={() => void refresh()} style={styles.stateBlock} />
         ) : filteredItems.length === 0 ? (
-          <EmptyState
-            title={search ? 'No encontramos items' : `No hay items en ${activeCategory.label}`}
-            description={search ? 'Prueba con otro nombre o cambia de categoria.' : 'Agrega un producto para empezar a controlar su stock.'}
-            actionLabel="Agregar item"
-            onAction={openCreate}
-            style={styles.stateBlock}
-          />
+          <>
+            <QuickAddSection templates={visibleTemplates} categoryLabel={activeCategory.label} onSelect={openTemplate} />
+            <EmptyState
+              title={search ? 'No encontramos items' : category === 'all' ? 'Todavia no hay items' : `No hay items en ${activeCategory.label}`}
+              description={search ? 'Prueba con otro nombre o cambia de categoria.' : visibleTemplates.length > 0 ? 'Elige una sugerencia o agrega un producto nuevo.' : 'Agrega un producto para empezar a controlar su stock.'}
+              actionLabel="Agregar item"
+              onAction={openCreate}
+              style={styles.stateBlock}
+            />
+          </>
         ) : (
           <View style={styles.itemsSection}>
             <View style={styles.itemsSectionHeader}>
@@ -609,7 +646,7 @@ export const InventarioScreen = () => {
                   busy={busyItemId === item.id}
                   onAdd={() => accessToken && void mutateItem(item, () => addInventoryQuantity(accessToken, item.id, 1))}
                   onConsume={() => accessToken && void mutateItem(item, () => consumeInventoryQuantity(accessToken, item.id, 1))}
-                  onOutOfStock={() => accessToken && void mutateItem(item, () => markInventoryItemOutOfStock(accessToken, item.id))}
+                  onOutOfStock={() => handleMarkOutOfStock(item)}
                   onEdit={() => openEdit(item)}
                   onDelete={() => handleDelete(item)}
                 />
@@ -617,6 +654,10 @@ export const InventarioScreen = () => {
             </View>
           </View>
         )}
+
+        {!loading && !error && filteredItems.length > 0 ? (
+          <QuickAddSection templates={visibleTemplates} categoryLabel={activeCategory.label} onSelect={openTemplate} />
+        ) : null}
 
         {!loading && !error ? (
           <RestockRequestsSection
@@ -631,7 +672,7 @@ export const InventarioScreen = () => {
 
       <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={closeModal}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, { paddingBottom: Math.max(spacing[5], insets.bottom) }]}>
             <View style={styles.modalHeader}>
               <View>
                 <AppText variant="title2">{editingItem ? 'Editar item' : 'Nuevo item'}</AppText>
@@ -644,7 +685,13 @@ export const InventarioScreen = () => {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <KeyboardAwareScrollView
+              enableOnAndroid
+              extraScrollHeight={Platform.OS === 'ios' ? spacing[3] : spacing[2]}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.modalScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
               <AppInput
                 label="Nombre"
                 value={form.name}
@@ -697,7 +744,7 @@ export const InventarioScreen = () => {
                   </TouchableOpacity>
                 ))}
               </View>
-            </ScrollView>
+            </KeyboardAwareScrollView>
 
             <View style={styles.modalActions}>
               <AppButton title="Cancelar" variant="ghost" onPress={closeModal} disabled={saving} style={{ flex: 1 }} />
@@ -732,7 +779,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing[4],
   },
   categoryChip: {
-    minHeight: 38,
+    minHeight: 44,
     borderRadius: radius.pill,
     paddingHorizontal: spacing[3],
     marginRight: spacing[2],
@@ -816,7 +863,7 @@ const styles = StyleSheet.create({
     gap: spacing[2],
   },
   restockApprove: {
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: spacing[3],
     borderRadius: radius.pill,
     backgroundColor: colors.success.soft,
@@ -825,8 +872,8 @@ const styles = StyleSheet.create({
     gap: spacing[1],
   },
   restockDismiss: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: radius.pill,
     backgroundColor: colors.surface.soft,
     alignItems: 'center',
@@ -894,8 +941,8 @@ const styles = StyleSheet.create({
     gap: spacing[2],
   },
   iconButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: radius.pill,
     backgroundColor: colors.surface.soft,
     borderWidth: 1,
@@ -911,7 +958,7 @@ const styles = StyleSheet.create({
     marginTop: spacing[3],
   },
   secondaryAction: {
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: spacing[2],
     flexDirection: 'row',
     alignItems: 'center',
@@ -929,6 +976,9 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.xl,
     padding: spacing[5],
     gap: spacing[4],
+  },
+  modalScrollContent: {
+    paddingBottom: spacing[6],
   },
   modalHeader: {
     flexDirection: 'row',

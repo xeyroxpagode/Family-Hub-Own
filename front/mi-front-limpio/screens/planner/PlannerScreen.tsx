@@ -47,7 +47,7 @@ import { useHousehold } from '../../context/HouseholdContext';
 import { usePlannerSheet } from '../../context/PlannerSheetContext';
 import { useFeatureFlags } from '../../context/FeatureFlagsContext';
 import { PlannerCalendarScreen } from './PlannerCalendarScreen';
-import { PlannerPlansScreen } from './PlannerPlansScreen';
+import { PlannerSchedulesScreen } from './PlannerSchedulesScreen';
 import { PlannerTasksScreen } from './PlannerTasksScreen';
 import { plannerStyles as S } from './plannerShared';
 import {
@@ -668,7 +668,7 @@ export function PlannerScreen() {
   return (
     <PlannerErrorBoundary
       onExit={handleGoBack}
-      exitLabel="Salir de Planner"
+      exitLabel="Salir de Calendario"
     >
       <SafeAreaView style={S.safe} edges={['top']}>
         <Modal
@@ -720,7 +720,7 @@ export function PlannerScreen() {
           {/* Header: title, Search entry (M7 gated, hidden by default), overflow */}
           <View style={[S.headerRow, { marginBottom: 8 }]}>
             <View style={{ flex: 1 }}>
-              <AppText variant="title1" accessibilityRole="header">Planner</AppText>
+              <AppText variant="title1" accessibilityRole="header">Calendario</AppText>
             </View>
 
             {/* M7: Search entry point — only visible when flag + capability both true.
@@ -731,7 +731,7 @@ export function PlannerScreen() {
                 onPress={handleOpenSearch}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"
-                accessibilityLabel="Buscar en Planner"
+                accessibilityLabel="Buscar en Calendario"
                 accessibilityHint="Abrir búsqueda en Planner"
               >
                 <HomePlusIcon name="search-outline" size={22} color={colors.text.secondary} />
@@ -825,9 +825,6 @@ export function PlannerScreen() {
               onCreateEvent={(initialDate) =>
                 sheet.openEventForm({ source: 'planner', initialDate })
               }
-              onCreateTask={(initialDueDate) =>
-                sheet.openTaskForm({ source: 'planner', initialDueDate })
-              }
               onOpenProjection={(projection) => {
                 navigation.navigate(projection.destination.route, projection.destination.params);
               }}
@@ -835,9 +832,7 @@ export function PlannerScreen() {
           ) : null}
 
           {showActiveContent && activeTab === 'plans' ? (
-            <PlannerPlansScreen
-              refreshKey={refreshKey}
-            />
+            <PlannerSchedulesScreen refreshKey={refreshKey} />
           ) : null}
         </ScrollView>
       </SafeAreaView>
@@ -856,7 +851,7 @@ function tabLabel(key: PlannerTabKey): string {
     case 'events':
       return 'Eventos';
     case 'plans':
-      return 'Planes';
+      return 'Horarios';
     default:
       return String(key);
   }
@@ -869,7 +864,7 @@ function tabIcon(key: PlannerTabKey): HomePlusIconName {
     case 'events':
       return APP_ICONS.planner.calendar ?? 'calendar';
     case 'plans':
-      return APP_ICONS.planner.goals ?? 'flag';
+      return 'time-outline';
     default:
       return 'grid';
   }

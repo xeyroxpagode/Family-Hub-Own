@@ -3,6 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from './AppText';
 import { AppButton } from './AppButton';
+import { InteractivePressable } from './InteractivePressable';
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, radius, spacing, shadows } from '../../constants/theme';
 
@@ -55,12 +56,7 @@ export function QuickActionSheet({ visible, onRequestClose, onNavigate }: QuickA
                 Acciones rápidas para tu hogar
               </AppText>
             </View>
-            <AppButton
-              variant="ghost"
-              size="sm"
-              onPress={onRequestClose}
-              title="Cerrar"
-            />
+            <AppButton variant="icon" size="sm" onPress={onRequestClose} accessibilityLabel="Cerrar acciones rápidas"><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
           </View>
 
           <ScrollView
@@ -68,12 +64,12 @@ export function QuickActionSheet({ visible, onRequestClose, onNavigate }: QuickA
             contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + spacing[4] }]}
             showsVerticalScrollIndicator={false}
           >
-            <Pressable
+            <InteractivePressable
               onPress={openCreateTask}
-              style={({ pressed }) => [
-                styles.actionRow,
-                { opacity: pressed ? 0.86 : 1 },
-              ]}
+              style={styles.actionRow}
+              haptic="light"
+              pressScale={0.99}
+              pressedOpacity={0.9}
               accessibilityRole="button"
               accessibilityLabel="Crear tarea"
             >
@@ -89,14 +85,14 @@ export function QuickActionSheet({ visible, onRequestClose, onNavigate }: QuickA
                 </AppText>
               </View>
               <HomePlusIcon name="chevron-forward" size={20} color={colors.text.tertiary} />
-            </Pressable>
+            </InteractivePressable>
 
-            <Pressable
+            <InteractivePressable
               onPress={openCreateEvent}
-              style={({ pressed }) => [
-                styles.actionRow,
-                { opacity: pressed ? 0.86 : 1 },
-              ]}
+              style={styles.actionRow}
+              haptic="light"
+              pressScale={0.99}
+              pressedOpacity={0.9}
               accessibilityRole="button"
               accessibilityLabel="Crear evento"
             >
@@ -112,14 +108,14 @@ export function QuickActionSheet({ visible, onRequestClose, onNavigate }: QuickA
                 </AppText>
               </View>
               <HomePlusIcon name="chevron-forward" size={20} color={colors.text.tertiary} />
-            </Pressable>
+            </InteractivePressable>
 
-            <Pressable
+            <InteractivePressable
               onPress={openCreateGoal}
-              style={({ pressed }) => [
-                styles.actionRow,
-                { opacity: pressed ? 0.86 : 1 },
-              ]}
+              style={styles.actionRow}
+              haptic="light"
+              pressScale={0.99}
+              pressedOpacity={0.9}
               accessibilityRole="button"
               accessibilityLabel="Crear meta"
             >
@@ -135,7 +131,7 @@ export function QuickActionSheet({ visible, onRequestClose, onNavigate }: QuickA
                 </AppText>
               </View>
               <HomePlusIcon name="chevron-forward" size={20} color={colors.text.tertiary} />
-            </Pressable>
+            </InteractivePressable>
           </ScrollView>
         </View>
       </Pressable>

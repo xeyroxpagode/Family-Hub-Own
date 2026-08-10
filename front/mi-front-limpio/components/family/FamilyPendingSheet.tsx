@@ -150,7 +150,7 @@ export const FamilyPendingSheet: React.FC<FamilyPendingSheetProps> = ({
     <View style={styles.sheet}>
       <View style={styles.header}>
         <AppText variant="title2">Pendientes</AppText>
-        <AppButton title="Cerrar" variant="ghost" size="sm" onPress={onClose} />
+        <AppButton variant="icon" size="sm" onPress={onClose} accessibilityLabel="Cerrar pendientes"><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>

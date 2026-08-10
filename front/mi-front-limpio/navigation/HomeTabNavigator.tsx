@@ -38,13 +38,13 @@ import {
 } from '../components/planner/presets/PlannerPresetDraftsIntegrationRoutes';
 import { MoreScreen } from '../screens/MoreScreen';
 import { APP_ICONS, HomePlusIcon } from '../constants/icons';
-import { AppTopBar, HouseholdSwitcherSheet } from '../components/ui';
+import { AppTopBar, HouseholdSwitcherSheet, InteractivePressable } from '../components/ui';
 import { PlannerSheetProvider } from '../context/PlannerSheetContext';
 import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
 import { PlannerDeepLinkProvider } from '../services/planner/plannerDeepLinkProvider';
 import { fetchPlannerAttentionRequest } from '../services/planner/plannerAttentionClient';
 import { GLOBAL_SURFACE_GATES_OFF } from '../services/planner/globalSurfaceTypes';
-import { colors, spacing } from '../constants/theme';
+import { colors, motion, spacing } from '../constants/theme';
 
 const Tab = createBottomTabNavigator<HomeTabParamList>();
 const PlannerStack = createNativeStackNavigator<PlannerStackParamList>();
@@ -109,11 +109,9 @@ function AttentionTopBarButton({ accessToken, householdId, navigation }: {
 
 const TabIcon = ({
   iconKey,
-  label,
   focused,
 }: {
   iconKey: keyof typeof APP_ICONS.bottomTabs;
-  label: string;
   focused: boolean;
 }) => {
   const iconName = APP_ICONS.bottomTabs[iconKey];
@@ -133,36 +131,15 @@ const TabIcon = ({
       <Animated.View style={{ transform: [{ scale }] }}>
         <HomePlusIcon
           name={iconName}
-          size={24}
+          size={28}
           color={iconColor}
           style={{
             backgroundColor: focused ? 'rgba(255,248,234,0.22)' : 'transparent',
-            borderRadius: 12,
-            padding: 2,
+            borderRadius: 16,
+            padding: 4,
           }}
         />
       </Animated.View>
-      <Animated.Text
-        style={{
-          fontSize: 9,
-          marginTop: 2,
-          fontWeight: focused ? '700' : '400',
-          color: focused ? '#FFF8EA' : 'rgba(255,248,234,0.76)',
-        }}
-      >
-        {label}
-      </Animated.Text>
-      {focused && (
-        <View
-          style={{
-            width: 4,
-            height: 4,
-            borderRadius: 2,
-            backgroundColor: '#FFF8EA',
-            marginTop: 2,
-          }}
-        />
-      )}
     </View>
   );
 };
@@ -222,6 +199,20 @@ function MoreStackScreen() {
   );
 }
 
+function TabBarButton({ children, style, ...props }: any) {
+  return (
+    <InteractivePressable
+      {...props}
+      style={[styles.tabBarButton, style]}
+      haptic="light"
+      pressScale={motion.scale.tab}
+      pressedOpacity={0.92}
+    >
+      {children}
+    </InteractivePressable>
+  );
+}
+
 export function HomeTabNavigator() {
   const { session, authMe } = useAuth();
   const { currentRole, currentHousehold } = useHousehold();
@@ -245,8 +236,7 @@ export function HomeTabNavigator() {
 
   const isAdultoMayor = currentRole === 'adulto_mayor';
   const tabBarBg = colors.terracotta[500];
-  const tabBarHeight = isAdultoMayor ? 84 : 72;
-  const bottomPadding = Math.max(insets.bottom, spacing[3]);
+  const tabBarContentHeight = isAdultoMayor ? 72 : 64;
 
   // S2: The Reliability runtime Owner is mounted ONCE in `PrivateNavigator`
   // (AppNavigator) above this `HomeTabNavigator`, so it covers HomeTabs,
@@ -283,10 +273,15 @@ export function HomeTabNavigator() {
               backgroundColor: tabBarBg,
               borderTopColor: 'rgba(255,248,234,0.18)',
               borderTopWidth: 1,
-              height: tabBarHeight + insets.bottom,
-              paddingBottom: bottomPadding,
-              paddingTop: 8,
+              height: tabBarContentHeight + insets.bottom,
+              paddingTop: 0,
+              paddingBottom: insets.bottom,
             },
+            tabBarItemStyle: {
+              height: tabBarContentHeight,
+              paddingVertical: spacing[1],
+            },
+            tabBarButton: (props) => <TabBarButton {...props} />,
           }}
         >
           <Tab.Screen
@@ -296,10 +291,10 @@ export function HomeTabNavigator() {
               tabBarIcon: ({ focused }) => (
                 <TabIcon
                   iconKey="home"
-                  label="Inicio"
                   focused={focused}
                 />
               ),
+              tabBarAccessibilityLabel: 'Inicio',
             }}
           />
 
@@ -310,10 +305,10 @@ export function HomeTabNavigator() {
               tabBarIcon: ({ focused }) => (
                 <TabIcon
                   iconKey="inventory"
-                  label="Inventario"
                   focused={focused}
                 />
               ),
+              tabBarAccessibilityLabel: 'Inventario',
             }}
           />
 
@@ -324,10 +319,10 @@ export function HomeTabNavigator() {
               tabBarIcon: ({ focused }) => (
                 <TabIcon
                   iconKey="planner"
-                  label="Planner"
                   focused={focused}
                 />
               ),
+              tabBarAccessibilityLabel: 'Calendario',
             }}
           />
 
@@ -338,10 +333,10 @@ export function HomeTabNavigator() {
               tabBarIcon: ({ focused }) => (
                 <TabIcon
                   iconKey="more"
-                  label="Más"
                   focused={focused}
                 />
               ),
+              tabBarAccessibilityLabel: 'Más',
             }}
           />
         </Tab.Navigator>
@@ -370,8 +365,13 @@ const styles = StyleSheet.create({
   },
   tabIconContainer: {
     alignItems: 'center',
-    paddingTop: 6,
-    minWidth: 48,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    minWidth: 0,
+  },
+  tabBarButton: {
+    flex: 1,
+    minWidth: 0,
   },
   loadingContainer: {
     flex: 1,

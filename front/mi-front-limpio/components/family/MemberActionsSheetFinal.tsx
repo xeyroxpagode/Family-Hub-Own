@@ -139,7 +139,7 @@ export const MemberActionsSheet: React.FC<MemberActionsSheetProps> = ({
         <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
           <View style={styles.handleRow}>
             <View style={styles.handle} />
-            <AppButton title="Cerrar" variant="ghost" size="sm" onPress={onClose} style={styles.closeButton} />
+            <AppButton variant="icon" size="sm" onPress={onClose} style={styles.closeButton} accessibilityLabel="Cerrar acciones"><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
           </View>
 
           <ScrollView
