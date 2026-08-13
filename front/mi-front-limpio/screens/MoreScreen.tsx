@@ -1,10 +1,9 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppScreen } from '../components/ui/AppScreen';
 import { AppCard } from '../components/ui/AppCard';
 import { AppText } from '../components/ui/AppText';
-import { AppButton } from '../components/ui/AppButton';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
 
@@ -27,6 +26,16 @@ const MODULES = [
     color: colors.sage[600],
     bg: colors.sage[50],
     screen: 'Family' as const,
+    isDemo: false,
+  },
+  {
+    id: 'finance',
+    label: 'Finanzas',
+    description: 'Personal y hogar',
+    icon: 'wallet',
+    color: colors.sand[600],
+    bg: colors.sand[50],
+    screen: 'Finance' as const,
     isDemo: false,
   },
 ];

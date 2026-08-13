@@ -28,6 +28,7 @@ export type HomeTabParamList = {
 export type MoreStackParamList = {
   MoreHome: undefined;
   Family: undefined;
+  Finance: undefined;
 };
 
 // Re-export the canonical Planner V1 navigation authority (M1).

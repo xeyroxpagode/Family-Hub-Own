@@ -49,7 +49,9 @@
     "../scripts/planner_v1_shared_s2_runtime_composition_tests.ts",
     "../scripts/planner_v1_plan_duplicate_dispatch_tests.ts",
     "../scripts/planner_p1_structure_contract_tests.ts",
-    "../scripts/planner_v1_p2a_milestone_editor_tests.ts"
+    "../scripts/planner_v1_p2a_milestone_editor_tests.ts",
+    "../scripts/finance_1e_frontend_context_ux_tests.ts",
+    "../scripts/finance_1f_integrated_privacy_gate_tests.ts"
   ],
   "exclude": ["node_modules"]
 }

@@ -12,8 +12,8 @@ import { HomeAdulto } from '../screens/home/HomeAdulto';
 import { HomeAdolescente } from '../screens/home/HomeAdolescente';
 import { HomeAdultoMayor } from '../screens/home/HomeAdultoMayor';
 import { FamilyScreen } from '../screens/FamilyScreen';
+import { FinanceScreen } from '../screens/finance/FinanceScreen';
 import { InventarioScreen } from '../screens/inventory/InventarioScreen';
-import { ProfileScreen } from '../screens/ProfileScreen';
 import { PlannerScreen } from '../screens/planner/PlannerScreen';
 import { CreateTaskScreen } from '../screens/planner/CreateTaskScreen';
 import { EditTaskScreen } from '../screens/planner/EditTaskScreen';
@@ -195,6 +195,7 @@ function MoreStackScreen() {
     <MoreStack.Navigator screenOptions={{ headerShown: false }}>
       <MoreStack.Screen name="MoreHome" component={MoreScreen} />
       <MoreStack.Screen name="Family" component={FamilyScreen} />
+      <MoreStack.Screen name="Finance" component={FinanceScreen} />
     </MoreStack.Navigator>
   );
 }

@@ -8,7 +8,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, type Edges } from 'react-native-safe-area-context';
 
 import { colors, spacing } from '../../constants/theme';
 
@@ -23,6 +23,7 @@ export type AppScreenProps = {
   style?: StyleProp<ViewStyle>;
   contentContainerStyle?: StyleProp<ViewStyle>;
   scrollProps?: Omit<ScrollViewProps, 'contentContainerStyle'>;
+  safeAreaEdges?: Edges;
 };
 
 const bottomInsets: Record<NonNullable<AppScreenProps['bottomInset']>, number> = {
@@ -43,6 +44,7 @@ export function AppScreen({
   style,
   contentContainerStyle,
   scrollProps,
+  safeAreaEdges,
 }: AppScreenProps) {
   const screenBackground = colors.background[background];
   const contentStyle: StyleProp<ViewStyle> = [
@@ -81,7 +83,7 @@ export function AppScreen({
   );
 
   return (
-    <SafeAreaView style={[{ flex: 1, backgroundColor: screenBackground }, style]}>
+    <SafeAreaView edges={safeAreaEdges} style={[{ flex: 1, backgroundColor: screenBackground }, style]}>
       {wrappedBody}
     </SafeAreaView>
   );
