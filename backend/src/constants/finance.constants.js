@@ -25,6 +25,28 @@ const FINANCE_CONTEXT_TYPES = Object.freeze({
 
 const FINANCE_CONTEXT_TYPE_VALUES = Object.freeze(Object.values(FINANCE_CONTEXT_TYPES));
 
+const FINANCE_TRANSACTION_TYPES = Object.freeze({
+  INCOME: 'income',
+  EXPENSE: 'expense',
+  TRANSFER: 'transfer',
+});
+
+const FINANCE_TRANSACTION_TYPE_VALUES = Object.freeze(Object.values(FINANCE_TRANSACTION_TYPES));
+
+const FINANCE_CATEGORY_TYPES = Object.freeze({
+  EXPENSE: FINANCE_TRANSACTION_TYPES.EXPENSE,
+  INCOME: FINANCE_TRANSACTION_TYPES.INCOME,
+});
+
+const FINANCE_CATEGORY_TYPE_VALUES = Object.freeze(Object.values(FINANCE_CATEGORY_TYPES));
+
+const FINANCE_CATEGORY_KINDS = Object.freeze({
+  NATIVE: 'native',
+  CUSTOM: 'custom',
+});
+
+const FINANCE_CATEGORY_KIND_VALUES = Object.freeze(Object.values(FINANCE_CATEGORY_KINDS));
+
 const FINANCE_SOURCE_TYPES = Object.freeze({
   NONE: 'none',
   PERSONAL: 'personal',
@@ -53,6 +75,27 @@ function isValidFinanceContextType(value) {
   );
 }
 
+function isValidFinanceTransactionType(value) {
+  return (
+    typeof value === 'string' &&
+    FINANCE_TRANSACTION_TYPE_VALUES.includes(value)
+  );
+}
+
+function isValidFinanceCategoryType(value) {
+  return (
+    typeof value === 'string' &&
+    FINANCE_CATEGORY_TYPE_VALUES.includes(value)
+  );
+}
+
+function isValidFinanceCategoryKind(value) {
+  return (
+    typeof value === 'string' &&
+    FINANCE_CATEGORY_KIND_VALUES.includes(value)
+  );
+}
+
 function isValidFinanceSourceType(value) {
   return (
     typeof value === 'string' &&
@@ -63,10 +106,19 @@ function isValidFinanceSourceType(value) {
 module.exports = {
   FINANCE_CONTEXT_TYPES,
   FINANCE_CONTEXT_TYPE_VALUES,
+  FINANCE_TRANSACTION_TYPES,
+  FINANCE_TRANSACTION_TYPE_VALUES,
+  FINANCE_CATEGORY_TYPES,
+  FINANCE_CATEGORY_TYPE_VALUES,
+  FINANCE_CATEGORY_KINDS,
+  FINANCE_CATEGORY_KIND_VALUES,
   FINANCE_SOURCE_TYPES,
   FINANCE_SOURCE_TYPE_VALUES,
   FINANCE_SOURCE_CONTEXT_RELATIONSHIPS,
   FINANCE_FUNDING_RELATIONSHIPS,
   isValidFinanceContextType,
+  isValidFinanceTransactionType,
+  isValidFinanceCategoryType,
+  isValidFinanceCategoryKind,
   isValidFinanceSourceType,
 };

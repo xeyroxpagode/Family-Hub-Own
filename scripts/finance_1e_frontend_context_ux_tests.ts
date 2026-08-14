@@ -129,8 +129,15 @@ runTest('Static no backend/schema/navigation expansion', () => {
   const homeTabs = read('front/mi-front-limpio/navigation/HomeTabNavigator.tsx');
   const financeScreen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
 
-  assert(!/app\.use\(['"]\/api\/finance/i.test(backendIndex), 'no Finance backend route');
-  assertEqual(migrationFiles.filter((name) => /finance/i.test(name)).length, 0, 'no Finance migration');
+  assert(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test(backendIndex), 'no duplicate Finance identity authority');
+  assertEqual(
+    JSON.stringify(migrationFiles.filter((name) => /finance/i.test(name))),
+    JSON.stringify([
+      '20260813010000_finance_category_authority_v1_1.sql',
+      '20260813020000_finance_expense_income_transactions_v1_1.sql',
+    ]),
+    'only accepted 2B/2C Finance migrations',
+  );
   assert(!financeScreen.includes('HouseholdSwitcherSheet') && !financeScreen.includes('AppTopBar'), 'Finance screen does not recreate global chrome');
   assert(!homeTabs.includes('FinanceStack') && !homeTabs.includes('FinanceNavigator'), 'no Finance-specific navigator');
 });

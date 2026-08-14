@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, TouchableOpacity, StyleSheet, ViewStyle } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { AppText } from './AppText';
+import { HomePlusIcon } from '../../constants/icons';
 import { colors } from '../../constants/theme';
 
 type UndoToastProps = {
   visible: boolean;
   message: string;
-  onUndo: () => void;
+  onUndo?: () => void;
   onDismiss: () => void;
   duration?: number;
 };
@@ -37,20 +38,27 @@ export function UndoToast({ visible, message, onUndo, onDismiss, duration = 5000
       ]}
     >
       <View style={styles.toastContent}>
+        {onUndo ? null : (
+          <View style={styles.successIcon}>
+            <HomePlusIcon name="checkmark-circle" size={20} color={colors.success.strong} />
+          </View>
+        )}
         <AppText variant="bodySmall" tone="success" weight="700" style={styles.toastMessage}>
           {message}
         </AppText>
-        <TouchableOpacity
-          style={styles.undoButton}
-          onPress={() => {
-            onUndo();
-            onDismiss();
-          }}
-        >
-          <AppText variant="micro" weight="800" style={styles.undoText}>
-            Deshacer
-          </AppText>
-        </TouchableOpacity>
+        {onUndo ? (
+          <TouchableOpacity
+            style={styles.undoButton}
+            onPress={() => {
+              onUndo();
+              onDismiss();
+            }}
+          >
+            <AppText variant="micro" weight="800" style={styles.undoText}>
+              Deshacer
+            </AppText>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );
@@ -79,6 +87,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
+  },
+  successIcon: {
+    marginRight: 10,
   },
   toastMessage: {
     flex: 1,

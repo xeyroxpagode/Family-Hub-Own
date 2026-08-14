@@ -176,9 +176,9 @@ runTest('T26-T29 no fake financial truth or parallel authority', () => {
 
   assert(!/[$€£]\s?\d|ARS\s?\d|USD\s?\d|EUR\s?\d|\d+[.,]\d{2}\s?(ARS|USD|EUR)/i.test(financeScreen), 'T26 no mocked financial amount');
   assert(!/transactionRows|movementRows|paymentRows|expenseRows|incomeRows|mockFinance|financeFixture/i.test(`${financeScreen}\n${financeFrontendService}`), 'T26 no mocked financial rows');
-  assert(!/finance_accounts|createFinanceAccount|FinanceAccountRepository|FinanceTransaction|ExpenseService|IncomeService/i.test(productionText), 'T27 no Account/Transaction implementation');
+  assert(!/finance_accounts|createFinanceAccount|FinanceAccountRepository|ExpenseService|IncomeService|TransferService|RefundService|PaymentService/i.test(productionText), 'T27 no Account/separate Expense-Income/Transfer/Refund/Payment service implementation');
   assert(!/FinancePermission|FinanceACL|FinanceRole|FINANCE_ROLES|finance_can_access|is_finance_member/i.test(productionText), 'T28 no Finance role mapping');
-  assert(!/app\.use\(['"]\/api\/finance/i.test(backendIndex), 'T29 no Finance backend route/parallel API authority');
+  assert(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test(backendIndex), 'T29 no parallel Finance identity authority');
   for (const forbidden of ['FinanceUser', 'FinancePerson', 'FinanceHousehold', 'FinanceMembership', 'FinanceRLS', 'FinanceAppShell', 'FinanceNavbar', 'FinanceReliability', 'FinanceHouseholdSwitcher']) {
     assert(!productionText.includes(forbidden), `T29 no parallel authority symbol: ${forbidden}`);
   }
@@ -216,8 +216,15 @@ runTest('T33-T34 database and remote boundary static evidence', () => {
     ...listFiles('backend/sql').filter((file) => file.endsWith('.sql')),
   ].map((file) => read(file)).join('\n');
 
-  assertEqual(financeMigrations.length, 0, 'T33 no Finance migration exists');
-  assert(!/create\s+table\s+.*finance|finance_accounts|finance_transactions|finance_expenses|finance_incomes/i.test(allSql), 'T33 no Finance schema/table/RPC SQL introduced');
+  assertEqual(
+    JSON.stringify(financeMigrations),
+    JSON.stringify([
+      '20260813010000_finance_category_authority_v1_1.sql',
+      '20260813020000_finance_expense_income_transactions_v1_1.sql',
+    ]),
+    'T33 only accepted 2B/2C Finance migrations exist',
+  );
+  assert(!/finance_accounts|finance_expenses|finance_incomes|finance_transfers|finance_budgets|finance_payments|finance_refunds/i.test(allSql), 'T33 no out-of-stage Finance Account/separate Expense-Income/Transfer/Budget/Payment/Refund schema introduced');
   assert(process.env.SUPABASE_ACCESS_TOKEN === undefined, 'T34 remote Supabase token not used by 1F tests');
 });
 

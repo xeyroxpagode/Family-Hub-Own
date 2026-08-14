@@ -7,7 +7,7 @@
  * Pure-contract unit test (no database, no Supabase config). Validates:
  *   - finance.constants.js canonical types
  *   - Static source analysis of finance.context.service.js (no planner, no duplicate authorities)
- *   - No Finance route in backend/index.js
+ *   - No duplicate Finance identity authority in backend/index.js
  *
  * The resolver's runtime behavior (input validation, auth, household resolution)
  * is validated in scripts/finance_1b_context_database_tests.js against local Supabase.
@@ -97,10 +97,10 @@ record(
   'FINANCE_CONTEXT_TYPES is frozen and exported from constants',
 );
 
-// --- Server index must not register a Finance route in 1B ---
+// --- Server index must not register duplicate Finance identity authority ---
 
 const index = read('backend/index.js');
-record(!/app\.use\(['"]\/api\/finance/i.test(index), 'No Finance route is registered in 1B (deferred to 1C/1E)');
+record(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test(index), 'No duplicate Finance identity authority is registered');
 
 // --- Summary ---
 

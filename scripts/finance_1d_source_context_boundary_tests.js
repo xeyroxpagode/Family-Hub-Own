@@ -226,10 +226,17 @@ function testNoForbiddenImplementationSurface() {
   const migrations = fs.readdirSync(path.join(root, 'supabase/migrations')).filter((name) => name.endsWith('.sql'));
 
   assert(!/finance_accounts|financial_accounts|FinanceAccountRepository|FinanceAccountService|AccountRepository|AccountService/.test(backendFinanceCombined), 'T16 no Account persistence/service/repository introduced');
-  assert(!/FinanceTransaction|TransactionRepository|TransactionService|ExpenseRepository|IncomeRepository|BudgetRepository|TransferRepository/.test(backendFinanceCombined), 'No Transaction/Budget/Transfer implementation introduced');
+  assert(!/TransactionRepository|TransactionService|ExpenseRepository|IncomeRepository|BudgetRepository|TransferRepository/.test(backendFinanceCombined), 'No Transaction/Budget/Transfer persistence/service/repository introduced');
   assert(!/FINANCE_ROLES|FinanceRole|financePermissions|FinancePermissionService|FinanceACL/.test(backendFinanceCombined), 'T17 no Finance role/permission mapping introduced');
-  assert(!/app\.use\(['"]\/api\/finance/i.test(indexSource), 'No Finance route registered in 1D');
-  assertEqual(migrations.filter((name) => /finance/i.test(name)).length, 0, 'No Finance migration/schema file exists');
+  assert(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test(indexSource), 'No duplicate Finance identity authority registered');
+  assertEqual(
+    JSON.stringify(migrations.filter((name) => /finance/i.test(name))),
+    JSON.stringify([
+      '20260813010000_finance_category_authority_v1_1.sql',
+      '20260813020000_finance_expense_income_transactions_v1_1.sql',
+    ]),
+    'Only accepted 2B/2C Finance migrations exist',
+  );
   assert(!financeServiceSource.includes('from(') && !financeServiceSource.includes('insert('), '1D policy is pure and does not persist data');
 }
 

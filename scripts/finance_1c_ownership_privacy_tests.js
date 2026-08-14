@@ -516,12 +516,19 @@ async function testStaticNoFinancePermissionOrSchema() {
   for (const symbol of forbiddenSymbols) {
     assert(!combined.includes(symbol), `no Finance permission/RLS duplicate symbol: ${symbol}`);
   }
-  assert(!/app\.use\(['"]\/api\/finance/i.test(indexSource), 'No Finance route is registered in 1C');
+  assert(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test(indexSource), 'No duplicate Finance identity authority is registered');
 
   const migrationsDir = path.join(root, 'supabase/migrations');
   const migrationFiles = fs.readdirSync(migrationsDir).filter((name) => name.endsWith('.sql'));
   const financeSchemaFiles = migrationFiles.filter((name) => /finance/i.test(name));
-  assertEqual(financeSchemaFiles.length, 0, 'No Finance migration/schema file exists');
+  assertEqual(
+    JSON.stringify(financeSchemaFiles),
+    JSON.stringify([
+      '20260813010000_finance_category_authority_v1_1.sql',
+      '20260813020000_finance_expense_income_transactions_v1_1.sql',
+    ]),
+    'Only accepted 2B/2C Finance migrations exist',
+  );
 }
 
 async function main() {

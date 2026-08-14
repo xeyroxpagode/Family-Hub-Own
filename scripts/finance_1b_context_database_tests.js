@@ -577,7 +577,7 @@ async function case8NoDuplicateAuthorities() {
 
   // Server index must not register a Finance route in 1B
   const index = read('backend/index.js');
-  assert(!/app\.use\(['"]\/api\/finance/i.test(index), 'No Finance route is registered in 1B (deferred to 1C/1E)');
+  assert(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test(index), 'No duplicate Finance identity authority is registered');
 }
 
 // ---------- Main ----------

@@ -51,7 +51,10 @@
     "../scripts/planner_p1_structure_contract_tests.ts",
     "../scripts/planner_v1_p2a_milestone_editor_tests.ts",
     "../scripts/finance_1e_frontend_context_ux_tests.ts",
-    "../scripts/finance_1f_integrated_privacy_gate_tests.ts"
+    "../scripts/finance_1f_integrated_privacy_gate_tests.ts",
+    "../scripts/finance_2d_money_input_tests.ts",
+    "../scripts/finance_2e_expense_income_final_ui_tests.ts",
+    "../scripts/finance_2f_frontend_consumption_tests.ts"
   ],
   "exclude": ["node_modules"]
 }
