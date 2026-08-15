@@ -52,8 +52,9 @@ runTest('T01-T10 Movimientos entry and canonical form shell', () => {
   assert(financeScreen.includes('accessibilityLabel="Nuevo movimiento"') && financeScreen.includes('name="add"'), 'T02 local plus affordance opens Nuevo movimiento');
   assert(financeScreen.includes('<NewMovementSheet') && financeScreen.includes('contextType={selectedContext}'), 'T03 sheet receives selected Finance context');
   assert(sheet.includes('title="Nuevo movimiento"'), 'T04 sheet title is Nuevo movimiento');
-  assert(sheet.includes("useState<FinanceTransactionKind>('expense')"), 'T05 Gasto is the default operation');
-  assert(sheet.includes("(['expense', 'income'] as const)") && sheet.includes('Gasto') && sheet.includes('Ingreso'), 'T06 operation selector exposes Gasto and Ingreso');
+  // 3H: default operation remains 'expense' (Gasto), type widened to FinanceOperationKind
+  assert(sheet.includes("useState<FinanceOperationKind>('expense')") || sheet.includes("useState<FinanceTransactionKind>('expense')"), 'T05 Gasto is the default operation');
+  assert(sheet.includes("(['expense', 'income', 'transfer'] as const)") && sheet.includes('Gasto') && sheet.includes('Ingreso'), 'T06 operation selector exposes Gasto and Ingreso after 3H adds Transfer');
   assert(sheet.includes('<MoneyInput') && sheet.includes('onValueChange={handleAmountChange}') && sheet.includes('onCurrencyChange={handleCurrencyChange}'), 'T07 MoneyInput primitive is reused as the only amount/currency input');
   assert(sheet.includes('DatePickerSheet') && sheet.includes('formatHumanDate(date)') && sheet.includes('todayDateOnly'), 'T08 date defaults to today and uses DatePickerSheet');
   assert(sheet.includes('Contexto financiero') && sheet.includes('{contextLabel}') && !sheet.includes('financeSelectorOptions('), 'T09 Financial Context is visible without adding a second selector');
@@ -77,9 +78,15 @@ runTest('T11-T22 real Expense and Income API contract', () => {
   assert(route.includes("router.post('/expenses', transactionsController.createExpense)") && route.includes("router.post('/incomes', transactionsController.createIncome)"), 'T17 backend routes exist');
   assert(transactionService.includes('createExpense') && transactionService.includes('createIncome'), 'T18 backend 2C create services remain the persistence authority');
   assert(!/supabase\s*\./.test(api) && !/supabase\s*\./.test(sheet), 'T19 frontend does not call Supabase directly');
-  assert(!/accountId|account_id|Efectivo|Ahorros|Cuenta origen|Cuenta destino/.test(sheet), 'T20 no Account requirement or fake account labels');
-  assert(!/Transfer|transfer|budget|presupuesto|payment|pago esperado|readFinanceTransactions|getFinanceTransactions/.test(`${api}\n${sheet}`), 'T21 no Transfer/Budget/Payment/read model added in 2E');
-  assert(!sheet.includes('Alert.alert') && sheet.includes('onSuccess(submittedOperation)') && sheet.includes('resetDraft()') && sheet.includes('onRequestClose()'), 'T22 success clears draft, closes form, and delegates non-blocking feedback');
+assert(sheet.includes('allowNone') && sheet.includes('account: expenseAccountId') && sheet.includes('account: incomeAccountId'), 'T20 3H Account is optional and only submitted when selected');
+  assert(sheet.includes('operationHint="expense"') && sheet.includes('operationHint="income"'), 'T20 Expense/Income account selectors present');
+  assert(sheet.includes('Sin cuenta') && !/Efectivo|Ahorros/.test(sheet), 'T20 Expense/Income form uses "Sin cuenta" and no fake labels');
+  assert(!/Cuenta origen|Cuenta destino/.test(sheet.replace(/isTransfer\(operation\)[\s\S]*?transfer-destination/g, '')), 'T20 Expense/Income sections lack transfer labels');
+  // 3H: Transfer mode is now part of the sheet; 2E only checked absence
+  assert(!/budget|presupuesto|payment|pago esperado|readFinanceTransactions|getFinanceTransactions/.test(`${api}\n${sheet}`), 'T21 no Budget/Payment/read model added in 2E');
+  // 3H: Transfer mode is now rendered inline within the same NewMovementSheet; 2E only checked expense/income success flow
+  // Allow type cast in onSuccess call
+  assert(!sheet.includes('Alert.alert') && /onSuccess\(submittedOperation/.test(sheet) && sheet.includes('resetDraft()') && sheet.includes('onRequestClose()'), 'T22 success clears draft, closes form, and delegates non-blocking feedback');
   assert(financeScreen.includes('UndoToast') && financeScreen.includes('Gasto registrado') && financeScreen.includes('Ingreso registrado') && financeScreen.includes('duration={2000}'), 'T22 success uses existing shared toast for temporary user-safe feedback');
   assert(undoToast.includes('onUndo?:') && undoToast.includes('checkmark-circle'), 'T22 shared toast supports success confirmation without requiring an action button');
 });
@@ -121,8 +128,15 @@ runTest('T34-T42 negative scope and regression wiring', () => {
     [
       '20260813010000_finance_category_authority_v1_1.sql',
       '20260813020000_finance_expense_income_transactions_v1_1.sql',
+      '20260814010000_finance_account_authority_v1_1.sql',
+      '20260814020000_finance_balance_anchor_account_effects_v1_1.sql',
+      '20260814030000_finance_balance_correction_v1_1.sql',
+      '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
+      '20260814050000_finance_canonical_transfer_v1_1.sql',
+'20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814070000_finance_transfer_commission_composition_v1_1.sql',
     ],
-    'T38 no new schema migration for 2E',
+    'T38 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G schema migrations exist',
   );
   assert(runJs.includes('finance-2e-expense-income-ui') && runJs.includes("'finance-2e'"), 'T39 2E command and suite are registered');
   assert(runJs.includes('finance-2e-expense-income-ui') && runJs.includes('finance-2c-expense-income'), 'T40 2E suite includes frontend UI checks and real 2C create persistence validation');

@@ -8,6 +8,7 @@ import {
   AppCard,
   AppScreen,
   AppText,
+  ActionSheet,
   EmptyState,
   ErrorState,
   InteractivePressable,
@@ -127,6 +128,7 @@ export function FinanceScreen() {
   const [selectedContext, setSelectedContext] = useState<FinanceContextType>(FINANCE_CONTEXT_TYPES.PERSONAL);
   const [selectedTab, setSelectedTab] = useState<FinanceTabKey>('resumen');
   const [selectorExpanded, setSelectorExpanded] = useState(false);
+  const [overflowVisible, setOverflowVisible] = useState(false);
   const [newMovementVisible, setNewMovementVisible] = useState(false);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState(() => financeMonthFromLocalDate());
@@ -135,6 +137,13 @@ export function FinanceScreen() {
   const [readState, setReadState] = useState<FinanceReadState>(EMPTY_READ_STATE);
   const allowVisibleBackExit = useRef(false);
   const readKeyRef = useRef<string | null>(null);
+
+  const openAccounts = () => {
+    setOverflowVisible(false);
+    navigation.navigate('FinanceAccounts', {
+      contextType: selectedContext,
+    });
+  };
 
   const contextLoading = loading || reloading;
   const activeHousehold = useMemo(() => {
@@ -283,8 +292,14 @@ export function FinanceScreen() {
     setReadRefreshNonce((current) => current + 1);
   };
 
-  const handleCreateSuccess = (operation: 'expense' | 'income') => {
-    setSuccessFeedback(operation === 'expense' ? 'Gasto registrado' : 'Ingreso registrado');
+  const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
+    setSuccessFeedback(
+      operation === 'expense'
+        ? 'Gasto registrado'
+        : operation === 'income'
+          ? 'Ingreso registrado'
+          : 'Transferencia registrada',
+    );
     setReadRefreshNonce((current) => current + 1);
   };
 
@@ -318,6 +333,17 @@ export function FinanceScreen() {
             Finanzas
           </AppText>
         </View>
+        <InteractivePressable
+          onPress={() => setOverflowVisible(true)}
+          haptic="light"
+          pressScale={motion.scale.icon}
+          style={styles.overflowButton}
+          accessibilityRole="button"
+          accessibilityLabel="Mas opciones"
+          hitSlop={8}
+        >
+          <HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.primary} />
+        </InteractivePressable>
       </View>
 
       <View style={styles.selectorArea}>
@@ -513,9 +539,35 @@ export function FinanceScreen() {
         contextType={selectedContext}
         contextLabel={contextLabel}
         contextState={viewState}
+        activeHousehold={activeHousehold}
         onRequestClose={() => setNewMovementVisible(false)}
         onSuccess={handleCreateSuccess}
       />
+
+      <ActionSheet
+        visible={overflowVisible}
+        title="Finanzas"
+        onRequestClose={() => setOverflowVisible(false)}
+        size="content"
+      >
+        <View style={styles.overflowContent}>
+          <InteractivePressable
+            onPress={openAccounts}
+            haptic="light"
+            pressScale={motion.scale.card}
+            style={styles.overflowItem}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir Cuentas"
+          >
+            <HomePlusIcon name="wallet" size={22} color={colors.terracotta[600]} />
+            <AppText variant="body" weight="800">Cuentas</AppText>
+            <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
+          </InteractivePressable>
+          <AppText variant="caption" tone="tertiary" style={styles.overflowHint}>
+            Categorías y Papelera llegarán en sus etapas propias.
+          </AppText>
+        </View>
+      </ActionSheet>
 
       <UndoToast
         visible={Boolean(successFeedback)}
@@ -788,6 +840,34 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface.soft,
     borderWidth: 1,
     borderColor: colors.border.subtle,
+  },
+  overflowButton: {
+    width: touchTargets.normal,
+    height: touchTargets.normal,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface.soft,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+  },
+  overflowContent: {
+    paddingHorizontal: spacing[4],
+    paddingTop: spacing[2],
+    paddingBottom: spacing[4],
+    gap: spacing[2],
+  },
+  overflowItem: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[2],
+  },
+  overflowHint: {
+    marginTop: spacing[1],
+    marginHorizontal: spacing[1],
   },
   headerText: {
     flex: 1,

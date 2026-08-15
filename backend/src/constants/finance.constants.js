@@ -68,6 +68,27 @@ const FINANCE_FUNDING_RELATIONSHIPS = Object.freeze({
   HOUSEHOLD_FUNDED: 'household_funded',
 });
 
+const FINANCE_ACCOUNT_TYPES = Object.freeze({
+  ACCOUNT: 'ACCOUNT',
+  CREDIT_CARD: 'CREDIT_CARD',
+});
+
+const FINANCE_ACCOUNT_TYPE_VALUES = Object.freeze(Object.values(FINANCE_ACCOUNT_TYPES));
+
+const FINANCE_ACCOUNT_BALANCE_STATES = Object.freeze({
+  UNKNOWN: 'UNKNOWN',
+  KNOWN: 'KNOWN',
+});
+
+const FINANCE_ACCOUNT_BALANCE_STATE_VALUES = Object.freeze(Object.values(FINANCE_ACCOUNT_BALANCE_STATES));
+
+const FINANCE_ACCOUNT_STATUSES = Object.freeze({
+  ACTIVE: 'ACTIVE',
+  ARCHIVED: 'ARCHIVED',
+});
+
+const FINANCE_ACCOUNT_STATUS_VALUES = Object.freeze(Object.values(FINANCE_ACCOUNT_STATUSES));
+
 function isValidFinanceContextType(value) {
   return (
     typeof value === 'string' &&
@@ -103,6 +124,20 @@ function isValidFinanceSourceType(value) {
   );
 }
 
+function isValidFinanceAccountType(value) {
+  return (
+    typeof value === 'string' &&
+    FINANCE_ACCOUNT_TYPE_VALUES.includes(value)
+  );
+}
+
+function isValidFinanceAccountStatus(value) {
+  return (
+    typeof value === 'string' &&
+    FINANCE_ACCOUNT_STATUS_VALUES.includes(value)
+  );
+}
+
 module.exports = {
   FINANCE_CONTEXT_TYPES,
   FINANCE_CONTEXT_TYPE_VALUES,
@@ -116,9 +151,17 @@ module.exports = {
   FINANCE_SOURCE_TYPE_VALUES,
   FINANCE_SOURCE_CONTEXT_RELATIONSHIPS,
   FINANCE_FUNDING_RELATIONSHIPS,
+  FINANCE_ACCOUNT_TYPES,
+  FINANCE_ACCOUNT_TYPE_VALUES,
+  FINANCE_ACCOUNT_BALANCE_STATES,
+  FINANCE_ACCOUNT_BALANCE_STATE_VALUES,
+  FINANCE_ACCOUNT_STATUSES,
+  FINANCE_ACCOUNT_STATUS_VALUES,
   isValidFinanceContextType,
   isValidFinanceTransactionType,
   isValidFinanceCategoryType,
   isValidFinanceCategoryKind,
   isValidFinanceSourceType,
+  isValidFinanceAccountType,
+  isValidFinanceAccountStatus,
 };

@@ -44,6 +44,18 @@ export type CreateFinanceTransactionPayload = {
   description?: string;
   category?: string;
   notes?: string;
+  /**
+   * Optional canonical Account受到影响 by this Expense/Income. Stage 3H keeps
+   * Account association OPTIONAL: absence is a fully valid "Sin cuenta" state.
+   * When present, backend resolveAccountForTransaction validates:
+   *   - belongs to the resolved Finance Context
+   *   - currency matches transaction currency
+   *   - relationship (PERSONAL Expense: own Personal; HOUSEHOLD Expense:
+   *     active Household + own Personal; INCOME: own Personal active Household
+   *     ACCOUNT only, CREDIT_CARD excluded)
+   *   - status=ACTIVE
+   */
+  account?: string;
 };
 
 export type CreateFinanceTransactionResponse = {

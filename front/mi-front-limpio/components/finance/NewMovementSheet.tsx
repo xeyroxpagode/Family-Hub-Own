@@ -5,14 +5,28 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
 import { ApiError } from '../../services/api';
-import type { FinanceContextType, FinanceContextViewState } from '../../services/finance/financeContext';
+import type { FinanceContextType, FinanceContextViewState, FinanceActiveHousehold } from '../../services/finance/financeContext';
 import {
   createFinanceExpense,
   createFinanceIncome,
   listFinanceExpenseCategories,
   type FinanceCategoryDto,
-  type FinanceTransactionKind,
 } from '../../services/finance/financeMovements';
+import {
+  createFinanceTransfer,
+  buildTransferPayloadSignature,
+  useStableTransferMutationIdentity,
+} from '../../services/finance/financeTransfers';
+import type { FinanceAccountDto } from '../../services/finance/financeAccounts';
+import { useEligibleAccounts } from '../../services/finance/financeAccountEligibility';
+import {
+  addDecimalStrings,
+  compareDecimalStrings,
+  subtractDecimalStrings,
+  formatAccountPresentationAmount,
+  formatCanonicalAmountForDisplay,
+  getAccountBalancePresentation,
+} from '../../services/finance/accountDisplay';
 import {
   DEFAULT_MONEY_INPUT_CURRENCY_OPTIONS,
   parseMoneyInputText,
@@ -30,6 +44,9 @@ import {
   formatHumanDate,
 } from '../ui';
 import { MoneyInput } from './MoneyInput';
+import { AccountSelector } from './AccountSelector';
+
+type FinanceOperationKind = 'expense' | 'income' | 'transfer';
 
 type NewMovementSheetProps = {
   visible: boolean;
@@ -37,15 +54,120 @@ type NewMovementSheetProps = {
   contextType: FinanceContextType;
   contextLabel: string;
   contextState: FinanceContextViewState;
+  activeHousehold: FinanceActiveHousehold;
   onRequestClose: () => void;
-  onSuccess: (operation: FinanceTransactionKind) => void;
+  onSuccess: (operation: FinanceOperationKind) => void;
 };
 
-type ActivePicker = 'date' | 'category' | null;
+type ActivePicker =
+  | 'date'
+  | 'category'
+  | 'expenseAccount'
+  | 'incomeAccount'
+  | 'transferSource'
+  | 'transferDestination'
+  | null;
 
-const todayDateOnly = () => new Date().toISOString().slice(0, 10);
+const todayDateOnly = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
 
-const isExpense = (operation: FinanceTransactionKind) => operation === 'expense';
+const isExpense = (operation: FinanceOperationKind) => operation === 'expense';
+const isIncome = (operation: FinanceOperationKind) => operation === 'income';
+const isTransfer = (operation: FinanceOperationKind) => operation === 'transfer';
+
+const NONE_AMOUNT = '';
+
+function formatDecimalWithSeparator(value: string): string {
+  return formatCanonicalAmountForDisplay(value);
+}
+
+type TransferPreview = {
+  sourceLabel: string;
+  destinationLabel: string;
+};
+
+function computeTransferPreview(args: {
+  sourceAccount: FinanceAccountDto | null;
+  destinationAccount: FinanceAccountDto | null;
+  amount: MoneyInputParseResult;
+  destinationAmount: MoneyInputParseResult;
+  commission: MoneyInputParseResult;
+  commissionMode: 'none' | 'custom';
+  crossCurrency: boolean;
+}): TransferPreview | null {
+  const { sourceAccount, destinationAccount, amount, commission, commissionMode, crossCurrency, destinationAmount } = args;
+  if (!sourceAccount || !destinationAccount) return null;
+  if (!amount.technicalValue) return null;
+
+  const sourceAmountText = amount.technicalValue.amount;
+  const commissionAmountText = commissionMode === 'custom' && commission.technicalValue ? commission.technicalValue.amount : '0';
+  const presentation = getAccountBalancePresentationSafe(sourceAccount);
+  const destPresentation = getAccountBalancePresentationSafe(destinationAccount);
+
+  const sourceBeforeAfterLabel = computeBeforeAfter({
+    account: sourceAccount,
+    presentation,
+    currency: sourceAccount.currency,
+    debitAmount: addDecimalStrings(sourceAmountText, commissionAmountText),
+    isDebit: true,
+  });
+  const destinationBeforeAfterLabel = computeBeforeAfter({
+    account: destinationAccount,
+    presentation: destPresentation,
+    currency: destinationAccount.currency,
+    creditAmount: crossCurrency && destinationAmount.technicalValue ? destinationAmount.technicalValue.amount : sourceAmountText,
+    isDebit: false,
+  });
+  return {
+    sourceLabel: sourceBeforeAfterLabel,
+    destinationLabel: destinationBeforeAfterLabel,
+  };
+}
+
+function computeBeforeAfter(args: {
+  account: FinanceAccountDto;
+  presentation: { isUnknown: boolean; isCreditCard: boolean; isDebt: boolean; displayAmount: string | null } | null;
+  currency: string;
+  debitAmount?: string;
+  creditAmount?: string;
+  isDebit: boolean;
+}): string {
+  const { presentation, currency, isDebit } = args;
+  if (!presentation || presentation.isUnknown) {
+    const op = isDebit ? 'Saldo no establecido' : 'Saldo no establecido';
+    const amount = isDebit ? args.debitAmount : args.creditAmount;
+    return `${op}\n${isDebit ? '-' : '+'} ${currency} ${formatDecimalWithSeparator(amount ?? '0')}`;
+  }
+  const currentSigned = args.account.currentBalance ?? '0';
+  const amount = isDebit ? args.debitAmount ?? '0' : args.creditAmount ?? '0';
+  const newSigned = isDebit
+    ? subtractDecimalStrings(currentSigned, amount)
+    : addDecimalStrings(currentSigned, amount);
+  const oldDisplay = formatAccountPresentationAmount(getAccountBalancePresentation(args.account));
+  const nextDisplay = formatAccountPresentationAmount(getAccountBalancePresentation({
+    ...args.account,
+    balanceState: 'KNOWN',
+    currentBalance: newSigned,
+  }));
+  return `${oldDisplay} ${currency} → ${nextDisplay} ${currency}`;
+}
+
+function getAccountBalancePresentationSafe(account: FinanceAccountDto) {
+  if (account.balanceState !== 'KNOWN' || account.currentBalance === null) {
+    return { isUnknown: true, isCreditCard: account.accountType === 'CREDIT_CARD', isDebt: false, displayAmount: null };
+  }
+  const canonical = account.currentBalance;
+  const isNegative = canonical.startsWith('-');
+  if (account.accountType === 'CREDIT_CARD') {
+    if (isNegative || canonical === '0' || /^0+(\.0+)?$/.test(canonical)) {
+      return { isUnknown: false, isCreditCard: true, isDebt: true, displayAmount: isNegative ? canonical.slice(1) : canonical };
+    }
+    return { isUnknown: false, isCreditCard: true, isDebt: false, displayAmount: canonical };
+  }
+  return { isUnknown: false, isCreditCard: false, isDebt: isNegative, displayAmount: canonical };
+}
 
 export function NewMovementSheet({
   visible,
@@ -53,10 +175,11 @@ export function NewMovementSheet({
   contextType,
   contextLabel,
   contextState,
+  activeHousehold,
   onRequestClose,
   onSuccess,
 }: NewMovementSheetProps) {
-  const [operation, setOperation] = useState<FinanceTransactionKind>('expense');
+  const [operation, setOperation] = useState<FinanceOperationKind>('expense');
   const [amountText, setAmountText] = useState('');
   const [amount, setAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
   const [currency, setCurrency] = useState<MoneyInputCurrencyCode>('ARS');
@@ -73,13 +196,30 @@ export function NewMovementSheet({
   const [submitting, setSubmitting] = useState(false);
   const contextKeyRef = useRef(`${contextType}:${contextLabel}`);
 
+  const [expenseAccountId, setExpenseAccountId] = useState<string | null>(null);
+  const [incomeAccountId, setIncomeAccountId] = useState<string | null>(null);
+
+  const [transferSource, setTransferSource] = useState<FinanceAccountDto | null>(null);
+  const [transferDestination, setTransferDestination] = useState<FinanceAccountDto | null>(null);
+  const [transferAmountText, setTransferAmountText] = useState('');
+  const [transferAmount, setTransferAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
+  const [destinationAmountText, setDestinationAmountText] = useState('');
+  const [destinationAmount, setDestinationAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
+  const [commissionMode, setCommissionMode] = useState<'none' | 'custom'>('none');
+  const [commissionText, setCommissionText] = useState('');
+  const [commission, setCommission] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
+
+  const expenseAccountPickerVisible = activePicker === 'expenseAccount';
+  const incomeAccountPickerVisible = activePicker === 'incomeAccount';
+  const transferSourcePickerVisible = activePicker === 'transferSource';
+  const transferDestinationPickerVisible = activePicker === 'transferDestination';
+
   const selectedCategory = useMemo(
     () => categories.find((category) => category.id === selectedCategoryId) ?? null,
     [categories, selectedCategoryId],
   );
 
   const contextUnavailable = contextState === 'loading' || contextState === 'household_unavailable';
-  const canSubmit = Boolean(accessToken) && !contextUnavailable && amount.isValid && !submitting;
 
   useEffect(() => {
     if (!visible) return;
@@ -134,6 +274,102 @@ export function NewMovementSheet({
     };
   }, [accessToken, contextType, contextUnavailable, operation, visible]);
 
+  const expenseAccountsState = useEligibleAccounts({
+    accessToken,
+    enabled: visible && isExpense(operation),
+    operation: 'expense',
+    contextType,
+    transactionCurrency: currency,
+    activeHousehold,
+  });
+
+  const incomeAccountsState = useEligibleAccounts({
+    accessToken,
+    enabled: visible && isIncome(operation),
+    operation: 'income',
+    contextType,
+    transactionCurrency: currency,
+    activeHousehold,
+  });
+
+  const transferSourceAccountsState = useEligibleAccounts({
+    accessToken,
+    enabled: visible && isTransfer(operation),
+    operation: 'transfer-source',
+    contextType,
+    transactionCurrency: null,
+    activeHousehold,
+  });
+
+  const transferDestinationAccountsState = useEligibleAccounts({
+    accessToken,
+    enabled: visible && isTransfer(operation) && transferSource !== null,
+    operation: 'transfer-destination',
+    contextType,
+    transactionCurrency: null,
+    activeHousehold,
+  });
+
+  const selectedExpenseAccount = useMemo(
+    () => expenseAccountsState.accounts.find((account) => account.id === expenseAccountId) ?? null,
+    [expenseAccountId, expenseAccountsState.accounts],
+  );
+  const selectedIncomeAccount = useMemo(
+    () => incomeAccountsState.accounts.find((account) => account.id === incomeAccountId) ?? null,
+    [incomeAccountId, incomeAccountsState.accounts],
+  );
+
+  const transferCrossCurrency =
+    transferSource !== null
+    && transferDestination !== null
+    && transferSource.currency !== transferDestination.currency;
+  const transferCurrency: MoneyInputCurrencyCode = transferSource?.currency ?? 'ARS';
+
+  const transferSignature = buildTransferPayloadSignature({
+    sourceAccount: transferSource?.id ?? '',
+    destinationAccount: transferDestination?.id ?? '',
+    sourceAmount: transferAmount.technicalValue?.amount ?? '',
+    destinationAmount: transferCrossCurrency
+      ? (destinationAmount.technicalValue?.amount ?? '')
+      : (transferAmount.technicalValue?.amount ?? ''),
+    commissionAmount: commissionMode === 'custom' ? (commission.technicalValue?.amount ?? '') : '',
+    date,
+  });
+  const transferIdentity = useStableTransferMutationIdentity(transferSignature);
+
+  const transferPreview = useMemo(() => computeTransferPreview({
+    sourceAccount: transferSource,
+    destinationAccount: transferDestination,
+    amount: transferAmount,
+    destinationAmount,
+    commission,
+    commissionMode,
+    crossCurrency: transferCrossCurrency,
+  }), [transferSource, transferDestination, transferAmount, destinationAmount, commission, commissionMode, transferCrossCurrency]);
+
+  const hasValidTransferSource = transferSource !== null && transferSource.accountType === 'ACCOUNT';
+  const transferSourceTotalDebit = transferAmount.technicalValue
+    ? addDecimalStrings(
+      transferAmount.technicalValue.amount,
+      commissionMode === 'custom' && commission.technicalValue ? commission.technicalValue.amount : '0',
+    )
+    : null;
+  const transferSourceBalanceInsufficient =
+    transferSource?.balanceState === 'KNOWN' &&
+    transferSource.currentBalance !== null &&
+    transferSourceTotalDebit !== null &&
+    compareDecimalStrings(transferSource.currentBalance, transferSourceTotalDebit) < 0;
+
+  const canSubmit = isTransfer(operation)
+    ? Boolean(accessToken) && !contextUnavailable && !submitting &&
+      hasValidTransferSource &&
+      Boolean(transferDestination) &&
+      (transferSource?.id ?? '') !== transferDestination?.id &&
+      transferAmount.isValid &&
+      (!transferCrossCurrency || destinationAmount.isValid) &&
+      (commissionMode === 'none' || (commissionMode === 'custom' && commission.isValid))
+    : Boolean(accessToken) && !contextUnavailable && amount.isValid && !submitting;
+
   const resetDraft = () => {
     setOperation('expense');
     setAmountText('');
@@ -149,6 +385,17 @@ export function NewMovementSheet({
     setActivePicker(null);
     setSubmitError(null);
     setSubmitting(false);
+    setExpenseAccountId(null);
+    setIncomeAccountId(null);
+    setTransferSource(null);
+    setTransferDestination(null);
+    setTransferAmountText('');
+    setTransferAmount(parseMoneyInputText('', 'ARS'));
+    setDestinationAmountText('');
+    setDestinationAmount(parseMoneyInputText('', 'ARS'));
+    setCommissionMode('none');
+    setCommissionText('');
+    setCommission(parseMoneyInputText('', 'ARS'));
   };
 
   const close = () => {
@@ -169,18 +416,92 @@ export function NewMovementSheet({
     setSubmitError(null);
   };
 
-  const chooseOperation = (nextOperation: FinanceTransactionKind) => {
+  const resetTransferDependentState = () => {
+    setTransferSource(null);
+    setTransferDestination(null);
+    setTransferAmountText('');
+    setTransferAmount(parseMoneyInputText('', 'ARS'));
+    setDestinationAmountText('');
+    setDestinationAmount(parseMoneyInputText('', 'ARS'));
+    setCommissionMode('none');
+    setCommissionText('');
+    setCommission(parseMoneyInputText('', 'ARS'));
+  };
+
+  const chooseOperation = (nextOperation: FinanceOperationKind) => {
     setOperation(nextOperation);
     setSubmitError(null);
     setActivePicker(null);
-    if (!isExpense(nextOperation)) {
+    if (nextOperation !== 'expense') {
       setSelectedCategoryId(null);
       setNotesExpanded(false);
       setNotes('');
     }
+    if (nextOperation !== 'transfer') {
+      resetTransferDependentState();
+    }
   };
 
-  const submit = async () => {
+  const handleSelectTransferSource = (account: FinanceAccountDto | null) => {
+    setTransferSource(account);
+    if (account) {
+      setTransferAmount(parseMoneyInputText(NONE_AMOUNT, account.currency));
+      setTransferAmountText(NONE_AMOUNT);
+    }
+    setActivePicker(null);
+    if (account) {
+      if (transferDestination && account.currency !== transferDestination.currency) {
+        setTransferDestination(null);
+        setDestinationAmount(parseMoneyInputText('', 'ARS'));
+        setDestinationAmountText('');
+      }
+      if (commission.technicalValue) {
+        setCommission(parseMoneyInputText(commissionText, account.currency));
+      }
+    }
+  };
+
+  const handleSelectTransferDestination = (account: FinanceAccountDto | null) => {
+    setTransferDestination(account);
+    if (account && transferCrossCurrency) {
+      setDestinationAmount(parseMoneyInputText(NONE_AMOUNT, account.currency));
+      setDestinationAmountText(NONE_AMOUNT);
+    }
+    setActivePicker(null);
+  };
+
+  const handleTransferAmountChange = (next: MoneyInputParseResult) => {
+    setTransferAmountText(next.inputText);
+    setTransferAmount(next);
+    setSubmitError(null);
+  };
+
+  const handleDestinationAmountChange = (next: MoneyInputParseResult) => {
+    setDestinationAmountText(next.inputText);
+    setDestinationAmount(next);
+    setSubmitError(null);
+  };
+
+  const handleCommissionChange = (next: MoneyInputParseResult) => {
+    setCommissionText(next.inputText);
+    setCommission(next);
+    setSubmitError(null);
+  };
+
+  const setCommissionNone = () => {
+    setCommissionMode('none');
+    setCommissionText('');
+    setCommission(parseMoneyInputText('', transferCurrency));
+    setSubmitError(null);
+  };
+
+  const setCommissionCustom = () => {
+    setCommissionMode('custom');
+    setCommission(parseMoneyInputText(commissionText, transferCurrency));
+    setSubmitError(null);
+  };
+
+  const submitExpenseOrIncome = async () => {
     if (submitting) return;
     Keyboard.dismiss();
     setSubmitError(null);
@@ -206,6 +527,8 @@ export function NewMovementSheet({
       ...(description.trim() ? { description: description.trim() } : {}),
       ...(isExpense(operation) && selectedCategoryId ? { category: selectedCategoryId } : {}),
       ...(isExpense(operation) && notes.trim() ? { notes: notes.trim() } : {}),
+      ...(isExpense(operation) && expenseAccountId ? { account: expenseAccountId } : {}),
+      ...(isIncome(operation) && incomeAccountId ? { account: incomeAccountId } : {}),
     };
 
     const submittedOperation = operation;
@@ -214,7 +537,7 @@ export function NewMovementSheet({
     try {
       if (isExpense(submittedOperation)) {
         await createFinanceExpense(accessToken, payload);
-      } else {
+      } else if (isIncome(submittedOperation)) {
         await createFinanceIncome(accessToken, payload);
       }
       resetDraft();
@@ -230,12 +553,80 @@ export function NewMovementSheet({
     }
   };
 
+  const submitTransfer = async () => {
+    if (submitting) return;
+    Keyboard.dismiss();
+    setSubmitError(null);
+
+    if (!accessToken) {
+      setSubmitError('Tu sesion no esta disponible. Volve a iniciar sesion.');
+      return;
+    }
+    if (!transferSource || transferSource.accountType !== 'ACCOUNT') {
+      setSubmitError('Elegí una cuenta de origen de tipo Cuenta.');
+      return;
+    }
+    if (!transferDestination) {
+      setSubmitError('Elegí una cuenta de destino.');
+      return;
+    }
+    if (transferSource.id === transferDestination.id) {
+      setSubmitError('Elegí cuentas distintas.');
+      return;
+    }
+    if (!transferAmount.isValid) {
+      setSubmitError('Revisa el monto a transferir.');
+      return;
+    }
+    if (transferCrossCurrency && !destinationAmount.isValid) {
+      setSubmitError('Revisa el monto de destino.');
+      return;
+    }
+if (commissionMode === 'custom' && !commission.isValid) {
+      setSubmitError('Revisa la comision.');
+      return;
+    }
+
+    const canonicalSourceAmount = transferAmount.technicalValue!.amount;
+    const payload = {
+      sourceAccount: transferSource.id,
+      destinationAccount: transferDestination.id,
+      sourceAmount: canonicalSourceAmount,
+      destinationAmount: transferCrossCurrency ? destinationAmount.technicalValue?.amount ?? null : canonicalSourceAmount,
+      date,
+      description: description.trim() || null,
+      notes: null,
+      commissionAmount: commissionMode === 'custom' ? commission.technicalValue?.amount ?? null : null,
+      contextType,
+    };
+
+    setSubmitting(true);
+    try {
+      await createFinanceTransfer(accessToken, payload, transferIdentity);
+      resetDraft();
+      onRequestClose();
+      onSuccess('transfer');
+    } catch (error) {
+      setSubmitError(error instanceof ApiError ? error.message : 'No pudimos registrar la transferencia.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submit = () => {
+    if (isTransfer(operation)) {
+      void submitTransfer();
+    } else {
+      void submitExpenseOrIncome();
+    }
+  };
+
   const footer = (
     <View style={styles.footer}>
       <AppButton title="Cancelar" variant="ghost" onPress={close} disabled={submitting} style={styles.footerButton} />
       <AppButton
-        title={operation === 'expense' ? 'Registrar gasto' : 'Registrar ingreso'}
-        onPress={() => void submit()}
+        title={operation === 'expense' ? 'Registrar gasto' : operation === 'income' ? 'Registrar ingreso' : 'Transferir'}
+        onPress={submit}
         loading={submitting}
         disabled={!canSubmit}
         style={styles.footerButton}
@@ -262,7 +653,7 @@ export function NewMovementSheet({
           contentContainerStyle={styles.form}
         >
           <View style={styles.operationSelector} accessibilityRole="tablist">
-            {(['expense', 'income'] as const).map((candidate) => {
+            {(['expense', 'income', 'transfer'] as const).map((candidate) => {
               const selected = candidate === operation;
               return (
                 <InteractivePressable
@@ -274,39 +665,203 @@ export function NewMovementSheet({
                   style={[styles.operationOption, selected && styles.operationOptionSelected]}
                   accessibilityRole="tab"
                   accessibilityState={{ selected }}
-                  accessibilityLabel={candidate === 'expense' ? 'Gasto' : 'Ingreso'}
+                  accessibilityLabel={candidate === 'expense' ? 'Gasto' : candidate === 'income' ? 'Ingreso' : 'Transferencia'}
                 >
                   <AppText variant="bodySmall" weight="800" tone={selected ? 'inverse' : 'secondary'}>
-                    {candidate === 'expense' ? 'Gasto' : 'Ingreso'}
+                    {candidate === 'expense' ? 'Gasto' : candidate === 'income' ? 'Ingreso' : 'Transferir'}
                   </AppText>
                 </InteractivePressable>
               );
             })}
           </View>
 
-          <MoneyInput
-            value={amountText}
-            currency={currency}
-            onValueChange={handleAmountChange}
-            onCurrencyChange={handleCurrencyChange}
-            availableCurrencies={DEFAULT_MONEY_INPUT_CURRENCY_OPTIONS}
-            disabled={submitting}
-            errorText={amount.status === 'invalid' ? 'Revisa el monto.' : undefined}
-            helperText="Magnitud positiva, sin convertir monedas."
-            testID="finance-new-movement-money-input"
-          />
+          {isTransfer(operation) ? (
+            <React.Fragment>
+              <View style={styles.fieldGroup}>
+                <FormActionRow
+                  label="Sale de"
+                  value={transferSource ? `${transferSource.name} · ${transferSource.currency}` : 'Elegir cuenta'}
+                  onPress={() => setActivePicker('transferSource')}
+                  disabled={submitting}
+                  accessibilityLabel={transferSource ? `Cuenta origen ${transferSource.name} ${transferSource.currency}` : 'Elegir cuenta de origen (no se permite tarjeta de credito)'}
+                />
+                <AppText variant="caption" tone="tertiary">
+                  Solo cuentas de tipo Cuenta. Tarjetas de crédito no pueden ser origen.
+                </AppText>
+              </View>
 
-          <AppInput
-            label={operation === 'expense' ? 'Descripcion (opcional)' : 'Descripcion (opcional)'}
-            value={description}
-            onChangeText={(text) => {
-              setDescription(text);
-              setSubmitError(null);
-            }}
-            placeholder={operation === 'expense' ? 'Supermercado, farmacia, alquiler' : 'Sueldo, venta, reintegro'}
-            editable={!submitting}
-            returnKeyType="done"
-          />
+              <View style={styles.fieldGroup}>
+                <FormActionRow
+                  label="Llega a"
+                  value={transferDestination ? `${transferDestination.name} · ${transferDestination.currency}` : 'Elegir cuenta'}
+                  onPress={() => setActivePicker('transferDestination')}
+                  disabled={submitting || !transferSource}
+                  accessibilityLabel={transferDestination ? `Cuenta destino ${transferDestination.name} ${transferDestination.currency}` : 'Elegir cuenta de destino (se permiten tarjetas de credito)'}
+                />
+              </View>
+
+                {transferSource && transferDestination && transferSource.id === transferDestination.id ? (
+                  <View style={styles.warnBox}>
+                    <HomePlusIcon name="alert-circle-outline" size={18} color={colors.warning.strong} />
+                    <AppText variant="bodySmall" tone="warning">Elegí dos cuentas distintas.</AppText>
+                  </View>
+                ) : null}
+
+                {!transferCrossCurrency ? (
+                  <MoneyInput
+                    value={transferAmountText}
+                    currency={transferCurrency}
+                    onValueChange={handleTransferAmountChange}
+                    onCurrencyChange={() => undefined}
+                    availableCurrencies={[transferCurrency]}
+                    label="Monto"
+                    helperText="Magnitud positiva, sin convertir monedas."
+                    disabled={submitting || !transferSource}
+                    errorText={transferAmount.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                  />
+                ) : (
+                  <View style={styles.fieldGroup}>
+                    <MoneyInput
+                      value={transferAmountText}
+                      currency={transferSource?.currency ?? 'ARS'}
+                      onValueChange={handleTransferAmountChange}
+                      onCurrencyChange={() => undefined}
+                      availableCurrencies={[transferSource?.currency ?? 'ARS']}
+                      label="Sale"
+                      helperText="Monto en la moneda de origen."
+                      disabled={submitting}
+                      errorText={transferAmount.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                    />
+                    <MoneyInput
+                      value={destinationAmountText}
+                      currency={transferDestination?.currency ?? 'ARS'}
+                      onValueChange={handleDestinationAmountChange}
+                      onCurrencyChange={() => undefined}
+                      availableCurrencies={[transferDestination?.currency ?? 'ARS']}
+                      label="Llega"
+                      helperText="Monto declarado en la moneda de destino. No mostramos ni calculamos tipo de cambio."
+                      disabled={submitting}
+                      errorText={destinationAmount.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                    />
+                  </View>
+                )}
+
+                <View style={styles.fieldGroup}>
+                  <AppText variant="caption" tone="secondary" weight="700">Comisión</AppText>
+                  <View style={styles.commissionMode}>
+                    <InteractivePressable
+                      onPress={setCommissionNone}
+                      disabled={submitting}
+                      haptic="light"
+                      pressScale={motion.scale.card}
+                      style={[styles.commissionOption, commissionMode === 'none' && styles.commissionOptionSelected]}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: commissionMode === 'none' }}
+                      accessibilityLabel="Sin comisión"
+                    >
+                      <HomePlusIcon
+                        name={commissionMode === 'none' ? 'radio-button-on' : 'radio-button-off'}
+                        size={18}
+                        color={commissionMode === 'none' ? colors.terracotta[700] : colors.text.tertiary}
+                      />
+                      <AppText variant="bodySmall" weight="800">Ninguna</AppText>
+                    </InteractivePressable>
+                    <InteractivePressable
+                      onPress={setCommissionCustom}
+                      disabled={submitting || !transferSource}
+                      haptic="light"
+                      pressScale={motion.scale.card}
+                      style={[styles.commissionOption, commissionMode === 'custom' && styles.commissionOptionSelected]}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: commissionMode === 'custom' }}
+                      accessibilityLabel="Ingresar comisión (moneda de origen, sin categoría ni cuenta adicional)"
+                    >
+                      <HomePlusIcon
+                        name={commissionMode === 'custom' ? 'radio-button-on' : 'radio-button-off'}
+                        size={18}
+                        color={commissionMode === 'custom' ? colors.terracotta[700] : colors.text.tertiary}
+                      />
+                      <AppText variant="bodySmall" weight="800">Agregar comisión</AppText>
+                    </InteractivePressable>
+                  </View>
+                  {commissionMode === 'custom' && transferSource ? (
+                    <MoneyInput
+                      value={commissionText}
+                      currency={transferSource.currency}
+                      onValueChange={handleCommissionChange}
+                      onCurrencyChange={() => undefined}
+                      availableCurrencies={[transferSource.currency]}
+                      label="Monto de comisión"
+                      helperText="Se registra como Expense (Comisiones e intereses) en la cuenta de origen. No te pedimos categoría ni cuenta aparte."
+                      disabled={submitting}
+                      errorText={commission.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                    />
+                  ) : null}
+                </View>
+
+                <AppInput
+                  label="Descripción (opcional)"
+                  value={description}
+                  onChangeText={(text) => { setDescription(text); setSubmitError(null); }}
+                  placeholder="Transferencia, ahorro, pago..."
+                  editable={!submitting}
+                  returnKeyType="done"
+                />
+
+                {transferPreview ? (
+                  <View style={styles.preview} accessibilityRole="summary">
+                    <AppText variant="caption" tone="secondary" weight="800">Resumen</AppText>
+                    <View style={styles.previewRow}>
+                      <AppText variant="bodySmall" weight="700" numberOfLines={1}>Origen</AppText>
+                      <AppText variant="bodySmall" weight="800" tone="primary" numberOfLines={2} style={styles.previewValue}>
+                        {transferPreview.sourceLabel}
+                      </AppText>
+                    </View>
+                    <View style={styles.previewRow}>
+                      <AppText variant="bodySmall" weight="700" numberOfLines={1}>Destino</AppText>
+                      <AppText variant="bodySmall" weight="800" tone="primary" numberOfLines={2} style={styles.previewValue}>
+                        {transferPreview.destinationLabel}
+                      </AppText>
+                    </View>
+                  </View>
+                ) : null}
+
+                {transferSourceBalanceInsufficient ? (
+                  <View style={styles.warnBox}>
+                    <HomePlusIcon name="alert-circle-outline" size={18} color={colors.warning.strong} />
+                    <AppText variant="bodySmall" tone="warning" style={styles.errorInline}>
+                      Saldo insuficiente para cubrir transferencia y comision.
+                    </AppText>
+                  </View>
+                ) : null}
+              </React.Fragment>
+          ) : (
+            <React.Fragment>
+              <MoneyInput
+                value={amountText}
+                currency={currency}
+                onValueChange={handleAmountChange}
+                onCurrencyChange={handleCurrencyChange}
+                availableCurrencies={DEFAULT_MONEY_INPUT_CURRENCY_OPTIONS}
+                disabled={submitting}
+                errorText={amount.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                helperText="Magnitud positiva, sin convertir monedas."
+                testID="finance-new-movement-money-input"
+              />
+
+              <AppInput
+                label="Descripcion (opcional)"
+                value={description}
+                onChangeText={(text) => {
+                  setDescription(text);
+                  setSubmitError(null);
+                }}
+                placeholder={operation === 'expense' ? 'Supermercado, farmacia, alquiler' : 'Sueldo, venta, reintegro'}
+                editable={!submitting}
+                returnKeyType="done"
+              />
+            </React.Fragment>
+          )}
 
           {isExpense(operation) ? (
             <View style={styles.fieldGroup}>
@@ -381,21 +936,57 @@ export function NewMovementSheet({
             </View>
           ) : null}
 
-          <View style={styles.contextSummary}>
-            <HomePlusIcon
-              name={contextType === 'personal' ? 'person-outline' : 'home-outline'}
-              size={18}
-              color={colors.sage[700]}
-            />
-            <View style={styles.contextSummaryText}>
-              <AppText variant="caption" tone="secondary" weight="700">
-                Contexto financiero
-              </AppText>
-              <AppText variant="bodySmall" weight="800" numberOfLines={1}>
-                {contextLabel}
-              </AppText>
+          {isExpense(operation) ? (
+            <View style={styles.fieldGroup}>
+              <FormActionRow
+                label="Cuenta"
+                value={selectedExpenseAccount ? `${selectedExpenseAccount.name} · ${selectedExpenseAccount.currency}` : 'Sin cuenta'}
+                onPress={() => setActivePicker('expenseAccount')}
+                disabled={submitting || expenseAccountsState.loading}
+                accessibilityLabel="Elegir cuenta para gasto"
+              />
+              {expenseAccountsState.error ? (
+                <AppText variant="caption" tone="warning">
+                  {expenseAccountsState.error}
+                </AppText>
+              ) : null}
             </View>
-          </View>
+          ) : null}
+
+          {isIncome(operation) ? (
+            <View style={styles.fieldGroup}>
+              <FormActionRow
+                label="Cuenta"
+                value={selectedIncomeAccount ? `${selectedIncomeAccount.name} · ${selectedIncomeAccount.currency}` : 'Sin cuenta'}
+                onPress={() => setActivePicker('incomeAccount')}
+                disabled={submitting || incomeAccountsState.loading}
+                accessibilityLabel="Elegir cuenta para ingreso"
+              />
+              {incomeAccountsState.error ? (
+                <AppText variant="caption" tone="warning">
+                  {incomeAccountsState.error}
+                </AppText>
+              ) : null}
+            </View>
+          ) : null}
+
+          {!isTransfer(operation) ? (
+            <View style={styles.contextSummary}>
+              <HomePlusIcon
+                name={contextType === 'personal' ? 'person-outline' : 'home-outline'}
+                size={18}
+                color={colors.sage[700]}
+              />
+              <View style={styles.contextSummaryText}>
+                <AppText variant="caption" tone="secondary" weight="700">
+                  Contexto financiero
+                </AppText>
+                <AppText variant="bodySmall" weight="800" numberOfLines={1}>
+                  {contextLabel}
+                </AppText>
+              </View>
+            </View>
+          ) : null}
 
           <FormActionRow
             label="Fecha"
@@ -459,6 +1050,78 @@ export function NewMovementSheet({
             setActivePicker(null);
           }}
         />
+
+        <AccountSelector
+          visible={expenseAccountPickerVisible}
+          title="Cuenta del gasto"
+          subtitle="Opcional"
+          accounts={expenseAccountsState.accounts}
+          loading={expenseAccountsState.loading}
+          error={expenseAccountsState.error}
+          selectedAccountId={expenseAccountId}
+          allowNone
+          activeHousehold={activeHousehold}
+          disabled={submitting}
+          operationHint="expense"
+          onRequestClose={() => setActivePicker(null)}
+          onSelect={(account) => {
+            setExpenseAccountId(account?.id ?? null);
+            setActivePicker(null);
+          }}
+        />
+
+        <AccountSelector
+          visible={incomeAccountPickerVisible}
+          title="Cuenta del ingreso"
+          subtitle="Opcional"
+          accounts={incomeAccountsState.accounts}
+          loading={incomeAccountsState.loading}
+          error={incomeAccountsState.error}
+          selectedAccountId={incomeAccountId}
+          allowNone
+          activeHousehold={activeHousehold}
+          disabled={submitting}
+          operationHint="income"
+          onRequestClose={() => setActivePicker(null)}
+          onSelect={(account) => {
+            setIncomeAccountId(account?.id ?? null);
+            setActivePicker(null);
+          }}
+        />
+
+        <AccountSelector
+          visible={transferSourcePickerVisible}
+          title="Cuenta de origen"
+          subtitle="Solo cuentas de tipo Cuenta"
+          accounts={transferSourceAccountsState.accounts}
+          loading={transferSourceAccountsState.loading}
+          error={transferSourceAccountsState.error}
+          selectedAccountId={transferSource?.id ?? null}
+          allowNone={false}
+          activeHousehold={activeHousehold}
+          disabled={submitting}
+          operationHint="transfer-source"
+          onRequestClose={() => setActivePicker(null)}
+          onSelect={handleSelectTransferSource}
+          onCreateAccount={() => setActivePicker(null)}
+        />
+
+        <AccountSelector
+          visible={transferDestinationPickerVisible}
+          title="Cuenta de destino"
+          subtitle="Cuentas o tarjetas de crédito (excepto la de origen)"
+          accounts={transferDestinationAccountsState.accounts.filter((a) => a.id !== transferSource?.id)}
+          loading={transferDestinationAccountsState.loading}
+          error={transferDestinationAccountsState.error}
+          selectedAccountId={transferDestination?.id ?? null}
+          allowNone={false}
+          activeHousehold={activeHousehold}
+          disabled={submitting}
+          operationHint="transfer-destination"
+          onRequestClose={() => setActivePicker(null)}
+          onSelect={handleSelectTransferDestination}
+          onCreateAccount={() => setActivePicker(null)}
+        />
       </View>
     </ActionSheet>
   );
@@ -519,6 +1182,58 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  noAccountsBlock: {
+    paddingVertical: spacing[4],
+    gap: spacing[3],
+  },
+  commissionMode: {
+    flexDirection: 'row',
+    gap: spacing[2],
+  },
+  commissionOption: {
+    flex: 1,
+    minHeight: touchTargets.normal,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.soft,
+    paddingHorizontal: spacing[3],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  commissionOptionSelected: {
+    backgroundColor: colors.terracotta[50],
+    borderColor: colors.terracotta[300],
+  },
+  preview: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.soft,
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    gap: spacing[2],
+  },
+  previewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: spacing[3],
+  },
+  previewValue: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'right',
+  },
+  warnBox: {
+    borderRadius: radius.lg,
+    backgroundColor: colors.warning.soft,
+    padding: spacing[3],
+    flexDirection: 'row',
+    gap: spacing[2],
+    alignItems: 'center',
+  },
   contextSummary: {
     minHeight: 56,
     borderRadius: radius.lg,
@@ -553,6 +1268,10 @@ const styles = StyleSheet.create({
     gap: spacing[2],
   },
   errorText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  errorInline: {
     flex: 1,
     minWidth: 0,
   },

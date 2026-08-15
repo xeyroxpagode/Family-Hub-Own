@@ -75,7 +75,7 @@ function splitAmountText(input: string): { integerPart: string; fractionPart: st
 }
 
 function isZeroCanonical(canonicalAmount: string): boolean {
-  return Number(canonicalAmount) === 0;
+  return canonicalAmount.replace('.', '').split('').every((char) => char === '0');
 }
 
 export function parseMoneyInputText(inputText: string, currency: MoneyInputCurrencyCode): MoneyInputParseResult {

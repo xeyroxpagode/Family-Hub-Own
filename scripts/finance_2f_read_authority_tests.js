@@ -9,8 +9,8 @@
  * finance_transactions: privacy, scope, period (transaction_date), ordering,
  * category historical snapshot, currency separation, exact counting,
  * Net = Income - Expense, decimal-safe totals, empty-period truth, and the
- * full 2F-A negative scope (no Account/Transfer/Refund/Payment/Budget/Analysis,
- * no frontend, no new migration).
+ * full 2F-A negative scope (no Account-linked reads/Transfer/Refund/Payment/
+ * Budget/Analysis, no frontend read expansion).
  */
 
 const fs = require('node:fs');
@@ -144,6 +144,8 @@ async function applyMigration(rel) {
 async function applyMigrations() {
   await applyMigration('supabase/migrations/20260813010000_finance_category_authority_v1_1.sql');
   await applyMigration('supabase/migrations/20260813020000_finance_expense_income_transactions_v1_1.sql');
+  await applyMigration('supabase/migrations/20260814010000_finance_account_authority_v1_1.sql');
+  await applyMigration('supabase/migrations/20260814020000_finance_balance_anchor_account_effects_v1_1.sql');
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
 
@@ -690,7 +692,7 @@ async function testNoSilentMovementTruncation(actors) {
 }
 
 async function testNegativeScope() {
-  console.log('\nT42-T53 - Negative scope: no Account/Transfer/Refund/Payment/Budget/Analysis/frontend/migration');
+  console.log('\nT42-T53 - Negative scope: no Account-linked read/Transfer/Refund/Payment/Budget/Analysis/frontend read expansion');
   const serviceText = fs.readFileSync(path.join(root, 'backend/src/services/finance.read.service.js'), 'utf8');
   const controllerText = fs.readFileSync(path.join(root, 'backend/src/controllers/finance.read.controller.js'), 'utf8');
   const routeText = fs.readFileSync(path.join(root, 'backend/src/routes/finance.js'), 'utf8');
@@ -698,7 +700,7 @@ async function testNegativeScope() {
 
   // Identifier-based checks: detect actual implementation of the forbidden
   // domain concepts, never mere English prose in doc comments.
-  assert(!/\baccountId\b|\baccount_id\b|\bfinance_account\b|AccountService|AccountRepository/i.test(readBackend), 'T42 no Account implementation');
+  assert(!/\baccountId\b|\baccount_id\b|AccountRepository/i.test(readBackend), 'T42 no Account-linked movement/summary implementation');
   assert(!/\bbalance\b|\baccount_balance\b|BalanceService/i.test(readBackend), 'T43 no Balance implementation');
   assert(!/\bcreateTransfer\b|TransferService|finance_transfer|TransactionTypes\.TRANSFER\b|\btransfer\b/i.test(readBackend), 'T44 no Transfer implementation');
   assert(!/\bcreateRefund\b|RefundService|\brefund\b/i.test(readBackend), 'T45 no Refund implementation');
@@ -721,8 +723,15 @@ async function testNegativeScope() {
     JSON.stringify(migrations) === JSON.stringify([
       '20260813010000_finance_category_authority_v1_1.sql',
       '20260813020000_finance_expense_income_transactions_v1_1.sql',
+      '20260814010000_finance_account_authority_v1_1.sql',
+      '20260814020000_finance_balance_anchor_account_effects_v1_1.sql',
+      '20260814030000_finance_balance_correction_v1_1.sql',
+      '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
+      '20260814050000_finance_canonical_transfer_v1_1.sql',
+'20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814070000_finance_transfer_commission_composition_v1_1.sql',
     ]),
-    'T51 no new Finance migration (only accepted 2B/2C remain)',
+    'T51 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations remain',
   );
 
   // T52 no direct donor architecture import: read service should not import planner.context.service

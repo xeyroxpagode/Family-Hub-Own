@@ -7,6 +7,10 @@ const {
   FINANCE_TRANSACTION_TYPES,
 } = require('../constants/finance.constants');
 const { normalizeFinanceTransactionContract } = require('./finance.transactionContract.service');
+const {
+  normalizeDecimalText,
+  resolveAccountForTransaction,
+} = require('./finance.account.service');
 
 const FORBIDDEN_CREATE_FIELDS = Object.freeze([
   'personId',
@@ -74,13 +78,28 @@ function assertNoForbiddenCreateFields(body = {}) {
     }
   }
 
-  if (body.account !== undefined && body.account !== null) {
-    throw createHttpError(400, 'Account no esta implementado en Finance 2C.', 'finance_account_not_supported');
-  }
-
   if (body.document !== undefined && body.document !== null) {
     throw createHttpError(400, 'Document/HomeCloud no esta implementado en Finance 2C.', 'finance_document_not_supported');
   }
+}
+
+function normalizePositiveAmountText(value) {
+  const text = normalizeDecimalText(String(value), 'invalid_finance_transaction_amount');
+  if (text.startsWith('-') || !text.replace('.', '').split('').some((char) => char !== '0')) {
+    throw createHttpError(
+      400,
+      'Amount debe ser una magnitud monetaria positiva.',
+      'invalid_finance_transaction_amount',
+    );
+  }
+  return text;
+}
+
+function signedEffectAmountText(transactionType, amountText) {
+  if (transactionType === FINANCE_TRANSACTION_TYPES.EXPENSE) {
+    return amountText.startsWith('-') ? amountText : `-${amountText}`;
+  }
+  return amountText;
 }
 
 function normalizeRequestedCategoryId(body = {}) {
@@ -177,10 +196,12 @@ async function createFinanceTransaction(financeContext, body = {}, forcedType) {
     contract.type,
     normalizeRequestedCategoryId(body),
   );
+  const amountText = normalizePositiveAmountText(body.amount);
+  const account = await resolveAccountForTransaction(financeContext, body, contract.type, contract.currency);
 
   const payload = {
     transaction_type: contract.type,
-    amount: contract.amount,
+    amount: amountText,
     currency: contract.currency,
     financial_context_type: financeContext.contextType,
     owner_person_id: financeContext.contextType === FINANCE_CONTEXT_TYPES.PERSONAL
@@ -197,11 +218,22 @@ async function createFinanceTransaction(financeContext, body = {}, forcedType) {
     created_by_person_id: financeContext.personId,
   };
 
-  const { data, error } = await financeContext.client
-    .from('finance_transactions')
-    .insert(payload)
-    .select('*')
-    .single();
+  const { data, error } = await financeContext.client.rpc('finance_create_transaction_with_optional_account_effect_v1', {
+    p_transaction_type: payload.transaction_type,
+    p_amount: payload.amount,
+    p_currency: payload.currency,
+    p_financial_context_type: payload.financial_context_type,
+    p_owner_person_id: payload.owner_person_id,
+    p_household_id: payload.household_id,
+    p_transaction_date: payload.transaction_date,
+    p_description: payload.description,
+    p_notes: payload.notes,
+    p_category_id: payload.category_id,
+    p_category_label_snapshot: payload.category_label_snapshot,
+    p_created_by_person_id: payload.created_by_person_id,
+    p_account_id: account?.id ?? null,
+    p_effect_amount: account ? signedEffectAmountText(contract.type, amountText) : null,
+  });
 
   if (error) throwSupabaseError(error);
 

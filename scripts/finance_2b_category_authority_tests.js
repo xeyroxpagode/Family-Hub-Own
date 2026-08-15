@@ -474,8 +474,15 @@ async function testSchemaAndStaticNoOutOfScope() {
     JSON.stringify([
       '20260813010000_finance_category_authority_v1_1.sql',
       '20260813020000_finance_expense_income_transactions_v1_1.sql',
+      '20260814010000_finance_account_authority_v1_1.sql',
+      '20260814020000_finance_balance_anchor_account_effects_v1_1.sql',
+      '20260814030000_finance_balance_correction_v1_1.sql',
+      '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
+      '20260814050000_finance_canonical_transfer_v1_1.sql',
+'20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814070000_finance_transfer_commission_composition_v1_1.sql',
     ]),
-    'only accepted 2B/2C Finance migrations exist',
+    'only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations exist',
   );
 
   const backendText = [
@@ -485,7 +492,7 @@ async function testSchemaAndStaticNoOutOfScope() {
     'backend/src/services/finance.transactionContract.service.js',
   ].map((rel) => fs.readFileSync(path.join(root, rel), 'utf8')).join('\n');
   assert(!/FinanceRole|FINANCE_ROLES|FinancePermission|FinanceACL|finance_can_access/i.test(backendText), 'no Finance role/permission package invented');
-  assert(!/finance_expenses|finance_incomes|ExpenseService|IncomeService|TransferService|AccountService|BudgetService|finance_accounts/i.test(backendText), 'no separate Expense/Income/Transfer/Account persistence implemented');
+  assert(!/finance_expenses|finance_incomes|ExpenseService|IncomeService|TransferService|BudgetService/i.test(backendText), 'no separate Expense/Income/Transfer/Budget persistence implemented');
   assert(!/infer|categorize|merchant|ocr|payment method/i.test(backendText), 'no category inference machinery introduced');
 }
 

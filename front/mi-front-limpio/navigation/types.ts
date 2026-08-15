@@ -21,6 +21,7 @@ export type PrivateStackParamList = {
 export type HomeTabParamList = {
   HomeTab: undefined;
   InventoryTab: undefined;
+  QuickActionTab: undefined;
   PlannerTab: undefined;
   MoreTab: undefined;
 };
@@ -29,6 +30,9 @@ export type MoreStackParamList = {
   MoreHome: undefined;
   Family: undefined;
   Finance: undefined;
+  FinanceAccounts: {
+    contextType: import('../services/finance/financeContext').FinanceContextType;
+  };
 };
 
 // Re-export the canonical Planner V1 navigation authority (M1).

@@ -136,7 +136,7 @@ runTest('T16-T22 Finance UX, stale context and Back integration', () => {
 
   assertEqual(selectFinanceTab('resumen', 'pagos'), 'pagos', 'T16 tabs switch without context mutation');
   assertEqual(selectFinanceContext(FINANCE_CONTEXT_TYPES.HOUSEHOLD, FINANCE_CONTEXT_TYPES.PERSONAL), FINANCE_CONTEXT_TYPES.PERSONAL, 'T17 context changes preserve independent tab state');
-  assert(financeScreen.includes('styles.contextCard') && financeScreen.includes('selectorExpanded') && !/ActionSheet|selectorVisible|dropdown|popover|backdrop/i.test(financeScreen), 'T18 expandable selector remains one card');
+  assert(financeScreen.includes('styles.contextCard') && financeScreen.includes('selectorExpanded') && !/selectorVisible|dropdown|popover|backdrop|context.*ActionSheet|ActionSheet.*context/i.test(financeScreen), 'T18 expandable selector remains one card');
   assert(financeScreen.includes('allowVisibleBackExit') && financeScreen.includes('handleVisibleBack'), 'T19 visible Back exits in one tap when expanded');
   assert(financeScreen.includes("navigation.addListener?.('beforeRemove'") && financeScreen.includes('event.preventDefault()'), 'T20 system Back collapses expanded selector first');
   assertEqual(financeContextViewState(FINANCE_CONTEXT_TYPES.PERSONAL, null, false), 'personal_ready', 'T21 no active Household leaves Personal valid');
@@ -176,7 +176,7 @@ runTest('T26-T29 no fake financial truth or parallel authority', () => {
 
   assert(!/[$€£]\s?\d|ARS\s?\d|USD\s?\d|EUR\s?\d|\d+[.,]\d{2}\s?(ARS|USD|EUR)/i.test(financeScreen), 'T26 no mocked financial amount');
   assert(!/transactionRows|movementRows|paymentRows|expenseRows|incomeRows|mockFinance|financeFixture/i.test(`${financeScreen}\n${financeFrontendService}`), 'T26 no mocked financial rows');
-  assert(!/finance_accounts|createFinanceAccount|FinanceAccountRepository|ExpenseService|IncomeService|TransferService|RefundService|PaymentService/i.test(productionText), 'T27 no Account/separate Expense-Income/Transfer/Refund/Payment service implementation');
+  assert(!/FinanceAccountRepository|ExpenseService|IncomeService|TransferService|RefundService|PaymentService/i.test(productionText), 'T27 no Account repository/separate Expense-Income/Transfer/Refund/Payment service implementation');
   assert(!/FinancePermission|FinanceACL|FinanceRole|FINANCE_ROLES|finance_can_access|is_finance_member/i.test(productionText), 'T28 no Finance role mapping');
   assert(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test(backendIndex), 'T29 no parallel Finance identity authority');
   for (const forbidden of ['FinanceUser', 'FinancePerson', 'FinanceHousehold', 'FinanceMembership', 'FinanceRLS', 'FinanceAppShell', 'FinanceNavbar', 'FinanceReliability', 'FinanceHouseholdSwitcher']) {
@@ -187,6 +187,7 @@ runTest('T26-T29 no fake financial truth or parallel authority', () => {
 runTest('T30-T32 AppScreen shared primitive and 1E polish regression', () => {
   const appScreen = read('front/mi-front-limpio/components/ui/AppScreen.tsx');
   const financeScreen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
+  const financeAccountsScreen = read('front/mi-front-limpio/screens/finance/FinanceAccountsScreen.tsx');
   const frontendFiles = listFiles('front/mi-front-limpio').filter((file) => /\.(ts|tsx)$/.test(file) && !file.includes('node_modules'));
   const appScreenConsumers = frontendFiles
     .filter((file) => file !== 'front/mi-front-limpio/components/ui/AppScreen.tsx')
@@ -198,10 +199,14 @@ runTest('T30-T32 AppScreen shared primitive and 1E polish regression', () => {
   assert(!/safeAreaEdges\s*=\s*\[/.test(appScreen) && !/safeAreaEdges\s*=\s*\{/.test(appScreen), 'T30 AppScreen default safe-area behavior unchanged');
   assertEqual(
     safeAreaConsumers.map(({ file }) => file.replace(/\\/g, '/')),
-    ['front/mi-front-limpio/screens/finance/FinanceScreen.tsx'],
-    'T31 Finance is the intentional top-edge exclusion consumer',
+    [
+      'front/mi-front-limpio/screens/finance/FinanceAccountsScreen.tsx',
+      'front/mi-front-limpio/screens/finance/FinanceScreen.tsx',
+    ],
+    'T31 Finance route surfaces are the intentional top-edge exclusion consumers under AppTopBar',
   );
   assert(financeScreen.includes("safeAreaEdges={['right', 'bottom', 'left']}"), 'T31 Finance excludes top edge only');
+  assert(financeAccountsScreen.includes("safeAreaEdges={['right', 'bottom', 'left']}"), 'T31 Finance Accounts excludes top edge only');
   assert(!financeScreen.includes('Contexto financiero'), 'T32 subtitle remains removed');
   assert(financeScreen.includes('LayoutAnimation.configureNext(selectorLayoutAnimation)'), 'T32 selector keeps LayoutAnimation');
   assert(!financeScreen.includes('maxHeight') && !financeScreen.includes('useNativeDriver: false'), 'T32 no JS-driven maxHeight animation regression');
@@ -221,10 +226,18 @@ runTest('T33-T34 database and remote boundary static evidence', () => {
     JSON.stringify([
       '20260813010000_finance_category_authority_v1_1.sql',
       '20260813020000_finance_expense_income_transactions_v1_1.sql',
+      '20260814010000_finance_account_authority_v1_1.sql',
+      '20260814020000_finance_balance_anchor_account_effects_v1_1.sql',
+      '20260814030000_finance_balance_correction_v1_1.sql',
+      '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
+      '20260814050000_finance_canonical_transfer_v1_1.sql',
+      '20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814070000_finance_transfer_commission_composition_v1_1.sql',
     ]),
-    'T33 only accepted 2B/2C Finance migrations exist',
+    'T33 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations exist',
   );
-  assert(!/finance_accounts|finance_expenses|finance_incomes|finance_transfers|finance_budgets|finance_payments|finance_refunds/i.test(allSql), 'T33 no out-of-stage Finance Account/separate Expense-Income/Transfer/Budget/Payment/Refund schema introduced');
+  assert(!/finance_expenses|finance_incomes|finance_budgets|finance_payments|finance_refunds/i.test(allSql), 'T33 no out-of-stage separate Expense-Income/Budget/Payment/Refund schema introduced');
+  assert(!/(create|alter)\s+table\s+(?:public\.)?finance_transactions[\s\S]{0,1000}\baccount_id\b/i.test(allSql), 'T33 no transaction Account link introduced on finance_transactions');
   assert(process.env.SUPABASE_ACCESS_TOKEN === undefined, 'T34 remote Supabase token not used by 1F tests');
 });
 

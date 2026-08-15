@@ -60,22 +60,26 @@ export type ActionSheetProps = {
   closeDisabled?: boolean;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  size?: 'full' | 'content';
 };
 
-export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer }: ActionSheetProps) {
+export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer, size = 'full' }: ActionSheetProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const sheetHeight = Math.max(360, height - insets.top - spacing[3]);
+  const fullSheetHeight = Math.max(360, height - insets.top - spacing[3]);
+  const sheetSizing = size === 'content'
+    ? { maxHeight: Math.max(280, height - insets.top - spacing[8]), paddingBottom: Math.max(insets.bottom, spacing[4]) }
+    : { height: fullSheetHeight, paddingBottom: Math.max(insets.bottom, spacing[4]) };
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onRequestClose}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalSheet, { height: sheetHeight, paddingBottom: Math.max(insets.bottom, spacing[4]) }]} accessibilityViewIsModal>
+        <View style={[styles.modalSheet, sheetSizing]} accessibilityViewIsModal>
           <View style={styles.handle} />
           <View style={styles.modalHeader}>
             <View style={{ flex: 1 }}><AppText variant="title2" weight="800">{title}</AppText>{subtitle ? <AppText variant="caption" tone="secondary">{subtitle}</AppText> : null}</View>
             <AppButton variant="icon" size="sm" onPress={onRequestClose} disabled={closeDisabled} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
           </View>
-          <View style={styles.modalContent}>{children}</View>
+          <View style={size === 'content' ? styles.modalContentCompact : styles.modalContent}>{children}</View>
           {footer ? <View style={styles.modalFooter}>{footer}</View> : null}
         </View>
       </View>
@@ -134,7 +138,7 @@ const styles = StyleSheet.create({
   modalSheet: { backgroundColor: colors.background.base, borderTopLeftRadius: radius.xxl, borderTopRightRadius: radius.xxl, paddingHorizontal: spacing[5], paddingTop: spacing[3], ...shadows.sheet },
   handle: { width: 44, height: 4, borderRadius: radius.pill, backgroundColor: colors.border.strong, alignSelf: 'center', marginBottom: spacing[3] },
   modalHeader: { minHeight: touchTargets.normal, flexDirection: 'row', alignItems: 'center', gap: spacing[3], marginBottom: spacing[4] },
-  modalContent: { flex: 1 }, modalFooter: { paddingTop: spacing[3], borderTopWidth: 1, borderTopColor: colors.border.subtle },
+  modalContent: { flex: 1 }, modalContentCompact: { flexGrow: 0 }, modalFooter: { paddingTop: spacing[3], borderTopWidth: 1, borderTopColor: colors.border.subtle },
   inlineOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 10, justifyContent: 'flex-end', backgroundColor: colors.background.base },
   inlinePanel: { flex: 1, paddingHorizontal: spacing[5], paddingTop: spacing[3] },
   inlineHeader: { minHeight: touchTargets.normal, flexDirection: 'row', alignItems: 'center', gap: spacing[2], marginBottom: spacing[5] }, inlineTitle: { flex: 1, textAlign: 'center' }, inlineContent: { flex: 1, position: 'relative' },

@@ -138,6 +138,8 @@ async function applyMigration(rel) {
 async function applyMigrations() {
   await applyMigration('supabase/migrations/20260813010000_finance_category_authority_v1_1.sql');
   await applyMigration('supabase/migrations/20260813020000_finance_expense_income_transactions_v1_1.sql');
+  await applyMigration('supabase/migrations/20260814010000_finance_account_authority_v1_1.sql');
+  await applyMigration('supabase/migrations/20260814020000_finance_balance_anchor_account_effects_v1_1.sql');
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
 
@@ -469,10 +471,13 @@ async function testOperationSemanticsAndSource(actors) {
   equal(expense.transaction.categoryId, null, 'T57 Expense with no tracked Source PASS');
   equal(income.transaction.categoryId, null, 'T58 Income with no tracked Source PASS');
   await expectError(() => createExpense(personalA, { amount: 1, currency: 'ARS', date: '2026-08-13', source: { sourceType: 'cash' } }), 'finance_source_not_supported', 'T57 tracked Source rejected in 2C');
-  await expectError(() => createExpense(personalA, { amount: 1, currency: 'ARS', date: '2026-08-13', account: { id: 'cash' } }), 'finance_account_not_supported', 'T59 no Account row auto-created');
+  await expectError(() => createExpense(personalA, { amount: 1, currency: 'ARS', date: '2026-08-13', account: { id: 'cash' } }), 'invalid_finance_transaction_account', 'T59 no Account row auto-created');
   assert(!('accountId' in expense.transaction), 'T60 no Account ID fabricated');
-  const accountTables = await queryDb("select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_name ~ 'finance_.*account'");
-  equal(accountTables.rows[0].count, 0, 'T59 no Finance Account table exists');
+  const txColumns = await queryDb(`
+    select column_name from information_schema.columns
+    where table_schema = 'public' and table_name = 'finance_transactions'
+  `);
+  assert(!txColumns.rows.map((row) => row.column_name).includes('account_id'), 'T59 no Account row auto-created and transactions remain account-less');
 }
 
 async function testSchemaAndStaticContracts() {
@@ -500,17 +505,29 @@ async function testSchemaAndStaticContracts() {
     JSON.stringify([
       '20260813010000_finance_category_authority_v1_1.sql',
       '20260813020000_finance_expense_income_transactions_v1_1.sql',
+      '20260814010000_finance_account_authority_v1_1.sql',
+      '20260814020000_finance_balance_anchor_account_effects_v1_1.sql',
+      '20260814030000_finance_balance_correction_v1_1.sql',
+      '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
+      '20260814050000_finance_canonical_transfer_v1_1.sql',
+'20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814070000_finance_transfer_commission_composition_v1_1.sql',
     ]),
-    'only accepted 2B/2C Finance migrations exist',
+    'only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations exist',
   );
   const backendText = [
     'backend/src/services/finance.transaction.service.js',
     'backend/src/controllers/finance.transactions.controller.js',
     'backend/src/routes/finance.js',
   ].map((rel) => fs.readFileSync(path.join(root, rel), 'utf8')).join('\n');
+  const transactionBackendText = [
+    'backend/src/services/finance.transaction.service.js',
+    'backend/src/controllers/finance.transactions.controller.js',
+  ].map((rel) => fs.readFileSync(path.join(root, rel), 'utf8')).join('\n');
   assert(!/FinanceRole|FINANCE_ROLES|FinancePermission|FinanceACL|finance_can_access/i.test(backendText), 'no Finance role/permission package invented');
-  assert(!/finance_accounts|AccountService|TransferService|RefundService|PaymentService|BudgetService|Ledger|DoubleEntry/i.test(backendText), 'no Account/Transfer/Refund/Payment/Budget/Ledger implementation');
-  assert(!/archive|restore|trash/i.test(backendText), 'no Transaction Trash/Restore lifecycle implemented');
+  assert(!/TransferService|RefundService|PaymentService|BudgetService|Ledger|DoubleEntry/i.test(backendText), 'no Transfer/Refund/Payment/Budget/Ledger implementation');
+  assert(!/from\(['"]finance_transactions['"]\)[\s\S]{0,500}(account_id|accountId)\s*:/i.test(transactionBackendText), 'no raw account_id transaction persistence implemented');
+  assert(!/archive|restore|trash/i.test(transactionBackendText), 'no Transaction Trash/Restore lifecycle implemented');
   assert(!/summaryEngine|summaryService|report(Engine|Service)?|analytics(Engine|Service)?|balance[_ ]?(engine|entry|effect|mutation)|account_balance/i.test(backendText), 'no read/report/balance engine implemented');
 }
 

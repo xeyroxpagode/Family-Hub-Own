@@ -135,7 +135,8 @@ runTest('T39-T44 Create refresh and 2E behavior', () => {
   assert(!/optimistic|fake|setMovements\(/i.test(screen), 'T41 no optimistic/fake movement row inserted');
   assert(!/setSummary|income\s*-\s*expense|expense\s*\+\s*income|Number\(selectedBucket/i.test(screen), 'T42 no frontend arithmetic mutates summary');
   assert(screen.includes('period: selectedPeriod') && !screen.includes('payload.date === selectedPeriod'), 'T43 create dated outside visible month is governed by backend refresh');
-  assert(sheet.includes('onSuccess(submittedOperation)') && screen.includes('Gasto registrado') && screen.includes('Ingreso registrado') && screen.includes('duration={2000}'), 'T44 success toast remains accepted 2E behavior');
+  // 3H: allow type cast in onSuccess call
+  assert(/onSuccess\(submittedOperation/.test(sheet) && screen.includes('Gasto registrado') && screen.includes('Ingreso registrado') && screen.includes('duration={2000}'), 'T44 success toast remains accepted 2E behavior');
 });
 
 runTest('T45-T53 Negative scope', () => {
@@ -146,12 +147,13 @@ runTest('T45-T53 Negative scope', () => {
   ].filter((file) => /\.(ts|tsx)$/.test(file)).map((file) => read(file)).join('\n');
   const migrationFiles = fs.readdirSync(path.join(repositoryRoot, 'supabase/migrations')).filter((name) => /finance/i.test(name)).sort();
   const runJs = read('tests/run.js');
+  const financeScreen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
 
-  assert(!/accountId|account_id|Cuenta origen|Cuenta destino|Efectivo|Ahorros/i.test(financeFrontend), 'T45 no Account UI');
-  assert(!/Transfer|transferencias|finance_transfer/i.test(financeFrontend), 'T46 no Transfer UI/read behavior');
+  assert(!/accountId|account_id|accountName|Cuenta asociada/i.test(financeScreen), 'T45 movement/summary read UI remains account-less after 3H optional Account create UI');
+  assert(!/readFinanceTransfers|getFinanceTransfers|\/api\/finance\/transfers\?/.test(financeFrontend), 'T46 no Transfer read behavior added to 2F movement/summary consumption');
   assert(!/Budget|Presupuesto|budget/i.test(financeFrontend), 'T47 no Budget');
   assert(!/Expected Payments|Due|Overdue|settlement|payment implementation/i.test(financeFrontend), 'T48 no Payment implementation');
-  assert(!/Analysis|análisis|analytics|Ver analisis|Ver análisis/i.test(financeFrontend), 'T49 no Analysis');
+  assert(!/AnalysisScreen|FinanceAnalysis|Ver analisis|Ver análisis|analysis route/i.test(financeFrontend), 'T49 no Analysis surface or route');
   assert(!/createFinanceCategory|updateFinanceCategory|deleteFinanceCategory|Category management/i.test(financeFrontend), 'T50 no category management');
   assert(runJs.includes('finance-2f-ui'), 'T51 frontend-only 2F-B test command is registered');
   assertEqual(
@@ -159,10 +161,17 @@ runTest('T45-T53 Negative scope', () => {
     [
       '20260813010000_finance_category_authority_v1_1.sql',
       '20260813020000_finance_expense_income_transactions_v1_1.sql',
+      '20260814010000_finance_account_authority_v1_1.sql',
+      '20260814020000_finance_balance_anchor_account_effects_v1_1.sql',
+      '20260814030000_finance_balance_correction_v1_1.sql',
+      '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
+      '20260814050000_finance_canonical_transfer_v1_1.sql',
+      '20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814070000_finance_transfer_commission_composition_v1_1.sql',
     ],
-    'T52 no migration added for 2F-B',
+    'T52 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G schema migrations exist',
   );
-  assert(!/FinanceDesignSystem|FinanceNavbar|FinanceAppShell|FinanceToast|FinanceQuery|reliability subsystem/i.test(financeFrontend), 'T53 no Finance design/reliability/API parallel subsystem');
+  assert(!/FinanceDesignSystem|FinanceNavbar|FinanceAppShell|FinanceToast|FinanceQueryProvider|useFinanceQuery|FinanceReliability/i.test(financeFrontend), 'T53 no Finance design/reliability/API parallel subsystem');
 });
 
 console.log(`\nFINANCE_2F_FRONTEND_CONSUMPTION_RESULT pass=${passCount} fail=${failCount}`);

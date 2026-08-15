@@ -37,9 +37,10 @@ import {
   PlannerPresetLibraryRoute,
 } from '../components/planner/presets/PlannerPresetDraftsIntegrationRoutes';
 import { MoreScreen } from '../screens/MoreScreen';
+import { FinanceAccountsScreen } from '../screens/finance/FinanceAccountsScreen';
 import { APP_ICONS, HomePlusIcon } from '../constants/icons';
 import { AppTopBar, HouseholdSwitcherSheet, InteractivePressable } from '../components/ui';
-import { PlannerSheetProvider } from '../context/PlannerSheetContext';
+import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
 import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
 import { PlannerDeepLinkProvider } from '../services/planner/plannerDeepLinkProvider';
 import { fetchPlannerAttentionRequest } from '../services/planner/plannerAttentionClient';
@@ -196,6 +197,7 @@ function MoreStackScreen() {
       <MoreStack.Screen name="MoreHome" component={MoreScreen} />
       <MoreStack.Screen name="Family" component={FamilyScreen} />
       <MoreStack.Screen name="Finance" component={FinanceScreen} />
+      <MoreStack.Screen name="FinanceAccounts" component={FinanceAccountsScreen} />
     </MoreStack.Navigator>
   );
 }
@@ -211,6 +213,39 @@ function TabBarButton({ children, style, ...props }: any) {
     >
       {children}
     </InteractivePressable>
+  );
+}
+
+function QuickActionPlaceholder() {
+  return null;
+}
+
+function QuickActionTabButton({ children, style, ...props }: any) {
+  const { openActions } = usePlannerSheet();
+
+  return (
+    <InteractivePressable
+      {...props}
+      onPress={openActions}
+      style={[styles.tabBarButton, style]}
+      haptic="medium"
+      pressScale={motion.scale.icon}
+      pressedOpacity={0.94}
+      accessibilityRole="button"
+      accessibilityLabel="Acciones rapidas"
+    >
+      {children}
+    </InteractivePressable>
+  );
+}
+
+function QuickActionTabIcon() {
+  return (
+    <View style={styles.quickActionSlot}>
+      <View style={styles.quickActionButton}>
+        <HomePlusIcon name="add" size={26} color={colors.text.inverse} />
+      </View>
+    </View>
   );
 }
 
@@ -237,7 +272,7 @@ export function HomeTabNavigator() {
 
   const isAdultoMayor = currentRole === 'adulto_mayor';
   const tabBarBg = colors.terracotta[500];
-  const tabBarContentHeight = isAdultoMayor ? 72 : 64;
+  const tabBarContentHeight = isAdultoMayor ? 76 : 68;
 
   // S2: The Reliability runtime Owner is mounted ONCE in `PrivateNavigator`
   // (AppNavigator) above this `HomeTabNavigator`, so it covers HomeTabs,
@@ -314,6 +349,21 @@ export function HomeTabNavigator() {
           />
 
           <Tab.Screen
+            name="QuickActionTab"
+            component={QuickActionPlaceholder}
+            listeners={{
+              tabPress: (event) => {
+                event.preventDefault();
+              },
+            }}
+            options={{
+              tabBarIcon: () => <QuickActionTabIcon />,
+              tabBarButton: (props) => <QuickActionTabButton {...props} />,
+              tabBarAccessibilityLabel: 'Acciones rapidas',
+            }}
+          />
+
+          <Tab.Screen
             name="PlannerTab"
             component={PlannerStackScreen}
             options={{
@@ -373,6 +423,28 @@ const styles = StyleSheet.create({
   tabBarButton: {
     flex: 1,
     minWidth: 0,
+  },
+  quickActionSlot: {
+    flex: 1,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ translateY: -8 }],
+  },
+  quickActionButton: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: colors.terracotta[600],
+    borderWidth: 2,
+    borderColor: 'rgba(255,248,234,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.shadow.floating,
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
   },
   loadingContainer: {
     flex: 1,

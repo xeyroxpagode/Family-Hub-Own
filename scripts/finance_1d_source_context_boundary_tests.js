@@ -5,7 +5,7 @@
  * Finance V1.1 - Stage 1D Source vs Financial Context Boundary tests.
  *
  * Pure domain-policy tests. No database writes, no Finance schema, no routes,
- * no Account/Transaction/Budget/Transfer implementation. Runtime authority
+ * no Source/Account-linked Transaction/Budget/Transfer implementation. Runtime authority
  * remains 1B/1C resolveFinanceContext; this file exercises the contract that
  * future Finance entities will consume after their own source resolution.
  */
@@ -154,7 +154,7 @@ function testAllowedMatrix() {
 }
 
 function testPersonalFundedHouseholdContracts() {
-  console.log('\nT6/T7/T13/T14/T15/T16 - attribution, privacy, optional source and no Account persistence');
+  console.log('\nT6/T7/T13/T14/T15/T16 - attribution, privacy, optional source and no Account-linked persistence');
   const personal = personalContext('juan');
   const householdA = householdContext(personal.personId, 'household-a');
   const personalSource = personalFinanceSourceFromContext(personal);
@@ -225,7 +225,7 @@ function testNoForbiddenImplementationSurface() {
   const backendFinanceCombined = `${financeServiceSource}\n${financeContextSource}\n${financeConstantsSource}`;
   const migrations = fs.readdirSync(path.join(root, 'supabase/migrations')).filter((name) => name.endsWith('.sql'));
 
-  assert(!/finance_accounts|financial_accounts|FinanceAccountRepository|FinanceAccountService|AccountRepository|AccountService/.test(backendFinanceCombined), 'T16 no Account persistence/service/repository introduced');
+  assert(!/financial_accounts|FinanceAccountRepository|AccountRepository|account_id/.test(backendFinanceCombined), 'T16 no Account-linked transaction persistence/repository introduced');
   assert(!/TransactionRepository|TransactionService|ExpenseRepository|IncomeRepository|BudgetRepository|TransferRepository/.test(backendFinanceCombined), 'No Transaction/Budget/Transfer persistence/service/repository introduced');
   assert(!/FINANCE_ROLES|FinanceRole|financePermissions|FinancePermissionService|FinanceACL/.test(backendFinanceCombined), 'T17 no Finance role/permission mapping introduced');
   assert(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test(indexSource), 'No duplicate Finance identity authority registered');
@@ -234,8 +234,15 @@ function testNoForbiddenImplementationSurface() {
     JSON.stringify([
       '20260813010000_finance_category_authority_v1_1.sql',
       '20260813020000_finance_expense_income_transactions_v1_1.sql',
+      '20260814010000_finance_account_authority_v1_1.sql',
+      '20260814020000_finance_balance_anchor_account_effects_v1_1.sql',
+      '20260814030000_finance_balance_correction_v1_1.sql',
+      '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
+      '20260814050000_finance_canonical_transfer_v1_1.sql',
+      '20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814070000_finance_transfer_commission_composition_v1_1.sql',
     ]),
-    'Only accepted 2B/2C Finance migrations exist',
+    'Only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations exist',
   );
   assert(!financeServiceSource.includes('from(') && !financeServiceSource.includes('insert('), '1D policy is pure and does not persist data');
 }
