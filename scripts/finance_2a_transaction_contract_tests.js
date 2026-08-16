@@ -289,13 +289,15 @@ record(!/supabase/i.test(contractSource), 'T30 contract service does not import 
       '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
+      '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
     ]),
-    'T30 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B Finance migrations are present',
+    'T30 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C Finance migrations are present',
   );
-  record(!/finance_accounts|financial_accounts|AccountRepository|AccountService/.test(contractSource), 'no Account implementation introduced');
+record(!/finance_accounts|financial_accounts|AccountRepository|AccountService/.test(contractSource), 'no Account implementation introduced');
   record(!/CategoryRepository|CategoryService|finance_categories|financial_categories/.test(contractSource), 'no Category implementation introduced');
   record(!/TransferRepository|TransferService|paired movement|commission/i.test(contractSource), 'T24 no Transfer persistence/effects implemented');
   record(!/Ledger|DoubleEntry|FinanceLedgerEngine|FinanceTransactionFramework/.test(`${contractSource}\n${constantsSource}`), 'no generic ledger/framework introduced');
+  // Note: 4C migration added to allow-list in T30 check
 }
 
 function main() {

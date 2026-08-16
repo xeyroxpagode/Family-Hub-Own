@@ -561,8 +561,9 @@ async function testStaticContracts() {
       '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
+      '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
     ]),
-    'exact Finance migration allow-list includes 3G and 4B migrations',
+    'exact Finance migration allow-list includes 3G and 4B/4C migrations',
   );
   const runJs = fs.readFileSync(path.join(root, 'tests/run.js'), 'utf8');
   assert(runJs.includes('finance-3b-balance-anchor') && runJs.includes("'finance-3b'"), 'node tests/run.js finance-3b registered');

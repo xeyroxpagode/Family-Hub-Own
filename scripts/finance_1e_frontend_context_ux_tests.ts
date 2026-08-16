@@ -146,8 +146,9 @@ assert(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test
       '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
+      '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
     ]),
-    'only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B Finance migrations',
+    'only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C Finance migrations',
   );
   assert(!financeScreen.includes('HouseholdSwitcherSheet') && !financeScreen.includes('AppTopBar'), 'Finance screen does not recreate global chrome');
   assert(!homeTabs.includes('FinanceStack') && !homeTabs.includes('FinanceNavigator'), 'no Finance-specific navigator');
