@@ -221,7 +221,7 @@ runTest('T33-T34 database and remote boundary static evidence', () => {
     ...listFiles('backend/sql').filter((file) => file.endsWith('.sql')),
   ].map((file) => read(file)).join('\n');
 
-  assertEqual(
+assertEqual(
     JSON.stringify(financeMigrations),
     JSON.stringify([
       '20260813010000_finance_category_authority_v1_1.sql',
@@ -233,8 +233,9 @@ runTest('T33-T34 database and remote boundary static evidence', () => {
       '20260814050000_finance_canonical_transfer_v1_1.sql',
       '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
+      '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
     ]),
-    'T33 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations exist',
+    'T33 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B Finance migrations exist',
   );
   assert(!/finance_expenses|finance_incomes|finance_budgets|finance_payments|finance_refunds/i.test(allSql), 'T33 no out-of-stage separate Expense-Income/Budget/Payment/Refund schema introduced');
   assert(!/(create|alter)\s+table\s+(?:public\.)?finance_transactions[\s\S]{0,1000}\baccount_id\b/i.test(allSql), 'T33 no transaction Account link introduced on finance_transactions');

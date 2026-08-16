@@ -132,7 +132,7 @@ runTest('Static no backend/schema/navigation/debug expansion', () => {
   assert(!/MoneyInputHarness|MoneyInputDebug|FinanceMoneyInputPreview/.test(productionText), 'no permanent debug harness added');
   assert(!/DatePicker|Description|Notes|Category|Account|Guardar gasto|Guardar ingreso/.test(read('front/mi-front-limpio/components/finance/MoneyInput.tsx')), 'negative scope remains amount and currency only');
   assert(!/MoneyInput/.test(navTypes) && !/MoneyInput/.test(homeTabs), 'no navigation route added for MoneyInput');
-  assert(!/MoneyInput|moneyInput/i.test(backendText), 'backend unchanged by MoneyInput');
+assert(!/MoneyInput|moneyInput/i.test(backendText), 'backend unchanged by MoneyInput');
   assertEqual(
     migrationFiles,
     [
@@ -143,10 +143,11 @@ runTest('Static no backend/schema/navigation/debug expansion', () => {
       '20260814030000_finance_balance_correction_v1_1.sql',
       '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
       '20260814050000_finance_canonical_transfer_v1_1.sql',
-'20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
+      '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
     ],
-    'accepted backend schema includes 3A/3B/3C/3D/3E/3F/3G Account authority after 2C',
+    'accepted backend schema includes 3A/3B/3C/3D/3E/3F/3G/4B Account authority after 2C',
   );
 });
 

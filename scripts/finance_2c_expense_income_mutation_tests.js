@@ -495,7 +495,7 @@ async function testSchemaAndStaticContracts() {
   for (const required of ['amount', 'currency', 'financial_context_type', 'transaction_date', 'transaction_type', 'category_id', 'category_label_snapshot']) {
     assert(names.includes(required), `schema contains ${required}`);
   }
-  equal(columns.rows.find((row) => row.column_name === 'amount')?.data_type, 'numeric', 'amount uses decimal-safe numeric storage');
+equal(columns.rows.find((row) => row.column_name === 'amount')?.data_type, 'numeric', 'amount uses decimal-safe numeric storage');
   for (const forbidden of ['account_id', 'document_id', 'related_domain_object', 'merchant_id', 'payment_method', 'tax_amount', 'tags']) {
     assert(!names.includes(forbidden), `minimal schema excludes ${forbidden}`);
   }
@@ -510,10 +510,11 @@ async function testSchemaAndStaticContracts() {
       '20260814030000_finance_balance_correction_v1_1.sql',
       '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
       '20260814050000_finance_canonical_transfer_v1_1.sql',
-'20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
+      '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
     ]),
-    'only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations exist',
+    'only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B Finance migrations exist',
   );
   const backendText = [
     'backend/src/services/finance.transaction.service.js',

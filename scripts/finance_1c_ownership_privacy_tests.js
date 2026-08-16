@@ -516,7 +516,7 @@ async function testStaticNoFinancePermissionOrSchema() {
   for (const symbol of forbiddenSymbols) {
     assert(!combined.includes(symbol), `no Finance permission/RLS duplicate symbol: ${symbol}`);
   }
-  assert(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test(indexSource), 'No duplicate Finance identity authority is registered');
+assert(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test(indexSource), 'No duplicate Finance identity authority is registered');
 
   const migrationsDir = path.join(root, 'supabase/migrations');
   const migrationFiles = fs.readdirSync(migrationsDir).filter((name) => name.endsWith('.sql'));
@@ -533,8 +533,9 @@ async function testStaticNoFinancePermissionOrSchema() {
       '20260814050000_finance_canonical_transfer_v1_1.sql',
       '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
+      '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
     ]),
-    'Only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations exist',
+    'Only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B Finance migrations exist',
   );
 }
 

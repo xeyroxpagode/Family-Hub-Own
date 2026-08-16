@@ -468,7 +468,7 @@ async function testSchemaAndStaticNoOutOfScope() {
     assert(!names.includes(forbidden), `minimal schema excludes ${forbidden}`);
   }
 
-  const migrations = fs.readdirSync(path.join(root, 'supabase/migrations')).filter((name) => /finance/i.test(name));
+const migrations = fs.readdirSync(path.join(root, 'supabase/migrations')).filter((name) => /finance/i.test(name));
   equal(
     JSON.stringify(migrations),
     JSON.stringify([
@@ -479,10 +479,11 @@ async function testSchemaAndStaticNoOutOfScope() {
       '20260814030000_finance_balance_correction_v1_1.sql',
       '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
       '20260814050000_finance_canonical_transfer_v1_1.sql',
-'20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
+      '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
     ]),
-    'only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations exist',
+    'only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B Finance migrations exist',
   );
 
   const backendText = [

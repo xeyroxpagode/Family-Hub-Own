@@ -274,7 +274,7 @@ function testNoOutOfStageSurface() {
   const migrations = fs.readdirSync(path.join(root, 'supabase/migrations')).filter((name) => name.endsWith('.sql'));
 
   record(!/from\(|insert\(|update\(|delete\(|upsert\(|rpc\(/.test(contractSource), 'T30 contract service has no database operations');
-  record(!/supabase/i.test(contractSource), 'T30 contract service does not import Supabase');
+record(!/supabase/i.test(contractSource), 'T30 contract service does not import Supabase');
   record(!/finance_transactions|finance_expenses|finance_incomes|TransactionRepository|TransactionService|ExpenseService|IncomeService/.test(indexSource), 'T30 no Transaction/Expense/Income route or persistence registered');
   equal(
     JSON.stringify(migrations.filter((name) => /finance/i.test(name))),
@@ -286,10 +286,11 @@ function testNoOutOfStageSurface() {
       '20260814030000_finance_balance_correction_v1_1.sql',
       '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
       '20260814050000_finance_canonical_transfer_v1_1.sql',
-'20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
+      '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
     ]),
-    'T30 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations are present',
+    'T30 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B Finance migrations are present',
   );
   record(!/finance_accounts|financial_accounts|AccountRepository|AccountService/.test(contractSource), 'no Account implementation introduced');
   record(!/CategoryRepository|CategoryService|finance_categories|financial_categories/.test(contractSource), 'no Category implementation introduced');

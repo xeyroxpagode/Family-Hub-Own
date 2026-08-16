@@ -122,7 +122,7 @@ runTest('T34-T42 negative scope and regression wiring', () => {
   assert(!/fake|mock|dummy|sample|semilla frontend|hardcoded catalog/i.test(financeFrontend), 'T34 no fake rows/catalog wording in Finance frontend');
   assert(!/finance_transactions/.test(financeFrontend), 'T35 frontend does not read transaction table or model');
   assert(!/createFinanceCategory|updateFinanceCategory|deleteFinanceCategory/.test(financeFrontend), 'T36 no category management UI in 2E');
-  assert(!/HouseholdSwitcher|setActiveHousehold|getUserHouseholds/.test(financeFrontend), 'T37 form does not switch global household');
+assert(!/HouseholdSwitcher|setActiveHousehold|getUserHouseholds/.test(financeFrontend), 'T37 form does not switch global household');
   assertEqual(
     migrations,
     [
@@ -133,10 +133,11 @@ runTest('T34-T42 negative scope and regression wiring', () => {
       '20260814030000_finance_balance_correction_v1_1.sql',
       '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
       '20260814050000_finance_canonical_transfer_v1_1.sql',
-'20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
+      '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
     ],
-    'T38 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G schema migrations exist',
+    'T38 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B schema migrations exist',
   );
   assert(runJs.includes('finance-2e-expense-income-ui') && runJs.includes("'finance-2e'"), 'T39 2E command and suite are registered');
   assert(runJs.includes('finance-2e-expense-income-ui') && runJs.includes('finance-2c-expense-income'), 'T40 2E suite includes frontend UI checks and real 2C create persistence validation');

@@ -717,7 +717,7 @@ async function testNegativeScope() {
   const feFrontendWiringHits = scanFrontendForReadContractWiring(feRoot);
   assert(feFrontendWiringHits.length > 0, 'T50 frontend wires the 2F read contract through API services');
 
-  // T51 no new migration
+// T51 no new migration
   const migrations = fs.readdirSync(path.join(root, 'supabase/migrations')).filter((name) => /finance/i.test(name)).sort();
   assert(
     JSON.stringify(migrations) === JSON.stringify([
@@ -728,10 +728,11 @@ async function testNegativeScope() {
       '20260814030000_finance_balance_correction_v1_1.sql',
       '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
       '20260814050000_finance_canonical_transfer_v1_1.sql',
-'20260814060000_finance_cross_currency_transfer_v1_1.sql',
+      '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
+      '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
     ]),
-    'T51 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations remain',
+    'T51 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B Finance migrations remain',
   );
 
   // T52 no direct donor architecture import: read service should not import planner.context.service

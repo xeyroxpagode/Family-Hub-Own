@@ -227,7 +227,7 @@ function testNoForbiddenImplementationSurface() {
 
   assert(!/financial_accounts|FinanceAccountRepository|AccountRepository|account_id/.test(backendFinanceCombined), 'T16 no Account-linked transaction persistence/repository introduced');
   assert(!/TransactionRepository|TransactionService|ExpenseRepository|IncomeRepository|BudgetRepository|TransferRepository/.test(backendFinanceCombined), 'No Transaction/Budget/Transfer persistence/service/repository introduced');
-  assert(!/FINANCE_ROLES|FinanceRole|financePermissions|FinancePermissionService|FinanceACL/.test(backendFinanceCombined), 'T17 no Finance role/permission mapping introduced');
+assert(!/FINANCE_ROLES|FinanceRole|financePermissions|FinancePermissionService|FinanceACL/.test(backendFinanceCombined), 'T17 no Finance role/permission mapping introduced');
   assert(!/FinanceUser|FinanceHousehold|FinanceMembership|FinancePermission/i.test(indexSource), 'No duplicate Finance identity authority registered');
   assertEqual(
     JSON.stringify(migrations.filter((name) => /finance/i.test(name))),
@@ -241,8 +241,9 @@ function testNoForbiddenImplementationSurface() {
       '20260814050000_finance_canonical_transfer_v1_1.sql',
       '20260814060000_finance_cross_currency_transfer_v1_1.sql',
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
+      '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
     ]),
-    'Only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G Finance migrations exist',
+    'Only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B Finance migrations exist',
   );
   assert(!financeServiceSource.includes('from(') && !financeServiceSource.includes('insert('), '1D policy is pure and does not persist data');
 }
