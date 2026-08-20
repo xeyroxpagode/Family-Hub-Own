@@ -28,7 +28,30 @@ const getSummary = async (req, res) => {
   }
 };
 
+const getTrash = async (req, res) => {
+  try {
+    const financeContext = await resolveFinanceContext(req, contextTypeFrom(req));
+    const payload = await readService.listFinanceTrash(financeContext, req.query ?? {});
+    return res.status(200).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
+const getTransactionDetail = async (req, res) => {
+  try {
+    const financeContext = await resolveFinanceContext(req, contextTypeFrom(req));
+    const transactionId = req.params?.transactionId ?? req.query?.transactionId;
+    const payload = await readService.getFinanceTransactionDetail(financeContext, transactionId);
+    return res.status(200).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
 module.exports = {
   getMovements,
   getSummary,
+  getTrash,
+  getTransactionDetail,
 };

@@ -33,6 +33,9 @@ export type MoreStackParamList = {
   FinanceAccounts: {
     contextType: import('../services/finance/financeContext').FinanceContextType;
   };
+  FinancePapelera: {
+    contextType: import('../services/finance/financeContext').FinanceContextType;
+  };
 };
 
 // Re-export the canonical Planner V1 navigation authority (M1).

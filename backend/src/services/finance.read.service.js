@@ -88,6 +88,20 @@ const SELECT_COLUMNS = [
   'updated_at',
 ].join(', ');
 
+const TRASH_SELECT_COLUMNS = [
+  'id',
+  'transaction_type',
+  'amount:amount::text',
+  'currency',
+  'transaction_date',
+  'description',
+  'category_id',
+  'category_label_snapshot',
+  'trashed_at',
+  'created_at',
+  'updated_at',
+].join(', ');
+
 function throwSupabaseError(error) {
   const isRlsViolation =
     error?.code === '42501' ||
@@ -234,6 +248,95 @@ function movementToDto(row) {
   };
 }
 
+function movementToTrashDto(row) {
+  return {
+    id: row.id,
+    transactionType: row.transaction_type,
+    amount: String(row.amount),
+    currency: row.currency,
+    transactionDate: row.transaction_date,
+    description: row.description ?? null,
+    categoryId: row.category_id ?? null,
+    categoryLabelSnapshot: row.category_label_snapshot ?? null,
+    trashedAt: row.trashed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+const DETAIL_SELECT_COLUMNS = [
+  'id',
+  'transaction_type',
+  'amount:amount::text',
+  'currency',
+  'financial_context_type',
+  'owner_person_id',
+  'household_id',
+  'transaction_date',
+  'description',
+  'notes',
+  'category_id',
+  'category_label_snapshot',
+  'status',
+  'trashed_at',
+  'corrected_from_transaction_id',
+  'created_at',
+  'updated_at',
+  'finance_account_effects!inner(account_id, finance_accounts!inner(id, name, currency))',
+].join(', ');
+
+function transactionToDetailDto(row) {
+  const accountEffect = row.finance_account_effects?.[0];
+  const account = accountEffect?.finance_accounts;
+  return {
+    id: row.id,
+    transactionType: row.transaction_type,
+    amount: String(row.amount),
+    currency: row.currency,
+    financialContextType: row.financial_context_type,
+    ownerPersonId: row.owner_person_id ?? null,
+    householdId: row.household_id ?? null,
+    transactionDate: row.transaction_date,
+    description: row.description ?? null,
+    notes: row.notes ?? null,
+    categoryId: row.category_id ?? null,
+    categoryLabelSnapshot: row.category_label_snapshot ?? null,
+    status: row.status,
+    trashedAt: row.trashed_at ?? null,
+    correctedFromTransactionId: row.corrected_from_transaction_id ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    accountId: account?.id ?? null,
+    accountName: account?.name ?? null,
+    accountCurrency: account?.currency ?? null,
+  };
+}
+
+async function getFinanceTransactionDetail(financeContext, transactionId) {
+  assertNoCallerOwnerSelectors({});
+  assertResolvedFinanceContext(financeContext);
+  if (!transactionId) {
+    throw createHttpError(400, 'transactionId es obligatorio.', 'validation_error');
+  }
+
+  let request = financeContext.client
+    .from('finance_transactions')
+    .select(DETAIL_SELECT_COLUMNS)
+    .eq('id', transactionId);
+
+  request = scopeFilters(request, financeContext);
+
+  const { data, error } = await request.single();
+  if (error) {
+    if (error.code === 'PGRST116') {
+      throw createHttpError(404, 'Transaccion no encontrada.', 'finance_transaction_not_found');
+    }
+    throwSupabaseError(error);
+  }
+
+  return transactionToDetailDto(data);
+}
+
 async function listFinanceMovements(financeContext, query = {}) {
   assertNoCallerOwnerSelectors(query);
   assertResolvedFinanceContext(financeContext);
@@ -246,6 +349,7 @@ async function listFinanceMovements(financeContext, query = {}) {
 
   request = scopeFilters(request, financeContext);
   request = request
+    .eq('status', 'ACTIVE')
     .gte('transaction_date', start)
     .lt('transaction_date', endExclusive)
     .order('transaction_date', { ascending: false })
@@ -257,6 +361,28 @@ async function listFinanceMovements(financeContext, query = {}) {
 
   const movements = (data ?? []).map(movementToDto);
   return { period: month, contextType: financeContext.contextType, movements };
+}
+
+async function listFinanceTrash(financeContext, query = {}) {
+  assertNoCallerOwnerSelectors(query);
+  assertResolvedFinanceContext(financeContext);
+
+  let request = financeContext.client
+    .from('finance_transactions')
+    .select(TRASH_SELECT_COLUMNS);
+
+  request = scopeFilters(request, financeContext);
+  request = request
+    .eq('status', 'TRASHED')
+    .in('transaction_type', [FINANCE_TRANSACTION_TYPES.EXPENSE, FINANCE_TRANSACTION_TYPES.INCOME])
+    .order('trashed_at', { ascending: false })
+    .order('id', { ascending: false });
+
+  const { data, error } = await request;
+  if (error) throwSupabaseError(error);
+
+  const movements = (data ?? []).map(movementToTrashDto);
+  return { contextType: financeContext.contextType, movements };
 }
 
 async function summarizeFinance(financeContext, query = {}) {
@@ -271,6 +397,7 @@ async function summarizeFinance(financeContext, query = {}) {
 
   request = scopeFilters(request, financeContext);
   request = request
+    .eq('status', 'ACTIVE')
     .gte('transaction_date', start)
     .lt('transaction_date', endExclusive);
 
@@ -308,7 +435,9 @@ async function summarizeFinance(financeContext, query = {}) {
 
 module.exports = {
   listFinanceMovements,
+  listFinanceTrash,
   summarizeFinance,
+  getFinanceTransactionDetail,
   normalizePeriodMonth,
   periodRange,
   assertNoCallerOwnerSelectors,

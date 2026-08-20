@@ -55,7 +55,8 @@
     "../scripts/finance_2d_money_input_tests.ts",
     "../scripts/finance_2e_expense_income_final_ui_tests.ts",
     "../scripts/finance_2f_frontend_consumption_tests.ts",
-    "../scripts/finance_3h_account_transfer_final_ui_tests.ts"
+    "../scripts/finance_3h_account_transfer_final_ui_tests.ts",
+    "../scripts/finance_4j_transaction_correction_ui_tests.ts"
   ],
   "exclude": ["node_modules"]
 }

@@ -616,8 +616,9 @@ async function testStaticContracts() {
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
+      '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
     ]),
-    'exact Finance migration allow-list includes 4B/4C migration',
+    'exact Finance migration allow-list includes 4B/4C/4D migration',
   );
   const runJs = fs.readFileSync(path.join(root, 'tests/run.js'), 'utf8');
   assert(runJs.includes('finance-4b-effect-status') && runJs.includes("'finance-4b'"), 'node tests/run.js finance-4b registered');

@@ -5,6 +5,9 @@ const authFinalMiddleware = require('../middleware/authFinalMiddleware');
 const accountsController = require('../controllers/finance.accounts.controller');
 const categoriesController = require('../controllers/finance.categories.controller');
 const transactionsController = require('../controllers/finance.transactions.controller');
+const transactionsTrashController = require('../controllers/finance.transaction.trash.controller');
+const transactionsRestoreController = require('../controllers/finance.transaction.restore.controller');
+const transactionsCorrectionController = require('../controllers/finance.transaction.correction.controller');
 const transfersController = require('../controllers/finance.transfers.controller');
 const readController = require('../controllers/finance.read.controller');
 
@@ -28,7 +31,12 @@ router.delete('/categories/:category_id', categoriesController.deleteCategory);
 router.post('/expenses', transactionsController.createExpense);
 router.post('/incomes', transactionsController.createIncome);
 router.post('/transfers', transfersController.createTransfer);
+router.post('/transactions/trash', transactionsTrashController.trashTransaction);
+router.post('/transactions/restore', transactionsRestoreController.restoreTransaction);
+router.post('/transactions/correct', transactionsCorrectionController.correctTransaction);
 router.get('/movements', readController.getMovements);
 router.get('/summary', readController.getSummary);
+router.get('/trash', readController.getTrash);
+router.get('/transactions/:transactionId', readController.getTransactionDetail);
 
 module.exports = router;

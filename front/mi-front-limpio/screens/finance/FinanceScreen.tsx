@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutAnimation, Platform, Pressable, StyleSheet, UIManager, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
-import { NewMovementSheet } from '../../components/finance';
+import { MovementDetailSheet, NewMovementSheet } from '../../components/finance';
 import {
   AppButton,
   AppCard,
@@ -123,7 +123,7 @@ function safeFinanceReadError(error: unknown): string {
 
 export function FinanceScreen() {
   const navigation = useNavigation<any>();
-  const { session } = useAuth();
+  const { session, authMe } = useAuth();
   const { currentHousehold, loading, reloading, householdError } = useHousehold();
   const [selectedContext, setSelectedContext] = useState<FinanceContextType>(FINANCE_CONTEXT_TYPES.PERSONAL);
   const [selectedTab, setSelectedTab] = useState<FinanceTabKey>('resumen');
@@ -132,6 +132,8 @@ export function FinanceScreen() {
   const [newMovementVisible, setNewMovementVisible] = useState(false);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState(() => financeMonthFromLocalDate());
+  const [selectedMovement, setSelectedMovement] = useState<FinanceMovementDto | null>(null);
+  const [movementDetailVisible, setMovementDetailVisible] = useState(false);
   const [selectedSummaryCurrency, setSelectedSummaryCurrency] = useState<string | null>(null);
   const [readRefreshNonce, setReadRefreshNonce] = useState(0);
   const [readState, setReadState] = useState<FinanceReadState>(EMPTY_READ_STATE);
@@ -141,6 +143,13 @@ export function FinanceScreen() {
   const openAccounts = () => {
     setOverflowVisible(false);
     navigation.navigate('FinanceAccounts', {
+      contextType: selectedContext,
+    });
+  };
+
+  const openPapelera = () => {
+    setOverflowVisible(false);
+    navigation.navigate('FinancePapelera', {
       contextType: selectedContext,
     });
   };
@@ -292,15 +301,37 @@ export function FinanceScreen() {
     setReadRefreshNonce((current) => current + 1);
   };
 
-  const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
+const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
     setSuccessFeedback(
       operation === 'expense'
         ? 'Gasto registrado'
         : operation === 'income'
-          ? 'Ingreso registrado'
-          : 'Transferencia registrada',
+        ? 'Ingreso registrado'
+        : 'Transferencia registrada',
     );
     setReadRefreshNonce((current) => current + 1);
+  };
+
+  const handleMovementPress = (movement: FinanceMovementDto) => {
+    setSelectedMovement(movement);
+    setMovementDetailVisible(true);
+  };
+
+  const handleMovementDetailClose = () => {
+    setMovementDetailVisible(false);
+    setSelectedMovement(null);
+  };
+
+  const handleTrashSuccess = () => {
+    setSuccessFeedback('Movimiento enviado a Papelera.');
+    setReadRefreshNonce((current) => current + 1);
+    handleMovementDetailClose();
+  };
+
+  const handleCorrectionSuccess = () => {
+    setSuccessFeedback('Movimiento corregido.');
+    setReadRefreshNonce((current) => current + 1);
+    handleMovementDetailClose();
   };
 
   const movementsReady = selectedTab === 'movimientos' &&
@@ -520,6 +551,7 @@ export function FinanceScreen() {
           movements={visibleReadState.movements?.movements ?? []}
           onRetry={retryReads}
           onMovePeriod={movePeriod}
+          onMovementPress={handleMovementPress}
         />
       ) : null}
 
@@ -544,6 +576,19 @@ export function FinanceScreen() {
         onSuccess={handleCreateSuccess}
       />
 
+      <MovementDetailSheet
+        visible={movementDetailVisible}
+        movement={selectedMovement}
+        contextType={selectedContext}
+        contextLabel={contextLabel}
+        accessToken={session?.access_token ?? null}
+        personId={authMe?.person?.id ?? null}
+        householdId={selectedContext === FINANCE_CONTEXT_TYPES.HOUSEHOLD ? activeHousehold?.id ?? null : null}
+        onRequestClose={handleMovementDetailClose}
+        onTrashSuccess={handleTrashSuccess}
+        onCorrectionSuccess={handleCorrectionSuccess}
+      />
+
       <ActionSheet
         visible={overflowVisible}
         title="Finanzas"
@@ -563,8 +608,20 @@ export function FinanceScreen() {
             <AppText variant="body" weight="800">Cuentas</AppText>
             <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
           </InteractivePressable>
+          <InteractivePressable
+            onPress={openPapelera}
+            haptic="light"
+            pressScale={motion.scale.card}
+            style={styles.overflowItem}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir Papelera"
+          >
+            <HomePlusIcon name="trash-outline" size={22} color={colors.danger.strong} />
+            <AppText variant="body" weight="800">Papelera</AppText>
+            <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
+          </InteractivePressable>
           <AppText variant="caption" tone="tertiary" style={styles.overflowHint}>
-            Categorías y Papelera llegarán en sus etapas propias.
+            Categorías llegarán en su etapa propia.
           </AppText>
         </View>
       </ActionSheet>
@@ -746,6 +803,7 @@ function FinanceMovementsSurface({
   movements,
   onRetry,
   onMovePeriod,
+  onMovementPress,
 }: {
   period: string;
   loading: boolean;
@@ -753,6 +811,7 @@ function FinanceMovementsSurface({
   movements: FinanceMovementDto[];
   onRetry: () => void;
   onMovePeriod: (direction: 'previous' | 'next') => void;
+  onMovementPress?: (movement: FinanceMovementDto) => void;
 }) {
   if (loading && movements.length === 0) return <FinanceSurfaceLoading />;
   if (error && movements.length === 0) {
@@ -788,7 +847,15 @@ function FinanceMovementsSurface({
               </AppText>
               <AppCard variant="quiet" padding="default" style={styles.movementListCard}>
                 {group.movements.map((movement) => (
-                  <View key={movement.id} style={styles.movementRow}>
+                  <InteractivePressable
+                    key={movement.id}
+                    onPress={() => onMovementPress?.(movement)}
+                    haptic="light"
+                    pressScale={motion.scale.card}
+                    style={styles.movementRow}
+                    accessibilityRole="button"
+                    accessibilityLabel={financeMovementTitle(movement.transactionType, movement.description)}
+                  >
                     <View style={styles.movementCopy}>
                       <AppText variant="body" weight="800" numberOfLines={1}>
                         {financeMovementTitle(movement.transactionType, movement.description)}
@@ -811,7 +878,7 @@ function FinanceMovementsSurface({
                         transactionType: movement.transactionType,
                       })}
                     </AppText>
-                  </View>
+                  </InteractivePressable>
                 ))}
               </AppCard>
             </View>

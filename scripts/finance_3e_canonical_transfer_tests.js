@@ -642,8 +642,9 @@ async function testStaticContracts() {
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
+      '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
     ]),
-    'exact Finance migration allow-list includes 3G and 4B/4C migrations',
+    'exact Finance migration allow-list includes 3G and 4B/4C/4D migrations',
   );
   const runJs = fs.readFileSync(path.join(root, 'tests/run.js'), 'utf8');
   assert(runJs.includes('finance-3e-canonical-transfer') && runJs.includes("'finance-3e'"), 'node tests/run.js finance-3e registered');

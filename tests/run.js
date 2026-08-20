@@ -379,6 +379,21 @@ const commands = {
     'node',
     ['scripts/finance_4c_transaction_lifecycle_foundation_tests.js'],
   ),
+  'finance-4d-trash': () => runCommand(
+    'Finance 4D transaction trash mutation tests',
+    'node',
+    ['scripts/finance_4d_transaction_trash_tests.js'],
+  ),
+  'finance-4g-restore': () => runCommand(
+    'Finance 4G transaction restore mutation tests',
+    'node',
+    ['scripts/finance_4g_transaction_restore_tests.js'],
+  ),
+  'finance-4i-b': () => runCommand(
+    'Finance 4I-B canonical transaction correction tests',
+    'node',
+    ['scripts/finance_4i_b_transaction_correction_tests.js'],
+  ),
   'runtime-smoke': () => runCommand(
     'Frontend runtime smoke',
     'node',
@@ -453,7 +468,10 @@ const suites = {
   'finance-3h': ['compile-frontend-tests', 'finance-3h-account-transfer-ui'],
   'finance-4b': ['finance-4b-effect-status'],
   'finance-4c': ['finance-4c-lifecycle'],
-  finance: ['compile-frontend-tests', 'finance-1b-contract', 'finance-1b-database', 'finance-1c-ownership-privacy', 'finance-1d-source-context-boundary', 'finance-1e-frontend', 'finance-1f-integration', 'finance-2a-transaction-contract', 'finance-2b-category-authority', 'finance-2c-expense-income', 'finance-2d-money-input', 'finance-2e-expense-income-ui', 'finance-2f-read-authority', 'finance-2f-ui', 'finance-3a-account-authority', 'finance-3b-balance-anchor', 'finance-3c-balance-correction', 'finance-3d-credit-card-semantics', 'finance-3e-canonical-transfer', 'finance-3f-cross-currency-transfer', 'finance-3g-transfer-commission-composition', 'finance-3h-account-transfer-ui', 'finance-4b-effect-status', 'finance-4c-lifecycle'],
+  'finance-4d': ['finance-4d-trash'],
+  'finance-4g': ['finance-4g-restore'],
+  'finance-4i-b': ['finance-4i-b'],
+  finance: ['compile-frontend-tests', 'finance-1b-contract', 'finance-1b-database', 'finance-1c-ownership-privacy', 'finance-1d-source-context-boundary', 'finance-1e-frontend', 'finance-1f-integration', 'finance-2a-transaction-contract', 'finance-2b-category-authority', 'finance-2c-expense-income', 'finance-2d-money-input', 'finance-2e-expense-income-ui', 'finance-2f-read-authority', 'finance-2f-ui', 'finance-3a-account-authority', 'finance-3b-balance-anchor', 'finance-3c-balance-correction', 'finance-3d-credit-card-semantics', 'finance-3e-canonical-transfer', 'finance-3f-cross-currency-transfer', 'finance-3g-transfer-commission-composition', 'finance-3h-account-transfer-ui', 'finance-4b-effect-status', 'finance-4c-lifecycle', 'finance-4d-trash', 'finance-4g-restore', 'finance-4i-b'],
   'planner-presets-drafts': ['compile-frontend-tests', 'planner-v1-presets-drafts'],
   'planner-presets-drafts-integration': ['compile-frontend-tests', 'planner-v1-presets-drafts-integration'],
   'planner-shared-s2-runtime': ['compile-frontend-tests', 'planner-v1-s2-runtime-owner'],

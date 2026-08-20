@@ -201,7 +201,8 @@ async function listFinanceAccountActivity(financeContext, accountId, query = {})
     const { data: txnRows, error: txnError } = await financeContext.client
       .from('finance_transactions')
       .select('id, description, category_label_snapshot')
-      .in('id', txnIds);
+      .in('id', txnIds)
+      .eq('status', 'ACTIVE');
     if (txnError) throwSupabaseError(txnError);
     for (const row of Array.isArray(txnRows) ? txnRows : []) {
       enrichedTxn.set(row.id, {
@@ -225,12 +226,19 @@ async function listFinanceAccountActivity(financeContext, accountId, query = {})
     }
   }
 
-  const items = effects.map((effect) => {
-    const enriched = effect.transaction_id
-      ? enrichedTxn.get(effect.transaction_id)
-      : (effect.transfer_id ? enrichedTransfer.get(effect.transfer_id) : null);
-    return toActivityDto(effect, enriched);
-  });
+  const items = effects
+    .filter((effect) => {
+      if (effect.transaction_id) {
+        return enrichedTxn.has(effect.transaction_id);
+      }
+      return true;
+    })
+    .map((effect) => {
+      const enriched = effect.transaction_id
+        ? enrichedTxn.get(effect.transaction_id)
+        : (effect.transfer_id ? enrichedTransfer.get(effect.transfer_id) : null);
+      return toActivityDto(effect, enriched);
+    });
 
   return {
     account: await toDto(financeContext.client, account),
