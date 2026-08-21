@@ -3,7 +3,7 @@ import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import * as Location from 'expo-location';
 import MapView, { Marker, type Region } from 'react-native-maps';
 
-import { AppButton, AppCard, AppScreen, AppText, EmptyState, ErrorState } from '../../components/ui';
+import { AppButton, AppCard, AppScreen, AppText, EmptyState, ErrorState, IconButton } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, radius, shadows, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
@@ -251,7 +251,7 @@ export function PresenceScreen() {
 
       {loading ? (
         <View style={styles.centerState}>
-          <ActivityIndicator size="large" color={colors.terracotta[600]} />
+          <ActivityIndicator size="large" color={colors.brand} />
           <AppText variant="bodySmall" tone="secondary">Cargando mapa...</AppText>
         </View>
       ) : error ? (
@@ -288,21 +288,19 @@ export function PresenceScreen() {
                   coordinate={coordinate}
                   title={member.display_name}
                   description={`${getStatusLabel(member)} - ${getRelativeTime(member.location?.recorded_at)}`}
-                  pinColor={member.is_self ? colors.terracotta[600] : member.status === 'stale' ? colors.warning.base : colors.sage[600]}
+                  pinColor={member.is_self ? colors.brand : member.status === 'stale' ? colors.warning.base : colors.success.base}
                 />
               );
             })}
           </MapView>
 
           <View style={styles.floatingActions}>
-            <AppButton
-              variant="icon"
+            <IconButton
+              icon="locate"
               onPress={recenter}
               accessibilityLabel="Centrar mapa"
               disabled={visibleMembers.length === 0}
-            >
-              <HomePlusIcon name="locate" size={22} color={colors.text.primary} />
-            </AppButton>
+            />
             <AppButton
               variant={myMember?.sharing_enabled ? 'secondary' : 'primary'}
               title={myMember?.sharing_enabled ? 'Pausar' : 'Compartir'}

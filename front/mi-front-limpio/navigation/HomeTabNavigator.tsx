@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Animated, ActivityIndicator, Pressable, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -40,14 +40,23 @@ import { MoreScreen } from '../screens/MoreScreen';
 import { FinanceAccountsScreen } from '../screens/finance/FinanceAccountsScreen';
 import { FinancePapeleraScreen } from '../screens/finance/FinancePapeleraScreen';
 import { PresenceScreen } from '../screens/presence/PresenceScreen';
-import { APP_ICONS, HomePlusIcon } from '../constants/icons';
-import { AppTopBar, HouseholdSwitcherSheet, InteractivePressable } from '../components/ui';
+import { APP_ICONS } from '../constants/icons';
+import {
+  AppTopBar,
+  AppText,
+  BottomNavigationIcon,
+  FloatingActionButton,
+  HouseholdSwitcherSheet,
+  IconButton,
+  InteractivePressable,
+  bottomNavigationStyle,
+} from '../components/ui';
 import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
 import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
 import { PlannerDeepLinkProvider } from '../services/planner/plannerDeepLinkProvider';
 import { fetchPlannerAttentionRequest } from '../services/planner/plannerAttentionClient';
 import { GLOBAL_SURFACE_GATES_OFF } from '../services/planner/globalSurfaceTypes';
-import { colors, motion, spacing } from '../constants/theme';
+import { colors, componentSizes, motion, spacing } from '../constants/theme';
 
 const Tab = createBottomTabNavigator<HomeTabParamList>();
 const PlannerStack = createNativeStackNavigator<PlannerStackParamList>();
@@ -87,7 +96,9 @@ function AttentionTopBarButton({ accessToken, householdId, navigation }: {
   if (!GLOBAL_SURFACE_GATES_OFF.attention.enabled) return null;
 
   return (
-    <Pressable
+    <IconButton
+      icon="notifications-outline"
+      variant="plain"
       onPress={() => navigation.navigate('HomeTabs', {
         screen: 'PlannerTab',
         params: {
@@ -95,18 +106,16 @@ function AttentionTopBarButton({ accessToken, householdId, navigation }: {
           params: { source: 'planner', returnTo: 'previous' },
         },
       })}
-      style={({ pressed }) => [styles.attentionButton, pressed && styles.attentionButtonPressed]}
-      accessibilityRole="button"
       accessibilityLabel={count > 0 ? `Abrir Atención y actividad, ${count} asuntos sin resolver` : 'Abrir Atención y actividad'}
-      hitSlop={8}
     >
-      <HomePlusIcon name="notifications-outline" size={22} color={colors.text.primary} />
       {count > 0 ? (
         <View style={styles.attentionBadge} accessibilityLabel={`${count} asuntos sin resolver`}>
-          <Animated.Text style={styles.attentionBadgeText}>{count > 99 ? '99+' : String(count)}</Animated.Text>
+          <AppText variant="micro" tone="inverse" weight="700" style={styles.attentionBadgeText}>
+            {count > 99 ? '99+' : String(count)}
+          </AppText>
         </View>
       ) : null}
-    </Pressable>
+    </IconButton>
   );
 }
 
@@ -117,34 +126,7 @@ const TabIcon = ({
   iconKey: keyof typeof APP_ICONS.bottomTabs;
   focused: boolean;
 }) => {
-  const iconName = APP_ICONS.bottomTabs[iconKey];
-  const iconColor = '#FFF8EA';
-  const scale = React.useRef(new Animated.Value(1)).current;
-  
-  React.useEffect(() => {
-    Animated.timing(scale, {
-      toValue: focused ? 1.06 : 1,
-      duration: 140,
-      useNativeDriver: true,
-    }).start();
-  }, [focused, scale]);
-  
-  return (
-    <View style={styles.tabIconContainer}>
-      <Animated.View style={{ transform: [{ scale }] }}>
-        <HomePlusIcon
-          name={iconName}
-          size={28}
-          color={iconColor}
-          style={{
-            backgroundColor: focused ? 'rgba(255,248,234,0.22)' : 'transparent',
-            borderRadius: 16,
-            padding: 4,
-          }}
-        />
-      </Animated.View>
-    </View>
-  );
+  return <BottomNavigationIcon icon={APP_ICONS.bottomTabs[iconKey]} focused={focused} />;
 };
 
 function HomeScreen() {
@@ -153,7 +135,7 @@ function HomeScreen() {
   if (loading || reloading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.terracotta[600]} />
+        <ActivityIndicator size="large" color={colors.brand} />
       </View>
     );
   }
@@ -246,9 +228,7 @@ function QuickActionTabButton({ children, style, ...props }: any) {
 function QuickActionTabIcon() {
   return (
     <View style={styles.quickActionSlot}>
-      <View style={styles.quickActionButton}>
-        <HomePlusIcon name="add" size={26} color={colors.text.inverse} />
-      </View>
+      <FloatingActionButton />
     </View>
   );
 }
@@ -275,8 +255,7 @@ export function HomeTabNavigator() {
   }, []);
 
   const isAdultoMayor = currentRole === 'adulto_mayor';
-  const tabBarBg = colors.terracotta[500];
-  const tabBarContentHeight = isAdultoMayor ? 76 : 68;
+  const tabBarContentHeight = isAdultoMayor ? 76 : componentSizes.bottomNavHeight;
 
   // S2: The Reliability runtime Owner is mounted ONCE in `PrivateNavigator`
   // (AppNavigator) above this `HomeTabNavigator`, so it covers HomeTabs,
@@ -310,12 +289,8 @@ export function HomeTabNavigator() {
             headerShown: false,
             tabBarShowLabel: false,
             tabBarStyle: {
-              backgroundColor: tabBarBg,
-              borderTopColor: 'rgba(255,248,234,0.18)',
-              borderTopWidth: 1,
-              height: tabBarContentHeight + insets.bottom,
-              paddingTop: 0,
-              paddingBottom: insets.bottom,
+              ...bottomNavigationStyle(insets.bottom),
+              height: tabBarContentHeight,
             },
             tabBarItemStyle: {
               height: tabBarContentHeight,
@@ -418,12 +393,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background.base,
   },
-  tabIconContainer: {
-    alignItems: 'center',
-    alignSelf: 'stretch',
-    justifyContent: 'center',
-    minWidth: 0,
-  },
   tabBarButton: {
     flex: 1,
     minWidth: 0,
@@ -433,38 +402,13 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     alignItems: 'center',
     justifyContent: 'center',
-    transform: [{ translateY: -8 }],
-  },
-  quickActionButton: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: colors.terracotta[600],
-    borderWidth: 2,
-    borderColor: 'rgba(255,248,234,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.shadow.floating,
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 5,
+    transform: [{ translateY: -16 }],
   },
   loadingContainer: {
     flex: 1,
     backgroundColor: colors.background.base,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  attentionButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 22,
-  },
-  attentionButtonPressed: {
-    backgroundColor: colors.surface.soft,
   },
   attentionBadge: {
     position: 'absolute',
@@ -476,11 +420,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
-    backgroundColor: colors.terracotta[600],
+    backgroundColor: colors.brand,
   },
   attentionBadgeText: {
-    color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: '800',
   },
 });

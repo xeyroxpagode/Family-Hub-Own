@@ -16,7 +16,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
-import { AppButton, AppCard, AppInput, AppScreen, AppText, EmptyState, ErrorState } from '../../components/ui';
+import {
+  AppButton,
+  AppCard,
+  AppInput,
+  AppScreen,
+  AppText,
+  EmptyState,
+  ErrorState,
+  FilterChip,
+  IconButton,
+  StatusBadge,
+} from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, radius, spacing } from '../../constants/theme';
 import { supabase } from '../../supabase';
@@ -127,11 +138,7 @@ function InventoryItemCard({
             </AppText>
           </View>
         </View>
-        <View style={[styles.statusBadge, styles[`${copy.variant}Badge`]]}>
-          <AppText variant="micro" weight="700" tone={copy.variant === 'danger' ? 'danger' : 'secondary'}>
-            {copy.label}
-          </AppText>
-        </View>
+        <StatusBadge label={copy.label} tone={copy.variant} />
       </View>
 
       <View style={styles.quantityRow}>
@@ -140,24 +147,18 @@ function InventoryItemCard({
           <AppText variant="caption" tone="tertiary">unidades disponibles</AppText>
         </View>
         <View style={styles.quickActions}>
-          <TouchableOpacity
-            style={styles.iconButton}
+          <IconButton
+            icon="remove"
             onPress={onConsume}
             disabled={busy}
-            accessibilityRole="button"
             accessibilityLabel={`Restar una unidad de ${item.name}`}
-          >
-            <HomePlusIcon name="remove" size={18} color={colors.text.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.iconButton}
+          />
+          <IconButton
+            icon="add"
             onPress={onAdd}
             disabled={busy}
-            accessibilityRole="button"
             accessibilityLabel={`Sumar una unidad a ${item.name}`}
-          >
-            <HomePlusIcon name="add" size={18} color={colors.text.primary} />
-          </TouchableOpacity>
+          />
         </View>
       </View>
 
@@ -574,13 +575,12 @@ export const InventarioScreen = () => {
               {currentHousehold?.nombre ?? 'Hogar activo'}
             </AppText>
           </View>
-          <AppButton
-            variant="icon"
+          <IconButton
+            icon="add"
             onPress={openCreate}
             accessibilityLabel="Agregar item"
-          >
-            <HomePlusIcon name="add" size={22} color={colors.terracotta[600]} />
-          </AppButton>
+            variant="brandSoft"
+          />
         </View>
 
         <AppInput
@@ -594,21 +594,13 @@ export const InventarioScreen = () => {
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
           {FILTER_CATEGORIES.map((entry) => (
-            <TouchableOpacity
+            <FilterChip
               key={entry.key}
-              style={[styles.categoryChip, category === entry.key && styles.categoryChipActive]}
+              label={`${entry.emoji} ${entry.label}`}
+              selected={category === entry.key}
               onPress={() => setCategory(entry.key)}
-              accessibilityRole="button"
-            >
-              <Text style={styles.categoryEmoji}>{entry.emoji}</Text>
-              <AppText
-                variant="caption"
-                weight="700"
-                tone={category === entry.key ? 'inverse' : 'secondary'}
-              >
-                {entry.label}
-              </AppText>
-            </TouchableOpacity>
+              style={styles.categoryChip}
+            />
           ))}
         </ScrollView>
 

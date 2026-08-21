@@ -34,17 +34,17 @@ const variantStyles: Record<AppCardVariant, ViewStyle> = {
   default: {
     backgroundColor: colors.surface.card,
     borderColor: colors.border.subtle,
-    ...shadows.card,
+    ...shadows.shadow1,
   },
   elevated: {
     backgroundColor: colors.surface.elevated,
     borderColor: colors.border.subtle,
-    ...shadows.elevated,
+    ...shadows.shadow2,
   },
   glass: {
     backgroundColor: colors.surface.glass,
     borderColor: colors.border.subtle,
-    ...shadows.floating,
+    ...shadows.shadow3,
   },
   quiet: {
     backgroundColor: colors.surface.soft,
@@ -54,17 +54,17 @@ const variantStyles: Record<AppCardVariant, ViewStyle> = {
   danger: {
     backgroundColor: colors.danger.soft,
     borderColor: colors.danger.base,
-    ...shadows.card,
+    ...shadows.shadow1,
   },
   success: {
     backgroundColor: colors.success.soft,
     borderColor: colors.success.base,
-    ...shadows.card,
+    ...shadows.shadow1,
   },
   warning: {
     backgroundColor: colors.warning.soft,
     borderColor: colors.warning.base,
-    ...shadows.card,
+    ...shadows.shadow1,
   },
 };
 
@@ -80,7 +80,7 @@ export function AppCard({
 }: AppCardProps) {
   const cardStyle: StyleProp<ViewStyle> = [
     {
-      borderRadius: radius.xl,
+      borderRadius: radius.lg,
       borderWidth: 1,
       overflow: 'hidden',
     },

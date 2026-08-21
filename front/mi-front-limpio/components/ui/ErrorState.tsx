@@ -32,7 +32,7 @@ export function ErrorState({
       style={[
         {
           padding: spacing[5],
-          borderRadius: radius.xl,
+          borderRadius: radius.md,
           backgroundColor: colors.danger.soft,
           borderWidth: 1,
           borderColor: colors.danger.base,

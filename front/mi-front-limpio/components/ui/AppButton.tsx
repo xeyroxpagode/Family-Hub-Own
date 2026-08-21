@@ -8,7 +8,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { colors, componentSizes, motion, radius, spacing, touchTargets } from '../../constants/theme';
 import { AppText } from './AppText';
 import { InteractivePressable, type InteractionHaptic } from './InteractivePressable';
 
@@ -30,11 +30,11 @@ export type AppButtonProps = Omit<PressableProps, 'children' | 'style'> & {
 
 const sizeStyles: Record<
   AppButtonSize,
-  { minHeight: number; paddingHorizontal: number; textVariant: 'caption' | 'body' | 'bodyLarge' }
+  { minHeight: number; paddingHorizontal: number; textVariant: 'bodySmall' | 'body' | 'bodyLarge' }
 > = {
-  sm: { minHeight: touchTargets.normal, paddingHorizontal: spacing[3], textVariant: 'caption' },
-  md: { minHeight: touchTargets.normal, paddingHorizontal: spacing[4], textVariant: 'body' },
-  lg: { minHeight: 52, paddingHorizontal: spacing[5], textVariant: 'bodyLarge' },
+  sm: { minHeight: componentSizes.smallButtonHeight, paddingHorizontal: spacing[4], textVariant: 'bodySmall' },
+  md: { minHeight: componentSizes.primaryButtonHeight, paddingHorizontal: spacing[5], textVariant: 'body' },
+  lg: { minHeight: componentSizes.primaryButtonHeight, paddingHorizontal: spacing[6], textVariant: 'bodyLarge' },
 };
 
 const variantStyles: Record<
@@ -42,11 +42,11 @@ const variantStyles: Record<
   { container: ViewStyle; textTone: 'primary' | 'inverse' | 'danger' }
 > = {
   primary: {
-    container: { backgroundColor: colors.terracotta[500], borderColor: colors.terracotta[500] },
+    container: { backgroundColor: colors.brand, borderColor: colors.brand },
     textTone: 'inverse',
   },
   secondary: {
-    container: { backgroundColor: colors.terracotta[50], borderColor: colors.terracotta[100] },
+    container: { backgroundColor: colors.brandSoft, borderColor: colors.border.default },
     textTone: 'primary',
   },
   ghost: {
@@ -93,7 +93,7 @@ export function AppButton({
         <AppText
           variant={buttonSize.textVariant}
           tone={buttonVariant.textTone}
-          weight="700"
+          weight="600"
           style={textStyle}
         >
           {title}
@@ -120,7 +120,7 @@ export function AppButton({
           minWidth: isIcon ? buttonSize.minHeight : touchTargets.normal,
           paddingHorizontal: isIcon ? 0 : buttonSize.paddingHorizontal,
           paddingVertical: spacing[2],
-          borderRadius: isIcon ? radius.pill : radius.lg,
+          borderRadius: isIcon ? radius.full : radius.button,
           borderWidth: variant === 'ghost' ? 0 : 1,
           alignItems: 'center',
           justifyContent: 'center',
@@ -136,7 +136,7 @@ export function AppButton({
           <View style={{ opacity: 0 }}>{buttonContent}</View>
           <ActivityIndicator
             style={{ position: 'absolute' }}
-            color={buttonVariant.textTone === 'inverse' ? colors.text.inverse : colors.terracotta[600]}
+            color={buttonVariant.textTone === 'inverse' ? colors.text.inverse : colors.brandPressed}
           />
         </View>
       ) : (

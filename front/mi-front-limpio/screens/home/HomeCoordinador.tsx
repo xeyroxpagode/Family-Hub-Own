@@ -1,13 +1,12 @@
 import React from 'react';
 import {
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
-import { AppScreen, AppText } from '../../components/ui';
-import { colors, spacing } from '../../constants/theme';
+import { AppScreen, AppText, IconButton, StatusBadge } from '../../components/ui';
+import { spacing } from '../../constants/theme';
 import { HomePlannerSections } from './HomePlannerSections';
 
 // ─── Main screen ─────────────────────────────────────────────────────────────
@@ -23,20 +22,18 @@ export const HomeCoordinador = () => {
   return (
     <AppScreen scroll bottomInset="tab" contentContainerStyle={styles.content}>
 
-        <View style={styles.topBar}>
+        <View style={styles.hero}>
           <View>
-            <AppText variant="title2">{greeting}, {firstName}</AppText>
+            <AppText variant="title1">{greeting}, {firstName}</AppText>
             <AppText variant="caption" tone="tertiary" style={styles.dateLabel}>
               {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}
             </AppText>
           </View>
-          <View style={styles.notifBell}>
-            <Text style={{ fontSize: 22 }}>🔔</Text>
-          </View>
+          <IconButton icon="notifications-outline" variant="surface" accessibilityLabel="Notificaciones" />
         </View>
 
         {currentHousehold && (
-          <AppText variant="caption" tone="warning" weight="700" style={styles.householdName}>{currentHousehold.nombre}</AppText>
+          <StatusBadge label={currentHousehold.nombre} tone="brand" icon="home-outline" style={styles.householdName} />
         )}
 
         <HomePlannerSections />
@@ -47,17 +44,16 @@ export const HomeCoordinador = () => {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const C = {
-  text: colors.text.primary,
-  textMuted: colors.text.tertiary,
-};
-
 const styles = StyleSheet.create({
-  content: { paddingTop: spacing[1] },
+  content: { paddingTop: spacing[3] },
 
-  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: spacing[2] },
-  greeting: { fontSize: 26, fontWeight: '700', color: C.text },
-  dateLabel: { fontSize: 13, color: C.textMuted, marginTop: 2 },
-  notifBell: { paddingTop: 4 },
-  householdName: { marginBottom: spacing[4] },
+  hero: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing[3],
+    gap: spacing[3],
+  },
+  dateLabel: { textTransform: 'capitalize', marginTop: spacing[1] },
+  householdName: { alignSelf: 'flex-start', marginBottom: spacing[4] },
 });

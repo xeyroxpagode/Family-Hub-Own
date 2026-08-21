@@ -6,8 +6,8 @@ import { getGoalProgressText, hasRealGoalProgress } from '../planner/plannerShar
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { fetchPlannerCapabilitiesCached } from '../../services/plannerCapabilities';
-import { AppCard, AppText, ErrorState, Skeleton } from '../../components/ui';
-import { colors, radius, spacing } from '../../constants/theme';
+import { AppCard, AppText, ErrorState, Skeleton, StatusBadge } from '../../components/ui';
+import { colors, spacing } from '../../constants/theme';
 import { APP_ICONS, HomePlusIcon } from '../../constants/icons';
 import { useHomePlannerSummary } from '../../services/planner/useHomePlannerSummary';
 import { type HomeSummaryTask } from '../../services/planner/homeSummaryTypes';
@@ -98,9 +98,7 @@ function InventoryUrgencyCard({
         <AppText variant="title3" tone={dark ? 'inverse' : 'warning'}>
           Inventario
         </AppText>
-        <AppText variant="caption" tone="warning" weight="700">
-          Ver
-        </AppText>
+        <StatusBadge label="Ver" tone="warning" />
       </View>
       <AppText variant="bodySmall" tone="secondary" weight="700">
         {headline}
@@ -318,9 +316,7 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
                   accessibilityRole="button"
                   accessibilityLabel={`Ver meta ${goal.title}`}
                 >
-                  <AppText variant="caption" tone="warning" weight="700">
-                    Ver
-                  </AppText>
+                  <StatusBadge label="Ver" tone={isAtRisk ? 'warning' : 'success'} />
                 </TouchableOpacity>
               </View>
               <AppText variant="bodySmall" tone={dark ? 'inverse' : 'secondary'} weight="700">
@@ -354,11 +350,9 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Ver todas las tareas"
           >
-            <AppText variant="caption" tone="warning" weight="700">
-              Ver tareas
-            </AppText>
+            <StatusBadge label="Ver tareas" tone="brand" />
           </TouchableOpacity>
-</View>
+        </View>
 
         {status === 'initial_loading' || status === 'refreshing' ? (
           <Skeleton variant="paragraph" lines={3} style={styles.skeletonBlock} />
@@ -397,11 +391,7 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
                   {task.category || 'Sin categoría'} - {formatDate(task.due_date)} - {assignedName}
                 </AppText>
               </View>
-              <View style={styles.statusPill}>
-                <AppText variant="micro" tone="success" weight="700">
-                  {taskStatusLabel[task.status]}
-                </AppText>
-              </View>
+              <StatusBadge label={taskStatusLabel[task.status]} tone="success" />
               {showComplete && (
                 <TouchableOpacity
                   onPress={() => handleCompleteTask(task)}
@@ -437,9 +427,7 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Ver calendario"
           >
-            <AppText variant="caption" tone="warning" weight="700">
-              Ver calendario
-            </AppText>
+            <StatusBadge label="Ver calendario" tone="brand" />
           </TouchableOpacity>
         </View>
         {status === 'initial_loading' || status === 'refreshing' ? (
@@ -516,12 +504,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[3],
     borderTopWidth: 1,
     borderTopColor: colors.border.subtle,
-  },
-  statusPill: {
-    backgroundColor: colors.success.soft,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing[2],
-    paddingVertical: spacing[1],
   },
   completeButton: {
     padding: spacing[1],

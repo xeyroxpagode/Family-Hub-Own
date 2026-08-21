@@ -8,7 +8,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../../constants/theme';
+import { colors, componentSizes, radius, spacing, typography } from '../../constants/theme';
 import { AppText } from './AppText';
 
 export type AppInputVariant = 'default' | 'large' | 'multiline' | 'search';
@@ -23,10 +23,10 @@ export type AppInputProps = Omit<TextInputProps, 'style'> & {
 };
 
 const variantHeights: Record<AppInputVariant, number> = {
-  default: 48,
-  large: 56,
+  default: componentSizes.textFieldHeight,
+  large: componentSizes.searchFieldHeight,
   multiline: 104,
-  search: 48,
+  search: componentSizes.searchFieldHeight,
 };
 
 export function AppInput({
@@ -72,14 +72,14 @@ export function AppInput({
             minHeight: variantHeights[variant],
             paddingHorizontal: spacing[4],
             paddingVertical: isMultiline ? spacing[3] : spacing[2],
-            borderRadius: radius.lg,
+            borderRadius: variant === 'search' ? radius.search : radius.md,
             borderWidth: focused ? 2 : 1,
             borderColor: hasError
               ? colors.danger.base
               : focused
-                ? colors.terracotta[500]
+                ? colors.brand
                 : colors.border.default,
-            backgroundColor: isDisabled ? colors.surface.muted : colors.surface.soft,
+            backgroundColor: isDisabled ? colors.surface.muted : colors.surface.card,
             color: isDisabled ? colors.text.disabled : colors.text.primary,
             textAlignVertical: isMultiline ? 'top' : 'center',
           },

@@ -2,10 +2,11 @@ import React from 'react';
 import { Pressable, View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, spacing, radius, shadows, typography } from '../../constants/theme';
+import { colors, spacing } from '../../constants/theme';
 import { AppText } from './AppText';
 import { AppAvatar } from './AppAvatar';
 import { HomePlusIcon } from '../../constants/icons';
+import { StatusBadge } from './StatusBadge';
 
 export type AppTopBarProps = {
   personName: string;
@@ -18,26 +19,21 @@ export type AppTopBarProps = {
   rightSlot?: React.ReactNode;
 };
 
-const ROLE_ICONS: Record<string, { name: string; color: string; bg: string }> = {
-  coordinator: { name: 'ribbon', color: colors.terracotta[600], bg: colors.terracotta[50] },
-  adult: { name: 'ribbon', color: colors.sage[600], bg: colors.sage[50] },
-  adolescent: { name: 'ribbon', color: colors.info.text, bg: colors.info.soft },
-  senior: { name: 'ribbon', color: colors.sand[600], bg: colors.sand[50] },
-  child: { name: 'ribbon', color: colors.sage[600], bg: colors.sage[50] },
-  guest: { name: 'ribbon', color: colors.text.tertiary, bg: colors.surface.soft },
-};
-
-function getRoleDisplay(role: string): { label: string; icon: string; color: string; bg: string } {
+function getRoleDisplay(role: string): { label: string } {
   const roleLower = role.toLowerCase();
-  const mapping: Record<string, { label: string; icon: string; color: string; bg: string }> = {
-    coordinator: { label: 'Coordinador', icon: 'ribbon', color: colors.terracotta[600], bg: colors.terracotta[50] },
-    adult: { label: 'Adulto', icon: 'ribbon', color: colors.sage[600], bg: colors.sage[50] },
-    adolescent: { label: 'Adolescente', icon: 'ribbon', color: colors.info.text, bg: colors.info.soft },
-    senior: { label: 'Adulto mayor', icon: 'ribbon', color: colors.sand[600], bg: colors.sand[50] },
-    child: { label: 'Niño', icon: 'ribbon', color: colors.sage[600], bg: colors.sage[50] },
-    guest: { label: 'Invitado', icon: 'ribbon', color: colors.text.tertiary, bg: colors.surface.soft },
+  const mapping: Record<string, { label: string }> = {
+    coordinator: { label: 'Coordinador' },
+    coordinador: { label: 'Coordinador' },
+    adult: { label: 'Adulto' },
+    adulto: { label: 'Adulto' },
+    adolescent: { label: 'Adolescente' },
+    adolescente: { label: 'Adolescente' },
+    senior: { label: 'Adulto mayor' },
+    adulto_mayor: { label: 'Adulto mayor' },
+    child: { label: 'Niño' },
+    guest: { label: 'Invitado' },
   };
-  return mapping[roleLower] ?? { label: role, icon: 'ribbon', color: colors.text.tertiary, bg: colors.surface.soft };
+  return mapping[roleLower] ?? { label: role };
 }
 
 export function AppTopBar({
@@ -84,19 +80,7 @@ export function AppTopBar({
               <HomePlusIcon name="chevron-down-outline" size={16} color={colors.text.tertiary} style={styles.chevron} />
             )}
           </View>
-          <View style={styles.roleRow}>
-            <View
-              style={[
-                styles.roleChip,
-                { backgroundColor: roleInfo.bg, borderColor: roleInfo.bg },
-              ]}
-            >
-              <HomePlusIcon name="ribbon-outline" size={12} color={roleInfo.color} />
-              <AppText variant="micro" tone="secondary" weight="700" style={{ color: roleInfo.color, marginLeft: spacing[1] }}>
-                {roleInfo.label}
-              </AppText>
-            </View>
-          </View>
+          <StatusBadge label={roleInfo.label} tone="brand" icon="ribbon-outline" />
         </View>
       </Pressable>
 
@@ -120,7 +104,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[3],
     backgroundColor: colors.surface.card,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border.default,
+    borderBottomColor: colors.border.subtle,
   },
   leftSection: {
     flexDirection: 'row',
@@ -146,20 +130,6 @@ const styles = StyleSheet.create({
   },
   chevron: {
     opacity: 0.7,
-  },
-  roleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[1],
-  },
-  roleChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing[2],
-    paddingVertical: spacing[1],
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    gap: spacing[1],
   },
   rightSection: {
     flexDirection: 'row',

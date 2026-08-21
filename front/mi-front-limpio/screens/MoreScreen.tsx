@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { AppScreen } from '../components/ui/AppScreen';
 import { AppCard } from '../components/ui/AppCard';
 import { AppText } from '../components/ui/AppText';
+import { StatusBadge } from '../components/ui/StatusBadge';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
 
@@ -92,11 +93,7 @@ export function MoreScreen() {
                 </AppText>
               </View>
               {module.isDemo && (
-                <View style={styles.demoBadge}>
-                  <AppText variant="micro" tone="warning" weight="700">
-                    Demo
-                  </AppText>
-                </View>
+                <StatusBadge label="Demo" tone="warning" style={styles.demoBadge} />
               )}
               <HomePlusIcon name="chevron-forward-outline" size={20} color={colors.text.tertiary} />
             </View>
@@ -136,8 +133,6 @@ const styles = StyleSheet.create({
     gap: spacing[1],
   },
   demoBadge: {
-    paddingHorizontal: spacing[2],
-    paddingVertical: spacing[1],
     marginRight: spacing[1],
   },
 });

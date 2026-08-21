@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutAnimation, Platform, Pressable, StyleSheet, UIManager, View } from 'react-native';
+import { LayoutAnimation, Platform, StyleSheet, UIManager, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 import { MovementDetailSheet, NewMovementSheet } from '../../components/finance';
@@ -11,12 +11,14 @@ import {
   ActionSheet,
   EmptyState,
   ErrorState,
+  IconButton,
   InteractivePressable,
+  SegmentedControl,
   Skeleton,
   UndoToast,
 } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { colors, motion, radius, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { AbortError, ApiError } from '../../services/api';
@@ -163,6 +165,10 @@ export function FinanceScreen() {
     };
   }, [currentHousehold]);
   const selectorOptions = useMemo(() => financeSelectorOptions(activeHousehold), [activeHousehold]);
+  const tabOptions = useMemo(
+    () => FINANCE_TABS.map((tab) => ({ value: tab, label: FINANCE_TAB_LABELS[tab] })),
+    [],
+  );
   const contextLabel = financeContextLabel(selectedContext, activeHousehold, contextLoading);
   const viewState = financeContextViewState(selectedContext, activeHousehold, contextLoading);
   const readReady = Boolean(session?.access_token) && (
@@ -349,32 +355,22 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
     >
       <View style={styles.header}>
         {navigation.canGoBack() ? (
-          <Pressable
+          <IconButton
+            icon="chevron-back-outline"
             onPress={handleVisibleBack}
-            style={styles.backButton}
-            accessibilityRole="button"
             accessibilityLabel="Volver a Mas"
-            hitSlop={8}
-          >
-            <HomePlusIcon name="chevron-back-outline" size={22} color={colors.text.primary} />
-          </Pressable>
+          />
         ) : null}
         <View style={styles.headerText}>
           <AppText variant="title1" accessibilityRole="header">
             Finanzas
           </AppText>
         </View>
-        <InteractivePressable
+        <IconButton
+          icon="ellipsis-horizontal"
           onPress={() => setOverflowVisible(true)}
-          haptic="light"
-          pressScale={motion.scale.icon}
-          style={styles.overflowButton}
-          accessibilityRole="button"
           accessibilityLabel="Mas opciones"
-          hitSlop={8}
-        >
-          <HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.primary} />
-        </InteractivePressable>
+        />
       </View>
 
       <View style={styles.selectorArea}>
@@ -457,32 +453,11 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
         ) : null}
       </View>
 
-      <View style={styles.tabs} accessibilityRole="tablist">
-        {FINANCE_TABS.map((tab) => {
-          const selected = tab === selectedTab;
-          return (
-            <InteractivePressable
-              key={tab}
-              onPress={() => setSelectedTab((current) => selectFinanceTab(current, tab))}
-              haptic="light"
-              pressScale={motion.scale.tab}
-              style={[styles.tab, selected && styles.tabSelected]}
-              accessibilityRole="tab"
-              accessibilityState={{ selected }}
-              accessibilityLabel={FINANCE_TAB_LABELS[tab]}
-            >
-              <AppText
-                variant="bodySmall"
-                weight="800"
-                tone={selected ? 'inverse' : 'secondary'}
-                numberOfLines={1}
-              >
-                {FINANCE_TAB_LABELS[tab]}
-              </AppText>
-            </InteractivePressable>
-          );
-        })}
-      </View>
+      <SegmentedControl
+        value={selectedTab}
+        options={tabOptions}
+        onChange={(tab) => setSelectedTab((current) => selectFinanceTab(current, tab))}
+      />
 
       {householdError ? (
         <ErrorState title="No pudimos actualizar Current" description={householdError} />
@@ -898,26 +873,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing[3],
   },
-  backButton: {
-    width: touchTargets.normal,
-    height: touchTargets.normal,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-  },
-  overflowButton: {
-    width: touchTargets.normal,
-    height: touchTargets.normal,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-  },
   overflowContent: {
     paddingHorizontal: spacing[4],
     paddingTop: spacing[2],
@@ -1010,26 +965,6 @@ const styles = StyleSheet.create({
   movementsHeaderCopy: {
     flex: 1,
     minWidth: 0,
-  },
-  tabs: {
-    minHeight: 48,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface.muted,
-    padding: spacing[1],
-    flexDirection: 'row',
-    gap: spacing[1],
-  },
-  tab: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 40,
-    borderRadius: radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing[2],
-  },
-  tabSelected: {
-    backgroundColor: colors.terracotta[600],
   },
   loadingBlock: {
     gap: spacing[3],
