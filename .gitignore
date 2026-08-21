@@ -19,3 +19,4 @@ supabase/snippets/
 /test-results/
 /coverage/
 /supabase/_pulled_backups/
+/db-backup/

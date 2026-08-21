@@ -4,7 +4,7 @@ const { createHttpError } = require('../lib/httpErrors')
 const { assertExpectedVersion } = require('../lib/versionHelpers')
 const { EVENT_RECURRENCES } = require('../constants/planner.constants')
 const { pickEventActivityState, recordPlannerActivity } = require('./planner.activity.service')
-const { hashIdempotencyRequestV2, canonicalizeV2Value } = require('../lib/plannerIdempotencyAdapter')
+const { hashIdempotencyRequestV2 } = require('../lib/plannerIdempotencyAdapter')
 const crypto = require('crypto')
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
@@ -107,11 +107,11 @@ const eventOverlapsRange = (event, from, to) => {
   return startsAt <= to && endsAt >= from
 }
 
-function canonicalMutationId(operation, targetId, salt) {
+function canonicalMutationId() {
   return crypto.randomUUID()
 }
 
-function canonicalIdempotencyKey(operation, targetId, payload) {
+function canonicalIdempotencyKey() {
   return crypto.randomUUID()
 }
 

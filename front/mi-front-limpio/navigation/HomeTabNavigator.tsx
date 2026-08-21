@@ -39,6 +39,7 @@ import {
 import { MoreScreen } from '../screens/MoreScreen';
 import { FinanceAccountsScreen } from '../screens/finance/FinanceAccountsScreen';
 import { FinancePapeleraScreen } from '../screens/finance/FinancePapeleraScreen';
+import { PresenceScreen } from '../screens/presence/PresenceScreen';
 import { APP_ICONS, HomePlusIcon } from '../constants/icons';
 import { AppTopBar, HouseholdSwitcherSheet, InteractivePressable } from '../components/ui';
 import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
@@ -200,6 +201,7 @@ function MoreStackScreen() {
       <MoreStack.Screen name="Finance" component={FinanceScreen} />
       <MoreStack.Screen name="FinanceAccounts" component={FinanceAccountsScreen} />
       <MoreStack.Screen name="FinancePapelera" component={FinancePapeleraScreen} />
+      <MoreStack.Screen name="Presence" component={PresenceScreen} />
     </MoreStack.Navigator>
   );
 }

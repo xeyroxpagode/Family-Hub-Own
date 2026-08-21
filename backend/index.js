@@ -22,6 +22,7 @@ const plannerRoutes = require('./src/routes/planner');
 const inventoryRoutes = require('./src/routes/inventory');
 const financeRoutes = require('./src/routes/finance');
 const featureFlagsRoutes = require('./src/routes/featureFlags');
+const presenceRoutes = require('./src/routes/presence');
 const { requestContextMiddleware } = require('./src/middleware/requestContextMiddleware');
 const { errorEnvelopeMiddleware } = require('./src/middleware/errorEnvelopeMiddleware');
 const { sendApiError } = require('./src/lib/httpErrors');
@@ -89,6 +90,7 @@ app.use('/api/feature-flags', featureFlagsRoutes);
 app.use('/api/planner', plannerRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/finance', financeRoutes);
+app.use('/api/presence', presenceRoutes);
 // Ruta de prueba
 app.get('/', (req, res) => {
     res.send('¡El servidor de FamilyHub está funcionando correctamente!');

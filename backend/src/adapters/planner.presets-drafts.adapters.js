@@ -2,7 +2,6 @@
 
 const {
   CURRENT_PAYLOAD_VERSION,
-  PAYLOAD_SCHEMA,
   buildPayloadEnvelope,
   cloneJson,
   failure,

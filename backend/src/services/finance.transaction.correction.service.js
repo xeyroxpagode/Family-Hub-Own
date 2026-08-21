@@ -6,20 +6,6 @@ const { FINANCE_CONTEXT_TYPES } = require('../constants/finance.constants');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const SAFE_CORRECTION_ERROR_MESSAGES = Object.freeze({
-  finance_transaction_not_found: 'Transaccion no encontrada.',
-  invalid_transaction_state_for_correction: 'La transaccion no esta en estado ACTIVA.',
-  finance_transaction_owner_authority_forbidden: 'No tenes permiso para corregir esta transaccion.',
-  finance_transaction_dependent_on_transfer: 'No se puede corregir una comision generada por Transferencia. La comision pertenece a su Transferencia propietaria.',
-  invalid_correction_amount: 'El monto corregido debe ser positivo.',
-  invalid_correction_currency: 'Moneda invalida.',
-  finance_category_not_found_or_deleted: 'Categoria no encontrada o eliminada.',
-  finance_category_label_empty: 'Etiqueta de categoria vacia.',
-  finance_account_invalid_for_correction: 'La cuenta no es valida para esta correccion (debe existir, estar ACTIVA, coincidir la moneda y ser accesible).',
-  finance_account_effect_not_found: 'Efecto de cuenta asociado no encontrado.',
-  replay: 'La operacion ya fue procesada.',
-});
-
 function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object ?? {}, key);
 }
@@ -55,14 +41,6 @@ function accountIdFrom(value, code) {
     throw createHttpError(400, 'Account invalida.', code);
   }
   return accountId;
-}
-
-function validateRequired(body, field, errorCode) {
-  const value = body[field] ?? body[field.replace(/([A-Z])/g, '_$1').toLowerCase()];
-  if (!value) {
-    throw createHttpError(400, `${field} es obligatorio.`, errorCode);
-  }
-  return value;
 }
 
 function toDto(row) {

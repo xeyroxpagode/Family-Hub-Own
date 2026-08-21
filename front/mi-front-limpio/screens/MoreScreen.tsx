@@ -29,6 +29,16 @@ const MODULES = [
     isDemo: false,
   },
   {
+    id: 'presence',
+    label: 'Ubicacion',
+    description: 'Mapa familiar en vivo',
+    icon: 'location',
+    color: colors.terracotta[600],
+    bg: colors.terracotta[50],
+    screen: 'Presence' as const,
+    isDemo: false,
+  },
+  {
     id: 'finance',
     label: 'Finanzas',
     description: 'Personal y hogar',

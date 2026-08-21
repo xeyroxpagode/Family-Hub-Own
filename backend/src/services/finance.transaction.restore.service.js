@@ -1,9 +1,6 @@
 'use strict';
 
 const { createHttpError } = require('../lib/httpErrors');
-const {
-  FINANCE_TRANSACTION_TYPES,
-} = require('../constants/finance.constants');
 const { hashIdempotencyRequestV2 } = require('../lib/plannerIdempotencyAdapter');
 
 async function restoreFinanceTransaction(financeContext, body = {}) {

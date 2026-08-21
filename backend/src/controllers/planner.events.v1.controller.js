@@ -2,7 +2,6 @@
 
 const {
   getEventV1Context,
-  getEventV1HouseholdMutationContext,
 } = require('../services/planner.events.v1.context.service');
 const eventsV1 = require('../services/planner.events.v1.service');
 const {
@@ -11,7 +10,6 @@ const {
 } = require('../lib/plannerMutationContracts');
 const {
   requireIdempotencyKey,
-  hashIdempotencyRequestV2,
   invokeAtomicPlannerMutationV2,
 } = require('../lib/plannerIdempotencyAdapter');
 const { createHttpError, sendApiError } = require('../lib/httpErrors');
@@ -31,7 +29,7 @@ function canonicalMutationBody(result) {
     : result.body;
 }
 
-function mutationContractV2(req, operation) {
+function mutationContractV2(req) {
   const mutationId = requireMutationId(req);
   const idempotencyKey = requireIdempotencyKey(req);
   return {

@@ -4,7 +4,7 @@ const { createSupabaseForToken } = require('../config/supabase');
 const { getAuthenticatedPerson, requireActiveMembership } = require('../lib/householdMembers.service');
 const { resolveCapabilities, assertCapability } = require('../lib/plannerCapabilities');
 const { createHttpError, sendApiError } = require('../lib/httpErrors');
-const { OPERATION_KINDS, requireMutationContract, CANONICAL_ERROR_CODES } = require('../lib/mutationContracts');
+const { OPERATION_KINDS, requireMutationContract } = require('../lib/mutationContracts');
 const { hashIdempotencyRequestV2 } = require('../lib/plannerIdempotencyAdapter');
 const plansService = require('../services/planner.plans.service');
 

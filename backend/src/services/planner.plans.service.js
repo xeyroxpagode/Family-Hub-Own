@@ -43,7 +43,7 @@ function mapPlanRpcError(error) {
   }
   if (code === '40007') {
     let details = null;
-    try { details = error.details ? JSON.parse(error.details) : null; } catch (_) { details = null; }
+    try { details = error.details ? JSON.parse(error.details) : null; } catch { /* ignore malformed RPC details */ }
     return createHttpError(
       412,
       'La version del grafo cambio. Actualiza y reintenta.',

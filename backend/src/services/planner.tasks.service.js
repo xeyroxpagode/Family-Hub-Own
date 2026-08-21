@@ -55,15 +55,11 @@ const assertTaskCompletionCapabilities = (context, completionAuth) => {
   const capabilities = resolveContextCapabilities(context)
   assertCapability(capabilities, 'planner.view')
 
-  let allowed = false
-  if (completionAuth.assignmentKind === 'legacy_unassigned') {
-    allowed = hasCapability(capabilities, 'task.complete_unassigned')
-      || hasCapability(capabilities, 'task.complete_any')
-  } else if (completionAuth.assignmentKind === 'anyone' || completionAuth.isAssignee) {
-    allowed = hasCapability(capabilities, 'task.complete_assigned')
-  } else {
-    allowed = hasCapability(capabilities, 'task.complete_any')
-  }
+  const allowed = completionAuth.assignmentKind === 'legacy_unassigned'
+    ? hasCapability(capabilities, 'task.complete_unassigned') || hasCapability(capabilities, 'task.complete_any')
+    : completionAuth.assignmentKind === 'anyone' || completionAuth.isAssignee
+      ? hasCapability(capabilities, 'task.complete_assigned')
+      : hasCapability(capabilities, 'task.complete_any')
 
   if (!allowed) assertCapability(capabilities, 'task.complete_any')
 }
@@ -321,61 +317,6 @@ const validateOriginReason = (value) => {
   return normalized
 }
 
-const validateGoalId = async (client, householdId, goalId) => {
-  if (goalId === undefined || goalId === null || goalId === '') {
-    return null
-  }
-
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-  if (!uuidPattern.test(String(goalId))) {
-    throw createHttpError(400, 'goal_id debe ser un uuid valido.', 'validation_error')
-  }
-
-  const { data, error } = await client
-    .from('planner_goals')
-    .select('id')
-    .eq('id', goalId)
-    .eq('household_id', householdId)
-    .is('deleted_at', null)
-    .is('trashed_at', null)
-    .maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    throw createHttpError(400, 'goal_id no encontrado o no pertenece al household.', 'validation_error')
-  }
-
-  return goalId
-}
-
-const validateAssignment = async (client, householdId, assignedToMemberId) => {
-  if (assignedToMemberId === undefined || assignedToMemberId === null || assignedToMemberId === '') {
-    return null
-  }
-
-  const { data, error } = await client
-    .from('household_members')
-    .select('id')
-    .eq('id', assignedToMemberId)
-    .eq('household_id', householdId)
-    .eq('status', 'active')
-    .maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    throw createHttpError(400, 'assigned_to_member_id invalido.', 'validation_error')
-  }
-
-  return assignedToMemberId
-}
-
 const hydrateMembers = async (client, tasks) => {
   const assignedMemberIds = [...new Set(tasks.map((task) => task.assigned_to_member_id).filter(Boolean))]
   const completedMemberIds = [...new Set(tasks.map((task) => task.completed_by_member_id).filter(Boolean))]
@@ -488,25 +429,6 @@ const getTaskOrThrow = async (client, householdId, taskId) => {
 const getTaskById = async (context, taskId) => {
   const task = await getTaskOrThrow(context.client, context.householdId, taskId)
   return { task }
-}
-
-const getTaskForTrashOperation = async (client, householdId, taskId) => {
-  const { data, error } = await client
-    .from('planner_tasks')
-    .select('*')
-    .eq('id', taskId)
-    .eq('household_id', householdId)
-    .maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-
-  if (!data) {
-    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
-  }
-
-  return data
 }
 
 const listTasks = async (context, query) => {

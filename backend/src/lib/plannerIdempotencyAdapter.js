@@ -233,7 +233,7 @@ const withIdempotency = async (context, options, mutationFn) => {
 
 // ── V2 adapter frontier ──
 
-const mapV2RpcError = (error, operation) => {
+const mapV2RpcError = (error) => {
   const code = error?.code ?? null
 
   if (code === '42501') {
