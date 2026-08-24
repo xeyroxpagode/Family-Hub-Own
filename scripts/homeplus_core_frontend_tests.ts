@@ -12,6 +12,13 @@ import {
   featureFlagStore,
   isFeatureEnabled,
 } from '../front/mi-front-limpio/services/core/featureFlagStore.js';
+import { resolveActiveHouseholdState } from '../front/mi-front-limpio/services/core/householdResolution.js';
+import {
+  shouldRefreshAfterConnectivityChange,
+  shouldRefreshOnAppActive,
+} from '../front/mi-front-limpio/services/core/networkRecovery.js';
+import { resolveHomeRoleRoute } from '../front/mi-front-limpio/services/core/roleRouting.js';
+import type { AuthMe, AuthMeMembership } from '../front/mi-front-limpio/services/api.js';
 
 let passed = 0;
 
@@ -106,6 +113,85 @@ async function main() {
   assert(!isFeatureEnabled(featureFlagStore.get('account-a', 'hh-b'), 'planner.search_entry'), 'disabled flag remains deny-safe');
   featureFlagStore.clearSession();
   assert(Object.keys(featureFlagStore.get('account-a', 'hh-b')).length === 0, 'sign-out clears all feature flag projections');
+
+  const accountScopedState = createServerState({
+    scopeForKey: (key) => typeof key[0] === 'string' ? key[0] : null,
+  });
+  accountScopedState.set(['user-a', 'household', 'hh-a'], { householdId: 'hh-a' });
+  accountScopedState.clearSession();
+  accountScopedState.set(['user-b', 'household', 'hh-b'], { householdId: 'hh-b' });
+  assert(accountScopedState.get(['user-a', 'household', 'hh-a']) === null, 'user A state is not visible after logout');
+  assert(accountScopedState.get<{ householdId: string }>(['user-b', 'household', 'hh-b'])?.householdId === 'hh-b', 'user B starts with its own context after user change');
+
+  const baseMembership: AuthMeMembership = {
+    id: 'membership-a',
+    household_id: 'hh-a',
+    person_id: 'person-a',
+    role: 'adult',
+    status: 'active',
+    joined_at: null,
+    left_at: null,
+    household_onboarding_status: 'completed',
+    household_onboarding_completed_at: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  };
+  const activeAuthMe: AuthMe = {
+    user: {},
+    person: null,
+    memberships: [baseMembership],
+    active_household: {
+      id: 'hh-a',
+      name: 'Casa A',
+      slug: 'casa-a',
+      timezone: 'UTC',
+      default_language: 'es',
+      config: {},
+      created_by_person_id: 'person-a',
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    },
+    navigation: {
+      auth: 'authenticated',
+      has_person: true,
+      has_household: true,
+      has_active_household: true,
+      membership_state: 'active',
+      next: 'home',
+    },
+  };
+  assert(resolveActiveHouseholdState(activeAuthMe).kind === 'active', 'valid active household is preserved');
+  const autoState = resolveActiveHouseholdState({ ...activeAuthMe, active_household: null });
+  assert(autoState.kind === 'auto_activate' && autoState.householdId === 'hh-a', 'one active membership auto-selects its household');
+  const multiState = resolveActiveHouseholdState({
+    ...activeAuthMe,
+    active_household: null,
+    memberships: [baseMembership, { ...baseMembership, id: 'membership-b', household_id: 'hh-b' }],
+  });
+  assert(multiState.kind === 'select_required' && multiState.householdIds.length === 2, 'multiple active memberships require explicit household selection');
+  assert(resolveActiveHouseholdState({ ...activeAuthMe, active_household: null, memberships: [] }).kind === 'none', 'no active memberships stays as valid no-household state');
+
+  assert(resolveHomeRoleRoute('coordinador') === 'coordinator', 'coordinator role routes to coordinator home');
+  assert(resolveHomeRoleRoute('adulto') === 'adult', 'adult role routes to adult home');
+  assert(resolveHomeRoleRoute('adolescente') === 'adolescent', 'adolescent/child role routes to adolescent-safe home');
+  assert(resolveHomeRoleRoute('adulto_mayor') === 'senior', 'senior role routes to senior home');
+  assert(resolveHomeRoleRoute(null) === 'safe_fallback', 'null role never defaults to coordinator');
+  assert(resolveHomeRoleRoute('unknown' as never) === 'safe_fallback', 'unknown role never defaults to coordinator');
+
+  assert(shouldRefreshOnAppActive({ sessionReady: true, recoveryInFlight: false }), 'session restore/reopen can refresh active context');
+  assert(!shouldRefreshOnAppActive({ sessionReady: false, recoveryInFlight: false }), 'logged-out app does not refresh private context');
+  assert(shouldRefreshAfterConnectivityChange({
+    sessionReady: true,
+    recoveryInFlight: false,
+    previousOnline: false,
+    nextOnline: true,
+  }), 'offline to online triggers one controlled recovery');
+  assert(!shouldRefreshAfterConnectivityChange({
+    sessionReady: true,
+    recoveryInFlight: true,
+    previousOnline: false,
+    nextOnline: true,
+  }), 'network recovery does not start twice while already running');
 
   __testOnlyLifecycle.clear();
   let cleanups = 0;

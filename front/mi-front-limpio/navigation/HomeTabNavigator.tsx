@@ -37,16 +37,19 @@ import {
   PlannerPresetLibraryRoute,
 } from '../components/planner/presets/PlannerPresetDraftsIntegrationRoutes';
 import { MoreScreen } from '../screens/MoreScreen';
+import { GlobalTrashScreen } from '../screens/global/GlobalTrashScreen';
+import { PresenceScreen } from '../screens/presence/PresenceScreen';
 import { FinanceAccountsScreen } from '../screens/finance/FinanceAccountsScreen';
 import { FinancePapeleraScreen } from '../screens/finance/FinancePapeleraScreen';
 import { APP_ICONS, HomePlusIcon } from '../constants/icons';
-import { AppTopBar, HouseholdSwitcherSheet, InteractivePressable } from '../components/ui';
+import { AppTopBar, ErrorState, HouseholdSwitcherSheet, InteractivePressable } from '../components/ui';
 import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
 import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
 import { PlannerDeepLinkProvider } from '../services/planner/plannerDeepLinkProvider';
 import { fetchPlannerAttentionRequest } from '../services/planner/plannerAttentionClient';
 import { GLOBAL_SURFACE_GATES_OFF } from '../services/planner/globalSurfaceTypes';
 import { colors, motion, spacing } from '../constants/theme';
+import { resolveHomeRoleRoute } from '../services/core/roleRouting';
 
 const Tab = createBottomTabNavigator<HomeTabParamList>();
 const PlannerStack = createNativeStackNavigator<PlannerStackParamList>();
@@ -147,7 +150,8 @@ const TabIcon = ({
 };
 
 function HomeScreen() {
-  const { currentRole, loading, reloading } = useHousehold();
+  const { signOut } = useAuth();
+  const { currentRole, loading, reloading, reload } = useHousehold();
 
   if (loading || reloading) {
     return (
@@ -157,12 +161,24 @@ function HomeScreen() {
     );
   }
 
-  if (currentRole === 'coordinador')  return <HomeCoordinador />;
-  if (currentRole === 'adulto')       return <HomeAdulto />;
-  if (currentRole === 'adolescente')  return <HomeAdolescente />;
-  if (currentRole === 'adulto_mayor') return <HomeAdultoMayor />;
+  const roleRoute = resolveHomeRoleRoute(currentRole);
 
-  return <HomeCoordinador />;
+  if (roleRoute === 'coordinator') return <HomeCoordinador />;
+  if (roleRoute === 'adult') return <HomeAdulto />;
+  if (roleRoute === 'adolescent') return <HomeAdolescente />;
+  if (roleRoute === 'senior') return <HomeAdultoMayor />;
+
+  return (
+    <View style={styles.safeFallbackContainer}>
+      <ErrorState
+        title="No pudimos preparar tu inicio"
+        description="Tu rol de hogar no esta disponible o no es valido. Reintenta cargar el contexto."
+        onRetry={() => void reload()}
+        secondaryActionLabel="Cerrar sesion"
+        onSecondaryAction={() => void signOut()}
+      />
+    </View>
+  );
 }
 
 function PlannerStackScreen() {
@@ -197,7 +213,9 @@ function MoreStackScreen() {
     <MoreStack.Navigator screenOptions={{ headerShown: false }}>
       <MoreStack.Screen name="MoreHome" component={MoreScreen} />
       <MoreStack.Screen name="Family" component={FamilyScreen} />
+      <MoreStack.Screen name="Presence" component={PresenceScreen} />
       <MoreStack.Screen name="Finance" component={FinanceScreen} />
+      <MoreStack.Screen name="GlobalTrash" component={GlobalTrashScreen} />
       <MoreStack.Screen name="FinanceAccounts" component={FinanceAccountsScreen} />
       <MoreStack.Screen name="FinancePapelera" component={FinancePapeleraScreen} />
     </MoreStack.Navigator>
@@ -453,6 +471,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.base,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  safeFallbackContainer: {
+    flex: 1,
+    backgroundColor: colors.background.base,
+    justifyContent: 'center',
+    padding: spacing[5],
   },
   attentionButton: {
     width: 44,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
 import type { AuthStackParamList, PrivateStackParamList } from './types';
@@ -16,6 +16,8 @@ import { HomeTabNavigator } from './HomeTabNavigator';
 import { PlannerReliabilityRuntimeOwner } from '../components/planner/PlannerReliabilityRuntimeOwner';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { FeedFamiliarScreen } from '../screens/feed/FeedFamiliarScreen';
+import { ApiError, getUserHouseholds, setActiveHousehold, type UserHousehold } from '../services/api';
+import { resolveActiveHouseholdState } from '../services/core/householdResolution';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const PrivateStack = createNativeStackNavigator<PrivateStackParamList>();
@@ -84,14 +86,129 @@ const WaitingApprovalScreen = () => {
 };
 
 const HouseholdSelectionFallbackScreen = () => {
-  const { refetchMe, signOut } = useAuth();
+  const { authMe, refetchMe, session, signOut } = useAuth();
+  const [loading, setLoading] = React.useState(false);
+  const [households, setHouseholds] = React.useState<UserHousehold[]>([]);
+  const [error, setError] = React.useState<string | null>(null);
+  const autoActivationRef = React.useRef<string | null>(null);
+  const resolution = resolveActiveHouseholdState(authMe);
+  const activeHouseholdIds = React.useMemo(
+    () => resolution.kind === 'select_required' ? new Set(resolution.householdIds) : new Set<string>(),
+    [resolution],
+  );
+  const selectableHouseholds = React.useMemo(
+    () => households.filter(
+      (household) => household.status === 'active' && activeHouseholdIds.has(household.household_id),
+    ),
+    [activeHouseholdIds, households],
+  );
+
+  const activateHousehold = React.useCallback(async (householdId: string) => {
+    const accessToken = session?.access_token;
+    if (!accessToken) {
+      setError('Tu sesion no esta disponible. Volve a iniciar sesion.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      await setActiveHousehold(accessToken, householdId);
+      await refetchMe();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'No pudimos seleccionar el hogar activo.');
+    } finally {
+      setLoading(false);
+    }
+  }, [refetchMe, session?.access_token]);
+
+  const loadHouseholds = React.useCallback(async () => {
+    const accessToken = session?.access_token;
+    if (!accessToken || resolution.kind !== 'select_required') return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await getUserHouseholds(accessToken);
+      setHouseholds(response.households ?? []);
+    } catch (caught) {
+      setHouseholds([]);
+      setError(caught instanceof ApiError ? caught.message : 'No pudimos cargar tus hogares.');
+    } finally {
+      setLoading(false);
+    }
+  }, [resolution.kind, session?.access_token]);
+
+  React.useEffect(() => {
+    if (resolution.kind !== 'auto_activate') return;
+    if (autoActivationRef.current === resolution.householdId) return;
+    autoActivationRef.current = resolution.householdId;
+    void activateHousehold(resolution.householdId);
+  }, [activateHousehold, resolution]);
+
+  React.useEffect(() => {
+    if (resolution.kind === 'select_required') {
+      void loadHouseholds();
+    }
+  }, [loadHouseholds, resolution.kind]);
+
+  if (resolution.kind === 'auto_activate') {
+    return (
+      <View style={errStyles.container}>
+        <ActivityIndicator color="#CD7353" />
+        <Text style={errStyles.title}>Preparando tu hogar</Text>
+        <Text style={errStyles.subtitle}>
+          Encontramos tu hogar activo y lo estamos dejando listo.
+        </Text>
+        {error ? <Text style={errStyles.errorText}>{error}</Text> : null}
+        {error ? (
+          <TouchableOpacity style={errStyles.btn} onPress={() => void activateHousehold(resolution.householdId)}>
+            <Text style={errStyles.btnText}>Reintentar</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  }
+
+  if (resolution.kind === 'select_required') {
+    return (
+      <View style={errStyles.container}>
+        <Text style={errStyles.icon}>...</Text>
+        <Text style={errStyles.title}>Elegir hogar</Text>
+        <Text style={errStyles.subtitle}>
+          Tenes mas de un hogar activo. Elegi con cual queres entrar.
+        </Text>
+        {loading ? <ActivityIndicator color="#CD7353" /> : null}
+        {error ? <Text style={errStyles.errorText}>{error}</Text> : null}
+        {!loading && !error && selectableHouseholds.length === 0 ? (
+          <Text style={errStyles.errorText}>No pudimos encontrar hogares activos para seleccionar.</Text>
+        ) : null}
+        {selectableHouseholds.map((household) => (
+          <TouchableOpacity
+            key={household.household_id}
+            style={[errStyles.btn, errStyles.optionBtn]}
+            onPress={() => void activateHousehold(household.household_id)}
+            disabled={loading}
+          >
+            <Text style={errStyles.btnText}>{household.household_name}</Text>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity style={errStyles.secondaryBtn} onPress={() => void loadHouseholds()}>
+          <Text style={errStyles.secondaryBtnText}>Actualizar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={errStyles.secondaryBtn} onPress={() => void signOut()}>
+          <Text style={errStyles.secondaryBtnText}>Cerrar sesion</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={errStyles.container}>
       <Text style={errStyles.icon}>...</Text>
-      <Text style={errStyles.title}>Elegir hogar</Text>
+      <Text style={errStyles.title}>Sin hogar activo</Text>
       <Text style={errStyles.subtitle}>
-        Tu cuenta tiene membresia activa, pero todavia falta seleccionar o setear el hogar activo en frontend.
+        Todavia no tenes un hogar activo disponible para entrar.
       </Text>
       <TouchableOpacity style={errStyles.btn} onPress={() => void refetchMe()}>
         <Text style={errStyles.btnText}>Actualizar</Text>
@@ -128,8 +245,10 @@ const errStyles = StyleSheet.create({
   icon:      { fontSize: 56, marginBottom: 16 },
   title:     { fontSize: 22, fontWeight: '700', color: '#1C1C1C', textAlign: 'center', marginBottom: 12 },
   subtitle:  { fontSize: 15, color: '#6B6B6B', textAlign: 'center', lineHeight: 22, marginBottom: 32 },
+  errorText: { color: '#B6472C', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 16 },
   btn:       { backgroundColor: '#CD7353', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 12 },
   btnText:   { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  optionBtn: { alignSelf: 'stretch', marginTop: 10 },
   secondaryBtn: { marginTop: 14, paddingVertical: 12, paddingHorizontal: 24 },
   secondaryBtnText: { color: '#6B6B6B', fontSize: 15, fontWeight: '600' },
 });

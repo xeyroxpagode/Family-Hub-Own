@@ -112,6 +112,7 @@ function createRuntimeMocks(React) {
     stagger: () => animation,
     loop: () => animation,
     event: () => () => {},
+    createAnimatedComponent: (Component) => Component,
   };
 
   const reactNative = new Proxy(
@@ -126,6 +127,11 @@ function createRuntimeMocks(React) {
       Easing: new Proxy({}, { get: () => (value) => value }),
       Image: host('Image'),
       Keyboard: { addListener: subscription, dismiss() {} },
+      LayoutAnimation: {
+        configureNext() {},
+        Types: { easeInEaseOut: 'easeInEaseOut' },
+        Properties: { opacity: 'opacity' },
+      },
       Linking: {
         addEventListener: subscription,
         getInitialURL: async () => null,
@@ -153,6 +159,7 @@ function createRuntimeMocks(React) {
       Text: host('Text'),
       TextInput: host('TextInput'),
       TouchableOpacity: host('TouchableOpacity'),
+      UIManager: { setLayoutAnimationEnabledExperimental() {} },
       View: host('View'),
       FlatList: host('FlatList'),
       useColorScheme: () => 'light',
@@ -276,6 +283,15 @@ function installRuntimeMocks(React, onRegisterRootComponent) {
     if (request === '@react-native-async-storage/async-storage') {
       return { __esModule: true, default: mocks.asyncStorage };
     }
+    if (request === '@react-native-community/netinfo') {
+      return {
+        __esModule: true,
+        default: {
+          addEventListener: () => subscription(),
+          fetch: async () => ({ isConnected: true, isInternetReachable: true }),
+        },
+      };
+    }
     if (request === '@supabase/supabase-js') {
       return {
         createClient: () => mocks.supabaseClient,
@@ -286,7 +302,9 @@ function installRuntimeMocks(React, onRegisterRootComponent) {
       return new Proxy({}, { get: (_target, property) => mocks.host(String(property)) });
     }
     if (request.startsWith('expo-')) return mocks.expoModule;
-    if (request === 'react-native-calendars') return { Calendar: mocks.host('Calendar') };
+    if (request === 'react-native-calendars') {
+      return { Calendar: mocks.host('Calendar'), LocaleConfig: { locales: {}, defaultLocale: 'en' } };
+    }
     if (request === 'react-native-keyboard-aware-scroll-view') {
       return { KeyboardAwareScrollView: mocks.host('KeyboardAwareScrollView') };
     }

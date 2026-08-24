@@ -8,7 +8,7 @@ import { AppText } from './AppText';
 import { AppCard } from './AppCard';
 import { AppButton } from './AppButton';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, radius, spacing, shadows, typography } from '../../constants/theme';
+import { colors, radius, spacing, shadows } from '../../constants/theme';
 import { setActiveHousehold, getUserHouseholds, type UserHousehold } from '../../services/api';
 import { normalizeUserHouseholds, getHouseholdCountByStatus } from '../../utils/householdUtils';
 import { runHouseholdSwitch } from '../../services/core/lifecycle';
@@ -17,15 +17,6 @@ export type HouseholdSwitcherSheetProps = {
   visible: boolean;
   onRequestClose: () => void;
   accessToken: string | null;
-};
-
-const ROLE_LABELS: Record<string, string> = {
-  coordinator: 'Coordinador',
-  adult: 'Adulto',
-  adolescent: 'Adolescente',
-  senior: 'Adulto mayor',
-  child: 'Niño',
-  guest: 'Invitado',
 };
 
 function getRoleDisplay(role: string): { label: string; color: string; bg: string } {
@@ -41,79 +32,42 @@ function getRoleDisplay(role: string): { label: string; color: string; bg: strin
   return mapping[roleLower] ?? { label: role, color: colors.text.tertiary, bg: colors.surface.soft };
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  active: 'Activo',
-  pending: 'Pendiente',
-  finalized: 'Finalizado',
-  suspended: 'Suspendido',
-};
-
 export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }: HouseholdSwitcherSheetProps) {
-  const { refetchMe, authMe } = useAuth();
+  const { refetchMe } = useAuth();
   const { currentHousehold } = useHousehold();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [households, setHouseholds] = useState<UserHousehold[]>([]);
   const [loading, setLoading] = useState(false);
-  const [usingFallback, setUsingFallback] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadHouseholds = useCallback(async () => {
+    if (!accessToken) {
+      setLoadError('No pudimos preparar tu sesion. Volve a intentar.');
+      return;
+    }
+
+    setLoading(true);
+    setLoadError(null);
+
+    try {
+      const response = await getUserHouseholds(accessToken);
+      const rawHouseholds = response.households ?? [];
+      const normalized = normalizeUserHouseholds(rawHouseholds, currentHousehold?.id);
+      setHouseholds(normalized);
+    } catch (error) {
+      console.error('[HouseholdSwitcherSheet] Error cargando hogares:', error);
+      setLoadError(error instanceof Error ? error.message : 'No pudimos cargar tus hogares.');
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken, currentHousehold?.id]);
 
   React.useEffect(() => {
     if (visible) {
       void loadHouseholds();
     }
-  }, [visible]);
-
-  const loadHouseholds = useCallback(async () => {
-    console.log('[H042.3I][Switcher] visible', visible)
-    console.log('[H042.3I][Switcher] accessToken?', Boolean(accessToken))
-    console.log('[H042.3I][Switcher] authMe active_household_id', authMe?.person?.active_household_id)
-    
-    if (!accessToken) {
-      Alert.alert('Sesion', 'No pudimos preparar tu sesion. Volvé a intentar.');
-      return;
-    }
-
-    setLoading(true);
-    setUsingFallback(false);
-
-    try {
-      const response = await getUserHouseholds(accessToken);
-      const rawHouseholds = response.households ?? [];
-      console.log('[H042.3I][Switcher] getUserHouseholds raw', rawHouseholds)
-      const normalized = normalizeUserHouseholds(rawHouseholds, currentHousehold?.id);
-      console.log('[H042.3I][Switcher] normalized', normalized)
-      setHouseholds(normalized);
-
-      if (normalized.length === 0 && authMe?.memberships && authMe.memberships.length > 0) {
-        console.warn('[HouseholdSwitcherSheet] getUserHouseholds devolvió vacío, usando fallback de authMe');
-        const fallbackHouseholds: UserHousehold[] = authMe.memberships.map(m => ({
-          household_id: m.household_id,
-          household_name: authMe.active_household?.name || 'Hogar',
-          role: m.role || 'adult',
-          status: m.status || 'active',
-        }));
-        const normalizedFallback = normalizeUserHouseholds(fallbackHouseholds, currentHousehold?.id);
-        setHouseholds(normalizedFallback);
-        setUsingFallback(true);
-      }
-    } catch (error) {
-      console.error('[HouseholdSwitcherSheet] Error cargando hogares:', error);
-      if (authMe?.memberships && authMe.memberships.length > 0) {
-        console.warn('[HouseholdSwitcherSheet] Usando fallback de authMe después de error');
-        const fallbackHouseholds: UserHousehold[] = authMe.memberships.map(m => ({
-          household_id: m.household_id,
-          household_name: authMe.active_household?.name || 'Hogar',
-          role: m.role || 'adult',
-          status: m.status || 'active',
-        }));
-        const normalizedFallback = normalizeUserHouseholds(fallbackHouseholds, currentHousehold?.id);
-        setHouseholds(normalizedFallback);
-        setUsingFallback(true);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken, currentHousehold?.id, authMe]);
+  }, [loadHouseholds, visible]);
 
   const handleSwitchHousehold = useCallback(async (householdId: string) => {
     if (!accessToken || !currentHousehold) return;
@@ -200,20 +154,23 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
                   Cargando hogares...
                 </AppText>
               </View>
+            ) : loadError ? (
+              <AppCard variant="warning" padding="generous">
+                <View style={styles.emptyState}>
+                  <HomePlusIcon name="alert-circle-outline" size={32} color={colors.danger.strong} />
+                  <AppText variant="bodySmall" tone="danger" align="center" style={{ marginTop: spacing[2] }}>
+                    {loadError}
+                  </AppText>
+                  <AppButton title="Reintentar" size="sm" onPress={() => void loadHouseholds()} style={{ marginTop: spacing[3] }} />
+                </View>
+              </AppCard>
             ) : households.length === 0 ? (
               <AppCard variant="quiet" padding="generous">
                 <View style={styles.emptyState}>
                   <HomePlusIcon name="home-outline" size={32} color={colors.text.tertiary} />
                   <AppText variant="bodySmall" tone="secondary" align="center" style={{ marginTop: spacing[2] }}>
-                    {usingFallback && authMe?.active_household
-                      ? 'Mostrando tu hogar actual'
-                      : 'No hay hogares disponibles.'}
+                    No hay hogares disponibles.
                   </AppText>
-                  {usingFallback && authMe?.active_household && (
-                    <AppText variant="micro" tone="tertiary" align="center" style={{ marginTop: spacing[1] }}>
-                      {authMe.active_household.name}
-                    </AppText>
-                  )}
                 </View>
               </AppCard>
             ) : (

@@ -9,6 +9,7 @@ import { AppNavigator } from './navigation/AppNavigator';
 import type { RootStackParamList } from './navigation/types';
 import { registerLifecycleHandlers } from './services/registerLifecycleHandlers';
 import { FeatureFlagsProvider } from './context/FeatureFlagsContext';
+import { CoreNetworkRecoveryBridge } from './components/CoreNetworkRecoveryBridge';
 
 registerLifecycleHandlers();
 
@@ -54,6 +55,7 @@ export default function App() {
         <HouseholdProvider>
           <FeatureFlagsProvider>
             <AppRefreshProvider>
+              <CoreNetworkRecoveryBridge />
               <NavigationContainer linking={linking}>
                 <AppNavigator />
               </NavigationContainer>
