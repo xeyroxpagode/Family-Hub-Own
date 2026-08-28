@@ -60,11 +60,28 @@ async function getPrivacy(context, personId) {
   return data?.is_visible_to_household ?? true;
 }
 
+async function canViewSchedule(context, personId) {
+  const { data, error } = await context.client.rpc('can_view_household_schedule', {
+    p_household_id: context.householdId,
+    p_person_id: personId,
+  });
+  if (error) {
+    const httpError = createHttpError(500, error.message, 'schedule_visibility_lookup_failed');
+    httpError.details = error.details;
+    httpError.hint = error.hint;
+    throw httpError;
+  }
+  return data === true;
+}
+
 async function listSchedules(context, targetPersonId) {
   const personId = targetPersonId || context.personId;
   await assertHouseholdMember(context, personId);
   const isOwn = personId === context.personId;
-  const isVisible = isOwn || await getPrivacy(context, personId);
+  // The database function is the schedule visibility authority and is also
+  // used by the schedule-block RLS policy. Reading the preferences table here
+  // duplicated that decision and could fail before the canonical RLS check.
+  const isVisible = isOwn || await canViewSchedule(context, personId);
   if (!isVisible) return { person_id: personId, can_view: false, schedules: [] };
 
   const { data, error } = await context.client

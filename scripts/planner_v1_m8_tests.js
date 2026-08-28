@@ -400,13 +400,14 @@ console.log('\n=== 8. Task summary DTO — minimal projection ===\n')
     version: 5,
   }))
   const allowed = new Set([
-    'id', 'title', 'status', 'priority', 'due_date', 'due_time',
+    'id', 'title', 'category', 'status', 'priority', 'due_date', 'due_time',
     'assigned_to_member_id', 'requires_verification', 'version',
   ])
   const keys = Object.keys(dto)
   for (const key of keys) assert(allowed.has(key), `task DTO exposes only allowed field: ${key}`)
   assertEqual(keys.length, allowed.size, 'task DTO exposes exactly the allowed fields')
   assertEqual(dto.version, 5, 'task DTO carries version for If-Match in M9')
+  assertEqual(dto.category, null, 'task DTO normalizes an absent category to null')
   // forbidden fields must NOT be present
   assert(!('description' in dto), 'task DTO does NOT expose description')
   assert(!('completed_at' in dto), 'task DTO does NOT expose completed_at')

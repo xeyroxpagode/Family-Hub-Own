@@ -7,12 +7,13 @@ import { colors } from '../../constants/theme';
 type UndoToastProps = {
   visible: boolean;
   message: string;
+  tone?: 'success' | 'error';
   onUndo?: () => void;
   onDismiss: () => void;
   duration?: number;
 };
 
-export function UndoToast({ visible, message, onUndo, onDismiss, duration = 5000 }: UndoToastProps) {
+export function UndoToast({ visible, message, tone = 'success', onUndo, onDismiss, duration = 5000 }: UndoToastProps) {
   const [opacity, setOpacity] = useState(0);
 
   useEffect(() => {
@@ -40,10 +41,10 @@ export function UndoToast({ visible, message, onUndo, onDismiss, duration = 5000
       <View style={styles.toastContent}>
         {onUndo ? null : (
           <View style={styles.successIcon}>
-            <HomePlusIcon name="checkmark-circle" size={20} color={colors.success.strong} />
+            <HomePlusIcon name={tone === 'success' ? 'checkmark-circle' : 'alert-circle'} size={20} color={tone === 'success' ? colors.success.strong : colors.danger.strong} />
           </View>
         )}
-        <AppText variant="bodySmall" tone="success" weight="700" style={styles.toastMessage}>
+        <AppText variant="bodySmall" tone={tone === 'success' ? 'success' : 'danger'} weight="700" style={styles.toastMessage}>
           {message}
         </AppText>
         {onUndo ? (

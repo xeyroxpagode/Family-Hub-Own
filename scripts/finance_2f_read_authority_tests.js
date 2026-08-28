@@ -692,15 +692,16 @@ async function testNoSilentMovementTruncation(actors) {
 }
 
 async function testNegativeScope() {
-  console.log('\nT42-T53 - Negative scope: no Account-linked read/Transfer/Refund/Payment/Budget/Analysis/frontend read expansion');
+  console.log('\nT42-T53 - Negative scope: account attribution remains context-safe; no Transfer/Refund/Payment/Budget/Analysis expansion');
   const serviceText = fs.readFileSync(path.join(root, 'backend/src/services/finance.read.service.js'), 'utf8');
   const controllerText = fs.readFileSync(path.join(root, 'backend/src/controllers/finance.read.controller.js'), 'utf8');
   const routeText = fs.readFileSync(path.join(root, 'backend/src/routes/finance.js'), 'utf8');
   const readBackend = `${serviceText}\n${controllerText}`;
 
-  // Identifier-based checks: detect actual implementation of the forbidden
-  // domain concepts, never mere English prose in doc comments.
-  assert(!/\baccountId\b|\baccount_id\b|AccountRepository/i.test(readBackend), 'T42 no Account-linked movement/summary implementation');
+  // Account attribution is allowed only when the account belongs to the
+  // requesting Financial Context; private funding details stay out of a
+  // Household-readable movement.
+  assert(readBackend.includes('accountVisibleInContext') && readBackend.includes('finance_account_effects'), 'T42 account attribution is filtered by Financial Context');
   assert(!/\bbalance\b|\baccount_balance\b|BalanceService/i.test(readBackend), 'T43 no Balance implementation');
   assert(!/\bcreateTransfer\b|TransferService|finance_transfer|TransactionTypes\.TRANSFER\b|\btransfer\b/i.test(readBackend), 'T44 no Transfer implementation');
   assert(!/\bcreateRefund\b|RefundService|\brefund\b/i.test(readBackend), 'T45 no Refund implementation');

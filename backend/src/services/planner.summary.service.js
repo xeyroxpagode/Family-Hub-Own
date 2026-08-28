@@ -122,6 +122,7 @@ const selectSummaryTasks = ({ tasks }) => {
 const toTaskSummaryDto = (task) => ({
   id: task.id,
   title: task.title,
+  category: task.category ?? null,
   status: task.status,
   priority: task.priority,
   due_date: task.due_date ?? null,
@@ -299,7 +300,7 @@ const loadTaskSummary = async ({ context }) => {
   const { data, error } = await context.client
     .from('planner_tasks')
     .select(
-      'id, household_id, title, status, priority, due_date, due_time, ' +
+      'id, household_id, title, category, status, priority, due_date, due_time, ' +
       'assigned_to_member_id, requires_verification, created_by_member_id, ' +
       'created_at, version, trashed_at, completed_at, completed_by_member_id, ' +
       'verified_at, verified_by_member_id',

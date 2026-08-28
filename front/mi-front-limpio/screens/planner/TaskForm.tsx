@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { ApiError } from '../../services/api';
 import {
@@ -37,7 +37,7 @@ import { omitUndefinedPlannerPayloadProperties } from '../../services/planner/pl
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
-import { addDays, dateToYMD, plannerStyles as S, priorityLabels, priorityLabelsWithLegacy } from './plannerShared';
+import { addDays, dateToYMD, plannerStyles as S, priorityLabels } from './plannerShared';
 import { colors } from '../../constants/theme';
 import { HomePlusIcon, type HomePlusIconName } from '../../constants/icons';
 import { DatePickerSheet, FormActionRow, TimePickerSheet, formatHumanDate } from '../../components/ui';
@@ -155,6 +155,7 @@ export function TaskForm({
   onSubmitBegin,
   onSubmitEnd,
 }: TaskFormProps) {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { session, authMe, loading: authLoading } = useAuth();
@@ -536,14 +537,18 @@ export function TaskForm({
       <Text style={[S.emptyText, { marginTop: 12 }]}>Cargando formulario...</Text>
     </View>
   ) : (
-    <Pressable style={{ flex: 1 }} onPress={handlePressOutside}>
+    <Pressable style={styles.formRoot} onPress={handlePressOutside}>
       <View style={styles.formShell}>
         <KeyboardAwareScrollView
-          style={embedded ? undefined : S.scroll}
-          contentContainerStyle={embedded ? styles.embeddedContent : S.content}
+          style={embedded ? styles.embeddedScroll : S.scroll}
+          contentContainerStyle={embedded
+            ? [styles.embeddedContent, { paddingBottom: 112 + insets.bottom }]
+            : S.content}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           enableOnAndroid={true}
           extraScrollHeight={72}
+          showsHorizontalScrollIndicator={false}
         >
           <View style={styles.compactHeader}>
             <Text style={styles.formTitle}>{mode === 'edit' ? 'Editar tarea' : 'Nueva tarea'}</Text>
@@ -569,7 +574,7 @@ export function TaskForm({
 
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Tipo</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.typeScroller}>
+            <ScrollView style={styles.horizontalScroller} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.typeScroller}>
               {TIPO_OPTIONS.map((option) => {
                 const active = tipoId === option.id;
                 return (
@@ -666,7 +671,7 @@ export function TaskForm({
 
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Para quién</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeScroller}>
+            <ScrollView style={styles.horizontalScroller} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeScroller}>
               <TouchableOpacity style={styles.avatarOption} onPress={() => setAssignedMemberId('')}>
                 <View style={[styles.emptyAvatar, !assignedMemberId && styles.avatarSelected]}>
                   <HomePlusIcon name="remove" size={22} color={!assignedMemberId ? colors.terracotta[700] : colors.text.secondary} />
@@ -756,7 +761,7 @@ export function TaskForm({
 
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Para cuándo</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroller}>
+            <ScrollView style={styles.horizontalScroller} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroller}>
               {dateOptions.map((option) => {
                 const active = dueDate === option.value;
                 return (
@@ -851,7 +856,7 @@ export function TaskForm({
           </View>
         </KeyboardAwareScrollView>
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, embedded && { paddingBottom: Math.max(insets.bottom, 4) }]}>
           <TouchableOpacity
             style={[styles.submitButton, (!isFormReadyForSubmit || saving) && styles.submitButtonDisabled]}
             onPress={() => void submit()}
@@ -887,12 +892,31 @@ export function TaskForm({
 }
 
 const styles = StyleSheet.create({
+  formRoot: {
+    flex: 1,
+    width: '100%',
+    minWidth: 0,
+    overflow: 'hidden',
+  },
   formShell: {
     flex: 1,
+    width: '100%',
+    minWidth: 0,
     position: 'relative',
+    overflow: 'hidden',
+  },
+  embeddedScroll: {
+    flex: 1,
+    width: '100%',
   },
   embeddedContent: {
-    paddingBottom: 112,
+    flexGrow: 1,
+    width: '100%',
+    minWidth: 0,
+  },
+  horizontalScroller: {
+    width: '100%',
+    maxWidth: '100%',
   },
   compactHeader: {
     flexDirection: 'row',

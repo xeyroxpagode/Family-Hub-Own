@@ -1,8 +1,8 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
-import { AppText, AppScreen } from '../components/ui';
+import { AppText, AppScreen, AppCard, EmptyState, SegmentedControl } from '../components/ui';
 import { colors, spacing } from '../constants/theme';
 import { HomePlusIcon } from '../constants/icons';
 import { useAuth } from '../context/AuthContext';
@@ -46,10 +46,10 @@ export const FamilyScreen = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [pendingSheetVisible, setPendingSheetVisible] = useState(false);
-  const [actionsSheetVisible, setActionsSheetVisible] = useState(false);
   const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null);
   const [inviteLinkVisible, setInviteLinkVisible] = useState(false);
   const [localInviteLink, setLocalInviteLink] = useState<Invitation | null>(null);
+  const [activeTab, setActiveTab] = useState<'people' | 'map' | 'places'>('people');
   const [feedback, setFeedback] = useState<{
     type: FamilySnackbarType;
     message: string;
@@ -103,7 +103,7 @@ export const FamilyScreen = () => {
     }
 
     setLoading(false);
-  }, [accessToken, authMeActiveHouseholdId, currentHousehold?.id, householdId]);
+  }, [accessToken, householdId]);
 
   useEffect(() => {
     void loadFamily();
@@ -115,7 +115,10 @@ export const FamilyScreen = () => {
 
   const handleMemberAction = useCallback((member: FamilyMember) => {
     setSelectedMember(member);
-    setActionsSheetVisible(true);
+  }, []);
+
+  const handleMemberSheetClose = useCallback(() => {
+    setSelectedMember(null);
   }, []);
 
   const handlePendingPress = useCallback(() => {
@@ -416,21 +419,51 @@ export const FamilyScreen = () => {
         ) : null}
         <View style={{ flex: 1 }}>
           <AppText variant="title1">Familia</AppText>
-          <AppText variant="bodySmall" tone="secondary">
-            Personas, roles y accesos del hogar.
+           <AppText variant="bodySmall" tone="secondary">
+             Personas, ubicación compartida y lugares del hogar.
           </AppText>
         </View>
       </View>
 
-      <FamilyMembersCard
-        familyData={familyData}
-        loading={loading || authMeLoading}
-        error={error}
-        onRetry={handleRetry}
-        onMemberAction={handleMemberAction}
-        onPendingPress={handlePendingPress}
-        onInvitePress={handleInvitePress}
-      />
+       <SegmentedControl
+         value={activeTab}
+         onChange={setActiveTab}
+         options={[
+           { value: 'people', label: 'Personas' },
+           { value: 'map', label: 'Mapa' },
+           { value: 'places', label: 'Lugares' },
+         ]}
+       />
+
+       {activeTab === 'people' ? (
+         <FamilyMembersCard
+           familyData={familyData}
+           loading={loading || authMeLoading}
+           error={error}
+           onRetry={handleRetry}
+           onMemberAction={handleMemberAction}
+           onPendingPress={handlePendingPress}
+           onInvitePress={handleInvitePress}
+         />
+       ) : null}
+
+       {activeTab === 'map' ? (
+         <AppCard variant="quiet" padding="generous">
+           <EmptyState
+             title="No hay ubicaciones compartidas"
+             description="Cuando un integrante autorice compartir su ubicación, aparecerá aquí. Si falla un permiso de ubicación, revisalo en los ajustes del dispositivo."
+           />
+         </AppCard>
+       ) : null}
+
+       {activeTab === 'places' ? (
+         <AppCard variant="quiet" padding="generous">
+           <EmptyState
+             title="Todavía no hay lugares registrados"
+             description="Este hogar aún no tiene lugares guardados. La creación de lugares se habilitará cuando esté disponible el soporte de ubicación."
+           />
+         </AppCard>
+       ) : null}
 
       {familyData ? (
           <>
@@ -469,8 +502,8 @@ export const FamilyScreen = () => {
       ) : null}
 
       <MemberActionsSheet
-        visible={actionsSheetVisible}
-        onClose={() => setActionsSheetVisible(false)}
+        visible={Boolean(selectedMember)}
+        onClose={handleMemberSheetClose}
         memberName={selectedMember?.display_name ?? ''}
         memberRole={selectedMember?.role ?? ''}
         memberPersonId={selectedMember?.person_id}

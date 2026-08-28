@@ -68,12 +68,16 @@ export type FinanceMovementDto = {
   transactionType: FinanceTransactionKind;
   amount: string;
   currency: string;
+  financialContextType: FinanceContextType;
   transactionDate: string;
   description: string | null;
   categoryId: string | null;
   categoryLabelSnapshot: string | null;
   createdAt: string;
   updatedAt: string;
+  accountId?: string | null;
+  accountName?: string | null;
+  accountCurrency?: string | null;
 };
 
 export type FinanceTrashMovementDto = {

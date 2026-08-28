@@ -58,6 +58,7 @@ export const InviteLinkSheet: React.FC<InviteLinkSheetProps> = ({
   );
   const normalizedInvite = normalizeInviteLink(createdInviteLink ?? propInviteLink);
   const shareableLink = normalizedInvite.displayValue ?? null;
+  const inviteCode = normalizedInvite.token ?? null;
   const qrValue = normalizedInvite.url ?? null;
   const hasRenderableInvite = Boolean(qrValue);
   const qrValueForRender = qrValue ?? '';
@@ -96,7 +97,7 @@ export const InviteLinkSheet: React.FC<InviteLinkSheetProps> = ({
 
     await Share.share({
       title: 'Invitación HomePlus',
-      message: `Te invito a unirte a mi hogar en HomePlus. Abrí este enlace: ${shareableLink}`,
+      message: `Te invito a unirte a mi hogar en HomePlus. Abrí este enlace: ${shareableLink}${inviteCode ? `\n\nSi el enlace no se abre, usá este código: ${inviteCode}` : ''}`,
     });
   };
 
@@ -137,11 +138,9 @@ export const InviteLinkSheet: React.FC<InviteLinkSheetProps> = ({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable
-          style={[styles.sheet, hasRenderableInvite ? styles.sheetActive : styles.sheetCompact]}
-          onPress={(event) => event.stopPropagation()}
-        >
+      <View style={styles.backdrop}>
+        <Pressable style={styles.backdropDismiss} onPress={onClose} accessibilityRole="button" accessibilityLabel="Cerrar invitación" />
+        <View style={[styles.sheet, hasRenderableInvite ? styles.sheetActive : styles.sheetCompact]}>
           <View style={styles.handleRow}>
             <View style={styles.handle} />
             <AppButton variant="icon" size="sm" onPress={onClose} style={styles.closeButton} accessibilityLabel="Cerrar invitacion"><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
@@ -200,6 +199,16 @@ export const InviteLinkSheet: React.FC<InviteLinkSheetProps> = ({
                   </AppText>
                 </View>
 
+                {inviteCode ? (
+                  <View style={styles.linkBlock}>
+                    <AppText variant="caption" tone="tertiary" weight="700">Código de invitación</AppText>
+                    <AppText variant="bodySmall" tone="secondary" selectable>{inviteCode}</AppText>
+                    <AppText variant="caption" tone="tertiary">
+                      Mantenelo presionado para copiarlo y pegalo en la pantalla «Unirme con invitación».
+                    </AppText>
+                  </View>
+                ) : null}
+
                 {shareableLink ? (
                   <View style={styles.linkBlock}>
                     <AppText variant="caption" tone="tertiary" weight="700">Link</AppText>
@@ -243,8 +252,8 @@ export const InviteLinkSheet: React.FC<InviteLinkSheetProps> = ({
               </View>
             )}
           </ScrollView>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 };
@@ -255,7 +264,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface.overlayStrong,
     justifyContent: 'flex-end',
   },
+  backdropDismiss: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
+  },
   sheet: {
+    zIndex: 1,
     backgroundColor: colors.background.base,
     borderTopLeftRadius: radius.xxl,
     borderTopRightRadius: radius.xxl,

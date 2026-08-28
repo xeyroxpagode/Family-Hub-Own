@@ -80,12 +80,14 @@ const SELECT_COLUMNS = [
   'transaction_type',
   'amount:amount::text',
   'currency',
+  'financial_context_type',
   'transaction_date',
   'description',
   'category_id',
   'category_label_snapshot',
   'created_at',
   'updated_at',
+  'finance_account_effects(account_id, finance_accounts(id, name, currency, financial_context_type, owner_person_id, household_id))',
 ].join(', ');
 
 const TRASH_SELECT_COLUMNS = [
@@ -233,18 +235,36 @@ function scopeFilters(query, financeContext) {
   return query;
 }
 
-function movementToDto(row) {
-  return {
+function accountVisibleInContext(account, financeContext) {
+  if (!account) return false;
+  if (account.financial_context_type !== financeContext.contextType) return false;
+  return financeContext.contextType === FINANCE_CONTEXT_TYPES.PERSONAL
+    ? account.owner_person_id === financeContext.personId
+    : account.household_id === financeContext.householdId;
+}
+
+function movementToDto(row, financeContext) {
+  const accountEffect = Array.isArray(row.finance_account_effects) ? row.finance_account_effects[0] : null;
+  const account = accountEffect?.finance_accounts ?? null;
+  const dto = {
     id: row.id,
     transactionType: row.transaction_type,
     amount: String(row.amount),
     currency: row.currency,
+    financialContextType: row.financial_context_type,
     transactionDate: row.transaction_date,
     description: row.description ?? null,
     categoryId: row.category_id ?? null,
     categoryLabelSnapshot: row.category_label_snapshot ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+  if (!accountVisibleInContext(account, financeContext)) return dto;
+  return {
+    ...dto,
+    accountId: account.id,
+    accountName: account.name,
+    accountCurrency: account.currency,
   };
 }
 
@@ -282,13 +302,13 @@ const DETAIL_SELECT_COLUMNS = [
   'corrected_from_transaction_id',
   'created_at',
   'updated_at',
-  'finance_account_effects!inner(account_id, finance_accounts!inner(id, name, currency))',
+  'finance_account_effects(account_id, finance_accounts(id, name, currency, financial_context_type, owner_person_id, household_id))',
 ].join(', ');
 
-function transactionToDetailDto(row) {
+function transactionToDetailDto(row, financeContext) {
   const accountEffect = row.finance_account_effects?.[0];
   const account = accountEffect?.finance_accounts;
-  return {
+  const dto = {
     id: row.id,
     transactionType: row.transaction_type,
     amount: String(row.amount),
@@ -306,9 +326,12 @@ function transactionToDetailDto(row) {
     correctedFromTransactionId: row.corrected_from_transaction_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    accountId: account?.id ?? null,
-    accountName: account?.name ?? null,
-    accountCurrency: account?.currency ?? null,
+  };
+  return {
+    ...dto,
+    accountId: accountVisibleInContext(account, financeContext) ? account.id : null,
+    accountName: accountVisibleInContext(account, financeContext) ? account.name : null,
+    accountCurrency: accountVisibleInContext(account, financeContext) ? account.currency : null,
   };
 }
 
@@ -334,7 +357,7 @@ async function getFinanceTransactionDetail(financeContext, transactionId) {
     throwSupabaseError(error);
   }
 
-  return transactionToDetailDto(data);
+  return transactionToDetailDto(data, financeContext);
 }
 
 async function listFinanceMovements(financeContext, query = {}) {
@@ -359,7 +382,7 @@ async function listFinanceMovements(financeContext, query = {}) {
   const { data, error } = await request;
   if (error) throwSupabaseError(error);
 
-  const movements = (data ?? []).map(movementToDto);
+  const movements = (data ?? []).map((row) => movementToDto(row, financeContext));
   return { period: month, contextType: financeContext.contextType, movements };
 }
 

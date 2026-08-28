@@ -551,6 +551,19 @@ console.log('\n=== 32. Telemetry — events once, no IDs, no titles, no PII ==='
   assert(events[1].props.version === undefined, 'no version in completion');
 }
 
+console.log('\n=== 33. Home completion visual waits for authoritative source ===');
+{
+  function sourceConfirmsCompletion(renderedTask, sourceTask) {
+    return !sourceTask
+      || sourceTask.version !== renderedTask.version
+      || sourceTask.status !== renderedTask.status;
+  }
+  var rendered = { id: 't1', status: 'pending', version: 4 };
+  assert(sourceConfirmsCompletion(rendered, { id: 't1', status: 'pending', version: 4 }) === false, 'stale source cannot restore empty pending checkbox');
+  assert(sourceConfirmsCompletion(rendered, null) === true, 'task absence confirms completed task left pending projection');
+  assert(sourceConfirmsCompletion(rendered, { id: 't1', status: 'awaiting_verification', version: 5 }) === true, 'canonical status/version transition releases temporary check');
+}
+
 // --- Summary ---
 console.log('\n=== Planner V1 M9 Tests: ' + passCount + ' pass / ' + failCount + ' fail ===');
 if (failCount > 0) process.exit(1);

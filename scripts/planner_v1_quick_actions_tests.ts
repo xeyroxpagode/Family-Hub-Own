@@ -199,25 +199,25 @@ function runTests() {
   });
 
   // -------------------------------------------------------------------------
-  // 2. Goal state — deferred to M5
+  // 2. Goal state — kept out of the daily launcher
   // -------------------------------------------------------------------------
 
-  test('Goal — implemented=true in M5', () => {
+  test('Goal — hidden from daily Quick Actions', () => {
     const goal = plannerQuickActions.catalog.find((a) => a.key === 'create_goal')!;
-    assert(goal.implemented, 'Goal implemented in M5');
+    assert(!goal.implemented, 'Goal is not exposed as a daily quick action');
   });
 
-  test('Goal — getImplemented includes goal in M5', () => {
+  test('Goal — getImplemented excludes goal', () => {
     const implemented = plannerQuickActions.getImplemented();
-    assertEqual(implemented.length, 3, '3 implemented actions');
-    assert(implemented.some((a) => a.key === 'create_goal'), 'goal in implemented');
+    assertEqual(implemented.length, 2, '2 concrete daily actions');
+    assert(!implemented.some((a) => a.key === 'create_goal'), 'goal excluded from implemented actions');
   });
 
-  test('Goal — getVisible includes goal with capability', () => {
+  test('Goal — getVisible excludes goal with capability', () => {
     const proj = fullProjection();
     const visible = plannerQuickActions.getVisible(proj);
-    assertEqual(visible.length, 3, '3 visible actions with goal capability');
-    assert(visible.some((a) => a.key === 'create_goal'), 'goal in visible');
+    assertEqual(visible.length, 2, '2 visible daily actions with full capability');
+    assert(!visible.some((a) => a.key === 'create_goal'), 'goal excluded from visible actions');
   });
 
   // -------------------------------------------------------------------------
@@ -291,7 +291,7 @@ function runTests() {
     assert(!eventEval.visible, 'event not visible');
     assert(!eventEval.enabled, 'event not enabled');
     assert(!goalEval.visible, 'goal not visible (capability denied)');
-    assert(goalEval.implemented, 'goal implemented (M5)');
+    assert(!goalEval.implemented, 'goal is intentionally hidden from daily actions');
   });
 
   // -------------------------------------------------------------------------

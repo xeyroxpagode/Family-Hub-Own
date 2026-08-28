@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, ScrollView, Alert } from 'react-native';
-import { AppText, AppCard, AppButton, ActionPill, Skeleton, EmptyState } from '../ui';
-import { colors, radius, spacing, shadows } from '../../constants/theme';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActionSheet, AppText, AppCard, AppButton, ActionPill, EmptyState } from '../ui';
+import { colors, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
-import { RoleRequest, Role, ROLE_LABELS, JoinRequestData, PendingRole } from '../../services/family';
+import { RoleRequest, ROLE_LABELS, JoinRequestData, PendingRole } from '../../services/family';
 import { isInviteLinkActive } from './inviteLinkUtils';
 
 type FamilyPendingSheetProps = {
@@ -11,7 +12,7 @@ type FamilyPendingSheetProps = {
   onClose: () => void;
   joinRequests: JoinRequestData[];
   roleRequests: RoleRequest[];
-  inviteLinks: Array<{ id: string; token: string; revoked_at?: string | null; expires_at?: string | null }>;
+  inviteLinks: { id: string; token: string; revoked_at?: string | null; expires_at?: string | null }[];
   canReviewJoinRequests: boolean;
   canChangeRoles: boolean;
   canManageMembers: boolean;
@@ -57,6 +58,7 @@ export const FamilyPendingSheet: React.FC<FamilyPendingSheetProps> = ({
   onRevokeInviteLink,
   onCreateInviteLink,
 }) => {
+  const insets = useSafeAreaInsets();
   const [roleByRequest, setRoleByRequest] = useState<Record<string, PendingRoleSelection>>({});
   const [actingRequestId, setActingRequestId] = useState<string | null>(null);
   const [inviteActionLoading, setInviteActionLoading] = useState(false);
@@ -64,30 +66,46 @@ export const FamilyPendingSheet: React.FC<FamilyPendingSheetProps> = ({
   const pendingJoinRequests = joinRequests.filter((r) => r.status === 'pending');
   const pendingRoleRequests = roleRequests.filter((r) => r.status === 'pending');
   const hasActiveInviteLink = inviteLinks.some(isInviteLinkActive);
+  const closeDisabled = Boolean(actingRequestId) || inviteActionLoading;
+  const requestClose = () => {
+    if (!closeDisabled) onClose();
+  };
 
   const handleApproveJoin = async (request: JoinRequestData) => {
     const role = roleByRequest[request.membership_id] ?? 'adult';
     setActingRequestId(request.membership_id);
-    await onApproveJoin(request.membership_id, role);
-    setActingRequestId(null);
+    try {
+      await onApproveJoin(request.membership_id, role);
+    } finally {
+      setActingRequestId(null);
+    }
   };
 
   const handleRejectJoin = async (request: JoinRequestData) => {
     setActingRequestId(request.membership_id);
-    await onRejectJoin(request.membership_id);
-    setActingRequestId(null);
+    try {
+      await onRejectJoin(request.membership_id);
+    } finally {
+      setActingRequestId(null);
+    }
   };
 
   const handleApproveRoleRequest = async (request: RoleRequest) => {
     setActingRequestId(request.id);
-    await onApproveRoleRequest(request.id);
-    setActingRequestId(null);
+    try {
+      await onApproveRoleRequest(request.id);
+    } finally {
+      setActingRequestId(null);
+    }
   };
 
   const handleRejectRoleRequest = async (request: RoleRequest) => {
     setActingRequestId(request.id);
-    await onRejectRoleRequest(request.id);
-    setActingRequestId(null);
+    try {
+      await onRejectRoleRequest(request.id);
+    } finally {
+      setActingRequestId(null);
+    }
   };
 
   const handleCancelRoleRequest = async (request: RoleRequest) => {
@@ -101,8 +119,11 @@ export const FamilyPendingSheet: React.FC<FamilyPendingSheetProps> = ({
           style: 'destructive',
           onPress: async () => {
             setActingRequestId(request.id);
-            await onCancelRoleRequest(request.id);
-            setActingRequestId(null);
+            try {
+              await onCancelRoleRequest(request.id);
+            } finally {
+              setActingRequestId(null);
+            }
           },
         },
       ],
@@ -111,8 +132,11 @@ export const FamilyPendingSheet: React.FC<FamilyPendingSheetProps> = ({
 
   const handleCopyInvite = async () => {
     setInviteActionLoading(true);
-    await onCopyInviteLink();
-    setInviteActionLoading(false);
+    try {
+      await onCopyInviteLink();
+    } finally {
+      setInviteActionLoading(false);
+    }
   };
 
   const handleRevokeInvite = async () => {
@@ -127,7 +151,12 @@ export const FamilyPendingSheet: React.FC<FamilyPendingSheetProps> = ({
           onPress: async () => {
             setInviteActionLoading(true);
             if (onRevokeInviteLink) {
-              await onRevokeInviteLink();
+              try {
+                await onRevokeInviteLink();
+              } finally {
+                setInviteActionLoading(false);
+              }
+              return;
             }
             setInviteActionLoading(false);
           },
@@ -138,22 +167,26 @@ export const FamilyPendingSheet: React.FC<FamilyPendingSheetProps> = ({
 
   const handleCreateInvite = async () => {
     setInviteActionLoading(true);
-    if (onCreateInviteLink) {
-      await onCreateInviteLink();
+    try {
+      if (onCreateInviteLink) {
+        await onCreateInviteLink();
+      }
+    } finally {
+      setInviteActionLoading(false);
     }
-    setInviteActionLoading(false);
   };
 
   if (!visible) return null;
 
   return (
-    <View style={styles.sheet}>
-      <View style={styles.header}>
-        <AppText variant="title2">Pendientes</AppText>
-        <AppButton variant="icon" size="sm" onPress={onClose} accessibilityLabel="Cerrar pendientes"><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
-      </View>
-
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+    <ActionSheet
+      visible={visible}
+      title="Pendientes"
+      onRequestClose={requestClose}
+      closeDisabled={closeDisabled}
+      size="full"
+    >
+      <ScrollView style={styles.content} contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + spacing[5] }]} showsVerticalScrollIndicator={false}>
         {canReviewJoinRequests && pendingJoinRequests.length > 0 ? (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -346,33 +379,13 @@ export const FamilyPendingSheet: React.FC<FamilyPendingSheetProps> = ({
           </AppCard>
         ) : null}
       </ScrollView>
-    </View>
+    </ActionSheet>
   );
 };
 
 const styles = StyleSheet.create({
-  sheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: colors.surface.card,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    maxHeight: '80%',
-    ...shadows.sheet,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: spacing[4],
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border.default,
-  },
-  content: {
-    maxHeight: '100%',
-  },
+  content: { maxHeight: '100%' },
+  contentContainer: { paddingBottom: spacing[5] },
   section: {
     gap: spacing[3],
     padding: spacing[4],

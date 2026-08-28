@@ -209,6 +209,9 @@ export function MovementDetailSheet({
   if (!visible || !movement) return null;
 
   const isExpense = movement.transactionType === 'expense';
+  const accountName = detailTransaction?.accountName ?? movement.accountName;
+  const financialContextType = detailTransaction?.financialContextType ?? movement.financialContextType;
+  const contextName = financialContextType === 'household' ? 'Household' : 'Personal';
   const titleConfig = getSheetTitleConfig(step, contextLabel, detailLoading);
 
   const correctionFormFooter = step === 'correctionForm' && detailTransaction ? (
@@ -293,6 +296,20 @@ export function MovementDetailSheet({
               </AppText>
               <AppText variant="body" weight="800">
                 {isExpense ? 'Gasto' : 'Ingreso'}
+              </AppText>
+            </View>
+
+            <View style={styles.detailRow}>
+              <AppText variant="caption" tone="secondary" weight="700">
+                Atribución
+              </AppText>
+              <AppText variant="body" weight="800">
+                {(isExpense ? 'Gasto' : 'Ingreso')} · {contextName} · {accountName ?? 'Sin cuenta'}
+              </AppText>
+              <AppText variant="caption" tone="tertiary">
+                {accountName
+                  ? `Impacta el saldo de ${accountName}; ${contextName} es el resumen del contexto.`
+                  : `Sin cuenta asociada; se refleja en el resumen ${contextName}.`}
               </AppText>
             </View>
 

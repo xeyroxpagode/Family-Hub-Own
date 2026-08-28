@@ -1,12 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { getInventoryAlerts, type InventoryAlerts } from '../../services/inventory';
-import { getGoalProgressText, hasRealGoalProgress } from '../planner/plannerShared';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { fetchPlannerCapabilitiesCached } from '../../services/plannerCapabilities';
-import { AppCard, AppText, ErrorState, Skeleton, StatusBadge } from '../../components/ui';
+import { AppCard, AppText, ErrorState, Skeleton, StatusBadge, UndoToast } from '../../components/ui';
 import { colors, spacing } from '../../constants/theme';
 import { APP_ICONS, HomePlusIcon } from '../../constants/icons';
 import { useHomePlannerSummary } from '../../services/planner/useHomePlannerSummary';
@@ -19,6 +18,8 @@ import {
 } from '../../services/planner/homeTaskOneTapCompletion';
 import { createPlannerVersionedMutationIntent } from '../../services/planner/plannerMutationIntent';
 import type { PlannerCapabilitiesProjection } from '../../services/plannerCapabilities';
+import { useHomeDailySignals } from '../../services/planner/useHomeDailySignals';
+import { useAppRefresh } from '../../context/AppRefreshContext';
 
 type Props = {
   variant?: 'light' | 'dark';
@@ -38,6 +39,12 @@ const formatTime = (value?: string | null) => {
   if (!value) return '';
   return new Date(value).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 };
+
+const localDateKey = (value: Date) =>
+  `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+
+const formatScheduleTime = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
 const taskStatusLabel: Record<HomeSummaryTask['status'], string> = {
   pending: 'Pendiente',
@@ -147,6 +154,7 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
   const navigation = useNavigation<any>();
   const { session, authMe } = useAuth();
   const { currentHousehold, members } = useHousehold();
+  const { markPlannerChanged } = useAppRefresh();
   const { state, refresh } = useHomePlannerSummary();
   const { alerts: inventoryAlerts } = useHomeInventoryAlerts();
   const accessToken = session?.access_token ?? null;
@@ -156,6 +164,24 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
 
   // Capability projection for one-tap eligibility (cached; fresh on switch).
   const [capabilities, setCapabilities] = useState<PlannerCapabilitiesProjection | null>(null);
+  const [completionVisualTask, setCompletionVisualTask] = useState<HomeSummaryTask | null>(null);
+  const [completionFeedback, setCompletionFeedback] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
+  const completionVisualTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const confirmedCompletionTaskId = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (completionVisualTimer.current) clearTimeout(completionVisualTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (completionVisualTimer.current) clearTimeout(completionVisualTimer.current);
+    completionVisualTimer.current = null;
+    confirmedCompletionTaskId.current = null;
+    setCompletionVisualTask(null);
+    setCompletionFeedback(null);
+  }, [householdId]);
   useEffect(() => {
     if (!accessToken || !householdId || !authMe) return;
     let cancelled = false;
@@ -183,21 +209,66 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
     return map;
   }, [members]);
 
-  const openPlanner = useCallback((initialTab: 'tasks' | 'calendar') => {
+  const schedulePeople = useMemo(() => {
+    const people = new Map<string, { id: string; name: string }>();
+    if (authMe?.person?.id) people.set(authMe.person.id, { id: authMe.person.id, name: 'Vos' });
+    members.forEach((member) => {
+      if (!member.user_id) return;
+      people.set(member.user_id, { id: member.user_id, name: member.user?.nombre || 'Integrante' });
+    });
+    return [...people.values()];
+  }, [authMe?.person?.id, members]);
+
+  const daily = useHomeDailySignals({ accessToken, householdId, people: schedulePeople });
+
+  const openPlanner = useCallback((initialTab: 'tasks' | 'calendar' | 'plans') => {
     navigation.navigate('PlannerTab', {
       screen: 'PlannerHome',
       params: { initialTab, refreshKey: Date.now() },
     });
   }, [navigation]);
 
-  const { summary, partialErrors, status, refreshing } = state;
+  const { summary, partialErrors, status } = state;
   const hasPartial = partialErrors.length > 0;
+  const canConfirmPlannerEmpty = Boolean(summary) && !hasPartial;
+  const today = localDateKey(new Date());
+  const todayTasks = useMemo(
+    () => summary?.tasks.filter((task) => task.due_date === today) ?? [],
+    [summary, today],
+  );
+  const visibleTodayTasks = useMemo(() => {
+    if (!completionVisualTask || todayTasks.some((task) => task.id === completionVisualTask.id)) return todayTasks;
+    return [...todayTasks, completionVisualTask];
+  }, [completionVisualTask, todayTasks]);
+
+  useEffect(() => {
+    if (!completionVisualTask || confirmedCompletionTaskId.current !== completionVisualTask.id) return;
+
+    const sourceTask = todayTasks.find((task) => task.id === completionVisualTask.id);
+    const sourceConfirmedChange = !sourceTask
+      || sourceTask.version !== completionVisualTask.version
+      || sourceTask.status !== completionVisualTask.status;
+    if (!sourceConfirmedChange || completionVisualTimer.current) return;
+
+    completionVisualTimer.current = setTimeout(() => {
+      setCompletionVisualTask((current) => current?.id === completionVisualTask.id ? null : current);
+      confirmedCompletionTaskId.current = null;
+      completionVisualTimer.current = null;
+    }, 420);
+  }, [completionVisualTask, todayTasks]);
+  const todayEvents = summary?.events.filter((event) => localDateKey(new Date(event.starts_at)) === today) ?? [];
+  const todaySchedules = daily.schedules.filter((schedule) => schedule.days_of_week.includes(new Date().getDay()));
+  const upcomingTasks = summary?.tasks.filter((task) => task.due_date !== today && task.due_date && task.due_date > today) ?? [];
+  const upcomingEvents = summary?.events.filter((event) => localDateKey(new Date(event.starts_at)) !== today) ?? [];
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refresh(), daily.refresh()]);
+  }, [daily, refresh]);
 
   // -------------------------------------------------------------------------
   // One-tap completion handler
   // -------------------------------------------------------------------------
   const handleCompleteTask = useCallback(async (task: HomeSummaryTask) => {
-    if (!accessToken || !householdId || !myMembershipId) return;
+    if (!accessToken || !householdId || !myMembershipId || completionVisualTask) return;
 
     // Re-check eligibility at tap time (capability might have changed).
     const eligibility = resolveOneTapEligibility({
@@ -209,6 +280,8 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
     if (!eligibility.eligible) {
       return;
     }
+
+    setCompletionVisualTask(task);
 
     // Build intent and completion options.
     const intent = createPlannerVersionedMutationIntent({
@@ -228,252 +301,63 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
     if (result.ok) {
       // Announce completion for screen readers.
       AccessibilityInfo.announceForAccessibility(completionMessageForOutcome[result.outcome.kind] || 'Tarea completada.');
+      confirmedCompletionTaskId.current = task.id;
+      setCompletionFeedback({ message: 'Tarea completada', tone: 'success' });
+      markPlannerChanged();
       // The cache invalidation is handled inside completeTaskFromHome;
       // the hook's plannerChangedAt will fire and re-fetch Summary.
     } else {
       // Error: show accessible toast / inline message.
       const msg = completionMessageForOutcome[result.outcome.kind] || 'No pudimos completar la tarea.';
       AccessibilityInfo.announceForAccessibility(msg);
+      confirmedCompletionTaskId.current = null;
+      setCompletionVisualTask((current) => current?.id === task.id ? null : current);
+      if (msg) setCompletionFeedback({ message: msg, tone: 'error' });
     }
-  }, [accessToken, householdId, myMembershipId, capabilities]);
+  }, [accessToken, householdId, myMembershipId, capabilities, completionVisualTask, markPlannerChanged]);
 
   // -------------------------------------------------------------------------
   // Render sections
   // -------------------------------------------------------------------------
 
-  return (
-    <View style={styles.container}>
-      <InventoryUrgencyCard
-        alerts={inventoryAlerts}
-        variant={variant}
-        onPress={() => navigation.navigate('InventoryTab')}
-      />
+  return <View style={styles.container}>
+    {(status === 'recoverable_error' || status === 'forbidden') ? <ErrorState title={status === 'forbidden' ? 'Sin permiso' : 'No pudimos cargar tu día'} description={state.errorCode === 'planner_forbidden' ? 'No tenés permiso para ver el Planner de este hogar.' : 'Podés reintentar sin perder la información que ya estaba disponible.'} style={styles.stateCard} onRetry={refreshAll} /> : null}
 
-      {/* Global error state */}
-      {status === 'recoverable_error' || status === 'forbidden' ? (
-        <ErrorState
-          title={status === 'forbidden' ? 'Sin permiso' : 'No pudimos cargar Calendario'}
-          description={state.errorCode === 'planner_forbidden'
-            ? 'No tienes permiso para ver el Planner.'
-            : 'Error al cargar el resumen. Puedes reintentar.'}
-          style={styles.stateCard}
-          onRetry={refresh}
-        />
-      ) : null}
+    <AppCard variant="warning" padding="default" highlighted style={styles.card}>
+      <View style={styles.cardHeader}><View style={styles.cardHeaderIcon}><HomePlusIcon name="alert-circle" color={colors.warning.base} size={18} /></View><AppText variant="title3" tone="warning">Necesita atención</AppText><TouchableOpacity onPress={() => navigation.navigate('PlannerTab', { screen: 'PlannerAttentionActivity', params: { source: 'home', returnTo: 'home' } })} accessibilityRole="button" accessibilityLabel="Ver atención"><StatusBadge label="Ver" tone="warning" /></TouchableOpacity></View>
+      {daily.loading ? <Skeleton variant="paragraph" lines={2} style={styles.skeletonBlock} /> : daily.attentionError ? <ErrorState title="Atención no disponible" description={daily.attentionError} onRetry={daily.refresh} /> : daily.attention.length > 0 ? daily.attention.map((item) => <TouchableOpacity key={item.attentionId} style={styles.itemRow} onPress={() => navigation.navigate('PlannerTab', { screen: 'PlannerAttentionActivity', params: { source: 'home', returnTo: 'home' } })} accessibilityRole="button" accessibilityLabel={`${item.title}. ${item.summary}`}><View style={{ flex: 1 }}><AppText variant="bodySmall" tone={dark ? 'inverse' : 'primary'} weight="700">{item.title}</AppText><AppText variant="caption" tone={dark ? 'tertiary' : 'secondary'}>{item.summary}</AppText></View></TouchableOpacity>) : <AppText variant="bodySmall" tone="secondary">Nada requiere tu intervención por ahora.</AppText>}
+      <InventoryUrgencyCard alerts={inventoryAlerts} variant={variant} onPress={() => navigation.navigate('InventoryTab')} />
+    </AppCard>
 
-      {/* "Atención requerida" from legacy counts (kept for UX continuity) */}
-      {summary && (summary.counts.tasks > 0 || summary.counts.events > 0) ? (
-        <AppCard variant="warning" padding="default" highlighted style={styles.card}>
-          <View style={styles.cardHeaderIcon}>
-            <HomePlusIcon name="alert-circle" color={colors.warning.base} size={18} />
-          </View>
-          <AppText variant="title3" tone="warning">
-            Atención requerida
-          </AppText>
-          {summary.counts.tasks > 0 ? (
-            <AppText variant="bodySmall" tone="secondary">
-              {summary.counts.tasks} tareas pendientes
-            </AppText>
-          ) : null}
-          {summary.counts.events > 0 ? (
-            <AppText variant="bodySmall" tone="secondary">
-              {summary.counts.events} eventos próximos
-            </AppText>
-          ) : null}
-        </AppCard>
-      ) : null}
+    <AppCard variant={cardVariant} padding="default" style={styles.card}>
+      <View style={styles.cardHeader}><View style={styles.cardHeaderIcon}><HomePlusIcon name="today-outline" color={dark ? colors.text.inverse : colors.terracotta[500]} size={18} /></View><AppText variant="title3" tone={dark ? 'inverse' : 'primary'}>Hoy</AppText></View>
+      {status === 'initial_loading' || status === 'refreshing' || daily.loading ? <Skeleton variant="paragraph" lines={3} style={styles.skeletonBlock} /> : <>
+        {visibleTodayTasks.map((task) => { const assignedName = task.assigned_to_member_id ? memberNameById.get(task.assigned_to_member_id) ?? 'Miembro' : 'Sin asignar'; const lock = activeCompletionForTask(task.id); const showingCompletion = completionVisualTask?.id === task.id; const showComplete = showingCompletion || resolveOneTapEligibility({ projection: capabilities, actorMembershipId: myMembershipId, task, hasPendingMutation: !!lock }).eligible; return <TouchableOpacity key={task.id} style={styles.itemRow} onPress={() => openPlanner('tasks')} accessibilityRole="button" accessibilityLabel={`Tarea ${task.title}, ${showingCompletion ? 'completada' : taskStatusLabel[task.status]}, asignada a ${assignedName}`}><View style={{ flex: 1 }}><AppText variant="bodySmall" weight="700">{task.title}</AppText><AppText variant="caption" tone="secondary">{showingCompletion ? 'Tarea completada' : `${taskStatusLabel[task.status]} · ${assignedName}`}</AppText></View>{showComplete ? <TouchableOpacity onPress={() => void handleCompleteTask(task)} disabled={Boolean(completionVisualTask) || !!lock} accessibilityRole="button" accessibilityLabel={showingCompletion ? `${task.title} completada` : `Completar ${task.title}`} accessibilityState={{ busy: Boolean(completionVisualTask) || !!lock, checked: showingCompletion }} style={styles.completeButton}><HomePlusIcon name={showingCompletion ? 'checkmark-circle' : lock ? 'refresh-outline' : 'ellipse-outline'} color={showingCompletion ? colors.success.base : lock ? colors.text.tertiary : colors.text.secondary} size={22} /></TouchableOpacity> : null}</TouchableOpacity>; })}
+        {todayEvents.map((event) => <TouchableOpacity key={event.id} style={styles.itemRow} onPress={() => openPlanner('calendar')} accessibilityRole="button" accessibilityLabel={`Evento de hoy: ${event.title}`}><View style={{ flex: 1 }}><AppText variant="bodySmall" weight="700">{event.title}</AppText><AppText variant="caption" tone="secondary">Evento · {event.all_day ? 'Todo el día' : formatTime(event.starts_at)}</AppText></View></TouchableOpacity>)}
+        {daily.schedulesError ? <ErrorState title="Horarios no disponibles" description={daily.schedulesError} onRetry={daily.refresh} /> : todaySchedules.map((schedule) => <TouchableOpacity key={schedule.id} style={styles.itemRow} onPress={() => openPlanner('plans')} accessibilityRole="button" accessibilityLabel={`Horario de ${schedule.personName}: ${schedule.title}, ${formatScheduleTime(schedule.start_minutes)} a ${formatScheduleTime(schedule.end_minutes)}`}><View style={{ flex: 1 }}><AppText variant="bodySmall" weight="700">{schedule.title}</AppText><AppText variant="caption" tone="secondary">{schedule.personName} · {formatScheduleTime(schedule.start_minutes)}–{formatScheduleTime(schedule.end_minutes)}</AppText></View></TouchableOpacity>)}
+        {visibleTodayTasks.length + todayEvents.length + todaySchedules.length === 0 && !daily.schedulesError && canConfirmPlannerEmpty ? <AppText variant="bodySmall" tone="secondary">No tenés tareas, eventos ni horarios para hoy.</AppText> : null}
+      </>}
+    </AppCard>
 
-      {/* Goal card — singular, max 1, backend-selected */}
-      {status !== 'initial_loading' && status !== 'refreshing' && summary?.goal ? (
-        (() => {
-          const goal = summary.goal;
-          const hasProgress = hasRealGoalProgress(goal as any);
-          const progressPct = hasProgress ? Math.round(goal.progress_percentage ?? 0) : 0;
-          const isAtRisk = goal.ends_at && progressPct < 40 && goal.status === 'active';
-          const progressText = getGoalProgressText(goal as unknown as any, {
-            taskCount: (goal as any).tasks_total ?? 0,
-            milestoneCount: (goal as any).milestones_total ?? 0,
-          });
-          const iconColor = isAtRisk ? colors.warning.base : colors.sage[500];
-          const titleTone = isAtRisk ? 'warning' : 'success';
+    <AppCard variant={cardVariant} padding="default" style={styles.card}>
+      <View style={styles.cardHeader}><View style={styles.cardHeaderIcon}><HomePlusIcon name={APP_ICONS.home.schedule} color={dark ? colors.text.inverse : colors.terracotta[500]} size={18} /></View><AppText variant="title3" tone={dark ? 'inverse' : 'primary'}>Próximamente</AppText><TouchableOpacity onPress={() => openPlanner('calendar')} accessibilityRole="button" accessibilityLabel="Ver calendario"><StatusBadge label="Calendario" tone="brand" /></TouchableOpacity></View>
+      {status === 'initial_loading' || status === 'refreshing' ? <Skeleton variant="paragraph" lines={2} style={styles.skeletonBlock} /> : <>{upcomingEvents.map((event) => <TouchableOpacity key={event.id} style={styles.itemRow} onPress={() => openPlanner('calendar')} accessibilityRole="button"><View style={{ flex: 1 }}><AppText variant="bodySmall" weight="700">{event.title}</AppText><AppText variant="caption" tone="secondary">{formatDate(event.starts_at)} {event.all_day ? 'Todo el día' : formatTime(event.starts_at)}</AppText></View></TouchableOpacity>)}{upcomingTasks.map((task) => <TouchableOpacity key={task.id} style={styles.itemRow} onPress={() => openPlanner('tasks')} accessibilityRole="button"><View style={{ flex: 1 }}><AppText variant="bodySmall" weight="700">{task.title}</AppText><AppText variant="caption" tone="secondary">Tarea · {formatDate(task.due_date)}</AppText></View></TouchableOpacity>)}{upcomingEvents.length + upcomingTasks.length === 0 && canConfirmPlannerEmpty ? <AppText variant="bodySmall" tone="secondary">No hay nada próximo para mostrar.</AppText> : null}</>}
+    </AppCard>
 
-          return (
-            <AppCard variant={isAtRisk ? 'warning' : 'success'} padding="default" style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={styles.cardHeaderIcon}>
-                  <HomePlusIcon name="flag" color={iconColor} size={18} />
-                </View>
-                <AppText variant="title3" tone={dark ? 'inverse' : titleTone}>
-                  {isAtRisk ? 'Meta en riesgo' : 'Meta destacada'}
-                </AppText>
-                <TouchableOpacity
-                  onPress={() =>
-                    navigation.navigate('PlannerTab', {
-                      screen: 'GoalDetail',
-                      params: { goalId: goal.id },
-                    })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel={`Ver meta ${goal.title}`}
-                >
-                  <StatusBadge label="Ver" tone={isAtRisk ? 'warning' : 'success'} />
-                </TouchableOpacity>
-              </View>
-              <AppText variant="bodySmall" tone={dark ? 'inverse' : 'secondary'} weight="700">
-                {goal.title}
-              </AppText>
-              {hasProgress ? (
-                <AppText variant="caption" tone={dark ? 'tertiary' : 'tertiary'}>
-                  Progreso: {progressPct}%{isAtRisk && goal.ends_at ? ' · Límite: ' + formatDate(goal.ends_at) : ''}
-                </AppText>
-              ) : progressText ? (
-                <AppText variant="caption" tone={dark ? 'tertiary' : 'tertiary'}>
-                  {progressText}
-                </AppText>
-              ) : null}
-            </AppCard>
-          );
-        })()
-      ) : null}
+    <AppCard variant={cardVariant} padding="default" style={styles.card}>
+      <View style={styles.cardHeader}><View style={styles.cardHeaderIcon}><HomePlusIcon name="time-outline" color={dark ? colors.text.inverse : colors.terracotta[500]} size={18} /></View><AppText variant="title3" tone={dark ? 'inverse' : 'primary'}>Qué cambió</AppText><TouchableOpacity onPress={() => navigation.navigate('PlannerTab', { screen: 'PlannerAttentionActivity', params: { source: 'home', returnTo: 'home' } })} accessibilityRole="button" accessibilityLabel="Ver actividad"><StatusBadge label="Ver" tone="brand" /></TouchableOpacity></View>
+      {daily.loading ? <Skeleton variant="paragraph" lines={2} style={styles.skeletonBlock} /> : daily.activityError ? <ErrorState title="Actividad no disponible" description={daily.activityError} onRetry={daily.refresh} /> : daily.activity.length > 0 ? daily.activity.map((item) => <TouchableOpacity key={item.activityId} style={styles.itemRow} onPress={() => navigation.navigate('PlannerTab', { screen: 'PlannerAttentionActivity', params: { source: 'home', returnTo: 'home' } })} accessibilityRole="button"><View style={{ flex: 1 }}><AppText variant="bodySmall" weight="700">{item.summary}</AppText><AppText variant="caption" tone="secondary">{new Date(item.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</AppText></View></TouchableOpacity>) : <AppText variant="bodySmall" tone="secondary">Todavía no hay cambios recientes.</AppText>}
+    </AppCard>
 
-      {/* Tasks card — max 3, backend order */}
-      <AppCard variant={cardVariant} padding="default" style={styles.card}>
-        <View style={styles.cardHeader}>
-          <View style={styles.cardHeaderIcon}>
-            <HomePlusIcon name={APP_ICONS.home.tasks} color={dark ? colors.text.inverse : colors.terracotta[500]} size={18} />
-          </View>
-          <AppText variant="title3" tone={dark ? 'inverse' : 'primary'}>
-            Tareas del hogar
-          </AppText>
-          <TouchableOpacity
-            onPress={() => openPlanner('tasks')}
-            accessibilityRole="button"
-            accessibilityLabel="Ver todas las tareas"
-          >
-            <StatusBadge label="Ver tareas" tone="brand" />
-          </TouchableOpacity>
-        </View>
-
-        {status === 'initial_loading' || status === 'refreshing' ? (
-          <Skeleton variant="paragraph" lines={3} style={styles.skeletonBlock} />
-        ) : summary && summary.tasks.length === 0 ? (
-          <View style={styles.emptyInline}>
-            <AppText variant="bodySmall" tone={dark ? 'inverse' : 'secondary'}>
-              Sin tareas pendientes.
-            </AppText>
-          </View>
-        ) : summary?.tasks.map((task) => {
-          const assignedName = task.assigned_to_member_id
-            ? memberNameById.get(task.assigned_to_member_id) ?? 'Miembro'
-            : 'Sin asignar';
-          const lock = activeCompletionForTask(task.id);
-          const eligibility = resolveOneTapEligibility({
-            projection: capabilities,
-            actorMembershipId: myMembershipId,
-            task,
-            hasPendingMutation: !!lock,
-          });
-          const showComplete = eligibility.eligible;
-
-          return (
-            <TouchableOpacity
-              key={task.id}
-              style={styles.itemRow}
-              onPress={() => openPlanner('tasks')}
-              accessibilityRole="button"
-              accessibilityLabel={`Tarea ${task.title}, ${taskStatusLabel[task.status]}, vencimiento ${formatDate(task.due_date)}, asignada a ${assignedName}`}
-            >
-              <View style={{ flex: 1 }}>
-                <AppText variant="bodySmall" tone={dark ? 'inverse' : 'primary'} weight="700">
-                  {task.title}
-                </AppText>
-                <AppText variant="caption" tone={dark ? 'tertiary' : 'secondary'}>
-                  {task.category || 'Sin categoría'} - {formatDate(task.due_date)} - {assignedName}
-                </AppText>
-              </View>
-              <StatusBadge label={taskStatusLabel[task.status]} tone="success" />
-              {showComplete && (
-                <TouchableOpacity
-                  onPress={() => handleCompleteTask(task)}
-                  disabled={!!lock}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Completar ${task.title}`}
-                  accessibilityState={{ busy: !!lock }}
-                  style={styles.completeButton}
-                >
-                  <HomePlusIcon
-                    name="checkmark-circle"
-                    color={lock ? colors.text.tertiary : colors.success.base}
-                    size={20}
-                  />
-                </TouchableOpacity>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </AppCard>
-
-      {/* Events card — max 3, backend order */}
-      <AppCard variant={cardVariant} padding="default" style={styles.card}>
-        <View style={styles.cardHeader}>
-          <View style={styles.cardHeaderIcon}>
-            <HomePlusIcon name={APP_ICONS.home.schedule} color={dark ? colors.text.inverse : colors.terracotta[500]} size={18} />
-          </View>
-          <AppText variant="title3" tone={dark ? 'inverse' : 'primary'}>
-            Próximos eventos
-          </AppText>
-          <TouchableOpacity
-            onPress={() => openPlanner('calendar')}
-            accessibilityRole="button"
-            accessibilityLabel="Ver calendario"
-          >
-            <StatusBadge label="Ver calendario" tone="brand" />
-          </TouchableOpacity>
-        </View>
-        {status === 'initial_loading' || status === 'refreshing' ? (
-          <Skeleton variant="paragraph" lines={3} style={styles.skeletonBlock} />
-        ) : summary && summary.events.length === 0 ? (
-          <View style={styles.emptyInline}>
-            <AppText variant="bodySmall" tone={dark ? 'inverse' : 'secondary'}>
-              Sin eventos próximos.
-            </AppText>
-          </View>
-        ) : summary?.events.map((event) => (
-          <TouchableOpacity
-            key={event.id}
-            style={styles.itemRow}
-            onPress={() => openPlanner('calendar')}
-            accessibilityRole="button"
-            accessibilityLabel={`Evento ${event.title}, ${formatDate(event.starts_at)} ${event.all_day ? 'todo el día' : formatTime(event.starts_at)}${event.location_name ? ` en ${event.location_name}` : ''}`}
-          >
-            <View style={{ flex: 1 }}>
-              <AppText variant="bodySmall" tone={dark ? 'inverse' : 'primary'} weight="700">
-                {event.title}
-              </AppText>
-              <AppText variant="caption" tone={dark ? 'tertiary' : 'secondary'}>
-                {formatDate(event.starts_at)} {event.all_day ? 'Todo el día' : formatTime(event.starts_at)}
-                {event.location_name ? ` - ${event.location_name}` : ''}
-              </AppText>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </AppCard>
-
-      {/* Partial error fallbacks (rendered inline below affected sections) */}
-      {hasPartial && partialErrors.map((err) => (
-        <AppCard variant="quiet" padding="default" style={styles.partialErrorCard} key={err.section}>
-          <AppText variant="bodySmall" tone={dark ? 'inverse' : 'warning'} weight="600">
-            {err.section === 'tasks' ? 'No se pudieron cargar las tareas' :
-             err.section === 'events' ? 'No se pudieron cargar los eventos' :
-             'No se pudo cargar la meta'}
-          </AppText>
-          <AppText variant="caption" tone={dark ? 'tertiary' : 'tertiary'}>
-            {err.code} · {refreshing ? 'Desliza para reintentar' : 'Cargando...'}
-          </AppText>
-        </AppCard>
-      ))}
-    </View>
-  );
+    {hasPartial ? <ErrorState title="Algunos datos no están disponibles" description="No mostramos información incompleta. Podés reintentar la carga." onRetry={refreshAll} /> : null}
+    <UndoToast
+      visible={Boolean(completionFeedback)}
+      message={completionFeedback?.message ?? ''}
+      tone={completionFeedback?.tone ?? 'success'}
+      duration={2000}
+      onDismiss={() => setCompletionFeedback(null)}
+    />
+  </View>;
 }
 
 // ---------------------------------------------------------------------------

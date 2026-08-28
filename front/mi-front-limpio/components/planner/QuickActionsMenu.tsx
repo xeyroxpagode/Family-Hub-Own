@@ -118,6 +118,15 @@ export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSe
     });
   }, [navigation, searchEnabled, sheet]);
 
+  const handleOpenSchedules = useCallback(() => {
+    if (sheet.isSubmitting) return;
+    sheet.requestClose('user_request');
+    navigation.navigate('HomeTabs', {
+      screen: 'PlannerTab',
+      params: { screen: 'PlannerHome', params: { initialTab: 'plans', source: 'quick_action' } },
+    });
+  }, [navigation, sheet]);
+
   const handlers: Record<string, () => void> = {
     create_task: handleOpenTask,
     create_event: handleOpenEvent,
@@ -221,6 +230,20 @@ export function QuickActionsMenu({ capabilities, capabilitiesLoading, onActionSe
             </Pressable>
           );
         })}
+        <Pressable
+          onPress={handleOpenSchedules}
+          disabled={sheet.isSubmitting}
+          style={({ pressed }) => [styles.actionCell, pressed && styles.actionCellPressed, sheet.isSubmitting && styles.actionCellDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel="Cargar horario"
+          accessibilityHint="Abre Horarios para crear o editar una rutina semanal"
+          accessibilityState={{ disabled: sheet.isSubmitting, busy: sheet.isSubmitting }}
+        >
+          <View style={[styles.actionIcon, { backgroundColor: colors.sand[100] }]}>
+            <HomePlusIcon name="time-outline" size={22} color={colors.sand[600]} />
+          </View>
+          <AppText variant="bodySmall" weight="800" align="center" style={styles.actionLabel}>Cargar horario</AppText>
+        </Pressable>
       </View>
     </View>
   );

@@ -43,6 +43,8 @@ import {
   type GetFinanceSummaryResponse,
   type ListFinanceMovementsResponse,
 } from '../../services/finance/financeMovements';
+import { getAccountBalancePresentation, formatAccountPresentationAmount } from '../../services/finance/accountDisplay';
+import { listFinanceAccounts, type FinanceAccountDto } from '../../services/finance/financeAccounts';
 import {
   financeMonthFromLocalDate,
   formatFinanceDateGroupLabel,
@@ -90,6 +92,7 @@ type FinanceReadState = {
   error: string | null;
   movements: ListFinanceMovementsResponse | null;
   summary: GetFinanceSummaryResponse | null;
+  accounts: FinanceAccountDto[] | null;
 };
 
 const EMPTY_READ_STATE: FinanceReadState = {
@@ -98,6 +101,7 @@ const EMPTY_READ_STATE: FinanceReadState = {
   error: null,
   movements: null,
   summary: null,
+  accounts: null,
 };
 const EMPTY_SUMMARY_CURRENCIES: FinanceSummaryCurrencyDto[] = [];
 
@@ -116,6 +120,13 @@ function groupMovementsByTransactionDate(movements: FinanceMovementDto[]) {
   });
 
   return groups;
+}
+
+function movementAttributionLabel(movement: FinanceMovementDto) {
+  const type = movement.transactionType === 'expense' ? 'Gasto' : 'Ingreso';
+  const account = movement.accountName ?? 'Sin cuenta';
+  const context = movement.financialContextType === FINANCE_CONTEXT_TYPES.HOUSEHOLD ? 'Household' : 'Personal';
+  return `${type} · ${context} · ${account}`;
 }
 
 function safeFinanceReadError(error: unknown): string {
@@ -216,6 +227,7 @@ export function FinanceScreen() {
       error: null,
       movements: current.key === requestKey ? current.movements : null,
       summary: current.key === requestKey ? current.summary : null,
+      accounts: current.key === requestKey ? current.accounts : null,
     }));
 
     const readOptions = {
@@ -229,8 +241,14 @@ export function FinanceScreen() {
     Promise.all([
       listFinanceMovements(readOptions),
       getFinanceSummary(readOptions),
+      listFinanceAccounts({
+        accessToken: session.access_token,
+        contextType: selectedContext,
+        signal: controller.signal,
+        contextScope: `finance:${requestKey}`,
+      }),
     ])
-      .then(([movements, summary]) => {
+      .then(([movements, summary, accounts]) => {
         if (readKeyRef.current !== requestKey) return;
         setReadState({
           key: requestKey,
@@ -238,6 +256,7 @@ export function FinanceScreen() {
           error: null,
           movements,
           summary,
+          accounts: accounts.accounts,
         });
       })
       .catch((error) => {
@@ -249,6 +268,7 @@ export function FinanceScreen() {
           error: safeFinanceReadError(error),
           movements: current.key === requestKey ? current.movements : null,
           summary: current.key === requestKey ? current.summary : null,
+          accounts: current.key === requestKey ? current.accounts : null,
         }));
       });
 
@@ -512,6 +532,7 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
           currencies={summaryCurrencies}
           selectedCurrency={selectedSummaryCurrency}
           selectedBucket={selectedSummaryBucket}
+          accounts={visibleReadState.accounts ?? []}
           onSelectCurrency={setSelectedSummaryCurrency}
           onRetry={retryReads}
           onMovePeriod={movePeriod}
@@ -666,6 +687,7 @@ function FinanceSummarySurface({
   currencies,
   selectedCurrency,
   selectedBucket,
+  accounts,
   onSelectCurrency,
   onRetry,
   onMovePeriod,
@@ -676,12 +698,13 @@ function FinanceSummarySurface({
   currencies: FinanceSummaryCurrencyDto[];
   selectedCurrency: string | null;
   selectedBucket: FinanceSummaryCurrencyDto | null;
+  accounts: FinanceAccountDto[];
   onSelectCurrency: (currency: string) => void;
   onRetry: () => void;
   onMovePeriod: (direction: 'previous' | 'next') => void;
 }) {
-  if (loading && currencies.length === 0) return <FinanceSurfaceLoading />;
-  if (error && currencies.length === 0) {
+  if (loading && currencies.length === 0 && accounts.length === 0) return <FinanceSurfaceLoading />;
+  if (error && currencies.length === 0 && accounts.length === 0) {
     return (
       <ErrorState
         title="No pudimos cargar el resumen"
@@ -702,14 +725,16 @@ function FinanceSummarySurface({
           {loading ? <Skeleton width={64} height={12} /> : null}
         </View>
 
-        {currencies.length === 0 || !selectedBucket ? (
-          <EmptyState
-            title="Sin actividad financiera"
-            description="No hay gastos ni ingresos registrados para este periodo."
-            illustration={<HomePlusIcon name="pie-chart-outline" size={30} color={colors.terracotta[600]} />}
-          />
-        ) : (
-          <View style={styles.summaryStack}>
+        <View style={styles.summarySection}>
+          <AppText variant="title3" weight="800">Resumen del período</AppText>
+          {currencies.length === 0 || !selectedBucket ? (
+            <EmptyState
+              title="Sin actividad financiera"
+              description="No hay gastos ni ingresos registrados para este periodo."
+              illustration={<HomePlusIcon name="pie-chart-outline" size={30} color={colors.terracotta[600]} />}
+            />
+          ) : (
+            <View style={styles.summaryStack}>
             {currencies.length > 1 ? (
               <View style={styles.currencySelector} accessibilityRole="tablist">
                 {currencies.map((bucket) => {
@@ -743,10 +768,53 @@ function FinanceSummarySurface({
                 tone={isZeroDecimalString(selectedBucket.net) ? 'primary' : selectedBucket.net.startsWith('-') ? 'danger' : 'success'}
               />
             </View>
+              <AppText variant="caption" tone="tertiary">
+                Incluye los movimientos de {selectedBucket.currency} del contexto elegido. La cuenta identifica el origen o destino, no un segundo gasto.
+              </AppText>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.accountsSection}>
+          <View style={styles.accountsHeading}>
+            <AppText variant="title3" weight="800">Cuentas</AppText>
+            <AppText variant="caption" tone="secondary">Saldos actuales por cuenta</AppText>
           </View>
-        )}
+          {accounts.length === 0 ? (
+            <AppText variant="bodySmall" tone="secondary">No hay cuentas activas en este contexto.</AppText>
+          ) : (
+            <View style={styles.accountBalanceList}>
+              {accounts.map((account) => <FinanceAccountBalance key={account.id} account={account} />)}
+            </View>
+          )}
+          <AppText variant="caption" tone="tertiary">
+            Los saldos de cuentas se muestran separados del resultado del período.
+          </AppText>
+        </View>
       </View>
     </AppCard>
+  );
+}
+
+function FinanceAccountBalance({ account }: { account: FinanceAccountDto }) {
+  const presentation = getAccountBalancePresentation(account);
+  const isNegativeAccountBalance = !presentation.isCreditCard && presentation.displayAmount?.startsWith('-');
+
+  return (
+    <View style={styles.accountBalanceRow}>
+      <View style={styles.accountBalanceCopy}>
+        <AppText variant="bodySmall" weight="800" numberOfLines={1}>{account.name}</AppText>
+        <AppText variant="caption" tone="secondary">{presentation.label} · {account.currency}</AppText>
+      </View>
+      <AppText
+        variant="bodySmall"
+        weight="800"
+        tone={isNegativeAccountBalance ? 'danger' : 'primary'}
+        numberOfLines={1}
+      >
+        {presentation.displayAmount === null ? presentation.unknownLabel : `${account.currency} ${formatAccountPresentationAmount(presentation)}`}
+      </AppText>
+    </View>
   );
 }
 
@@ -835,8 +903,11 @@ function FinanceMovementsSurface({
                       <AppText variant="body" weight="800" numberOfLines={1}>
                         {financeMovementTitle(movement.transactionType, movement.description)}
                       </AppText>
+                      <AppText variant="caption" tone="secondary" numberOfLines={1}>
+                        {movementAttributionLabel(movement)}
+                      </AppText>
                       {movement.categoryLabelSnapshot ? (
-                        <AppText variant="caption" tone="secondary" numberOfLines={1}>
+                        <AppText variant="caption" tone="tertiary" numberOfLines={1}>
                           {movement.categoryLabelSnapshot}
                         </AppText>
                       ) : null}
@@ -1004,6 +1075,39 @@ const styles = StyleSheet.create({
   },
   summaryStack: {
     gap: spacing[3],
+  },
+  summarySection: {
+    gap: spacing[3],
+  },
+  accountsSection: {
+    gap: spacing[3],
+    paddingTop: spacing[4],
+    borderTopWidth: 1,
+    borderTopColor: colors.border.subtle,
+  },
+  accountsHeading: {
+    gap: spacing[1],
+  },
+  accountBalanceList: {
+    gap: spacing[2],
+  },
+  accountBalanceRow: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing[3],
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.card,
+  },
+  accountBalanceCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing[1],
   },
   currencySelector: {
     alignSelf: 'flex-start',

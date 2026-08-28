@@ -120,7 +120,10 @@ const CATALOG: readonly PlannerQuickActionDefinition[] = [
     iconColor: '#3B68A0',          // colors.info.text approximate
     requiredCapabilityGuard: canCreateAnyGoal,
     destination: 'goal_form',
-    implemented: true
+    // Plans have a separate Planner surface, but this entry is ambiguous in
+    // the daily launcher. Keep the capability contract without exposing a
+    // confusing action that does not read as a concrete daily task.
+    implemented: false,
   },
 ];
 

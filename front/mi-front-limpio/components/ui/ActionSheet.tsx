@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Keyboard, Modal, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { FlatList, Keyboard, Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -70,14 +70,24 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
   const sheetSizing = size === 'content'
     ? { maxHeight: Math.max(280, height - insets.top - spacing[8]), paddingBottom: Math.max(insets.bottom, spacing[4]) }
     : { height: fullSheetHeight, paddingBottom: Math.max(insets.bottom, spacing[4]) };
+  const requestClose = () => {
+    if (!closeDisabled) onRequestClose();
+  };
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onRequestClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={requestClose}>
       <View style={styles.modalOverlay}>
+        <Pressable
+          style={styles.backdropDismiss}
+          onPress={requestClose}
+          disabled={closeDisabled}
+          accessibilityRole="button"
+          accessibilityLabel={`Cerrar ${title}`}
+        />
         <View style={[styles.modalSheet, sheetSizing]} accessibilityViewIsModal>
           <View style={styles.handle} />
           <View style={styles.modalHeader}>
             <View style={{ flex: 1 }}><AppText variant="title2" weight="800">{title}</AppText>{subtitle ? <AppText variant="caption" tone="secondary">{subtitle}</AppText> : null}</View>
-            <AppButton variant="icon" size="sm" onPress={onRequestClose} disabled={closeDisabled} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
+            <AppButton variant="icon" size="sm" onPress={requestClose} disabled={closeDisabled} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
           </View>
           <View style={size === 'content' ? styles.modalContentCompact : styles.modalContent}>{children}</View>
           {footer ? <View style={styles.modalFooter}>{footer}</View> : null}
@@ -115,7 +125,12 @@ export function DatePickerSheet({ visible, value, onClose, onConfirm }: { visibl
 
 function WheelColumn({ values, selected, onSelect, accessibilityLabel }: { values: number[]; selected: number; onSelect: (value: number) => void; accessibilityLabel: string }) {
   const initialIndex = Math.max(0, values.indexOf(selected));
-  return <View style={styles.wheelColumn}><FlatList data={values} keyExtractor={(item) => String(item)} getItemLayout={(_, index) => ({ length: WHEEL_ITEM_HEIGHT, offset: WHEEL_ITEM_HEIGHT * index, index })} initialScrollIndex={initialIndex} showsVerticalScrollIndicator={false} nestedScrollEnabled disableIntervalMomentum snapToInterval={WHEEL_ITEM_HEIGHT} decelerationRate="fast" contentContainerStyle={styles.wheelContent} accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel} accessibilityValue={{ min: values[0], max: values[values.length - 1], now: selected, text: `${accessibilityLabel} ${String(selected).padStart(2, '0')}` }} onMomentumScrollEnd={(event) => { const index = Math.round(event.nativeEvent.contentOffset.y / WHEEL_ITEM_HEIGHT); const next = values[Math.max(0, Math.min(index, values.length - 1))]; if (next !== selected) { onSelect(next); void lightHaptic(); } }} renderItem={({ item }) => <View style={styles.wheelItem}><AppText variant="title3" weight={item === selected ? '800' : '400'} tone={item === selected ? 'primary' : 'tertiary'}>{String(item).padStart(2, '0')}</AppText></View>} /></View>;
+  const selectOffset = (offset: number) => {
+    const index = Math.round(offset / WHEEL_ITEM_HEIGHT);
+    const next = values[Math.max(0, Math.min(index, values.length - 1))];
+    if (next !== selected) { onSelect(next); void lightHaptic(); }
+  };
+  return <View style={styles.wheelColumn}><FlatList data={values} keyExtractor={(item) => String(item)} getItemLayout={(_, index) => ({ length: WHEEL_ITEM_HEIGHT, offset: WHEEL_ITEM_HEIGHT * index, index })} initialScrollIndex={initialIndex} showsVerticalScrollIndicator={false} nestedScrollEnabled disableIntervalMomentum snapToInterval={WHEEL_ITEM_HEIGHT} decelerationRate="fast" contentContainerStyle={styles.wheelContent} accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel} accessibilityValue={{ min: values[0], max: values[values.length - 1], now: selected, text: `${accessibilityLabel} ${String(selected).padStart(2, '0')}` }} onMomentumScrollEnd={(event) => selectOffset(event.nativeEvent.contentOffset.y)} onScrollEndDrag={(event) => selectOffset(event.nativeEvent.contentOffset.y)} renderItem={({ item }) => <Pressable onPress={() => { onSelect(item); void lightHaptic(); }} style={styles.wheelItem} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel} ${String(item).padStart(2, '0')}`} accessibilityState={{ selected: item === selected }}><AppText variant="title3" weight={item === selected ? '800' : '400'} tone={item === selected ? 'primary' : 'tertiary'}>{String(item).padStart(2, '0')}</AppText></Pressable>} /></View>;
 }
 
 export function TimePickerSheet({ visible, value, onClose, onConfirm }: { visible: boolean; value: string; onClose: () => void; onConfirm: (value: string) => void }) {
@@ -135,7 +150,8 @@ export function TimePickerSheet({ visible, value, onClose, onConfirm }: { visibl
 
 const styles = StyleSheet.create({
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: colors.surface.overlay },
-  modalSheet: { backgroundColor: colors.background.base, borderTopLeftRadius: radius.xxl, borderTopRightRadius: radius.xxl, paddingHorizontal: spacing[5], paddingTop: spacing[3], ...shadows.sheet },
+  backdropDismiss: { ...StyleSheet.absoluteFillObject, zIndex: 0 },
+  modalSheet: { zIndex: 1, backgroundColor: colors.background.base, borderTopLeftRadius: radius.xxl, borderTopRightRadius: radius.xxl, paddingHorizontal: spacing[5], paddingTop: spacing[3], ...shadows.sheet },
   handle: { width: 44, height: 4, borderRadius: radius.pill, backgroundColor: colors.border.strong, alignSelf: 'center', marginBottom: spacing[3] },
   modalHeader: { minHeight: touchTargets.normal, flexDirection: 'row', alignItems: 'center', gap: spacing[3], marginBottom: spacing[4] },
   modalContent: { flex: 1 }, modalContentCompact: { flexGrow: 0 }, modalFooter: { paddingTop: spacing[3], borderTopWidth: 1, borderTopColor: colors.border.subtle },

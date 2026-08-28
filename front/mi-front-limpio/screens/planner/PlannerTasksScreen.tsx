@@ -57,6 +57,9 @@ const filters: Array<{ key: FilterKey; label: string }> = [
   { key: 'cancelled', label: 'Canceladas' },
 ];
 
+const primaryFilters = filters.filter((item) => item.key === 'today' || item.key === 'open' || item.key === 'mine');
+const secondaryFilters = filters.filter((item) => item.key === 'attention' || item.key === 'done' || item.key === 'cancelled');
+
 type TypeFilter = 'all' | 'General' | 'Limpieza' | 'Compras' | 'Mascotas' | 'Pagos' | 'Medicación' | 'Estudios';
 
 const typeFilters: Array<{ key: TypeFilter; label: string }> = [
@@ -741,20 +744,6 @@ const confirmTrash = (task: PlannerTask) => {
     );
   };
 
-  // Stats
-  const stats = useMemo(() => {
-    return {
-      today: tasks.filter((t) => t.status !== 'cancelled' && t.due_date === today).length,
-      pending: tasks.filter((t) => ['pending', 'awaiting_verification'].includes(t.status)).length,
-      attention: tasks.filter((t) =>
-        (t.status === 'pending' && Boolean(t.due_date) && t.due_date! < today) ||
-        t.status === 'awaiting_verification' ||
-        t.priority === 'high'
-      ).length,
-      review: tasks.filter((t) => t.status === 'awaiting_verification').length,
-    };
-  }, [tasks, today]);
-
   const emptyState = useMemo(() => {
     switch (filter) {
       case 'today':
@@ -773,6 +762,20 @@ const confirmTrash = (task: PlannerTask) => {
         return { title: 'No hay tareas pendientes', text: 'Cuando creen tareas para el hogar, van a aparecer acá.' };
     }
   }, [filter]);
+
+  const openSecondaryFilters = () => {
+    Alert.alert('Ver tareas', 'Elegí una vista', [
+      ...secondaryFilters.map((item) => ({ text: item.label, onPress: () => setFilter(item.key) })),
+      { text: 'Cancelar', style: 'cancel' as const },
+    ]);
+  };
+
+  const openTypeFilters = () => {
+    Alert.alert('Filtrar por tipo', 'Mostramos sólo las tareas de ese tipo.', [
+      ...typeFilters.map((item) => ({ text: item.label, onPress: () => setTypeFilter(item.key) })),
+      { text: 'Cancelar', style: 'cancel' as const },
+    ]);
+  };
 
   if (loading) {
     return (
@@ -818,31 +821,9 @@ const confirmTrash = (task: PlannerTask) => {
         </TouchableOpacity>
       </View>
 
-      {/* Stats strip */}
-      <View style={{ flexDirection: 'row', gap: spacing[2], marginBottom: spacing[3] }}>
-        <View style={[S.statCard, S.statCardToday]}>
-          <Text style={[S.statLabel, S.statLabelToday]}>Hoy</Text>
-          <Text style={[S.statValue, S.statValueToday]}>{stats.today}</Text>
-        </View>
-        <View style={S.statCard}>
-          <Text style={S.statLabel}>Pendientes</Text>
-          <Text style={S.statValue}>{stats.pending}</Text>
-        </View>
-        <View style={[S.statCard, stats.attention > 0 ? S.statCardOverdue : {}]}>
-          <Text style={S.statLabel}>Atención</Text>
-          <Text style={S.statValue}>{stats.attention}</Text>
-        </View>
-        {stats.review > 0 ? (
-          <View style={[S.statCard, S.statCardReview]}>
-            <Text style={S.statLabel}>A revisar</Text>
-            <Text style={S.statValue}>{stats.review}</Text>
-          </View>
-        ) : null}
-      </View>
-
-      {/* Primary filters */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-        {filters.map((item) => {
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2], marginBottom: spacing[3] }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing[2], flexGrow: 1 }}>
+        {primaryFilters.map((item) => {
           const active = filter === item.key;
           const count = filterCounts[item.key];
           return (
@@ -859,25 +840,9 @@ const confirmTrash = (task: PlannerTask) => {
           );
         })}
       </ScrollView>
-
-      {/* Secondary Type filter */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 8 }}>
-          <Text style={[S.statLabel, { marginRight: 4 }]}>Tipo:</Text>
-        </View>
-        {typeFilters.map((item) => {
-          const active = typeFilter === item.key;
-          return (
-            <TouchableOpacity
-              key={item.key}
-              style={[S.taskTypeFilterChip, active && S.taskTypeFilterChipActive]}
-              onPress={() => setTypeFilter(item.key)}
-            >
-              <Text style={[S.taskTypeFilterChipText, active && S.taskTypeFilterChipTextActive]}>{item.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      <TouchableOpacity style={[S.filterChipWithCount, !primaryFilters.some((item) => item.key === filter) && S.filterChipCountActive]} onPress={openSecondaryFilters} accessibilityRole="button" accessibilityLabel="Más vistas de tareas"><Text style={[S.filterChipCountText, !primaryFilters.some((item) => item.key === filter) && S.filterChipCountTextActive]}>Más</Text></TouchableOpacity>
+      <TouchableOpacity style={S.taskTypeFilterChip} onPress={openTypeFilters} accessibilityRole="button" accessibilityLabel="Filtrar tareas por tipo"><Text style={S.taskTypeFilterChipText}>{typeFilter === 'all' ? 'Tipo' : typeFilter}</Text></TouchableOpacity>
+      </View>
 
       {visibleTasks.length === 0 ? (
         <View style={S.emptyBox}>

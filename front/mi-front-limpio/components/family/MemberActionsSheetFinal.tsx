@@ -1,11 +1,11 @@
 import React from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, radius, spacing, shadows } from '../../constants/theme';
+import { colors, radius, spacing } from '../../constants/theme';
 import type { Role } from '../../services/family';
-import { AppAvatar, AppButton, AppText } from '../ui';
+import { ActionSheet, AppAvatar, AppButton, AppText } from '../ui';
 import { getRoleCapability, getRoleDescription, getRoleIcon, getRoleLabel, RoleBadge } from './RoleBadge';
 
 type MemberActionsSheetProps = {
@@ -66,6 +66,10 @@ export const MemberActionsSheet: React.FC<MemberActionsSheetProps> = ({
   const hasRoleChanged = selectedRole !== memberRole;
   const canSaveRole = canChangeRoles && Boolean(onChangeRole);
   const canRemove = canManageMembers && !isSelf;
+  const closeDisabled = savingRole || removing;
+  const requestClose = () => {
+    if (!closeDisabled) onClose();
+  };
 
   const runRoleChange = async () => {
     if (!onChangeRole || !hasRoleChanged) return;
@@ -134,14 +138,13 @@ export const MemberActionsSheet: React.FC<MemberActionsSheetProps> = ({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
-          <View style={styles.handleRow}>
-            <View style={styles.handle} />
-            <AppButton variant="icon" size="sm" onPress={onClose} style={styles.closeButton} accessibilityLabel="Cerrar acciones"><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
-          </View>
-
+    <ActionSheet
+      visible={visible}
+      title="Integrante"
+      onRequestClose={requestClose}
+      closeDisabled={closeDisabled}
+      size="content"
+    >
           <ScrollView
             style={styles.content}
             contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + spacing[5] }]}
@@ -237,46 +240,11 @@ export const MemberActionsSheet: React.FC<MemberActionsSheetProps> = ({
               </View>
             ) : null}
           </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
+    </ActionSheet>
   );
 };
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: colors.surface.overlayStrong,
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    maxHeight: '92%',
-    backgroundColor: colors.background.base,
-    borderTopLeftRadius: radius.xxl,
-    borderTopRightRadius: radius.xxl,
-    borderTopWidth: 1,
-    borderColor: colors.border.subtle,
-    ...shadows.sheet,
-  },
-  handleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: spacing[4],
-    paddingHorizontal: spacing[5],
-    position: 'relative',
-  },
-  handle: {
-    width: 44,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.border.strong,
-  },
-  closeButton: {
-    position: 'absolute',
-    right: spacing[4],
-    top: spacing[2],
-  },
   content: {
     maxHeight: '100%',
   },

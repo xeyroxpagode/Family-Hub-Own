@@ -149,7 +149,7 @@ runTest('T45-T53 Negative scope', () => {
   const runJs = read('tests/run.js');
   const financeScreen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
 
-  assert(!/accountId|account_id|accountName|Cuenta asociada/i.test(financeScreen), 'T45 movement/summary read UI remains account-less after 3H optional Account create UI');
+  assert(/accountName|movementAttributionLabel/i.test(financeScreen), 'T45 movement list identifies an associated account when disclosure is allowed');
   assert(!/readFinanceTransfers|getFinanceTransfers|\/api\/finance\/transfers\?/.test(financeFrontend), 'T46 no Transfer read behavior added to 2F movement/summary consumption');
   assert(!/Budget|Presupuesto|budget/i.test(financeFrontend), 'T47 no Budget');
   assert(!/Expected Payments|Due|Overdue|settlement|payment implementation/i.test(financeFrontend), 'T48 no Payment implementation');

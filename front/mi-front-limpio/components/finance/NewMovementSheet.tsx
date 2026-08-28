@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, StyleSheet, View } from 'react-native';
+import { Alert, Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 import { HomePlusIcon } from '../../constants/icons';
@@ -45,6 +45,7 @@ import {
 } from '../ui';
 import { MoneyInput } from './MoneyInput';
 import { AccountSelector } from './AccountSelector';
+import { AccountFormSheet } from './AccountFormSheet';
 
 type FinanceOperationKind = 'expense' | 'income' | 'transfer';
 
@@ -194,7 +195,11 @@ export function NewMovementSheet({
   const [activePicker, setActivePicker] = useState<ActivePicker>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [accountFormVisible, setAccountFormVisible] = useState(false);
+  const [accountCreationTarget, setAccountCreationTarget] = useState<'transferSource' | 'transferDestination' | null>(null);
   const contextKeyRef = useRef(`${contextType}:${contextLabel}`);
+  const submitInFlightRef = useRef(false);
+  const negativeBalanceConfirmedSignatureRef = useRef<string | null>(null);
 
   const [expenseAccountId, setExpenseAccountId] = useState<string | null>(null);
   const [incomeAccountId, setIncomeAccountId] = useState<string | null>(null);
@@ -359,6 +364,19 @@ export function NewMovementSheet({
     transferSource.currentBalance !== null &&
     transferSourceTotalDebit !== null &&
     compareDecimalStrings(transferSource.currentBalance, transferSourceTotalDebit) < 0;
+  const expenseAccountWillGoNegative =
+    isExpense(operation) &&
+    selectedExpenseAccount?.accountType === 'ACCOUNT' &&
+    selectedExpenseAccount.balanceState === 'KNOWN' &&
+    selectedExpenseAccount.currentBalance !== null &&
+    amount.technicalValue !== null &&
+    compareDecimalStrings(selectedExpenseAccount.currentBalance, amount.technicalValue.amount) < 0;
+  const expenseNegativeBalanceSignature = expenseAccountWillGoNegative
+    ? `${selectedExpenseAccount?.id ?? ''}:${selectedExpenseAccount?.currentBalance ?? ''}:${amount.technicalValue?.amount ?? ''}`
+    : null;
+  const expenseProjectedBalance = expenseAccountWillGoNegative && selectedExpenseAccount?.currentBalance && amount.technicalValue
+    ? subtractDecimalStrings(selectedExpenseAccount.currentBalance, amount.technicalValue.amount)
+    : null;
 
   const canSubmit = isTransfer(operation)
     ? Boolean(accessToken) && !contextUnavailable && !submitting &&
@@ -383,6 +401,9 @@ export function NewMovementSheet({
     setSelectedCategoryId(null);
     setCategoriesError(null);
     setActivePicker(null);
+    setAccountFormVisible(false);
+    setAccountCreationTarget(null);
+    negativeBalanceConfirmedSignatureRef.current = null;
     setSubmitError(null);
     setSubmitting(false);
     setExpenseAccountId(null);
@@ -468,6 +489,32 @@ export function NewMovementSheet({
       setDestinationAmountText(NONE_AMOUNT);
     }
     setActivePicker(null);
+  };
+
+  const openAccountForm = (target: 'transferSource' | 'transferDestination') => {
+    setActivePicker(null);
+    setAccountCreationTarget(target);
+    setAccountFormVisible(true);
+  };
+
+  const handleAccountCreated = (account: FinanceAccountDto) => {
+    const target = accountCreationTarget;
+    setAccountFormVisible(false);
+    setAccountCreationTarget(null);
+
+    if (target === 'transferSource') {
+      if (account.accountType !== 'ACCOUNT') {
+        setSubmitError('La cuenta creada no puede usarse como origen. Elegí una cuenta de tipo Cuenta.');
+        setActivePicker('transferSource');
+        return;
+      }
+      handleSelectTransferSource(account);
+      return;
+    }
+
+    if (target === 'transferDestination') {
+      handleSelectTransferDestination(account);
+    }
   };
 
   const handleTransferAmountChange = (next: MoneyInputParseResult) => {
@@ -613,11 +660,35 @@ if (commissionMode === 'custom' && !commission.isValid) {
     }
   };
 
-  const submit = () => {
-    if (isTransfer(operation)) {
-      void submitTransfer();
-    } else {
-      void submitExpenseOrIncome();
+  const submit = async () => {
+    if (submitInFlightRef.current || !canSubmit) return;
+    if (expenseNegativeBalanceSignature && negativeBalanceConfirmedSignatureRef.current !== expenseNegativeBalanceSignature) {
+      Alert.alert(
+        'Esta cuenta quedará en negativo',
+        `${selectedExpenseAccount?.name ?? 'La cuenta'} pasará a ${selectedExpenseAccount?.currency ?? currency} ${formatCanonicalAmountForDisplay(expenseProjectedBalance)}. Podés registrarlo si representa un saldo real.`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Registrar de todos modos',
+            style: 'destructive',
+            onPress: () => {
+              negativeBalanceConfirmedSignatureRef.current = expenseNegativeBalanceSignature;
+              void submit();
+            },
+          },
+        ],
+      );
+      return;
+    }
+    submitInFlightRef.current = true;
+    try {
+      if (isTransfer(operation)) {
+        await submitTransfer();
+      } else {
+        await submitExpenseOrIncome();
+      }
+    } finally {
+      submitInFlightRef.current = false;
     }
   };
 
@@ -626,7 +697,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
       <AppButton title="Cancelar" variant="ghost" onPress={close} disabled={submitting} style={styles.footerButton} />
       <AppButton
         title={operation === 'expense' ? 'Registrar gasto' : operation === 'income' ? 'Registrar ingreso' : 'Transferir'}
-        onPress={submit}
+        onPress={() => { void submit(); }}
         loading={submitting}
         disabled={!canSubmit}
         style={styles.footerButton}
@@ -950,6 +1021,17 @@ if (commissionMode === 'custom' && !commission.isValid) {
                   {expenseAccountsState.error}
                 </AppText>
               ) : null}
+              {expenseAccountWillGoNegative ? (
+                <View style={styles.negativeBalanceWarning}>
+                  <HomePlusIcon name="alert-circle-outline" size={18} color={colors.warning.strong} />
+                  <View style={{ flex: 1 }}>
+                    <AppText variant="bodySmall" tone="warning" weight="800">Esta cuenta quedará en negativo</AppText>
+                    <AppText variant="caption" tone="secondary">
+                      Saldo estimado: {selectedExpenseAccount?.currency ?? currency} {formatCanonicalAmountForDisplay(expenseProjectedBalance)}. Te pediremos confirmación al registrar.
+                    </AppText>
+                  </View>
+                </View>
+              ) : null}
             </View>
           ) : null}
 
@@ -1103,7 +1185,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
           operationHint="transfer-source"
           onRequestClose={() => setActivePicker(null)}
           onSelect={handleSelectTransferSource}
-          onCreateAccount={() => setActivePicker(null)}
+          onCreateAccount={() => openAccountForm('transferSource')}
         />
 
         <AccountSelector
@@ -1120,7 +1202,19 @@ if (commissionMode === 'custom' && !commission.isValid) {
           operationHint="transfer-destination"
           onRequestClose={() => setActivePicker(null)}
           onSelect={handleSelectTransferDestination}
-          onCreateAccount={() => setActivePicker(null)}
+          onCreateAccount={() => openAccountForm('transferDestination')}
+        />
+
+        <AccountFormSheet
+          visible={accountFormVisible}
+          accessToken={accessToken}
+          contextType={contextType}
+          contextLabel={contextLabel}
+          onRequestClose={() => {
+            setAccountFormVisible(false);
+            setAccountCreationTarget(null);
+          }}
+          onSuccess={handleAccountCreated}
         />
       </View>
     </ActionSheet>
@@ -1233,6 +1327,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing[2],
     alignItems: 'center',
+  },
+  negativeBalanceWarning: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.warning.base,
+    backgroundColor: colors.warning.soft,
+    padding: spacing[3],
+    flexDirection: 'row',
+    gap: spacing[2],
+    alignItems: 'flex-start',
   },
   contextSummary: {
     minHeight: 56,
