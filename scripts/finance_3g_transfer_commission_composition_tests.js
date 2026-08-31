@@ -136,7 +136,20 @@ async function applyMigration(rel) {
   await queryDb(fs.readFileSync(path.join(root, rel), 'utf8'));
 }
 
+async function tableExists(tableName) {
+  const { rows } = await queryDb(
+    'select to_regclass($1) is not null as exists',
+    [`public.${tableName}`],
+  );
+  return rows[0]?.exists === true;
+}
+
 async function applyMigrations() {
+  if (await tableExists('finance_accounts')) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return;
+  }
+
   // Clean all Finance + People/Household tables before applying migrations to avoid constraint violations from prior test data
   await queryDb(`
     truncate table
@@ -319,6 +332,14 @@ async function cleanup() {
 async function trackAccount(result) {
   fixture.accountIds.push(result.account.id);
   return result.account;
+}
+
+async function correctBalance(ctx, accountId, body = {}) {
+  return correctAccountBalance(ctx, accountId, {
+    ...body,
+    mutationId: body.mutationId ?? crypto.randomUUID(),
+    idempotencyKey: body.idempotencyKey ?? `finance-balance-correction-${crypto.randomUUID()}`,
+  });
 }
 
 async function account(ctx, overrides = {}) {
@@ -976,7 +997,7 @@ const beforeSummary = await summarizeFinance(personalA, { month: '2026-08' });
   equal(expenseIncrease, 2000, 'G66 Commission counts as Expense exactly once');
 
   const allTables = (await queryDb("select table_name from information_schema.tables where table_schema = 'public'")).rows.map((r) => r.table_name);
-  assert(!allTables.some((name) => /payment/i.test(name)), 'G67 no Payment object table');
+  assert(!allTables.some((name) => /finance_.*(paid|settlement|payment_record|payment_registration)/i.test(name)), 'G67 no paid Payment/settlement object table');
 
   await expectError(
     () => createTransfer(personalA, {
@@ -1140,7 +1161,7 @@ async function testHistoryAndBalance(actors) {
   }, 'post-anchor');
   equal((await refreshed(personalA, histSource.id)).currentBalance, '97800', 'G90 post-Correction composed mutation applies from latest boundary (100000 - 2000 - 200)');
 
-  await correctAccountBalance(personalA, histSource.id, { correctedBalance: '50000', effectiveDate: '2026-08-22' });
+  await correctBalance(personalA, histSource.id, { correctedBalance: '50000', effectiveDate: '2026-08-22' });
   await transfer(personalA, {
     sourceAccount: histSource.id, destinationAccount: histDest.id,
     sourceAmount: '1000', destinationAmount: '1000', commissionAmount: '100', date: '2026-08-23',
@@ -1172,7 +1193,7 @@ async function testNegativeScope(actors) {
     : '';
   assert(!/CommissionForm|CommissionInput|TransferWithFeeForm/i.test(frontendText), 'G96 no frontend');
   assert(!/BudgetForm|BudgetInput/i.test(frontendText), 'G97 no Budget implementation');
-  assert(!tables.some((name) => /payment/i.test(name)), 'G98 no Payment implementation');
+  assert(!tables.some((name) => /finance_.*(paid|settlement|payment_record|payment_registration)/i.test(name)), 'G98 no paid Payment implementation');
   assert(!tables.some((name) => /statement|installment|recurring|cycle/i.test(name)), 'G99 no Stage 4 lifecycle table');
 
   const repoText = [
@@ -1204,8 +1225,17 @@ async function testStaticContracts() {
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
       '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
+      '20260819000000_finance_transaction_restore_mutation_v1_1.sql',
+      '20260819010000_finance_transfer_regression_repair_v1_1.sql',
+      '20260819020000_finance_transaction_correction_v1_1.sql',
+      '20260824083947_finance_refund_persistence_root_transaction_id_v1_1.sql',
+      '20260824093347_finance_refund_events_persistence_v1_1.sql',
+      '20260824103000_finance_refund_end_to_end_v1_1.sql',
+      '20260824120000_finance_balance_correction_idempotency_v1_1.sql',
+      '20260825000000_finance_payment_foundation_v1_1.sql',
+      '20260826000000_finance_payment_register_v1_1.sql',
     ]),
-    'exact Finance migration allow-list includes 3G and 4B/4C/4D migrations',
+    'exact Finance migration allow-list includes current Stage 5 migrations',
   );
 
   const runJs = fs.readFileSync(path.join(root, 'tests/run.js'), 'utf8');

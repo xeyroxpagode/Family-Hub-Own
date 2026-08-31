@@ -394,6 +394,122 @@ const commands = {
     'node',
     ['scripts/finance_4i_b_transaction_correction_tests.js'],
   ),
+  'finance-4j': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3001',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Finance 4J-R transaction detail consumption tests',
+      'node',
+      ['scripts/compiled/scripts/finance_4j_transaction_correction_ui_tests.js'],
+      { env },
+    );
+  },
+  'finance-5e-frontend': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3001',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Finance 5E payments frontend tests',
+      'node',
+      ['scripts/compiled/scripts/finance_5e_payments_frontend_tests.js'],
+      { env },
+    );
+  },
+  'finance-5f-backend': () => runCommand(
+    'Finance 5F payment attention backend tests',
+    'node',
+    ['scripts/finance_5f_payment_attention_tests.js'],
+  ),
+'finance-5f-frontend': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3001',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Finance 5F payment attention frontend tests',
+      'node',
+      ['scripts/compiled/scripts/finance_5f_payment_attention_frontend_tests.js'],
+      { env },
+    );
+  },
+'finance-5g-frontend': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3001',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Finance 5G credit card payment frontend tests',
+      'node',
+      ['scripts/compiled/scripts/finance_5g_credit_card_payment_frontend_tests.js'],
+      { env },
+    );
+  },
+  'finance-6c1-pool-foundation': () => runCommand(
+    'Finance 6C.1 Pool Foundation tests',
+    'node',
+    ['scripts/finance_6c1_pool_foundation_tests.js'],
+  ),
+  'finance-6c2-pool-financial-integration': () => runCommand(
+    'Finance 6C.2 Pool financial integration tests',
+    'node',
+    ['scripts/finance_6c2_pool_financial_integration_tests.js'],
+  ),
+  'finance-6c3-spending-limit-foundation': () => runCommand(
+    'Finance 6C.3 Spending Limit foundation tests',
+    'node',
+    ['scripts/finance_6c3_spending_limit_foundation_tests.js'],
+  ),
+'finance-6c4-analysis-progress': () => runCommand(
+    'Finance 6C.4 Analysis / progress tests',
+    'node',
+    ['scripts/finance_6c4_analysis_progress_tests.js'],
+  ),
+  'finance-6d-resumen-dashboard': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3001',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Finance 6D Resumen Dashboard tests',
+      'node',
+      ['scripts/compiled/scripts/finance_6d_resumen_dashboard_tests.js'],
+      { env },
+    );
+  },
+  'finance-6e1-pool-management': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3001',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Finance 6E.1 Pool Management tests',
+      'node',
+      ['scripts/compiled/scripts/finance_6e1_pool_management_tests.js'],
+      { env },
+    );
+  },
+  'finance-6e2-expense-pool-frontend': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3001',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Finance 6E.2 Expense Pool frontend tests',
+      'node',
+      ['scripts/compiled/scripts/finance_6e2_expense_pool_frontend_tests.js'],
+      { env },
+    );
+  },
   'runtime-smoke': () => runCommand(
     'Frontend runtime smoke',
     'node',
@@ -471,7 +587,18 @@ const suites = {
   'finance-4d': ['finance-4d-trash'],
   'finance-4g': ['finance-4g-restore'],
   'finance-4i-b': ['finance-4i-b'],
-  finance: ['compile-frontend-tests', 'finance-1b-contract', 'finance-1b-database', 'finance-1c-ownership-privacy', 'finance-1d-source-context-boundary', 'finance-1e-frontend', 'finance-1f-integration', 'finance-2a-transaction-contract', 'finance-2b-category-authority', 'finance-2c-expense-income', 'finance-2d-money-input', 'finance-2e-expense-income-ui', 'finance-2f-read-authority', 'finance-2f-ui', 'finance-3a-account-authority', 'finance-3b-balance-anchor', 'finance-3c-balance-correction', 'finance-3d-credit-card-semantics', 'finance-3e-canonical-transfer', 'finance-3f-cross-currency-transfer', 'finance-3g-transfer-commission-composition', 'finance-3h-account-transfer-ui', 'finance-4b-effect-status', 'finance-4c-lifecycle', 'finance-4d-trash', 'finance-4g-restore', 'finance-4i-b'],
+  'finance-4j': ['compile-frontend-tests', 'finance-4j'],
+'finance-5e-frontend': ['compile-frontend-tests', 'finance-5e-frontend'],
+  'finance-5f': ['finance-5f-backend', 'compile-frontend-tests', 'finance-5f-frontend'],
+  'finance-5g': ['compile-frontend-tests', 'finance-5g-frontend'],
+  'finance-6c2': ['finance-6c2-pool-financial-integration'],
+  'finance-6c1': ['finance-6c1-pool-foundation'],
+  'finance-6c3': ['finance-6c3-spending-limit-foundation'],
+'finance-6c4': ['finance-6c4-analysis-progress'],
+  'finance-6d': ['compile-frontend-tests', 'finance-6d-resumen-dashboard'],
+  'finance-6e1': ['compile-frontend-tests', 'finance-6e1-pool-management'],
+  'finance-6e2': ['compile-frontend-tests', 'finance-6e2-expense-pool-frontend', 'finance-6c2-pool-financial-integration'],
+  finance: ['compile-frontend-tests', 'finance-1b-contract', 'finance-1b-database', 'finance-1c-ownership-privacy', 'finance-1d-source-context-boundary', 'finance-1e-frontend', 'finance-1f-integration', 'finance-2a-transaction-contract', 'finance-2b-category-authority', 'finance-2c-expense-income', 'finance-2d-money-input', 'finance-2e-expense-income-ui', 'finance-2f-read-authority', 'finance-2f-ui', 'finance-3a-account-authority', 'finance-3b-balance-anchor', 'finance-3c-balance-correction', 'finance-3d-credit-card-semantics', 'finance-3e-canonical-transfer', 'finance-3f-cross-currency-transfer', 'finance-3g-transfer-commission-composition', 'finance-3h-account-transfer-ui', 'finance-4b-effect-status', 'finance-4c-lifecycle', 'finance-4d-trash', 'finance-4g-restore', 'finance-4i-b', 'finance-4j', 'finance-5e-frontend', 'finance-5f', 'finance-5g', 'finance-6d', 'finance-6e1'],
   'planner-presets-drafts': ['compile-frontend-tests', 'planner-v1-presets-drafts'],
   'planner-presets-drafts-integration': ['compile-frontend-tests', 'planner-v1-presets-drafts-integration'],
   'planner-shared-s2-runtime': ['compile-frontend-tests', 'planner-v1-s2-runtime-owner'],

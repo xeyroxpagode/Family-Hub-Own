@@ -105,6 +105,7 @@ const EFFECT_SELECT = [
   'account_id',
   'transaction_id',
   'transfer_id',
+  'refund_event_id',
   'effect_type',
   'effect_role',
   'effect_amount:effect_amount::text',
@@ -121,14 +122,17 @@ function activityTitleFromEffect(effect, enriched) {
       ? 'Transferencia'
       : 'Transferencia recibida';
   }
+  if (effect.effect_type === 'refund') {
+    return enriched?.description?.trim()
+      ? `Devolucion - ${enriched.description.trim()}`
+      : 'Devolucion';
+  }
   return enriched?.description?.trim() || (effect.effect_type === 'expense' ? 'Gasto' : 'Ingreso');
 }
 
 function toActivityDto(effect, enriched) {
   const baseTitle = activityTitleFromEffect(effect, enriched);
-  const tag = effect.effect_type === 'transfer'
-    ? 'transfer'
-    : effect.effect_type;
+  const tag = effect.effect_type === 'refund' ? 'refund' : (effect.effect_type === 'transfer' ? 'transfer' : effect.effect_type);
   return {
     id: effect.id,
     effectType: effect.effect_type,
@@ -142,6 +146,7 @@ function toActivityDto(effect, enriched) {
     operationTag: tag,
     transactionId: effect.transaction_id ?? null,
     transferId: effect.transfer_id ?? null,
+    refundEventId: effect.refund_event_id ?? null,
     createdAt: effect.created_at,
   };
 }
@@ -166,6 +171,7 @@ async function listFinanceAccountActivity(financeContext, accountId, query = {})
   request = request.eq('account_id', account.id);
 
   request = request
+    .eq('effect_status', 'ACTIVE')
     .order('transaction_date', { ascending: false })
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
-import { ApiError } from '../../services/api';
+import { ApiError, createIdempotencyKey, generateMutationId } from '../../services/api';
 import {
   createFinanceAccountBalanceAnchor,
   correctFinanceAccountBalance,
@@ -193,6 +193,8 @@ export function BalanceCorrectionSheet({
   const [amount, setAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [correctionMutationId, setCorrectionMutationId] = useState<string | null>(null);
+  const [correctionIdempotencyKey, setCorrectionIdempotencyKey] = useState<string | null>(null);
 
   const presentation = account ? getAccountBalancePresentation(account) : null;
   const homePlusAmount = presentation?.displayAmount ?? '0';
@@ -212,19 +214,29 @@ export function BalanceCorrectionSheet({
       setAmount(parseMoneyInputText('', currency));
       setSubmitError(null);
       setSubmitting(false);
+      setCorrectionMutationId(null);
+      setCorrectionIdempotencyKey(null);
+      return;
     }
-  }, [visible, currency]);
+
+    if (account && !correctionMutationId) {
+      setCorrectionMutationId(generateMutationId());
+      setCorrectionIdempotencyKey(createIdempotencyKey('finance.account.balance.correct'));
+    }
+  }, [visible, currency, account, correctionMutationId]);
 
   const close = () => {
     if (submitting) return;
     setAmountText('');
     setAmount(parseMoneyInputText('', currency));
     setSubmitError(null);
+    setCorrectionMutationId(null);
+    setCorrectionIdempotencyKey(null);
     onRequestClose();
   };
 
   const submit = async () => {
-    if (submitting || !accessToken || !account || canonicalAmount === null) return;
+    if (submitting || !accessToken || !account || canonicalAmount === null || !correctionMutationId || !correctionIdempotencyKey) return;
     Keyboard.dismiss();
     setSubmitError(null);
     setSubmitting(true);
@@ -233,9 +245,13 @@ export function BalanceCorrectionSheet({
         correctedBalance: toCanonicalSignedAccountBalance(canonicalAmount, account.accountType),
         effectiveDate: todayLocalDateOnly(),
         contextType,
+        mutationId: correctionMutationId,
+        idempotencyKey: correctionIdempotencyKey,
       });
       setAmountText('');
       setAmount(parseMoneyInputText('', currency));
+      setCorrectionMutationId(null);
+      setCorrectionIdempotencyKey(null);
       onRequestClose();
       onSuccess(response.account);
     } catch (error) {

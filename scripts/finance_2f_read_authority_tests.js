@@ -732,8 +732,9 @@ async function testNegativeScope() {
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
+      '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
     ]),
-    'T51 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C Finance migrations remain',
+    'T51 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C/4D Finance migrations remain',
   );
 
   // T52 no direct donor architecture import: read service should not import planner.context.service

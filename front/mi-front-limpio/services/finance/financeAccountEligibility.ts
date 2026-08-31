@@ -211,9 +211,9 @@ export function useEligibleAccounts(args: {
 
   useEffect(() => {
     if (!enabled || !accessToken) {
-      setLoading(false);
-      setError(null);
-      setAccounts([]);
+      setLoading((current) => (current ? false : current));
+      setError((current) => (current === null ? current : null));
+      setAccounts((current) => (current.length === 0 ? current : []));
       return;
     }
 

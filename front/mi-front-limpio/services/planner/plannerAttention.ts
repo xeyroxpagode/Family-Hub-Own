@@ -2,12 +2,17 @@
  * Planner V1 - 11A.2C Global Attention client contract.
  */
 
-export type AttentionEntityType = 'task' | 'event' | 'plan';
+import type { FinanceContextType, FinanceTabKey } from '../finance/financeContext';
+
+export type AttentionEntityType = 'task' | 'event' | 'plan' | 'payment';
 
 export type AttentionDestination = {
   readonly entityType: AttentionEntityType;
   readonly entityId: string;
   readonly surfaceOrigin: 'attention';
+  readonly contextType?: FinanceContextType;
+  readonly initialTab?: FinanceTabKey;
+  readonly paymentDueId?: string;
 };
 
 export type AttentionPrimaryAction = {

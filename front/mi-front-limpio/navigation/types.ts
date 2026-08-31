@@ -29,12 +29,16 @@ export type HomeTabParamList = {
 export type MoreStackParamList = {
   MoreHome: undefined;
   Family: undefined;
-  Finance: undefined;
+  Finance: import('./financeNavigation').FinanceEntryParams | undefined;
   FinanceAccounts: {
     contextType: import('../services/finance/financeContext').FinanceContextType;
   };
   FinancePapelera: {
     contextType: import('../services/finance/financeContext').FinanceContextType;
+  };
+  FinancePoolManagement: {
+    contextType: import('../services/finance/financeContext').FinanceContextType;
+    currency: string;
   };
 };
 

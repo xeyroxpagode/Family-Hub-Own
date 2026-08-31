@@ -147,7 +147,20 @@ async function applyMigration(rel) {
   await queryDb(fs.readFileSync(path.join(root, rel), 'utf8'));
 }
 
+async function tableExists(tableName) {
+  const { rows } = await queryDb(
+    'select to_regclass($1) is not null as exists',
+    [`public.${tableName}`],
+  );
+  return rows[0]?.exists === true;
+}
+
 async function applyMigrations() {
+  if (await tableExists('finance_account_effects')) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return;
+  }
+
   await applyMigration('supabase/migrations/20260813010000_finance_category_authority_v1_1.sql');
   await applyMigration('supabase/migrations/20260813020000_finance_expense_income_transactions_v1_1.sql');
   await applyMigration('supabase/migrations/20260814010000_finance_account_authority_v1_1.sql');
@@ -617,8 +630,15 @@ async function testStaticContracts() {
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
       '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
+      '20260819000000_finance_transaction_restore_mutation_v1_1.sql',
+      '20260819010000_finance_transfer_regression_repair_v1_1.sql',
+      '20260819020000_finance_transaction_correction_v1_1.sql',
+      '20260824083947_finance_refund_persistence_root_transaction_id_v1_1.sql',
+      '20260824093347_finance_refund_events_persistence_v1_1.sql',
+      '20260824103000_finance_refund_end_to_end_v1_1.sql',
+      '20260824120000_finance_balance_correction_idempotency_v1_1.sql',
     ]),
-    'exact Finance migration allow-list includes 4B/4C/4D migration',
+    'exact Finance migration allow-list includes current Stage 4 migrations',
   );
   const runJs = fs.readFileSync(path.join(root, 'tests/run.js'), 'utf8');
   assert(runJs.includes('finance-4b-effect-status') && runJs.includes("'finance-4b'"), 'node tests/run.js finance-4b registered');

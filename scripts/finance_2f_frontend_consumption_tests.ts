@@ -13,7 +13,7 @@ import {
   isZeroDecimalString,
 } from '../front/mi-front-limpio/services/finance/financeDisplay';
 
-const repositoryRoot = path.resolve(__dirname, '..', '..', '..');
+const repositoryRoot = path.resolve(__dirname, '..');
 
 let passCount = 0;
 let failCount = 0;
@@ -170,8 +170,9 @@ runTest('T45-T53 Negative scope', () => {
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
+      '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
     ],
-    'T52 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C schema migrations exist',
+    'T52 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C/4D schema migrations exist',
   );
   assert(!/FinanceDesignSystem|FinanceNavbar|FinanceAppShell|FinanceToast|FinanceQueryProvider|useFinanceQuery|FinanceReliability/i.test(financeFrontend), 'T53 no Finance design/reliability/API parallel subsystem');
 });

@@ -4,11 +4,15 @@ const {
   buildPlannerAccessContext,
   isVisibleInPlannerContext,
 } = require('../lib/plannerGlobalSurfaces');
+const {
+  PAYMENT_ATTENTION_REASONS,
+  loadPaymentAttention,
+} = require('./finance.payment.attention.service');
 
 const ATTENTION_PROJECTION_VERSION = 'planner.global_attention.v1';
 const ATTENTION_LIMIT_DEFAULT = 50;
 const ATTENTION_LIMIT_MAX = 100;
-const ATTENTION_SOURCE_ENTITIES = Object.freeze(['task', 'event', 'plan']);
+const ATTENTION_SOURCE_ENTITIES = Object.freeze(['task', 'event', 'plan', 'payment']);
 
 const ATTENTION_REASONS = Object.freeze({
   TASK_AWAITING_VERIFICATION: 'task_awaiting_verification',
@@ -16,13 +20,19 @@ const ATTENTION_REASONS = Object.freeze({
   EVENT_RSVP_REQUIRED: 'event_rsvp_required',
   PLAN_BLOCKER: 'plan_blocker',
   PLAN_REVIEW_REQUIRED: 'plan_review_required',
+  PAYMENT_OVERDUE: PAYMENT_ATTENTION_REASONS.OVERDUE,
+  PAYMENT_DUE_TODAY: PAYMENT_ATTENTION_REASONS.DUE_TODAY,
+  PAYMENT_DUE_SOON: PAYMENT_ATTENTION_REASONS.DUE_SOON,
 });
 
 const SEVERITY_ORDER = Object.freeze([
   ATTENTION_REASONS.TASK_CORRECTION_REQUESTED,
+  ATTENTION_REASONS.PAYMENT_OVERDUE,
   ATTENTION_REASONS.PLAN_BLOCKER,
+  ATTENTION_REASONS.PAYMENT_DUE_TODAY,
   ATTENTION_REASONS.TASK_AWAITING_VERIFICATION,
   ATTENTION_REASONS.EVENT_RSVP_REQUIRED,
+  ATTENTION_REASONS.PAYMENT_DUE_SOON,
   ATTENTION_REASONS.PLAN_REVIEW_REQUIRED,
 ]);
 
@@ -71,7 +81,7 @@ function toAttentionDTO(params) {
   const {
     attentionId, dedupeKey, reason, entityType, entityId,
     title, summary, severity, createdAt, updatedAt,
-    personRecipientId, primaryAction,
+    personRecipientId, primaryAction, destination,
   } = params;
   return {
     attentionId,
@@ -88,9 +98,27 @@ function toAttentionDTO(params) {
     unresolved: true,
     priorityScore: severityRank(reason),
     primaryAction: primaryAction || null,
-    destination: { entityType, entityId, surfaceOrigin: 'attention' },
+    destination: destination || { entityType, entityId, surfaceOrigin: 'attention' },
     sourceVersion: ATTENTION_PROJECTION_VERSION,
   };
+}
+
+function paymentSourceToAttentionDTO(item) {
+  return toAttentionDTO({
+    attentionId: item.attentionId,
+    dedupeKey: item.dedupeKey,
+    reason: item.reason,
+    entityType: item.entityType,
+    entityId: item.entityId,
+    title: item.title,
+    summary: item.summary,
+    severity: item.severity,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    personRecipientId: item.personRecipientId,
+    primaryAction: item.primaryAction,
+    destination: item.destination,
+  });
 }
 
 // ---- TASK SOURCES ----
@@ -319,12 +347,13 @@ async function loadRsvpRequiredEvents(context) {
 async function listAttention(context, options = {}) {
   const limit = parseAttentionLimit(options.limit);
 
-  const [verifyingTasks, correctionTasks, blockedPlans, reviewPlans, rsvpEvents] = await Promise.all([
+  const [verifyingTasks, correctionTasks, blockedPlans, reviewPlans, rsvpEvents, paymentAttention] = await Promise.all([
     loadAwaitingVerificationTasks(context),
     loadCorrectionPendingTasks(context),
     loadBlockedPlans(context),
     loadReviewRequiredPlans(context),
     loadRsvpRequiredEvents(context),
+    loadPaymentAttention(context, { todayDate: options.todayDate, limit: ATTENTION_LIMIT_MAX }),
   ]);
 
   const allItems = [
@@ -333,13 +362,14 @@ async function listAttention(context, options = {}) {
     ...(blockedPlans || []),
     ...(reviewPlans || []),
     ...(rsvpEvents || []),
+    ...(paymentAttention || []).map(paymentSourceToAttentionDTO),
   ];
 
-  // Deduplication by (reason, entityType, entityId, personId)
+  // Deduplication by source identity; Payment identity stays stable as reason evolves.
   const seen = new Set();
   const deduped = [];
   for (const item of allItems) {
-    const key = `${item.reason}:${item.entityType}:${item.entityId}:${item.personRecipientId}`;
+    const key = item.dedupeKey || `${item.reason}:${item.entityType}:${item.entityId}:${item.personRecipientId}`;
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(item);

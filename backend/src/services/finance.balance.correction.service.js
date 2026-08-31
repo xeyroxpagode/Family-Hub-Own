@@ -1,6 +1,7 @@
 'use strict';
 
 const { createHttpError } = require('../lib/httpErrors');
+const { hashIdempotencyRequestV2 } = require('../lib/plannerIdempotencyAdapter');
 const {
   FINANCE_ACCOUNT_BALANCE_STATES,
   FINANCE_ACCOUNT_STATUSES,
@@ -52,6 +53,15 @@ async function correctAccountBalance(financeContext, accountId, body = {}) {
 
   const correctedBalance = normalizeDecimalText(body.correctedBalance ?? body.corrected_balance);
   const effectiveDate = normalizeEffectiveDate(body.effectiveDate ?? body.effective_date);
+  const mutationId = body.mutationId ?? body.mutation_id;
+  const idempotencyKey = body.idempotencyKey ?? body.idempotency_key;
+
+  if (!mutationId) {
+    throw createHttpError(400, 'mutationId es obligatorio.', 'validation_error');
+  }
+  if (!idempotencyKey) {
+    throw createHttpError(400, 'idempotencyKey es obligatorio.', 'validation_error');
+  }
 
   const current = await getAccountForMutation(financeContext, accountId);
 
@@ -63,14 +73,38 @@ async function correctAccountBalance(financeContext, accountId, body = {}) {
     throw createHttpError(409, 'Solo cuentas con saldo conocido (KNOWN) pueden corregirse. Cuentas UNKNOWN usan initial Anchor.', 'finance_account_balance_state_unknown');
   }
 
+  const payload = {
+    accountId: current.id,
+    correctedBalance,
+    effectiveDate,
+  };
+  const payloadHash = hashIdempotencyRequestV2({
+    operation: 'finance.account.balance.correct',
+    scopeType: financeContext.contextType,
+    scopeId: financeContext.contextType === 'personal' ? financeContext.personId : financeContext.householdId,
+    targetId: current.id,
+    payload,
+    expectedVersion: null,
+    mutationId,
+  });
+
   const { data, error } = await financeContext.client.rpc('finance_correct_account_balance_v1', {
     p_account_id: current.id,
     p_corrected_balance: correctedBalance,
     p_effective_date: effectiveDate,
     p_created_by_person_id: financeContext.personId,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_payload_hash: payloadHash,
   });
 
   if (error) {
+    if (error?.code === 'P0008') {
+      throw createHttpError(409, 'La operacion ya fue procesada con otros datos.', 'idempotency_conflict');
+    }
+    if (error?.code === 'P0009') {
+      throw createHttpError(409, 'La operacion ya se esta procesando. Reintentá en unos segundos.', 'idempotency_in_flight');
+    }
     if (error.message?.includes('finance_account_archived')) {
       throw createHttpError(409, 'No se puede corregir saldo de una cuenta archivada.', 'finance_account_archived');
     }

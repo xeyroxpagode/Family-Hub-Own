@@ -3,7 +3,7 @@ import { Animated, ActivityIndicator, Pressable, View, StyleSheet } from 'react-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { HomeTabParamList, MoreStackParamList, PlannerStackParamList } from './types';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
@@ -39,6 +39,7 @@ import {
 import { MoreScreen } from '../screens/MoreScreen';
 import { FinanceAccountsScreen } from '../screens/finance/FinanceAccountsScreen';
 import { FinancePapeleraScreen } from '../screens/finance/FinancePapeleraScreen';
+import { FinancePoolManagementScreen } from '../components/finance/FinancePoolManagementScreen';
 import { APP_ICONS, HomePlusIcon } from '../constants/icons';
 import { AppTopBar, HouseholdSwitcherSheet, InteractivePressable } from '../components/ui';
 import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
@@ -60,10 +61,10 @@ function AttentionTopBarButton({ accessToken, householdId, navigation }: {
   const [count, setCount] = useState(0);
   const requestSeq = useRef(0);
 
-  useEffect(() => {
+  const refreshCount = useCallback(() => {
     if (!GLOBAL_SURFACE_GATES_OFF.attention.enabled || !accessToken || !householdId) {
       setCount(0);
-      return;
+      return undefined;
     }
     const controller = new AbortController();
     const sequence = ++requestSeq.current;
@@ -82,6 +83,12 @@ function AttentionTopBarButton({ accessToken, householdId, navigation }: {
     });
     return () => controller.abort();
   }, [accessToken, householdId]);
+
+  useEffect(() => refreshCount(), [refreshCount]);
+
+  useFocusEffect(
+    useCallback(() => refreshCount(), [refreshCount]),
+  );
 
   if (!GLOBAL_SURFACE_GATES_OFF.attention.enabled) return null;
 
@@ -200,6 +207,7 @@ function MoreStackScreen() {
       <MoreStack.Screen name="Finance" component={FinanceScreen} />
       <MoreStack.Screen name="FinanceAccounts" component={FinanceAccountsScreen} />
       <MoreStack.Screen name="FinancePapelera" component={FinancePapeleraScreen} />
+      <MoreStack.Screen name="FinancePoolManagement" component={FinancePoolManagementScreen} />
     </MoreStack.Navigator>
   );
 }

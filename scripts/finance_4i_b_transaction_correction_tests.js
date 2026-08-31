@@ -402,8 +402,25 @@ async function runTest(name, fn) {
 }
 
 async function cleanup() {
-  if (fixture.transactionIds.length) {
-    await queryDb(`DELETE FROM finance_transactions WHERE id = ANY($1)`, [fixture.transactionIds]);
+  if (fixture.transactionIds.length || fixture.personIds.length || fixture.householdIds.length) {
+    for (;;) {
+      const { rowCount } = await queryDb(
+        `DELETE FROM finance_transactions t
+         WHERE (
+             t.id = ANY($1)
+             OR t.owner_person_id = ANY($2)
+             OR t.created_by_person_id = ANY($2)
+             OR t.household_id = ANY($3)
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM finance_transactions child
+             WHERE child.corrected_from_transaction_id = t.id
+           )`,
+        [fixture.transactionIds, fixture.personIds, fixture.householdIds],
+      );
+      if (rowCount === 0) break;
+    }
   }
   if (fixture.transferIds.length) {
     await queryDb(`DELETE FROM finance_account_effects WHERE transfer_id = ANY($1)`, [fixture.transferIds]);

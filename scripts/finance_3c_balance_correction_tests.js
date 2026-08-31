@@ -153,12 +153,27 @@ async function applyMigration(rel) {
   await queryDb(fs.readFileSync(path.join(root, rel), 'utf8'));
 }
 
+async function tableExists(tableName) {
+  const { rows } = await queryDb(
+    'select to_regclass($1) is not null as exists',
+    [`public.${tableName}`],
+  );
+  return rows[0]?.exists === true;
+}
+
 async function applyMigrations() {
+  if (await tableExists('finance_accounts')) {
+    await applyMigration('supabase/migrations/20260824120000_finance_balance_correction_idempotency_v1_1.sql');
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return;
+  }
+
   await applyMigration('supabase/migrations/20260813010000_finance_category_authority_v1_1.sql');
   await applyMigration('supabase/migrations/20260813020000_finance_expense_income_transactions_v1_1.sql');
   await applyMigration('supabase/migrations/20260814010000_finance_account_authority_v1_1.sql');
   await applyMigration('supabase/migrations/20260814020000_finance_balance_anchor_account_effects_v1_1.sql');
   await applyMigration('supabase/migrations/20260814030000_finance_balance_correction_v1_1.sql');
+  await applyMigration('supabase/migrations/20260824120000_finance_balance_correction_idempotency_v1_1.sql');
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
 
@@ -306,6 +321,14 @@ async function trackTransaction(result) {
   return result.transaction;
 }
 
+async function correctBalance(ctx, accountId, body = {}) {
+  return correctAccountBalance(ctx, accountId, {
+    ...body,
+    mutationId: body.mutationId ?? crypto.randomUUID(),
+    idempotencyKey: body.idempotencyKey ?? `finance-balance-correction-${crypto.randomUUID()}`,
+  });
+}
+
 async function account(ctx, overrides = {}) {
   return trackAccount(await createFinanceAccount(ctx, {
     name: `Cuenta ${crypto.randomBytes(4).toString('hex')}`,
@@ -352,7 +375,7 @@ async function testBasicCorrection(actors) {
   // C01: KNOWN Account can be corrected
   const known = await knownAccount(personalA, '120000', '2026-08-14', { name: 'Known for correction' });
   equal(known.balanceState, FINANCE_ACCOUNT_BALANCE_STATES.KNOWN, 'C01 setup: KNOWN account');
-  const corrected1 = await correctAccountBalance(personalA, known.id, { correctedBalance: '115000', effectiveDate: '2026-08-15' });
+  const corrected1 = await correctBalance(personalA, known.id, { correctedBalance: '115000', effectiveDate: '2026-08-15' });
   equal(corrected1.account.balanceState, FINANCE_ACCOUNT_BALANCE_STATES.KNOWN, 'C01 KNOWN Account correction succeeds');
   equal(corrected1.account.currentBalance, '115000', 'C01 currentBalance immediately equals corrected amount');
   equal(corrected1.outcome, 'corrected', 'C01 outcome is corrected');
@@ -361,7 +384,7 @@ async function testBasicCorrection(actors) {
   const unknown = await account(personalA, { name: 'Unknown for correction' });
   equal(unknown.balanceState, FINANCE_ACCOUNT_BALANCE_STATES.UNKNOWN, 'C02 setup: UNKNOWN account');
   await expectError(
-    () => correctAccountBalance(personalA, unknown.id, { correctedBalance: '5000', effectiveDate: '2026-08-15' }),
+    () => correctBalance(personalA, unknown.id, { correctedBalance: '5000', effectiveDate: '2026-08-15' }),
     'finance_account_balance_state_unknown',
     'C02 UNKNOWN Account correction rejected with canonical error'
   );
@@ -370,41 +393,41 @@ async function testBasicCorrection(actors) {
   const archived = await knownAccount(personalA, '1000', '2026-08-14', { name: 'Archived for correction' });
   await archiveFinanceAccount(personalA, archived.id);
   await expectError(
-    () => correctAccountBalance(personalA, archived.id, { correctedBalance: '500', effectiveDate: '2026-08-15' }),
+    () => correctBalance(personalA, archived.id, { correctedBalance: '500', effectiveDate: '2026-08-15' }),
     'finance_account_archived',
     'C03 archived Account correction rejected'
   );
 
   // C04: positive corrected Balance accepted
   const pos = await knownAccount(personalA, '100', '2026-08-14', { name: 'Positive correction' });
-  const posCorr = await correctAccountBalance(personalA, pos.id, { correctedBalance: '250.75', effectiveDate: '2026-08-15' });
+  const posCorr = await correctBalance(personalA, pos.id, { correctedBalance: '250.75', effectiveDate: '2026-08-15' });
   equal(posCorr.account.currentBalance, '250.75', 'C04 positive corrected Balance accepted');
 
   // C05: zero corrected Balance accepted
   const zero = await knownAccount(personalA, '100', '2026-08-14', { name: 'Zero correction' });
-  const zeroCorr = await correctAccountBalance(personalA, zero.id, { correctedBalance: '0', effectiveDate: '2026-08-15' });
+  const zeroCorr = await correctBalance(personalA, zero.id, { correctedBalance: '0', effectiveDate: '2026-08-15' });
   equal(zeroCorr.account.currentBalance, '0', 'C05 zero corrected Balance accepted');
 
   // C06: negative corrected Balance accepted
   const neg = await knownAccount(personalA, '100', '2026-08-14', { name: 'Negative correction' });
-  const negCorr = await correctAccountBalance(personalA, neg.id, { correctedBalance: '-50', effectiveDate: '2026-08-15' });
+  const negCorr = await correctBalance(personalA, neg.id, { correctedBalance: '-50', effectiveDate: '2026-08-15' });
   equal(negCorr.account.currentBalance, '-50', 'C06 negative corrected Balance accepted');
 
   // C07: corrected Balance exact decimal roundtrip
   const dec = await knownAccount(personalA, '100', '2026-08-14', { name: 'Decimal correction' });
-  const decCorr = await correctAccountBalance(personalA, dec.id, { correctedBalance: '123.4567', effectiveDate: '2026-08-15' });
+  const decCorr = await correctBalance(personalA, dec.id, { correctedBalance: '123.4567', effectiveDate: '2026-08-15' });
   equal(decCorr.account.currentBalance, '123.4567', 'C07 corrected Balance exact decimal roundtrip (4 decimals)');
 
   // C08: Currency derived from Account (not caller)
   const currencyAcc = await knownAccount(personalA, '100', '2026-08-14', { currency: 'USD', name: 'USD Account' });
-  const currencyCorr = await correctAccountBalance(personalA, currencyAcc.id, { correctedBalance: '99.99', effectiveDate: '2026-08-15' });
+  const currencyCorr = await correctBalance(personalA, currencyAcc.id, { correctedBalance: '99.99', effectiveDate: '2026-08-15' });
   equal(currencyCorr.account.currency, 'USD', 'C08 Account currency is USD');
   const anchorCurrency = await queryDb('select currency from public.finance_account_balance_anchors where account_id = $1 and anchor_kind = \'CORRECTION\'', [currencyAcc.id]);
   equal(anchorCurrency.rows[0].currency, 'USD', 'C08 Correction Anchor currency comes from Account, not caller');
 
   // C09: caller Currency override rejected
   await expectError(
-    () => correctAccountBalance(personalA, currencyAcc.id, { correctedBalance: '50', effectiveDate: '2026-08-16', currency: 'EUR' }),
+    () => correctBalance(personalA, currencyAcc.id, { correctedBalance: '50', effectiveDate: '2026-08-16', currency: 'EUR' }),
     'protected_finance_account_field',
     'C09 caller currency override rejected'
   );
@@ -412,12 +435,12 @@ async function testBasicCorrection(actors) {
 
   // C10: owner/context injection rejected
   await expectError(
-    () => correctAccountBalance(personalA, pos.id, { correctedBalance: '1', effectiveDate: '2026-08-15', ownerPersonId: personalB.person.id }),
+    () => correctBalance(personalA, pos.id, { correctedBalance: '1', effectiveDate: '2026-08-15', ownerPersonId: personalB.person.id }),
     'finance_account_owner_authority_forbidden',
     'C10 ownerPersonId injection rejected'
   );
   await expectError(
-    () => correctAccountBalance(personalA, pos.id, { correctedBalance: '1', effectiveDate: '2026-08-15', householdId: actors.households.b.id }),
+    () => correctBalance(personalA, pos.id, { correctedBalance: '1', effectiveDate: '2026-08-15', householdId: actors.households.b.id }),
     'finance_account_owner_authority_forbidden',
     'C10 householdId injection rejected'
   );
@@ -431,7 +454,7 @@ async function testSemanticsNoTransactionCreation(actors) {
   const beforeSummary = await summarizeFinance(personalA, { month: '2026-08' });
 
   const acc = await knownAccount(personalA, '1000', '2026-08-14', { name: 'Semantics test' });
-  await correctAccountBalance(personalA, acc.id, { correctedBalance: '750', effectiveDate: '2026-08-15' });
+  await correctBalance(personalA, acc.id, { correctedBalance: '750', effectiveDate: '2026-08-15' });
 
   const afterTx = await queryDb('select count(*)::int as count from public.finance_transactions');
   const afterSummary = await summarizeFinance(personalA, { month: '2026-08' });
@@ -461,7 +484,7 @@ async function testHistoryPreservation(actors) {
   equal((await refreshed(personalA, acc.id)).currentBalance, '800', 'pre-correction balance with effect');
 
   // Correction
-  await correctAccountBalance(personalA, acc.id, { correctedBalance: '750', effectiveDate: '2026-08-16' });
+  await correctBalance(personalA, acc.id, { correctedBalance: '750', effectiveDate: '2026-08-16' });
 
   // C19: Initial Anchor remains persisted
   const allAnchors = await anchorRows(acc.id);
@@ -498,32 +521,32 @@ async function testDerivation(actors) {
   const c25 = await knownAccount(personalA, '1000', '2026-08-14', { name: 'C25' });
   await trackTransaction(await createExpense(personalA, { amount: '200', currency: 'ARS', date: '2026-08-15', account: { id: c25.id } }));
   equal((await refreshed(personalA, c25.id)).currentBalance, '800', 'C25 pre-correction balance 800');
-  await correctAccountBalance(personalA, c25.id, { correctedBalance: '750', effectiveDate: '2026-08-16' });
+  await correctBalance(personalA, c25.id, { correctedBalance: '750', effectiveDate: '2026-08-16' });
   equal((await refreshed(personalA, c25.id)).currentBalance, '750', 'C25 Correction 750 -> current 750 (not 550, not 950)');
 
   // C26: Correction 750, later Expense 100 -> 650
   const c26 = await knownAccount(personalA, '1000', '2026-08-14', { name: 'C26' });
-  await correctAccountBalance(personalA, c26.id, { correctedBalance: '750', effectiveDate: '2026-08-15' });
+  await correctBalance(personalA, c26.id, { correctedBalance: '750', effectiveDate: '2026-08-15' });
   equal((await refreshed(personalA, c26.id)).currentBalance, '750', 'C26 post-correction baseline');
   await trackTransaction(await createExpense(personalA, { amount: '100', currency: 'ARS', date: '2026-08-16', account: { id: c26.id } }));
   equal((await refreshed(personalA, c26.id)).currentBalance, '650', 'C26 later Expense 100 -> 650');
 
   // C27: Correction 750, later Income 50 -> 800
   const c27 = await knownAccount(personalA, '1000', '2026-08-14', { name: 'C27' });
-  await correctAccountBalance(personalA, c27.id, { correctedBalance: '750', effectiveDate: '2026-08-15' });
+  await correctBalance(personalA, c27.id, { correctedBalance: '750', effectiveDate: '2026-08-15' });
   await trackTransaction(await createIncome(personalA, { amount: '50', currency: 'ARS', date: '2026-08-16', account: { id: c27.id } }));
   equal((await refreshed(personalA, c27.id)).currentBalance, '800', 'C27 later Income 50 -> 800');
 
   // C28: Correction -50, later Expense 25 -> -75
   const c28 = await knownAccount(personalA, '100', '2026-08-14', { name: 'C28' });
-  await correctAccountBalance(personalA, c28.id, { correctedBalance: '-50', effectiveDate: '2026-08-15' });
+  await correctBalance(personalA, c28.id, { correctedBalance: '-50', effectiveDate: '2026-08-15' });
   equal((await refreshed(personalA, c28.id)).currentBalance, '-50', 'C28 correction to negative');
   await trackTransaction(await createExpense(personalA, { amount: '25', currency: 'ARS', date: '2026-08-16', account: { id: c28.id } }));
   equal((await refreshed(personalA, c28.id)).currentBalance, '-75', 'C28 negative correction + Expense -> more negative');
 
   // C29: Correction 0, later Income 10 -> 10
   const c29 = await knownAccount(personalA, '100', '2026-08-14', { name: 'C29' });
-  await correctAccountBalance(personalA, c29.id, { correctedBalance: '0', effectiveDate: '2026-08-15' });
+  await correctBalance(personalA, c29.id, { correctedBalance: '0', effectiveDate: '2026-08-15' });
   equal((await refreshed(personalA, c29.id)).currentBalance, '0', 'C29 correction to zero');
   await trackTransaction(await createIncome(personalA, { amount: '10', currency: 'ARS', date: '2026-08-16', account: { id: c29.id } }));
   equal((await refreshed(personalA, c29.id)).currentBalance, '10', 'C29 zero correction + Income -> positive');
@@ -532,7 +555,7 @@ async function testDerivation(actors) {
   const c30 = await knownAccount(personalA, '1000', '2026-08-14', { name: 'C30' });
   await trackTransaction(await createExpense(personalA, { amount: '300', currency: 'ARS', date: '2026-08-15', account: { id: c30.id } }));
   equal((await refreshed(personalA, c30.id)).currentBalance, '700', 'C30 pre-correction balance 700');
-  await correctAccountBalance(personalA, c30.id, { correctedBalance: '650', effectiveDate: '2026-08-16' });
+  await correctBalance(personalA, c30.id, { correctedBalance: '650', effectiveDate: '2026-08-16' });
   equal((await refreshed(personalA, c30.id)).currentBalance, '650', 'C30 declared corrected balance 650 is authoritative (pre-correction effects incorporated, not double-counted)');
 }
 
@@ -542,7 +565,7 @@ async function testHistoricalBoundary(actors) {
 
   // C31: historical Expense dated before correction but inserted afterward does not change current Balance
   const c31 = await knownAccount(personalA, '1000', '2026-08-14', { name: 'C31' });
-  await correctAccountBalance(personalA, c31.id, { correctedBalance: '800', effectiveDate: '2026-08-20' });
+  await correctBalance(personalA, c31.id, { correctedBalance: '800', effectiveDate: '2026-08-20' });
   equal((await refreshed(personalA, c31.id)).currentBalance, '800', 'C31 baseline after correction');
   // Insert backdated Expense (transaction_date before correction boundary)
   await trackTransaction(await createExpense(personalA, { amount: '100', currency: 'ARS', date: '2026-08-15', account: { id: c31.id } }));
@@ -550,7 +573,7 @@ async function testHistoricalBoundary(actors) {
 
   // C32: historical Income dated before correction but inserted afterward does not change current Balance
   const c32 = await knownAccount(personalA, '1000', '2026-08-14', { name: 'C32' });
-  await correctAccountBalance(personalA, c32.id, { correctedBalance: '800', effectiveDate: '2026-08-20' });
+  await correctBalance(personalA, c32.id, { correctedBalance: '800', effectiveDate: '2026-08-20' });
   await trackTransaction(await createIncome(personalA, { amount: '50', currency: 'ARS', date: '2026-08-15', account: { id: c32.id } }));
   equal((await refreshed(personalA, c32.id)).currentBalance, '800', 'C32 backdated Income (dated before correction) does not alter current Balance');
 
@@ -572,7 +595,7 @@ async function testHistoricalBoundary(actors) {
   // The pre-anchor same-day effect (created before anchor) should be excluded
   equal((await refreshed(personalA, c35.id)).currentBalance, '200', 'C35 same-day effect created before Anchor excluded (3B boundary rule)');
   // Now correction on same date 2026-08-26
-  await correctAccountBalance(personalA, c35.id, { correctedBalance: '150', effectiveDate: '2026-08-26' });
+  await correctBalance(personalA, c35.id, { correctedBalance: '150', effectiveDate: '2026-08-26' });
   // Effect created on 2026-08-26 after correction should apply
   await trackTransaction(await createExpense(personalA, { amount: '20', currency: 'ARS', date: '2026-08-26', account: { id: c35.id } }));
   equal((await refreshed(personalA, c35.id)).currentBalance, '130', 'C35 same-day effect created after correction applies (150 - 20 = 130)');
@@ -585,7 +608,7 @@ async function testMultipleCorrections(actors) {
   const acc = await knownAccount(personalA, '1000', '2026-08-14', { name: 'Multi correction' });
 
   // C36: first correction works
-  await correctAccountBalance(personalA, acc.id, { correctedBalance: '900', effectiveDate: '2026-08-15' });
+  await correctBalance(personalA, acc.id, { correctedBalance: '900', effectiveDate: '2026-08-15' });
   equal((await refreshed(personalA, acc.id)).currentBalance, '900', 'C36 first correction works');
 
   // C37: later effects apply
@@ -593,7 +616,7 @@ async function testMultipleCorrections(actors) {
   equal((await refreshed(personalA, acc.id)).currentBalance, '800', 'C37 later effects apply after first correction');
 
   // C38: second correction works
-  await correctAccountBalance(personalA, acc.id, { correctedBalance: '850', effectiveDate: '2026-08-17' });
+  await correctBalance(personalA, acc.id, { correctedBalance: '850', effectiveDate: '2026-08-17' });
   equal((await refreshed(personalA, acc.id)).currentBalance, '850', 'C38 second correction works');
 
   // C39: latest correction becomes current Anchor
@@ -619,11 +642,11 @@ async function testOrderBackdate(actors) {
   const personalA = await resolvedContext(actors.a, FINANCE_CONTEXT_TYPES.PERSONAL);
 
   const acc = await knownAccount(personalA, '1000', '2026-08-14', { name: 'Backdate test' });
-  await correctAccountBalance(personalA, acc.id, { correctedBalance: '900', effectiveDate: '2026-08-20' });
+  await correctBalance(personalA, acc.id, { correctedBalance: '900', effectiveDate: '2026-08-20' });
 
   // C42: correction effectiveDate before latest Anchor rejected
   await expectError(
-    () => correctAccountBalance(personalA, acc.id, { correctedBalance: '950', effectiveDate: '2026-08-15' }),
+    () => correctBalance(personalA, acc.id, { correctedBalance: '950', effectiveDate: '2026-08-15' }),
     'finance_account_correction_backdated_rejected',
     'C42 correction effectiveDate before latest Anchor rejected'
   );
@@ -632,9 +655,9 @@ async function testOrderBackdate(actors) {
   equal((await refreshed(personalA, acc.id)).currentBalance, '900', 'C43 no silent rebasing, balance stays at latest correction (900)');
 
   // C44: current/future canonical correction accepted according to existing date rules
-  const futureCorr = await correctAccountBalance(personalA, acc.id, { correctedBalance: '920', effectiveDate: '2026-08-25' });
+  const futureCorr = await correctBalance(personalA, acc.id, { correctedBalance: '920', effectiveDate: '2026-08-25' });
   equal(futureCorr.account.currentBalance, '920', 'C44 future correction accepted');
-  const todayCorr = await correctAccountBalance(personalA, acc.id, { correctedBalance: '910', effectiveDate: '2026-08-25' }); // same date as latest
+  const todayCorr = await correctBalance(personalA, acc.id, { correctedBalance: '910', effectiveDate: '2026-08-25' }); // same date as latest
   equal(todayCorr.account.currentBalance, '910', 'C44 same-date correction accepted (later created_at wins)');
 }
 
@@ -646,7 +669,7 @@ async function testPrivacy(actors) {
   // C45: another Person cannot correct Personal Account
   const privateAcc = await knownAccount(personalA, '1000', '2026-08-14', { name: 'Private correction' });
   await expectError(
-    () => correctAccountBalance(personalB, privateAcc.id, { correctedBalance: '500', effectiveDate: '2026-08-15' }),
+    () => correctBalance(personalB, privateAcc.id, { correctedBalance: '500', effectiveDate: '2026-08-15' }),
     'finance_account_not_found',
     'C45 another Person cannot correct Personal Account (404 via scope filter)'
   );
@@ -658,14 +681,14 @@ async function testPrivacy(actors) {
   // C47: Household authority cannot pierce Personal Account
   const householdA = await resolvedContext(actors.a, FINANCE_CONTEXT_TYPES.HOUSEHOLD);
   await expectError(
-    () => correctAccountBalance(householdA, privateAcc.id, { correctedBalance: '500', effectiveDate: '2026-08-15' }),
+    () => correctBalance(householdA, privateAcc.id, { correctedBalance: '500', effectiveDate: '2026-08-15' }),
     'finance_account_not_found',
     'C47 Household authority cannot correct Personal Account'
   );
 
   // C48: active Household Account correction works
   const hhAcc = await knownAccount(householdA, '1000', '2026-08-14', { name: 'Household correction' });
-  const hhCorr = await correctAccountBalance(householdA, hhAcc.id, { correctedBalance: '800', effectiveDate: '2026-08-15' });
+  const hhCorr = await correctBalance(householdA, hhAcc.id, { correctedBalance: '800', effectiveDate: '2026-08-15' });
   equal(hhCorr.account.currentBalance, '800', 'C48 active Household Account correction works');
 
   // C49: non-active Household Account correction denied
@@ -673,7 +696,7 @@ async function testPrivacy(actors) {
   await setActiveHousehold(actors.a.person.id, actors.households.a.id);
   const inactiveHH = await resolvedContext(actors.a, FINANCE_CONTEXT_TYPES.HOUSEHOLD);
   await expectError(
-    () => correctAccountBalance(inactiveHH, hhAccNonActive.id, { correctedBalance: '50', effectiveDate: '2026-08-15' }),
+    () => correctBalance(inactiveHH, hhAccNonActive.id, { correctedBalance: '50', effectiveDate: '2026-08-15' }),
     'finance_account_not_found',
     'C49 non-active Household Account correction denied'
   );
@@ -689,31 +712,46 @@ async function testDuplicateAtomicity(actors) {
 
   // C51: one successful correction creates exactly one corrective Anchor
   const c51 = await knownAccount(personalA, '1000', '2026-08-14', { name: 'C51 atomicity' });
-  await correctAccountBalance(personalA, c51.id, { correctedBalance: '750', effectiveDate: '2026-08-15' });
+  await correctBalance(personalA, c51.id, { correctedBalance: '750', effectiveDate: '2026-08-15' });
   const c51Anchors = await anchorRows(c51.id);
   const c51Corrections = c51Anchors.filter((a) => a.anchor_kind === 'CORRECTION');
   equal(c51Corrections.length, 1, 'C51 exactly one CORRECTION anchor created');
 
   // C52: failed mutation leaves previous Balance truth unchanged
   const c52 = await knownAccount(personalA, '1000', '2026-08-14', { name: 'C52 failed' });
-  await correctAccountBalance(personalA, c52.id, { correctedBalance: '800', effectiveDate: '2026-08-15' });
+  await correctBalance(personalA, c52.id, { correctedBalance: '800', effectiveDate: '2026-08-15' });
   equal((await refreshed(personalA, c52.id)).currentBalance, '800', 'C52 baseline after success');
   try {
     // This will fail because effectiveDate 2026-08-14 < latest 2026-08-15
-    await correctAccountBalance(personalA, c52.id, { correctedBalance: '900', effectiveDate: '2026-08-14' });
+    await correctBalance(personalA, c52.id, { correctedBalance: '900', effectiveDate: '2026-08-14' });
   } catch (e) {
     // expected
   }
   equal((await refreshed(personalA, c52.id)).currentBalance, '800', 'C52 failed correction leaves balance at 800 (unchanged)');
 
-  // C53: duplicate same mutation identity - Finance has no canonical mutation-id on this route yet
-  // Document as risk: rapid retries without Idempotency-Key can create multiple corrections
-  // (Canonical Planner mutation-id infrastructure is integration-owned and not available to Finance here)
-  assert(true, 'C53 no canonical Finance mutation-id infrastructure applies; documented risk that bare retries can duplicate corrections');
+  // C53: duplicate same mutation identity replays without a second CORRECTION anchor
+  const c53 = await knownAccount(personalA, '1000', '2026-08-14', { name: 'C53 idempotent' });
+  const c53Identity = {
+    mutationId: crypto.randomUUID(),
+    idempotencyKey: `finance-balance-correction-${crypto.randomUUID()}`,
+  };
+  await correctBalance(personalA, c53.id, {
+    correctedBalance: '640',
+    effectiveDate: '2026-08-15',
+    ...c53Identity,
+  });
+  await correctBalance(personalA, c53.id, {
+    correctedBalance: '640',
+    effectiveDate: '2026-08-15',
+    ...c53Identity,
+  });
+  const c53Anchors = await anchorRows(c53.id);
+  const c53Corrections = c53Anchors.filter((a) => a.anchor_kind === 'CORRECTION');
+  equal(c53Corrections.length, 1, 'C53 duplicate same mutation identity creates exactly one CORRECTION anchor');
 
   // C54: no half-applied balance/history result (atomic RPC)
   const c54 = await knownAccount(personalA, '1000', '2026-08-14', { name: 'C54 atomic' });
-  await correctAccountBalance(personalA, c54.id, { correctedBalance: '500', effectiveDate: '2026-08-15' });
+  await correctBalance(personalA, c54.id, { correctedBalance: '500', effectiveDate: '2026-08-15' });
   const c54Anchors = await anchorRows(c54.id);
   const c54Balance = (await refreshed(personalA, c54.id)).currentBalance;
   equal(c54Anchors.filter((a) => a.anchor_kind === 'CORRECTION').length, 1, 'C54 exactly one correction anchor');
@@ -732,7 +770,7 @@ async function testCreditCardBoundary(actors) {
     initialBalance: { amount: '-50', effectiveDate: '2026-08-14' },
   }));
   equal(card.currentBalance, '-50', 'CREDIT_CARD setup with initial Anchor');
-  const cardCorr = await correctAccountBalance(personalA, card.id, { correctedBalance: '-75', effectiveDate: '2026-08-15' });
+  const cardCorr = await correctBalance(personalA, card.id, { correctedBalance: '-75', effectiveDate: '2026-08-15' });
   equal(cardCorr.account.currentBalance, '-75', 'C55 CREDIT_CARD generic balance correction works');
 
   // C56-C58: No Credit Card purchase semantics, payment semantics, statement logic
@@ -767,7 +805,7 @@ async function testNegativeScope(actors) {
   // C66: no Account currency mutation (protected by trigger + no currency field in correction input)
   const c66 = await knownAccount(personalA, '100', '2026-08-14', { currency: 'ARS', name: 'C66 currency' });
   await expectError(
-    () => correctAccountBalance(personalA, c66.id, { correctedBalance: '50', effectiveDate: '2026-08-15', currency: 'USD' }),
+    () => correctBalance(personalA, c66.id, { correctedBalance: '50', effectiveDate: '2026-08-15', currency: 'USD' }),
     'protected_finance_account_field',
     'C66 Account currency mutation rejected'
   );
@@ -786,7 +824,7 @@ async function testResumenRegression(actors) {
   await trackTransaction(await createIncome(personalA, { amount: '100', currency: 'ARS', date: '2026-08-16', account: { id: acc.id } }));
 
   const beforeSummary = await summarizeFinance(personalA, { month: '2026-08' });
-  await correctAccountBalance(personalA, acc.id, { correctedBalance: '500', effectiveDate: '2026-08-17' });
+  await correctBalance(personalA, acc.id, { correctedBalance: '500', effectiveDate: '2026-08-17' });
   const afterSummary = await summarizeFinance(personalA, { month: '2026-08' });
 
   equal(JSON.stringify(afterSummary), JSON.stringify(beforeSummary), 'Resumen Gastamos/Ingresó/Neto unchanged by balance correction');
@@ -809,8 +847,23 @@ async function testStaticContracts() {
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
+      '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
+      '20260819000000_finance_transaction_restore_mutation_v1_1.sql',
+      '20260819010000_finance_transfer_regression_repair_v1_1.sql',
+      '20260819020000_finance_transaction_correction_v1_1.sql',
+      '20260824083947_finance_refund_persistence_root_transaction_id_v1_1.sql',
+      '20260824093347_finance_refund_events_persistence_v1_1.sql',
+      '20260824103000_finance_refund_end_to_end_v1_1.sql',
+      '20260824120000_finance_balance_correction_idempotency_v1_1.sql',
+      '20260825000000_finance_payment_foundation_v1_1.sql',
+      '20260826000000_finance_payment_register_v1_1.sql',
+      '20260828002827_finance_pool_foundation_v1_1.sql',
+      '20260828010000_finance_known_organizable_unknown_count_fix_v1_1.sql',
+      '20260828020000_finance_pool_financial_integration_v1_1.sql',
+      '20260828030000_finance_spending_limit_foundation_v1_1.sql',
+      '20260828040000_finance_analysis_progress_v1_1.sql',
     ]),
-    'exact Finance migration allow-list includes 3G and 4B/4C migrations'
+    'exact Finance migration allow-list includes current Stage 6C migrations'
   );
   const runJs = fs.readFileSync(path.join(root, 'tests/run.js'), 'utf8');
   assert(runJs.includes('finance-3c-balance-correction') && runJs.includes("'finance-3c'"), 'node tests/run.js finance-3c registered');

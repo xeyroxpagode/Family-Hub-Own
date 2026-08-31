@@ -51,3 +51,13 @@ export function financeMovementTitle(transactionType: FinanceTransactionKind, de
   if (trimmed) return trimmed;
   return transactionType === 'expense' ? 'Gasto' : 'Ingreso';
 }
+
+export function isValidFinanceAmount(value: string): boolean {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return false;
+  // Allow positive decimal numbers with comma or dot as decimal separator
+  // No thousands separators, no negative signs, no zero
+  if (!/^\d+([.,]\d+)?$/.test(trimmed)) return false;
+  const num = Number(trimmed.replace(',', '.'));
+  return num > 0;
+}

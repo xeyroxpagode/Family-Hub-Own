@@ -1,4 +1,4 @@
-import { OPERATION_KINDS, requestJson } from '../api';
+import { OPERATION_KINDS, createIdempotencyKey, generateMutationId, requestJson } from '../api';
 import type { FinanceContextType } from './financeContext';
 
 export const FINANCE_ACCOUNT_TYPES = {
@@ -85,6 +85,8 @@ export type CorrectBalancePayload = {
   correctedBalance: string;
   effectiveDate: string;
   contextType: FinanceContextType;
+  mutationId?: string;
+  idempotencyKey?: string;
 };
 
 export type CorrectBalanceResponse = {
@@ -99,17 +101,18 @@ export type LifecycleAccountResponse = {
 
 export type FinanceAccountActivityDto = {
   id: string;
-  effectType: 'expense' | 'income' | 'transfer';
-  effectRole: 'PRIMARY' | 'TRANSFER_SOURCE' | 'TRANSFER_DESTINATION';
+  effectType: 'expense' | 'income' | 'transfer' | 'refund';
+  effectRole: 'PRIMARY' | 'TRANSFER_SOURCE' | 'TRANSFER_DESTINATION' | 'REFUND';
   effectAmount: string;
   currency: string;
   date: string;
   description: string | null;
   categoryLabelSnapshot: string | null;
   title: string;
-  operationTag: 'expense' | 'income' | 'transfer';
+  operationTag: 'expense' | 'income' | 'transfer' | 'refund';
   transactionId: string | null;
   transferId: string | null;
+  refundEventId: string | null;
   createdAt: string;
 };
 
@@ -211,13 +214,23 @@ export const correctFinanceAccountBalance = (
   accessToken: string,
   accountId: string,
   payload: CorrectBalancePayload,
-) =>
-  requestJson<CorrectBalanceResponse>(`/api/finance/accounts/${accountId}/balance-correction`, {
+) => {
+  const mutationId = payload.mutationId ?? generateMutationId();
+  const idempotencyKey = payload.idempotencyKey ?? createIdempotencyKey('finance.account.balance.correct');
+
+  return requestJson<CorrectBalanceResponse>(`/api/finance/accounts/${accountId}/balance-correction`, {
     method: 'POST',
     accessToken,
-    body: payload,
-    operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION,
+    body: {
+      ...payload,
+      mutationId,
+      idempotencyKey,
+    },
+    mutationId,
+    idempotencyKey,
+    operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
   });
+};
 
 export const archiveFinanceAccount = (
   accessToken: string,

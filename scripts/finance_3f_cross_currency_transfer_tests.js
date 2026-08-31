@@ -137,7 +137,20 @@ async function applyMigration(rel) {
   await queryDb(fs.readFileSync(path.join(root, rel), 'utf8'));
 }
 
+async function tableExists(tableName) {
+  const { rows } = await queryDb(
+    'select to_regclass($1) is not null as exists',
+    [`public.${tableName}`],
+  );
+  return rows[0]?.exists === true;
+}
+
 async function applyMigrations() {
+  if (await tableExists('finance_accounts')) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return;
+  }
+
   await applyMigration('supabase/migrations/20260813010000_finance_category_authority_v1_1.sql');
   await applyMigration('supabase/migrations/20260813020000_finance_expense_income_transactions_v1_1.sql');
   await applyMigration('supabase/migrations/20260814010000_finance_account_authority_v1_1.sql');
@@ -291,6 +304,14 @@ async function cleanup() {
 async function trackAccount(result) {
   fixture.accountIds.push(result.account.id);
   return result.account;
+}
+
+async function correctBalance(ctx, accountId, body = {}) {
+  return correctAccountBalance(ctx, accountId, {
+    ...body,
+    mutationId: body.mutationId ?? crypto.randomUUID(),
+    idempotencyKey: body.idempotencyKey ?? `finance-balance-correction-${crypto.randomUUID()}`,
+  });
 }
 
 async function account(ctx, overrides = {}) {
@@ -659,7 +680,7 @@ async function testCreditCardArchiveHistoryAtomicityAndIdempotency(actors) {
   await transfer(personalA, { sourceAccount: historicalSource.id, destinationAccount: historicalDest.id, sourceAmount: '100', destinationAmount: '1', date: '2026-08-21' }, 'post-anchor');
   equal((await refreshed(personalA, historicalSource.id)).currentBalance, '900', 'F71 post-Anchor source native effect applies');
   equal((await refreshed(personalA, historicalDest.id)).currentBalance, '11', 'F71 post-Anchor destination native effect applies');
-  await correctAccountBalance(personalA, historicalSource.id, { correctedBalance: '800', effectiveDate: '2026-08-22' });
+  await correctBalance(personalA, historicalSource.id, { correctedBalance: '800', effectiveDate: '2026-08-22' });
   await transfer(personalA, { sourceAccount: historicalSource.id, destinationAccount: historicalDest.id, sourceAmount: '50', destinationAmount: '0.5', date: '2026-08-23' }, 'post-correction');
   equal((await refreshed(personalA, historicalSource.id)).currentBalance, '750', 'F72 post-Correction effects apply');
   const preAnchorRow = await transferRow(preAnchor.id);
@@ -728,8 +749,23 @@ async function testStaticContracts() {
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
+      '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
+      '20260819000000_finance_transaction_restore_mutation_v1_1.sql',
+      '20260819010000_finance_transfer_regression_repair_v1_1.sql',
+      '20260819020000_finance_transaction_correction_v1_1.sql',
+      '20260824083947_finance_refund_persistence_root_transaction_id_v1_1.sql',
+      '20260824093347_finance_refund_events_persistence_v1_1.sql',
+      '20260824103000_finance_refund_end_to_end_v1_1.sql',
+      '20260824120000_finance_balance_correction_idempotency_v1_1.sql',
+      '20260825000000_finance_payment_foundation_v1_1.sql',
+      '20260826000000_finance_payment_register_v1_1.sql',
+      '20260828002827_finance_pool_foundation_v1_1.sql',
+      '20260828010000_finance_known_organizable_unknown_count_fix_v1_1.sql',
+      '20260828020000_finance_pool_financial_integration_v1_1.sql',
+      '20260828030000_finance_spending_limit_foundation_v1_1.sql',
+      '20260828040000_finance_analysis_progress_v1_1.sql',
     ]),
-    'F50 exact Finance migration allow-list includes 3G and 4B/4C migrations',
+    'F50 exact Finance migration allow-list includes current Stage 6C migrations',
   );
   const runJs = fs.readFileSync(path.join(root, 'tests/run.js'), 'utf8');
   assert(runJs.includes('finance-3f-cross-currency-transfer') && runJs.includes("'finance-3f'"), 'F52 node tests/run.js finance-3f registered');
@@ -738,7 +774,7 @@ async function testStaticContracts() {
   const tableNames = (await queryDb("select table_name from information_schema.tables where table_schema = 'public'")).rows.map((row) => row.table_name);
   assert(!tableNames.some((name) => /cross_currency_transfers|transfer_fx|converted_transfer|exchange_operation|finance_.*rate|gain|loss/i.test(name)), 'F76-F80 no FX/rate/gain/loss/second Transfer authority table');
   assert(tableNames.includes('finance_transfers'), 'F59 shared 3E Transfer table authority reused');
-  assert(!tableNames.some((name) => /finance_.*(budget|payment|commission|fee|statement|installment)/i.test(name)), 'F74/F83 no Commission, Budget, Payment or Stage 4 lifecycle table');
+  assert(!tableNames.some((name) => /finance_.*(budget|paid|settlement|payment_record|payment_registration|commission|fee|statement|installment)/i.test(name)), 'F74/F83 no Commission, Budget, paid Payment or Stage 4 lifecycle table');
   const transferColumns = (await queryDb("select column_name from information_schema.columns where table_schema = 'public' and table_name = 'finance_transfers'")).rows.map((row) => row.column_name);
   assert(!transferColumns.some((name) => /commission|fee/i.test(name)), 'F74/F75 no Commission or TransferWithFee persisted on Transfer');
 

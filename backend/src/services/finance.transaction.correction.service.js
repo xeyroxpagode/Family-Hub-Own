@@ -221,6 +221,12 @@ async function correctTransaction(financeContext, body = {}) {
       if (msg.includes('finance_account_effect_not_found')) {
         throw createHttpError(500, 'Efecto de cuenta asociado no encontrado.', 'finance_account_effect_not_found');
       }
+      if (msg.includes('finance_refund_total_exceeds_expense_amount')) {
+        throw createHttpError(409, 'El gasto corregido no puede quedar por debajo de lo ya devuelto.', 'finance_refund_total_exceeds_expense_amount');
+      }
+      if (msg.includes('finance_refund_date_before_expense_date')) {
+        throw createHttpError(409, 'La fecha corregida del gasto no puede quedar despues de una devolucion registrada.', 'finance_refund_date_before_expense_date');
+      }
     }
 
     if (['23502', '23503', '22P02', '22007'].includes(error?.code)) {

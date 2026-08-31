@@ -235,8 +235,9 @@ assertEqual(
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
+      '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
     ]),
-    'T33 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C Finance migrations exist',
+    'T33 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C/4D Finance migrations exist',
   );
   assert(!/finance_expenses|finance_incomes|finance_budgets|finance_payments|finance_refunds/i.test(allSql), 'T33 no out-of-stage separate Expense-Income/Budget/Payment/Refund schema introduced');
   assert(!/(create|alter)\s+table\s+(?:public\.)?finance_transactions[\s\S]{0,1000}\baccount_id\b/i.test(allSql), 'T33 no transaction Account link introduced on finance_transactions');

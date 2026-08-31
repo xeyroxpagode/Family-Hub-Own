@@ -34,6 +34,7 @@ const ACTIVITY_SIGN_BY_TYPE = {
   expense: '-',
   income: '+',
   transfer: '',
+  refund: '+',
 } as const;
 
 export type AccountDetailSheetProps = {

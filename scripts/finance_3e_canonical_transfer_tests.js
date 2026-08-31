@@ -137,7 +137,20 @@ async function applyMigration(rel) {
   await queryDb(fs.readFileSync(path.join(root, rel), 'utf8'));
 }
 
+async function tableExists(tableName) {
+  const { rows } = await queryDb(
+    'select to_regclass($1) is not null as exists',
+    [`public.${tableName}`],
+  );
+  return rows[0]?.exists === true;
+}
+
 async function applyMigrations() {
+  if (await tableExists('finance_accounts')) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return;
+  }
+
   await applyMigration('supabase/migrations/20260813010000_finance_category_authority_v1_1.sql');
   await applyMigration('supabase/migrations/20260813020000_finance_expense_income_transactions_v1_1.sql');
   await applyMigration('supabase/migrations/20260814010000_finance_account_authority_v1_1.sql');
@@ -291,6 +304,14 @@ async function cleanup() {
 async function trackAccount(result) {
   fixture.accountIds.push(result.account.id);
   return result.account;
+}
+
+async function correctBalance(ctx, accountId, body = {}) {
+  return correctAccountBalance(ctx, accountId, {
+    ...body,
+    mutationId: body.mutationId ?? crypto.randomUUID(),
+    idempotencyKey: body.idempotencyKey ?? `finance-balance-correction-${crypto.randomUUID()}`,
+  });
 }
 
 async function account(ctx, overrides = {}) {
@@ -528,8 +549,8 @@ async function testCreditCardLifecycleAtomicityIdempotencyAndHistory(actors) {
   const cardEffects = await effectsForTransfer(cardTransfer.id);
   equal(cardEffects.find((effect) => effect.account_id === card.id).amount, '300.0000', 'E44 destination CREDIT_CARD receives positive effect');
   equal(await countRows('finance_transactions', '', []), beforeTx, 'E46/E47 no Expense/Income created for card-shaped Transfer');
-  const paymentTables = await queryDb("select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_name ~ 'finance_.*payment'");
-  equal(paymentTables.rows[0].count, 0, 'E48 no Payment/PAID object exists');
+  const paidPaymentTables = await queryDb("select count(*)::int as count from information_schema.tables where table_schema = 'public' and table_name ~ 'finance_.*(paid|settlement|payment_record|payment_registration)'");
+  equal(paidPaymentTables.rows[0].count, 0, 'E48 no paid Payment/settlement object exists');
   await expectError(() => createTransfer(personalA, { sourceAccount: card.id, destinationAccount: source.id, amount: '1', date: '2026-08-15' }, correlation('card-source')), 'finance_transfer_credit_card_source_deferred', 'E49 CREDIT_CARD source rejected');
 
   const archivedSource = await knownAccount(personalA, '10', '2026-08-14');
@@ -603,7 +624,7 @@ async function testCreditCardLifecycleAtomicityIdempotencyAndHistory(actors) {
   equal((await refreshed(personalA, historicalSource.id)).currentBalance, '1000', 'E77 pre-Anchor Transfer effect does not double-apply current Balance');
   await transfer(personalA, { sourceAccount: historicalSource.id, destinationAccount: historicalDest.id, amount: '50', date: '2026-08-21' }, 'post-anchor');
   equal((await refreshed(personalA, historicalSource.id)).currentBalance, '950', 'E78 post-Anchor Transfer effect applies');
-  await correctAccountBalance(personalA, historicalSource.id, { correctedBalance: '900', effectiveDate: '2026-08-22' });
+  await correctBalance(personalA, historicalSource.id, { correctedBalance: '900', effectiveDate: '2026-08-22' });
   await transfer(personalA, { sourceAccount: historicalSource.id, destinationAccount: historicalDest.id, amount: '10', date: '2026-08-23' }, 'post-correction');
   equal((await refreshed(personalA, historicalSource.id)).currentBalance, '890', 'E79 post-Correction Transfer applies from latest Anchor');
   equal(await countRows('finance_account_effects', 'where transfer_id = $1', [preAnchorTransfer.id]), 2, 'E80 original historical operation/effects remain persisted');
@@ -643,8 +664,22 @@ async function testStaticContracts() {
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
       '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
+      '20260819000000_finance_transaction_restore_mutation_v1_1.sql',
+      '20260819010000_finance_transfer_regression_repair_v1_1.sql',
+      '20260819020000_finance_transaction_correction_v1_1.sql',
+      '20260824083947_finance_refund_persistence_root_transaction_id_v1_1.sql',
+      '20260824093347_finance_refund_events_persistence_v1_1.sql',
+      '20260824103000_finance_refund_end_to_end_v1_1.sql',
+      '20260824120000_finance_balance_correction_idempotency_v1_1.sql',
+      '20260825000000_finance_payment_foundation_v1_1.sql',
+      '20260826000000_finance_payment_register_v1_1.sql',
+      '20260828002827_finance_pool_foundation_v1_1.sql',
+      '20260828010000_finance_known_organizable_unknown_count_fix_v1_1.sql',
+      '20260828020000_finance_pool_financial_integration_v1_1.sql',
+      '20260828030000_finance_spending_limit_foundation_v1_1.sql',
+      '20260828040000_finance_analysis_progress_v1_1.sql',
     ]),
-    'exact Finance migration allow-list includes 3G and 4B/4C/4D migrations',
+    'exact Finance migration allow-list includes current Stage 6C migrations',
   );
   const runJs = fs.readFileSync(path.join(root, 'tests/run.js'), 'utf8');
   assert(runJs.includes('finance-3e-canonical-transfer') && runJs.includes("'finance-3e'"), 'node tests/run.js finance-3e registered');

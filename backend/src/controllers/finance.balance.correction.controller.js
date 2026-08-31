@@ -11,7 +11,11 @@ function contextTypeFrom(req) {
 const correctBalance = async (req, res) => {
   try {
     const financeContext = await resolveFinanceContext(req, contextTypeFrom(req));
-    const payload = await balanceCorrectionService.correctAccountBalance(financeContext, req.params.account_id, req.body ?? {});
+    const payload = await balanceCorrectionService.correctAccountBalance(financeContext, req.params.account_id, {
+      ...(req.body ?? {}),
+      mutationId: req.body?.mutationId ?? req.body?.mutation_id ?? req.get('X-Mutation-Id'),
+      idempotencyKey: req.body?.idempotencyKey ?? req.body?.idempotency_key ?? req.get('Idempotency-Key'),
+    });
     return res.status(200).json(payload);
   } catch (error) {
     return sendApiError(res, error, req);
