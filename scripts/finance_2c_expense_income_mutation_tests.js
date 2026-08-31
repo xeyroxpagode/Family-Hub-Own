@@ -135,11 +135,21 @@ async function applyMigration(rel) {
   await queryDb(fs.readFileSync(path.join(root, rel), 'utf8'));
 }
 
+async function isMigrationApplied(rel) {
+  const version = path.basename(rel, '.sql').split('_')[0];
+  const result = await queryDb('select 1 from supabase_migrations.schema_migrations where version = $1 limit 1', [version]);
+  return result.rowCount > 0;
+}
+
 async function applyMigrations() {
-  await applyMigration('supabase/migrations/20260813010000_finance_category_authority_v1_1.sql');
-  await applyMigration('supabase/migrations/20260813020000_finance_expense_income_transactions_v1_1.sql');
-  await applyMigration('supabase/migrations/20260814010000_finance_account_authority_v1_1.sql');
-  await applyMigration('supabase/migrations/20260814020000_finance_balance_anchor_account_effects_v1_1.sql');
+  for (const rel of [
+    'supabase/migrations/20260813010000_finance_category_authority_v1_1.sql',
+    'supabase/migrations/20260813020000_finance_expense_income_transactions_v1_1.sql',
+    'supabase/migrations/20260814010000_finance_account_authority_v1_1.sql',
+    'supabase/migrations/20260814020000_finance_balance_anchor_account_effects_v1_1.sql',
+  ]) {
+    if (!(await isMigrationApplied(rel))) await applyMigration(rel);
+  }
   await new Promise((resolve) => setTimeout(resolve, 250));
 }
 
@@ -514,8 +524,23 @@ equal(columns.rows.find((row) => row.column_name === 'amount')?.data_type, 'nume
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
+      '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
+      '20260819000000_finance_transaction_restore_mutation_v1_1.sql',
+      '20260819010000_finance_transfer_regression_repair_v1_1.sql',
+      '20260819020000_finance_transaction_correction_v1_1.sql',
+      '20260824083947_finance_refund_persistence_root_transaction_id_v1_1.sql',
+      '20260824093347_finance_refund_events_persistence_v1_1.sql',
+      '20260824103000_finance_refund_end_to_end_v1_1.sql',
+      '20260824120000_finance_balance_correction_idempotency_v1_1.sql',
+      '20260825000000_finance_payment_foundation_v1_1.sql',
+      '20260826000000_finance_payment_register_v1_1.sql',
+      '20260828002827_finance_pool_foundation_v1_1.sql',
+      '20260828010000_finance_known_organizable_unknown_count_fix_v1_1.sql',
+      '20260828020000_finance_pool_financial_integration_v1_1.sql',
+      '20260828030000_finance_spending_limit_foundation_v1_1.sql',
+      '20260828040000_finance_analysis_progress_v1_1.sql',
     ]),
-    'only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C Finance migrations exist',
+    'only accepted Finance migrations through Stage 6C.4 exist',
   );
   const backendText = [
     'backend/src/services/finance.transaction.service.js',

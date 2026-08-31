@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutAnimation, Platform, StyleSheet, UIManager, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { LayoutAnimation, Platform, Pressable, StyleSheet, UIManager, View } from 'react-native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 
-import { MovementDetailSheet, NewMovementSheet } from '../../components/finance';
+import { MovementDetailSheet, NewMovementSheet, TransactionCorrectionSheet, NewPaymentSheet, RegisterPaymentSheet, PaymentDetailSheet, PaymentsList, EditPaymentDueSheet, PayCreditCardSheet } from '../../components/finance';
+import { FinancePoolSummary, FinanceSpendingLimitSummary, FinanceAnalysisHighlights } from '../../components/finance';
 import {
   AppButton,
   AppCard,
@@ -11,16 +12,16 @@ import {
   ActionSheet,
   EmptyState,
   ErrorState,
-  IconButton,
   InteractivePressable,
-  SegmentedControl,
   Skeleton,
   UndoToast,
 } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
+import { parseFinanceEntryParams } from '../../navigation/financeNavigation';
+import type { MoreStackParamList } from '../../navigation/types';
 import { AbortError, ApiError } from '../../services/api';
 import { formatFinanceAmount, financeMovementTitle, isZeroDecimalString } from '../../services/finance/financeDisplay';
 import {
@@ -37,14 +38,15 @@ import {
 } from '../../services/finance/financeContext';
 import {
   getFinanceSummary,
+  getFinanceTransactionDetail,
   listFinanceMovements,
+  type FinanceTransactionDetailDto,
   type FinanceMovementDto,
   type FinanceSummaryCurrencyDto,
   type GetFinanceSummaryResponse,
   type ListFinanceMovementsResponse,
 } from '../../services/finance/financeMovements';
-import { getAccountBalancePresentation, formatAccountPresentationAmount } from '../../services/finance/accountDisplay';
-import { listFinanceAccounts, type FinanceAccountDto } from '../../services/finance/financeAccounts';
+import type { TransactionCorrectionDetailPrefetch } from '../../services/finance/transactionCorrectionDetailLoad';
 import {
   financeMonthFromLocalDate,
   formatFinanceDateGroupLabel,
@@ -52,6 +54,19 @@ import {
   isCurrentFinanceMonth,
   shiftFinanceMonth,
 } from '../../services/finance/financePeriod';
+import type { PaymentDueDto } from '../../services/finance/financePayments';
+import {
+  getFinancePoolSummary,
+  type FinancePoolSummaryResponse,
+} from '../../services/finance/financePools';
+import {
+  getFinanceSpendingLimitProgress,
+  type FinanceSpendingLimitProgressDto,
+} from '../../services/finance/financeSpendingLimits';
+import {
+  getFinanceAnalysis,
+  type FinanceAnalysisResponse,
+} from '../../services/finance/financeAnalysis';
 
 const TAB_EMPTY_COPY: Record<FinanceTabKey, { title: string; description: string; icon: React.ComponentProps<typeof HomePlusIcon>['name'] }> = {
   resumen: {
@@ -66,7 +81,7 @@ const TAB_EMPTY_COPY: Record<FinanceTabKey, { title: string; description: string
   },
   pagos: {
     title: 'Sin pagos configurados',
-    description: 'Los pagos esperados se integran en su etapa propia. Por ahora no hay obligaciones simuladas.',
+    description: 'Agregá pagos esperados para ver vencimientos, registrar pagos y mantener el historial.',
     icon: 'card-outline',
   },
 };
@@ -92,7 +107,6 @@ type FinanceReadState = {
   error: string | null;
   movements: ListFinanceMovementsResponse | null;
   summary: GetFinanceSummaryResponse | null;
-  accounts: FinanceAccountDto[] | null;
 };
 
 const EMPTY_READ_STATE: FinanceReadState = {
@@ -101,7 +115,6 @@ const EMPTY_READ_STATE: FinanceReadState = {
   error: null,
   movements: null,
   summary: null,
-  accounts: null,
 };
 const EMPTY_SUMMARY_CURRENCIES: FinanceSummaryCurrencyDto[] = [];
 
@@ -122,13 +135,6 @@ function groupMovementsByTransactionDate(movements: FinanceMovementDto[]) {
   return groups;
 }
 
-function movementAttributionLabel(movement: FinanceMovementDto) {
-  const type = movement.transactionType === 'expense' ? 'Gasto' : 'Ingreso';
-  const account = movement.accountName ?? 'Sin cuenta';
-  const context = movement.financialContextType === FINANCE_CONTEXT_TYPES.HOUSEHOLD ? 'Household' : 'Personal';
-  return `${type} · ${context} · ${account}`;
-}
-
 function safeFinanceReadError(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   return 'No pudimos cargar Finanzas. Intenta de nuevo.';
@@ -136,10 +142,12 @@ function safeFinanceReadError(error: unknown): string {
 
 export function FinanceScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<RouteProp<MoreStackParamList, 'Finance'>>();
+  const entryParams = useMemo(() => parseFinanceEntryParams(route.params), [route.params]);
   const { session, authMe } = useAuth();
   const { currentHousehold, loading, reloading, householdError } = useHousehold();
-  const [selectedContext, setSelectedContext] = useState<FinanceContextType>(FINANCE_CONTEXT_TYPES.PERSONAL);
-  const [selectedTab, setSelectedTab] = useState<FinanceTabKey>('resumen');
+  const [selectedContext, setSelectedContext] = useState<FinanceContextType>(entryParams.contextType ?? FINANCE_CONTEXT_TYPES.PERSONAL);
+  const [selectedTab, setSelectedTab] = useState<FinanceTabKey>(entryParams.initialTab ?? 'resumen');
   const [selectorExpanded, setSelectorExpanded] = useState(false);
   const [overflowVisible, setOverflowVisible] = useState(false);
   const [newMovementVisible, setNewMovementVisible] = useState(false);
@@ -147,11 +155,40 @@ export function FinanceScreen() {
   const [selectedPeriod, setSelectedPeriod] = useState(() => financeMonthFromLocalDate());
   const [selectedMovement, setSelectedMovement] = useState<FinanceMovementDto | null>(null);
   const [movementDetailVisible, setMovementDetailVisible] = useState(false);
+  const [correctionTransactionId, setCorrectionTransactionId] = useState<string | null>(null);
+  const [correctionVisible, setCorrectionVisible] = useState(false);
   const [selectedSummaryCurrency, setSelectedSummaryCurrency] = useState<string | null>(null);
   const [readRefreshNonce, setReadRefreshNonce] = useState(0);
   const [readState, setReadState] = useState<FinanceReadState>(EMPTY_READ_STATE);
+
+  // Stage 6D: Dashboard read states
+  const [poolSummary, setPoolSummary] = useState<FinancePoolSummaryResponse | null>(null);
+  const [poolSummaryLoading, setPoolSummaryLoading] = useState(false);
+  const [poolSummaryError, setPoolSummaryError] = useState<string | null>(null);
+
+  const [spendingLimitProgress, setSpendingLimitProgress] = useState<FinanceSpendingLimitProgressDto[] | null>(null);
+  const [spendingLimitProgressLoading, setSpendingLimitProgressLoading] = useState(false);
+  const [spendingLimitProgressError, setSpendingLimitProgressError] = useState<string | null>(null);
+
+  const [analysis, setAnalysis] = useState<FinanceAnalysisResponse | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  // Payment sheets state
+  const [newPaymentVisible, setNewPaymentVisible] = useState(false);
+  const [registerPaymentVisible, setRegisterPaymentVisible] = useState(false);
+  const [payCreditCardVisible, setPayCreditCardVisible] = useState(false);
+  const [paymentDetailVisible, setPaymentDetailVisible] = useState(false);
+  const [editPaymentDueVisible, setEditPaymentDueVisible] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState<PaymentDueDto | null>(null);
+  const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(entryParams.paymentDueId ?? null);
+  const [paymentDetailRefreshNonce, setPaymentDetailRefreshNonce] = useState(0);
+
   const allowVisibleBackExit = useRef(false);
   const readKeyRef = useRef<string | null>(null);
+  const paymentEntryKeyRef = useRef<string | null>(null);
+  const detailPrefetchRef = useRef<TransactionCorrectionDetailPrefetch | null>(null);
+  const [detailPrefetchSnapshot, setDetailPrefetchSnapshot] = useState<TransactionCorrectionDetailPrefetch | null>(null);
 
   const openAccounts = () => {
     setOverflowVisible(false);
@@ -176,10 +213,6 @@ export function FinanceScreen() {
     };
   }, [currentHousehold]);
   const selectorOptions = useMemo(() => financeSelectorOptions(activeHousehold), [activeHousehold]);
-  const tabOptions = useMemo(
-    () => FINANCE_TABS.map((tab) => ({ value: tab, label: FINANCE_TAB_LABELS[tab] })),
-    [],
-  );
   const contextLabel = financeContextLabel(selectedContext, activeHousehold, contextLoading);
   const viewState = financeContextViewState(selectedContext, activeHousehold, contextLoading);
   const readReady = Boolean(session?.access_token) && (
@@ -195,6 +228,28 @@ export function FinanceScreen() {
       UIManager.setLayoutAnimationEnabledExperimental?.(true);
     }
   }, []);
+
+  useEffect(() => {
+    const entryContextType = entryParams.contextType;
+    const entryInitialTab = entryParams.initialTab;
+    const entryPaymentDueId = entryParams.paymentDueId;
+
+    if (entryContextType) {
+      setSelectedContext((current) => selectFinanceContext(current, entryContextType));
+    }
+    if (entryInitialTab) {
+      setSelectedTab((current) => selectFinanceTab(current, entryInitialTab));
+    }
+    if (!entryPaymentDueId) return;
+
+    const key = `${entryContextType ?? 'default'}:${entryPaymentDueId}`;
+    if (paymentEntryKeyRef.current === key) return;
+    paymentEntryKeyRef.current = key;
+    setSelectedTab('pagos');
+    setSelectedPayment(null);
+    setSelectedPaymentId(entryPaymentDueId);
+    setPaymentDetailVisible(true);
+  }, [entryParams]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener?.('beforeRemove', (event: { preventDefault: () => void }) => {
@@ -227,8 +282,18 @@ export function FinanceScreen() {
       error: null,
       movements: current.key === requestKey ? current.movements : null,
       summary: current.key === requestKey ? current.summary : null,
-      accounts: current.key === requestKey ? current.accounts : null,
     }));
+
+    // Stage 6D: Also trigger dashboard reads
+    setPoolSummary(null);
+    setPoolSummaryLoading(true);
+    setPoolSummaryError(null);
+    setSpendingLimitProgress([]);
+    setSpendingLimitProgressLoading(true);
+    setSpendingLimitProgressError(null);
+    setAnalysis(null);
+    setAnalysisLoading(true);
+    setAnalysisError(null);
 
     const readOptions = {
       accessToken: session.access_token,
@@ -238,17 +303,16 @@ export function FinanceScreen() {
       contextScope: `finance:${requestKey}`,
     };
 
+    const currency = selectedSummaryCurrency ?? summaryCurrencies[0]?.currency ?? 'ARS';
+
     Promise.all([
       listFinanceMovements(readOptions),
       getFinanceSummary(readOptions),
-      listFinanceAccounts({
-        accessToken: session.access_token,
-        contextType: selectedContext,
-        signal: controller.signal,
-        contextScope: `finance:${requestKey}`,
-      }),
+      getFinancePoolSummary({ ...readOptions, currency }),
+      getFinanceSpendingLimitProgress({ ...readOptions, currency, periodType: 'MONTHLY', period: selectedPeriod }),
+      getFinanceAnalysis({ ...readOptions, currency, periodType: 'MONTHLY', period: selectedPeriod }),
     ])
-      .then(([movements, summary, accounts]) => {
+      .then(([movements, summary, poolSummaryData, spendingLimitData, analysisData]) => {
         if (readKeyRef.current !== requestKey) return;
         setReadState({
           key: requestKey,
@@ -256,8 +320,13 @@ export function FinanceScreen() {
           error: null,
           movements,
           summary,
-          accounts: accounts.accounts,
         });
+        setPoolSummary(poolSummaryData);
+        setPoolSummaryLoading(false);
+        setSpendingLimitProgress(spendingLimitData.limits);
+        setSpendingLimitProgressLoading(false);
+        setAnalysis(analysisData);
+        setAnalysisLoading(false);
       })
       .catch((error) => {
         if (error instanceof AbortError || (error instanceof Error && error.name === 'AbortError')) return;
@@ -268,14 +337,19 @@ export function FinanceScreen() {
           error: safeFinanceReadError(error),
           movements: current.key === requestKey ? current.movements : null,
           summary: current.key === requestKey ? current.summary : null,
-          accounts: current.key === requestKey ? current.accounts : null,
         }));
+        setPoolSummaryError(safeFinanceReadError(error));
+        setPoolSummaryLoading(false);
+        setSpendingLimitProgressError(safeFinanceReadError(error));
+        setSpendingLimitProgressLoading(false);
+        setAnalysisError(safeFinanceReadError(error));
+        setAnalysisLoading(false);
       });
 
     return () => {
       controller.abort();
     };
-  }, [readReady, readScopeKey, readRefreshNonce, selectedContext, selectedPeriod, session?.access_token]);
+  }, [readReady, readScopeKey, readRefreshNonce, selectedContext, selectedPeriod, selectedSummaryCurrency, session?.access_token]);
 
   useEffect(() => {
     const currencies = summaryCurrencies.map((bucket) => bucket.currency);
@@ -327,6 +401,60 @@ export function FinanceScreen() {
     setReadRefreshNonce((current) => current + 1);
   };
 
+  const clearDetailPrefetch = () => {
+    detailPrefetchRef.current = null;
+    setDetailPrefetchSnapshot(null);
+  };
+
+  const prefetchMovementDetail = (movement: FinanceMovementDto) => {
+    if (!session?.access_token) return;
+
+    const existing = detailPrefetchRef.current;
+    if (
+      existing?.transactionId === movement.id &&
+      existing.contextType === selectedContext &&
+      (existing.detail || existing.promise)
+    ) {
+      setDetailPrefetchSnapshot(existing);
+      return;
+    }
+
+    const prefetch: TransactionCorrectionDetailPrefetch = {
+      transactionId: movement.id,
+      contextType: selectedContext,
+      detail: null,
+      promise: null,
+      failed: false,
+    };
+
+    prefetch.promise = getFinanceTransactionDetail({
+      accessToken: session.access_token,
+      contextType: selectedContext,
+      transactionId: movement.id,
+      contextScope: `finance-transaction-detail-prefetch:${selectedContext}:${movement.id}`,
+    })
+      .then((detail: FinanceTransactionDetailDto) => {
+        if (detailPrefetchRef.current === prefetch) {
+          prefetch.detail = detail;
+          prefetch.promise = null;
+          setDetailPrefetchSnapshot({ ...prefetch });
+        }
+        return detail;
+      })
+      .catch((error) => {
+        if (detailPrefetchRef.current === prefetch) {
+          prefetch.failed = true;
+          prefetch.promise = null;
+          setDetailPrefetchSnapshot({ ...prefetch });
+        }
+        throw error;
+      });
+    void prefetch.promise.catch(() => undefined);
+
+    detailPrefetchRef.current = prefetch;
+    setDetailPrefetchSnapshot(prefetch);
+  };
+
 const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
     setSuccessFeedback(
       operation === 'expense'
@@ -341,11 +469,24 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
   const handleMovementPress = (movement: FinanceMovementDto) => {
     setSelectedMovement(movement);
     setMovementDetailVisible(true);
+    prefetchMovementDetail(movement);
   };
 
   const handleMovementDetailClose = () => {
     setMovementDetailVisible(false);
     setSelectedMovement(null);
+    if (!correctionVisible) clearDetailPrefetch();
+  };
+
+  const handleCorrectionIntent = (transactionId: string) => {
+    setCorrectionTransactionId(transactionId);
+    setCorrectionVisible(true);
+  };
+
+  const handleCorrectionClose = () => {
+    setCorrectionVisible(false);
+    setCorrectionTransactionId(null);
+    clearDetailPrefetch();
   };
 
   const handleTrashSuccess = () => {
@@ -357,7 +498,62 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
   const handleCorrectionSuccess = () => {
     setSuccessFeedback('Movimiento corregido.');
     setReadRefreshNonce((current) => current + 1);
+    clearDetailPrefetch();
+    handleCorrectionClose();
     handleMovementDetailClose();
+  };
+
+  const handleRefundSuccess = () => {
+    setSuccessFeedback('Devolución guardada.');
+    setReadRefreshNonce((current) => current + 1);
+  };
+
+  const handlePoolAssignmentSuccess = () => {
+    setSuccessFeedback('Pozo actualizado.');
+    setReadRefreshNonce((current) => current + 1);
+  };
+
+  const handlePaymentCreateSuccess = () => {
+    setSuccessFeedback('Pago creado');
+    setReadRefreshNonce((current) => current + 1);
+  };
+
+  const handlePaymentRegisterSuccess = () => {
+    setSuccessFeedback('Pago registrado');
+    setReadRefreshNonce((current) => current + 1);
+    setPaymentDetailRefreshNonce((current) => current + 1);
+    setSelectedPayment(null);
+  };
+
+  const handlePaymentRefresh = () => {
+    setReadRefreshNonce((current) => current + 1);
+  };
+
+  const handlePaymentPress = (payment: PaymentDueDto) => {
+    setSelectedPayment(payment);
+    setSelectedPaymentId(payment.id);
+    setPaymentDetailVisible(true);
+  };
+
+  const handlePaymentDetailClose = () => {
+    setPaymentDetailVisible(false);
+    setSelectedPayment(null);
+    setSelectedPaymentId(null);
+  };
+
+  const handleRegisterPayment = (payment: PaymentDueDto) => {
+    setSelectedPayment(payment);
+    setRegisterPaymentVisible(true);
+  };
+
+  const handleRegisterCreditCardPayment = (payment: PaymentDueDto) => {
+    setSelectedPayment(payment);
+    setPayCreditCardVisible(true);
+  };
+
+  const handleEditPayment = (payment: PaymentDueDto) => {
+    setSelectedPayment(payment);
+    setEditPaymentDueVisible(true);
   };
 
   const movementsReady = selectedTab === 'movimientos' &&
@@ -375,22 +571,32 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
     >
       <View style={styles.header}>
         {navigation.canGoBack() ? (
-          <IconButton
-            icon="chevron-back-outline"
+          <Pressable
             onPress={handleVisibleBack}
+            style={styles.backButton}
+            accessibilityRole="button"
             accessibilityLabel="Volver a Mas"
-          />
+            hitSlop={8}
+          >
+            <HomePlusIcon name="chevron-back-outline" size={22} color={colors.text.primary} />
+          </Pressable>
         ) : null}
         <View style={styles.headerText}>
           <AppText variant="title1" accessibilityRole="header">
             Finanzas
           </AppText>
         </View>
-        <IconButton
-          icon="ellipsis-horizontal"
+        <InteractivePressable
           onPress={() => setOverflowVisible(true)}
+          haptic="light"
+          pressScale={motion.scale.icon}
+          style={styles.overflowButton}
+          accessibilityRole="button"
           accessibilityLabel="Mas opciones"
-        />
+          hitSlop={8}
+        >
+          <HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.primary} />
+        </InteractivePressable>
       </View>
 
       <View style={styles.selectorArea}>
@@ -473,11 +679,32 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
         ) : null}
       </View>
 
-      <SegmentedControl
-        value={selectedTab}
-        options={tabOptions}
-        onChange={(tab) => setSelectedTab((current) => selectFinanceTab(current, tab))}
-      />
+      <View style={styles.tabs} accessibilityRole="tablist">
+        {FINANCE_TABS.map((tab) => {
+          const selected = tab === selectedTab;
+          return (
+            <InteractivePressable
+              key={tab}
+              onPress={() => setSelectedTab((current) => selectFinanceTab(current, tab))}
+              haptic="light"
+              pressScale={motion.scale.tab}
+              style={[styles.tab, selected && styles.tabSelected]}
+              accessibilityRole="tab"
+              accessibilityState={{ selected }}
+              accessibilityLabel={FINANCE_TAB_LABELS[tab]}
+            >
+              <AppText
+                variant="bodySmall"
+                weight="800"
+                tone={selected ? 'inverse' : 'secondary'}
+                numberOfLines={1}
+              >
+                {FINANCE_TAB_LABELS[tab]}
+              </AppText>
+            </InteractivePressable>
+          );
+        })}
+      </View>
 
       {householdError ? (
         <ErrorState title="No pudimos actualizar Current" description={householdError} />
@@ -525,18 +752,40 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
       ) : null}
 
       {summaryReady ? (
-        <FinanceSummarySurface
-          period={selectedPeriod}
-          loading={visibleReadState.loading}
-          error={visibleReadState.error}
-          currencies={summaryCurrencies}
-          selectedCurrency={selectedSummaryCurrency}
-          selectedBucket={selectedSummaryBucket}
-          accounts={visibleReadState.accounts ?? []}
-          onSelectCurrency={setSelectedSummaryCurrency}
-          onRetry={retryReads}
-          onMovePeriod={movePeriod}
-        />
+        <>
+          <FinanceSummarySurface
+            period={selectedPeriod}
+            loading={visibleReadState.loading}
+            error={visibleReadState.error}
+            currencies={summaryCurrencies}
+            selectedCurrency={selectedSummaryCurrency}
+            selectedBucket={selectedSummaryBucket}
+            onSelectCurrency={setSelectedSummaryCurrency}
+            onRetry={retryReads}
+            onMovePeriod={movePeriod}
+            analysis={analysis}
+          />
+          <FinancePoolSummary
+            summary={poolSummary}
+            loading={poolSummaryLoading}
+            error={poolSummaryError}
+            onRetry={retryReads}
+            onOrganize={() => navigation.navigate('FinancePoolManagement', {
+              contextType: selectedContext,
+              currency: selectedSummaryCurrency ?? 'ARS',
+            })}
+          />
+          <FinanceSpendingLimitSummary
+            progress={spendingLimitProgress}
+            loading={spendingLimitProgressLoading}
+            error={spendingLimitProgressError}
+            onRetry={retryReads}
+          />
+          <FinanceAnalysisHighlights
+            analysis={analysis}
+            currency={selectedSummaryCurrency ?? 'ARS'}
+          />
+        </>
       ) : null}
 
       {movementsReady ? (
@@ -552,22 +801,26 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
       ) : null}
 
       {selectedTab === 'pagos' && (viewState === 'personal_ready' || viewState === 'household_ready') ? (
-        <AppCard variant="quiet" padding="generous">
-          <EmptyState
-            title={TAB_EMPTY_COPY.pagos.title}
-            description={TAB_EMPTY_COPY.pagos.description}
-            illustration={<HomePlusIcon name={TAB_EMPTY_COPY.pagos.icon} size={30} color={colors.terracotta[600]} />}
-          />
-        </AppCard>
+        <PaymentsList
+          accessToken={session?.access_token ?? null}
+          contextType={selectedContext}
+          contextLabel={contextLabel}
+          activeHousehold={activeHousehold}
+          onCreatePayment={() => setNewPaymentVisible(true)}
+          onPaymentPress={handlePaymentPress}
+          onRefresh={handlePaymentRefresh}
+        />
       ) : null}
 
       <NewMovementSheet
         visible={newMovementVisible}
-        accessToken={session?.access_token}
+        accessToken={session?.access_token ?? null}
         contextType={selectedContext}
         contextLabel={contextLabel}
         contextState={viewState}
         activeHousehold={activeHousehold}
+        personId={authMe?.person?.id ?? null}
+        householdId={selectedContext === FINANCE_CONTEXT_TYPES.HOUSEHOLD ? activeHousehold?.id ?? null : null}
         onRequestClose={() => setNewMovementVisible(false)}
         onSuccess={handleCreateSuccess}
       />
@@ -580,9 +833,85 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
         accessToken={session?.access_token ?? null}
         personId={authMe?.person?.id ?? null}
         householdId={selectedContext === FINANCE_CONTEXT_TYPES.HOUSEHOLD ? activeHousehold?.id ?? null : null}
+        activeHousehold={activeHousehold}
         onRequestClose={handleMovementDetailClose}
         onTrashSuccess={handleTrashSuccess}
-        onCorrectionSuccess={handleCorrectionSuccess}
+        onCorrectionIntent={handleCorrectionIntent}
+        onRefundSuccess={handleRefundSuccess}
+        onPoolAssignmentSuccess={handlePoolAssignmentSuccess}
+      />
+
+      <TransactionCorrectionSheet
+        key={`${correctionTransactionId ?? 'none'}:${detailPrefetchSnapshot?.detail ? 'prefetched' : 'fallback'}`}
+        visible={correctionVisible}
+        accessToken={session?.access_token ?? null}
+        contextType={selectedContext}
+        contextLabel={contextLabel}
+        personId={authMe?.person?.id ?? null}
+        householdId={selectedContext === FINANCE_CONTEXT_TYPES.HOUSEHOLD ? activeHousehold?.id ?? null : null}
+        transactionId={correctionTransactionId ?? ''}
+        prefetchedDetail={detailPrefetchSnapshot}
+        onRequestClose={handleCorrectionClose}
+        onSuccess={handleCorrectionSuccess}
+      />
+
+      <NewPaymentSheet
+        visible={newPaymentVisible}
+        accessToken={session?.access_token ?? null}
+        contextType={selectedContext}
+        contextLabel={contextLabel}
+        contextState={viewState}
+        activeHousehold={activeHousehold}
+        onRequestClose={() => setNewPaymentVisible(false)}
+        onSuccess={handlePaymentCreateSuccess}
+      />
+
+      <RegisterPaymentSheet
+        visible={registerPaymentVisible}
+        accessToken={session?.access_token ?? null}
+        contextType={selectedContext}
+        contextLabel={contextLabel}
+        contextState={viewState}
+        activeHousehold={activeHousehold}
+        payment={selectedPayment}
+        onRequestClose={() => setRegisterPaymentVisible(false)}
+        onSuccess={handlePaymentRegisterSuccess}
+      />
+
+      <PayCreditCardSheet
+        visible={payCreditCardVisible}
+        accessToken={session?.access_token ?? null}
+        contextType={selectedContext}
+        contextLabel={contextLabel}
+        contextState={viewState}
+        activeHousehold={activeHousehold}
+        payment={selectedPayment}
+        onRequestClose={() => setPayCreditCardVisible(false)}
+        onSuccess={handlePaymentRegisterSuccess}
+      />
+
+      <EditPaymentDueSheet
+        visible={editPaymentDueVisible}
+        accessToken={session?.access_token ?? null}
+        contextType={selectedContext}
+        contextLabel={contextLabel}
+        payment={selectedPayment}
+        onRequestClose={() => setEditPaymentDueVisible(false)}
+        onSuccess={handlePaymentRefresh}
+      />
+
+      <PaymentDetailSheet
+        visible={paymentDetailVisible}
+        accessToken={session?.access_token ?? null}
+        contextType={selectedContext}
+        contextLabel={contextLabel}
+        paymentId={selectedPaymentId}
+        refreshNonce={paymentDetailRefreshNonce}
+        onRequestClose={handlePaymentDetailClose}
+        onRegisterPayment={handleRegisterPayment}
+        onRegisterCreditCardPayment={handleRegisterCreditCardPayment}
+        onEditPayment={handleEditPayment}
+        onRefresh={handlePaymentRefresh}
       />
 
       <ActionSheet
@@ -687,10 +1016,10 @@ function FinanceSummarySurface({
   currencies,
   selectedCurrency,
   selectedBucket,
-  accounts,
   onSelectCurrency,
   onRetry,
   onMovePeriod,
+  analysis,
 }: {
   period: string;
   loading: boolean;
@@ -698,13 +1027,13 @@ function FinanceSummarySurface({
   currencies: FinanceSummaryCurrencyDto[];
   selectedCurrency: string | null;
   selectedBucket: FinanceSummaryCurrencyDto | null;
-  accounts: FinanceAccountDto[];
   onSelectCurrency: (currency: string) => void;
   onRetry: () => void;
   onMovePeriod: (direction: 'previous' | 'next') => void;
+  analysis: FinanceAnalysisResponse | null;
 }) {
-  if (loading && currencies.length === 0 && accounts.length === 0) return <FinanceSurfaceLoading />;
-  if (error && currencies.length === 0 && accounts.length === 0) {
+  if (loading && currencies.length === 0) return <FinanceSurfaceLoading />;
+  if (error && currencies.length === 0) {
     return (
       <ErrorState
         title="No pudimos cargar el resumen"
@@ -713,6 +1042,12 @@ function FinanceSummarySurface({
       />
     );
   }
+
+  const netExpenseComparison = analysis?.comparison?.netExpense;
+  const incomeComparison = analysis?.comparison?.income;
+  const summaryExpense = analysis?.totals?.netExpense ?? selectedBucket?.expense ?? '0';
+  const summaryIncome = analysis?.totals?.income ?? selectedBucket?.income ?? '0';
+  const summaryNet = analysis?.totals?.netResult ?? selectedBucket?.net ?? '0';
 
   return (
     <AppCard variant="quiet" padding="generous">
@@ -725,16 +1060,14 @@ function FinanceSummarySurface({
           {loading ? <Skeleton width={64} height={12} /> : null}
         </View>
 
-        <View style={styles.summarySection}>
-          <AppText variant="title3" weight="800">Resumen del período</AppText>
-          {currencies.length === 0 || !selectedBucket ? (
-            <EmptyState
-              title="Sin actividad financiera"
-              description="No hay gastos ni ingresos registrados para este periodo."
-              illustration={<HomePlusIcon name="pie-chart-outline" size={30} color={colors.terracotta[600]} />}
-            />
-          ) : (
-            <View style={styles.summaryStack}>
+        {currencies.length === 0 || !selectedBucket ? (
+          <EmptyState
+            title="Sin actividad financiera"
+            description="No hay gastos ni ingresos registrados para este periodo."
+            illustration={<HomePlusIcon name="pie-chart-outline" size={30} color={colors.terracotta[600]} />}
+          />
+        ) : (
+          <View style={styles.summaryStack}>
             {currencies.length > 1 ? (
               <View style={styles.currencySelector} accessibilityRole="tablist">
                 {currencies.map((bucket) => {
@@ -760,61 +1093,40 @@ function FinanceSummarySurface({
             ) : null}
 
             <View style={styles.summaryRows}>
-              <SummaryMetric label="Gastamos" value={formatFinanceAmount(selectedBucket.expense, selectedBucket.currency)} />
-              <SummaryMetric label="Ingresó" value={formatFinanceAmount(selectedBucket.income, selectedBucket.currency)} />
+              <SummaryMetric
+                label="Gastamos"
+                value={formatFinanceAmount(summaryExpense, selectedBucket.currency)}
+                secondary={netExpenseComparison && netExpenseComparison.comparisonKind !== 'NONE'
+                  ? netExpenseComparison.comparisonKind === 'NEW'
+                    ? 'Nuevo este mes'
+                    : netExpenseComparison.comparisonKind === 'PERCENT'
+                    ? `${netExpenseComparison.percentChange ? (Number(netExpenseComparison.percentChange) > 0 ? '+' : '') + Number(netExpenseComparison.percentChange).toFixed(0) + '%' : ''} vs mes anterior`
+                    : 'Sin cambios vs mes anterior'
+                  : undefined}
+                secondaryTone={netExpenseComparison && netExpenseComparison.comparisonKind === 'PERCENT' && Number(netExpenseComparison.percentChange ?? 0) > 0 ? 'danger' : 'secondary'}
+              />
+              <SummaryMetric
+                label="Ingresó"
+                value={formatFinanceAmount(summaryIncome, selectedBucket.currency)}
+                secondary={incomeComparison && incomeComparison.comparisonKind !== 'NONE'
+                  ? incomeComparison.comparisonKind === 'NEW'
+                    ? 'Nuevo este mes'
+                    : incomeComparison.comparisonKind === 'PERCENT'
+                    ? `${incomeComparison.percentChange ? (Number(incomeComparison.percentChange) > 0 ? '+' : '') + Number(incomeComparison.percentChange).toFixed(0) + '%' : ''} vs mes anterior`
+                    : 'Sin cambios vs mes anterior'
+                  : undefined}
+                secondaryTone={incomeComparison && incomeComparison.comparisonKind === 'PERCENT' && Number(incomeComparison.percentChange ?? 0) > 0 ? 'success' : 'secondary'}
+              />
               <SummaryMetric
                 label="Neto"
-                value={formatFinanceAmount(selectedBucket.net, selectedBucket.currency, { sign: 'net' })}
-                tone={isZeroDecimalString(selectedBucket.net) ? 'primary' : selectedBucket.net.startsWith('-') ? 'danger' : 'success'}
+                value={formatFinanceAmount(summaryNet, selectedBucket.currency, { sign: 'net' })}
+                tone={isZeroDecimalString(summaryNet) ? 'primary' : summaryNet.startsWith('-') ? 'danger' : 'success'}
               />
             </View>
-              <AppText variant="caption" tone="tertiary">
-                Incluye los movimientos de {selectedBucket.currency} del contexto elegido. La cuenta identifica el origen o destino, no un segundo gasto.
-              </AppText>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.accountsSection}>
-          <View style={styles.accountsHeading}>
-            <AppText variant="title3" weight="800">Cuentas</AppText>
-            <AppText variant="caption" tone="secondary">Saldos actuales por cuenta</AppText>
           </View>
-          {accounts.length === 0 ? (
-            <AppText variant="bodySmall" tone="secondary">No hay cuentas activas en este contexto.</AppText>
-          ) : (
-            <View style={styles.accountBalanceList}>
-              {accounts.map((account) => <FinanceAccountBalance key={account.id} account={account} />)}
-            </View>
-          )}
-          <AppText variant="caption" tone="tertiary">
-            Los saldos de cuentas se muestran separados del resultado del período.
-          </AppText>
-        </View>
+        )}
       </View>
     </AppCard>
-  );
-}
-
-function FinanceAccountBalance({ account }: { account: FinanceAccountDto }) {
-  const presentation = getAccountBalancePresentation(account);
-  const isNegativeAccountBalance = !presentation.isCreditCard && presentation.displayAmount?.startsWith('-');
-
-  return (
-    <View style={styles.accountBalanceRow}>
-      <View style={styles.accountBalanceCopy}>
-        <AppText variant="bodySmall" weight="800" numberOfLines={1}>{account.name}</AppText>
-        <AppText variant="caption" tone="secondary">{presentation.label} · {account.currency}</AppText>
-      </View>
-      <AppText
-        variant="bodySmall"
-        weight="800"
-        tone={isNegativeAccountBalance ? 'danger' : 'primary'}
-        numberOfLines={1}
-      >
-        {presentation.displayAmount === null ? presentation.unknownLabel : `${account.currency} ${formatAccountPresentationAmount(presentation)}`}
-      </AppText>
-    </View>
   );
 }
 
@@ -822,10 +1134,14 @@ function SummaryMetric({
   label,
   value,
   tone = 'primary',
+  secondary,
+  secondaryTone = 'secondary',
 }: {
   label: string;
   value: string;
   tone?: 'primary' | 'danger' | 'success';
+  secondary?: string;
+  secondaryTone?: 'primary' | 'secondary' | 'success' | 'danger' | 'warning';
 }) {
   return (
     <View style={styles.summaryMetric}>
@@ -835,6 +1151,11 @@ function SummaryMetric({
       <AppText variant="title3" tone={tone} weight="800" numberOfLines={1}>
         {value}
       </AppText>
+      {secondary && (
+        <AppText variant="caption" tone={secondaryTone} weight={secondaryTone !== 'secondary' ? '700' : '400'}>
+          {secondary}
+        </AppText>
+      )}
     </View>
   );
 }
@@ -889,43 +1210,48 @@ function FinanceMovementsSurface({
                 {formatFinanceDateGroupLabel(group.date)}
               </AppText>
               <AppCard variant="quiet" padding="default" style={styles.movementListCard}>
-                {group.movements.map((movement) => (
-                  <InteractivePressable
-                    key={movement.id}
-                    onPress={() => onMovementPress?.(movement)}
-                    haptic="light"
-                    pressScale={motion.scale.card}
-                    style={styles.movementRow}
-                    accessibilityRole="button"
-                    accessibilityLabel={financeMovementTitle(movement.transactionType, movement.description)}
-                  >
-                    <View style={styles.movementCopy}>
-                      <AppText variant="body" weight="800" numberOfLines={1}>
-                        {financeMovementTitle(movement.transactionType, movement.description)}
-                      </AppText>
-                      <AppText variant="caption" tone="secondary" numberOfLines={1}>
-                        {movementAttributionLabel(movement)}
-                      </AppText>
-                      {movement.categoryLabelSnapshot ? (
-                        <AppText variant="caption" tone="tertiary" numberOfLines={1}>
-                          {movement.categoryLabelSnapshot}
-                        </AppText>
-                      ) : null}
-                    </View>
-                    <AppText
-                      variant="bodySmall"
-                      tone={movement.transactionType === 'expense' ? 'danger' : 'success'}
-                      weight="800"
-                      style={styles.movementAmount}
-                      numberOfLines={1}
+                {group.movements.map((movement) => {
+                  const hasRefund = movement.transactionType === 'expense' && !isZeroDecimalString(movement.totalRefunded ?? '0');
+                  return (
+                    <InteractivePressable
+                      key={movement.id}
+                      onPress={() => onMovementPress?.(movement)}
+                      haptic="light"
+                      pressScale={motion.scale.card}
+                      style={styles.movementRow}
+                      accessibilityRole="button"
+                      accessibilityLabel={financeMovementTitle(movement.transactionType, movement.description)}
                     >
-                      {formatFinanceAmount(movement.amount, movement.currency, {
-                        sign: 'transaction',
-                        transactionType: movement.transactionType,
-                      })}
-                    </AppText>
-                  </InteractivePressable>
-                ))}
+                      <View style={styles.movementCopy}>
+                        <AppText variant="body" weight="800" numberOfLines={1}>
+                          {financeMovementTitle(movement.transactionType, movement.description)}
+                        </AppText>
+                        {movement.categoryLabelSnapshot ? (
+                          <AppText variant="caption" tone="secondary" numberOfLines={1}>
+                            {movement.categoryLabelSnapshot}
+                          </AppText>
+                        ) : null}
+                        {hasRefund ? (
+                          <AppText variant="caption" tone="success" weight="800" numberOfLines={1}>
+                            Devuelto {formatFinanceAmount(movement.totalRefunded, movement.currency, { sign: 'none' })} · Neto {formatFinanceAmount(movement.netAmount, movement.currency, { sign: 'none' })}
+                          </AppText>
+                        ) : null}
+                      </View>
+                      <AppText
+                        variant="bodySmall"
+                        tone={movement.transactionType === 'expense' ? 'danger' : 'success'}
+                        weight="800"
+                        style={styles.movementAmount}
+                        numberOfLines={1}
+                      >
+                        {formatFinanceAmount(movement.amount, movement.currency, {
+                          sign: 'transaction',
+                          transactionType: movement.transactionType,
+                        })}
+                      </AppText>
+                    </InteractivePressable>
+                  );
+                })}
               </AppCard>
             </View>
           ))}
@@ -943,6 +1269,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
+  },
+  backButton: {
+    width: touchTargets.normal,
+    height: touchTargets.normal,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface.soft,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+  },
+  overflowButton: {
+    width: touchTargets.normal,
+    height: touchTargets.normal,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface.soft,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
   },
   overflowContent: {
     paddingHorizontal: spacing[4],
@@ -1037,6 +1383,26 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  tabs: {
+    minHeight: 48,
+    borderRadius: radius.xl,
+    backgroundColor: colors.surface.muted,
+    padding: spacing[1],
+    flexDirection: 'row',
+    gap: spacing[1],
+  },
+  tab: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 40,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing[2],
+  },
+  tabSelected: {
+    backgroundColor: colors.terracotta[600],
+  },
   loadingBlock: {
     gap: spacing[3],
   },
@@ -1075,39 +1441,6 @@ const styles = StyleSheet.create({
   },
   summaryStack: {
     gap: spacing[3],
-  },
-  summarySection: {
-    gap: spacing[3],
-  },
-  accountsSection: {
-    gap: spacing[3],
-    paddingTop: spacing[4],
-    borderTopWidth: 1,
-    borderTopColor: colors.border.subtle,
-  },
-  accountsHeading: {
-    gap: spacing[1],
-  },
-  accountBalanceList: {
-    gap: spacing[2],
-  },
-  accountBalanceRow: {
-    minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing[3],
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.card,
-  },
-  accountBalanceCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing[1],
   },
   currencySelector: {
     alignSelf: 'flex-start',

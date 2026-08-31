@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Keyboard, StyleSheet, View } from 'react-native';
+import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 import { HomePlusIcon } from '../../constants/icons';
@@ -13,12 +13,16 @@ import {
   type FinanceCategoryDto,
 } from '../../services/finance/financeMovements';
 import {
+  assignExpenseToPoolClient,
+} from '../../services/finance/financePools';
+import {
   createFinanceTransfer,
   buildTransferPayloadSignature,
   useStableTransferMutationIdentity,
 } from '../../services/finance/financeTransfers';
 import type { FinanceAccountDto } from '../../services/finance/financeAccounts';
 import { useEligibleAccounts } from '../../services/finance/financeAccountEligibility';
+import { useEligiblePools } from '../../services/finance/financePoolEligibility';
 import {
   addDecimalStrings,
   compareDecimalStrings,
@@ -45,7 +49,7 @@ import {
 } from '../ui';
 import { MoneyInput } from './MoneyInput';
 import { AccountSelector } from './AccountSelector';
-import { AccountFormSheet } from './AccountFormSheet';
+import { PoolSelectorSheet } from './PoolSelectorSheet';
 
 type FinanceOperationKind = 'expense' | 'income' | 'transfer';
 
@@ -56,6 +60,8 @@ type NewMovementSheetProps = {
   contextLabel: string;
   contextState: FinanceContextViewState;
   activeHousehold: FinanceActiveHousehold;
+  personId: string | null;
+  householdId: string | null;
   onRequestClose: () => void;
   onSuccess: (operation: FinanceOperationKind) => void;
 };
@@ -65,6 +71,7 @@ type ActivePicker =
   | 'category'
   | 'expenseAccount'
   | 'incomeAccount'
+  | 'expensePool'
   | 'transferSource'
   | 'transferDestination'
   | null;
@@ -170,6 +177,27 @@ function getAccountBalancePresentationSafe(account: FinanceAccountDto) {
   return { isUnknown: false, isCreditCard: false, isDebt: isNegative, displayAmount: canonical };
 }
 
+function poolAssignmentCreateErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case 'finance_pool_archived':
+        return 'Gasto registrado, pero ese pozo está archivado. Podés organizarlo desde el detalle con un pozo activo.';
+      case 'finance_pool_context_currency_mismatch':
+        return 'Gasto registrado, pero el pozo no coincide con el contexto o la moneda.';
+      case 'finance_expense_pool_account_required':
+        return 'Gasto registrado, pero necesita una cuenta para consumir un pozo.';
+      case 'finance_expense_pool_account_unknown':
+        return 'Gasto registrado, pero la cuenta no tiene saldo establecido para asignar un pozo.';
+      case 'idempotency_conflict':
+      case 'planner_idempotency_conflict':
+        return 'Gasto registrado, pero la asignación del pozo quedó en conflicto. Revisalo desde el detalle.';
+      default:
+        return `Gasto registrado, pero no pudimos asignar el pozo: ${error.message}`;
+    }
+  }
+  return 'Gasto registrado, pero no pudimos asignar el pozo. Podés organizarlo desde el detalle.';
+}
+
 export function NewMovementSheet({
   visible,
   accessToken,
@@ -177,6 +205,8 @@ export function NewMovementSheet({
   contextLabel,
   contextState,
   activeHousehold,
+  personId,
+  householdId,
   onRequestClose,
   onSuccess,
 }: NewMovementSheetProps) {
@@ -195,14 +225,12 @@ export function NewMovementSheet({
   const [activePicker, setActivePicker] = useState<ActivePicker>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [accountFormVisible, setAccountFormVisible] = useState(false);
-  const [accountCreationTarget, setAccountCreationTarget] = useState<'transferSource' | 'transferDestination' | null>(null);
+  const [expenseCreatedAfterPoolFailure, setExpenseCreatedAfterPoolFailure] = useState(false);
   const contextKeyRef = useRef(`${contextType}:${contextLabel}`);
-  const submitInFlightRef = useRef(false);
-  const negativeBalanceConfirmedSignatureRef = useRef<string | null>(null);
 
   const [expenseAccountId, setExpenseAccountId] = useState<string | null>(null);
   const [incomeAccountId, setIncomeAccountId] = useState<string | null>(null);
+  const [expensePoolId, setExpensePoolId] = useState<string | null>(null);
 
   const [transferSource, setTransferSource] = useState<FinanceAccountDto | null>(null);
   const [transferDestination, setTransferDestination] = useState<FinanceAccountDto | null>(null);
@@ -216,6 +244,7 @@ export function NewMovementSheet({
 
   const expenseAccountPickerVisible = activePicker === 'expenseAccount';
   const incomeAccountPickerVisible = activePicker === 'incomeAccount';
+  const expensePoolPickerVisible = activePicker === 'expensePool';
   const transferSourcePickerVisible = activePicker === 'transferSource';
   const transferDestinationPickerVisible = activePicker === 'transferDestination';
 
@@ -240,6 +269,7 @@ export function NewMovementSheet({
       setCategories([]);
       setCategoriesError(null);
       setSubmitError(null);
+      setExpensePoolId(null);
     }
   }, [contextLabel, contextType, visible]);
 
@@ -288,6 +318,19 @@ export function NewMovementSheet({
     activeHousehold,
   });
 
+  const selectedExpenseAccount = useMemo(
+    () => expenseAccountsState.accounts.find((account) => account.id === expenseAccountId) ?? null,
+    [expenseAccountId, expenseAccountsState.accounts],
+  );
+
+  const expensePoolsState = useEligiblePools({
+    accessToken,
+    enabled: visible && isExpense(operation) && selectedExpenseAccount !== null,
+    contextType,
+    transactionCurrency: currency,
+    activeHousehold,
+  });
+
   const incomeAccountsState = useEligibleAccounts({
     accessToken,
     enabled: visible && isIncome(operation),
@@ -315,13 +358,13 @@ export function NewMovementSheet({
     activeHousehold,
   });
 
-  const selectedExpenseAccount = useMemo(
-    () => expenseAccountsState.accounts.find((account) => account.id === expenseAccountId) ?? null,
-    [expenseAccountId, expenseAccountsState.accounts],
-  );
   const selectedIncomeAccount = useMemo(
     () => incomeAccountsState.accounts.find((account) => account.id === incomeAccountId) ?? null,
     [incomeAccountId, incomeAccountsState.accounts],
+  );
+  const selectedExpensePool = useMemo(
+    () => expensePoolsState.pools.find((pool) => pool.id === expensePoolId) ?? null,
+    [expensePoolId, expensePoolsState.pools],
   );
 
   const transferCrossCurrency =
@@ -364,19 +407,6 @@ export function NewMovementSheet({
     transferSource.currentBalance !== null &&
     transferSourceTotalDebit !== null &&
     compareDecimalStrings(transferSource.currentBalance, transferSourceTotalDebit) < 0;
-  const expenseAccountWillGoNegative =
-    isExpense(operation) &&
-    selectedExpenseAccount?.accountType === 'ACCOUNT' &&
-    selectedExpenseAccount.balanceState === 'KNOWN' &&
-    selectedExpenseAccount.currentBalance !== null &&
-    amount.technicalValue !== null &&
-    compareDecimalStrings(selectedExpenseAccount.currentBalance, amount.technicalValue.amount) < 0;
-  const expenseNegativeBalanceSignature = expenseAccountWillGoNegative
-    ? `${selectedExpenseAccount?.id ?? ''}:${selectedExpenseAccount?.currentBalance ?? ''}:${amount.technicalValue?.amount ?? ''}`
-    : null;
-  const expenseProjectedBalance = expenseAccountWillGoNegative && selectedExpenseAccount?.currentBalance && amount.technicalValue
-    ? subtractDecimalStrings(selectedExpenseAccount.currentBalance, amount.technicalValue.amount)
-    : null;
 
   const canSubmit = isTransfer(operation)
     ? Boolean(accessToken) && !contextUnavailable && !submitting &&
@@ -386,7 +416,7 @@ export function NewMovementSheet({
       transferAmount.isValid &&
       (!transferCrossCurrency || destinationAmount.isValid) &&
       (commissionMode === 'none' || (commissionMode === 'custom' && commission.isValid))
-    : Boolean(accessToken) && !contextUnavailable && amount.isValid && !submitting;
+    : Boolean(accessToken) && !contextUnavailable && amount.isValid && !submitting && !expenseCreatedAfterPoolFailure;
 
   const resetDraft = () => {
     setOperation('expense');
@@ -401,13 +431,12 @@ export function NewMovementSheet({
     setSelectedCategoryId(null);
     setCategoriesError(null);
     setActivePicker(null);
-    setAccountFormVisible(false);
-    setAccountCreationTarget(null);
-    negativeBalanceConfirmedSignatureRef.current = null;
     setSubmitError(null);
     setSubmitting(false);
+    setExpenseCreatedAfterPoolFailure(false);
     setExpenseAccountId(null);
     setIncomeAccountId(null);
+    setExpensePoolId(null);
     setTransferSource(null);
     setTransferDestination(null);
     setTransferAmountText('');
@@ -435,6 +464,7 @@ export function NewMovementSheet({
     setCurrency(nextCurrency);
     setAmount(parseMoneyInputText(amountText, nextCurrency));
     setSubmitError(null);
+    setExpensePoolId(null);
   };
 
   const resetTransferDependentState = () => {
@@ -489,32 +519,6 @@ export function NewMovementSheet({
       setDestinationAmountText(NONE_AMOUNT);
     }
     setActivePicker(null);
-  };
-
-  const openAccountForm = (target: 'transferSource' | 'transferDestination') => {
-    setActivePicker(null);
-    setAccountCreationTarget(target);
-    setAccountFormVisible(true);
-  };
-
-  const handleAccountCreated = (account: FinanceAccountDto) => {
-    const target = accountCreationTarget;
-    setAccountFormVisible(false);
-    setAccountCreationTarget(null);
-
-    if (target === 'transferSource') {
-      if (account.accountType !== 'ACCOUNT') {
-        setSubmitError('La cuenta creada no puede usarse como origen. Elegí una cuenta de tipo Cuenta.');
-        setActivePicker('transferSource');
-        return;
-      }
-      handleSelectTransferSource(account);
-      return;
-    }
-
-    if (target === 'transferDestination') {
-      handleSelectTransferDestination(account);
-    }
   };
 
   const handleTransferAmountChange = (next: MoneyInputParseResult) => {
@@ -583,7 +587,30 @@ export function NewMovementSheet({
     setSubmitting(true);
     try {
       if (isExpense(submittedOperation)) {
-        await createFinanceExpense(accessToken, payload);
+        const expenseResponse = await createFinanceExpense(accessToken, payload);
+        // For a new expense, the transaction ID is the root transaction ID
+        const expenseRootId = expenseResponse.transaction.id;
+
+        if (expensePoolId && expenseAccountId && personId) {
+          try {
+            await assignExpenseToPoolClient({
+              accessToken,
+              contextType,
+              currency,
+              expenseRootTransactionId: expenseRootId,
+              poolId: expensePoolId,
+              personId,
+              householdId,
+            });
+          } catch (poolError) {
+            console.warn('Pool assignment failed:', poolError);
+            setExpenseCreatedAfterPoolFailure(true);
+            setExpensePoolId(null);
+            setSubmitError(poolAssignmentCreateErrorMessage(poolError));
+            onSuccess(submittedOperation);
+            return;
+          }
+        }
       } else if (isIncome(submittedOperation)) {
         await createFinanceIncome(accessToken, payload);
       }
@@ -660,35 +687,11 @@ if (commissionMode === 'custom' && !commission.isValid) {
     }
   };
 
-  const submit = async () => {
-    if (submitInFlightRef.current || !canSubmit) return;
-    if (expenseNegativeBalanceSignature && negativeBalanceConfirmedSignatureRef.current !== expenseNegativeBalanceSignature) {
-      Alert.alert(
-        'Esta cuenta quedará en negativo',
-        `${selectedExpenseAccount?.name ?? 'La cuenta'} pasará a ${selectedExpenseAccount?.currency ?? currency} ${formatCanonicalAmountForDisplay(expenseProjectedBalance)}. Podés registrarlo si representa un saldo real.`,
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Registrar de todos modos',
-            style: 'destructive',
-            onPress: () => {
-              negativeBalanceConfirmedSignatureRef.current = expenseNegativeBalanceSignature;
-              void submit();
-            },
-          },
-        ],
-      );
-      return;
-    }
-    submitInFlightRef.current = true;
-    try {
-      if (isTransfer(operation)) {
-        await submitTransfer();
-      } else {
-        await submitExpenseOrIncome();
-      }
-    } finally {
-      submitInFlightRef.current = false;
+  const submit = () => {
+    if (isTransfer(operation)) {
+      void submitTransfer();
+    } else {
+      void submitExpenseOrIncome();
     }
   };
 
@@ -697,7 +700,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
       <AppButton title="Cancelar" variant="ghost" onPress={close} disabled={submitting} style={styles.footerButton} />
       <AppButton
         title={operation === 'expense' ? 'Registrar gasto' : operation === 'income' ? 'Registrar ingreso' : 'Transferir'}
-        onPress={() => { void submit(); }}
+        onPress={submit}
         loading={submitting}
         disabled={!canSubmit}
         style={styles.footerButton}
@@ -1021,16 +1024,54 @@ if (commissionMode === 'custom' && !commission.isValid) {
                   {expenseAccountsState.error}
                 </AppText>
               ) : null}
-              {expenseAccountWillGoNegative ? (
-                <View style={styles.negativeBalanceWarning}>
-                  <HomePlusIcon name="alert-circle-outline" size={18} color={colors.warning.strong} />
-                  <View style={{ flex: 1 }}>
-                    <AppText variant="bodySmall" tone="warning" weight="800">Esta cuenta quedará en negativo</AppText>
-                    <AppText variant="caption" tone="secondary">
-                      Saldo estimado: {selectedExpenseAccount?.currency ?? currency} {formatCanonicalAmountForDisplay(expenseProjectedBalance)}. Te pediremos confirmación al registrar.
-                    </AppText>
-                  </View>
+            </View>
+          ) : null}
+
+          {isExpense(operation) ? (
+            <View style={styles.fieldGroup}>
+              {selectedExpenseAccount === null ? (
+                <View style={styles.poolFieldDisabled}>
+                  <FormActionRow
+                    label="Pozo"
+                    value="Elegí una cuenta para usar un pozo"
+                    onPress={() => {}}
+                    disabled={true}
+                    accessibilityLabel="Pozo no disponible sin cuenta"
+                  />
+                  <AppText variant="caption" tone="tertiary">
+                    Seleccioná una cuenta para poder asignar un pozo.
+                  </AppText>
                 </View>
+              ) : selectedExpenseAccount.balanceState !== 'KNOWN' && selectedExpenseAccount.accountType !== 'CREDIT_CARD' ? (
+                <View style={styles.poolFieldDisabled}>
+                  <FormActionRow
+                    label="Pozo"
+                    value="Esta cuenta no tiene un saldo establecido"
+                    onPress={() => {}}
+                    disabled={true}
+                    accessibilityLabel="Pozo no disponible para cuenta con saldo desconocido"
+                  />
+                  <AppText variant="caption" tone="tertiary">
+                    El pozo requiere una cuenta con saldo conocido.
+                  </AppText>
+                </View>
+              ) : (
+                <FormActionRow
+                  label="Pozo"
+                  value={selectedExpensePool ? `${selectedExpensePool.name} · ${selectedExpensePool.balance} ${selectedExpensePool.currency}` : 'Sin pozo'}
+                  onPress={() => setActivePicker('expensePool')}
+                  disabled={submitting || expensePoolsState.loading || expensePoolsState.pools.length === 0}
+                  accessibilityLabel={selectedExpensePool ? `Pozo ${selectedExpensePool.name}` : 'Elegir pozo para el gasto'}
+                />
+              )}
+              {expensePoolsState.error ? (
+                <AppText variant="caption" tone="warning">
+                  {expensePoolsState.error}
+                </AppText>
+              ) : expensePoolsState.pools.length === 0 && selectedExpenseAccount !== null && selectedExpenseAccount.balanceState === 'KNOWN' ? (
+                <AppText variant="caption" tone="tertiary">
+                  No tenés pozos activos.
+                </AppText>
               ) : null}
             </View>
           ) : null}
@@ -1185,7 +1226,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
           operationHint="transfer-source"
           onRequestClose={() => setActivePicker(null)}
           onSelect={handleSelectTransferSource}
-          onCreateAccount={() => openAccountForm('transferSource')}
+          onCreateAccount={() => setActivePicker(null)}
         />
 
         <AccountSelector
@@ -1202,19 +1243,24 @@ if (commissionMode === 'custom' && !commission.isValid) {
           operationHint="transfer-destination"
           onRequestClose={() => setActivePicker(null)}
           onSelect={handleSelectTransferDestination}
-          onCreateAccount={() => openAccountForm('transferDestination')}
+          onCreateAccount={() => setActivePicker(null)}
         />
 
-        <AccountFormSheet
-          visible={accountFormVisible}
-          accessToken={accessToken}
-          contextType={contextType}
-          contextLabel={contextLabel}
-          onRequestClose={() => {
-            setAccountFormVisible(false);
-            setAccountCreationTarget(null);
+        <PoolSelectorSheet
+          visible={expensePoolPickerVisible}
+          title="Pozo del gasto"
+          subtitle="Opcional"
+          pools={expensePoolsState.pools}
+          loading={expensePoolsState.loading}
+          error={expensePoolsState.error}
+          selectedPoolId={expensePoolId}
+          allowNone
+          disabled={submitting}
+          onRequestClose={() => setActivePicker(null)}
+          onSelect={(pool) => {
+            setExpensePoolId(pool?.id ?? null);
+            setActivePicker(null);
           }}
-          onSuccess={handleAccountCreated}
         />
       </View>
     </ActionSheet>
@@ -1328,16 +1374,6 @@ const styles = StyleSheet.create({
     gap: spacing[2],
     alignItems: 'center',
   },
-  negativeBalanceWarning: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.warning.base,
-    backgroundColor: colors.warning.soft,
-    padding: spacing[3],
-    flexDirection: 'row',
-    gap: spacing[2],
-    alignItems: 'flex-start',
-  },
   contextSummary: {
     minHeight: 56,
     borderRadius: radius.lg,
@@ -1385,5 +1421,8 @@ const styles = StyleSheet.create({
   },
   footerButton: {
     flex: 1,
+  },
+  poolFieldDisabled: {
+    gap: spacing[1],
   },
 });

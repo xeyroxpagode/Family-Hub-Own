@@ -137,8 +137,9 @@ assert(!/HouseholdSwitcher|setActiveHousehold|getUserHouseholds/.test(financeFro
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
+      '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
     ],
-    'T38 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C schema migrations exist',
+    'T38 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C/4D schema migrations exist',
   );
   assert(runJs.includes('finance-2e-expense-income-ui') && runJs.includes("'finance-2e'"), 'T39 2E command and suite are registered');
   assert(runJs.includes('finance-2e-expense-income-ui') && runJs.includes('finance-2c-expense-income'), 'T40 2E suite includes frontend UI checks and real 2C create persistence validation');

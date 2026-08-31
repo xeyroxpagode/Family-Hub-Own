@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import { AppText } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, radius, spacing } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
+import { openFinancePaymentFromAttention } from '../../navigation/financeNavigation';
 import { openEntityDetail } from '../../navigation/plannerNavigationHelpers';
 import type { AttentionItem, AttentionResponse, AttentionStatus } from '../../services/planner/plannerAttention';
 import { fetchPlannerAttentionRequest } from '../../services/planner/plannerAttentionClient';
@@ -21,6 +22,7 @@ const REQUEST_TIMEOUT_MS = 8000;
 function entityIcon(entityType: string) {
   if (entityType === 'task') return 'checkbox-outline';
   if (entityType === 'event') return 'calendar-outline';
+  if (entityType === 'payment') return 'card-outline';
   return 'flag-outline';
 }
 
@@ -156,6 +158,13 @@ export function PlannerAttentionActivityScreen() {
   const unresolvedCount = attentionResponse?.items.length ?? 0;
   const refresh = useCallback(() => setRetryNonce((value) => value + 1), []);
 
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+      return undefined;
+    }, [refresh]),
+  );
+
   const handleBack = useCallback(() => {
     attentionAbortRef.current?.abort();
     activityAbortRef.current?.abort();
@@ -164,6 +173,13 @@ export function PlannerAttentionActivityScreen() {
   }, [navigation]);
 
   const handleOpenAttention = useCallback((item: AttentionItem) => {
+    if (item.entityType === 'payment') {
+      openFinancePaymentFromAttention(navigation, {
+        paymentDueId: item.destination.paymentDueId ?? item.entityId,
+        contextType: item.destination.contextType,
+      });
+      return;
+    }
     openEntityDetail(navigation, item.entityType, { entityId: item.entityId, source: 'planner', returnTo: 'previous' });
   }, [navigation]);
 

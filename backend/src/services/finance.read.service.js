@@ -77,21 +77,22 @@ function assertNoCallerOwnerSelectors(query = {}) {
 
 const SELECT_COLUMNS = [
   'id',
+  'root_transaction_id',
+  'transfer_id',
   'transaction_type',
   'amount:amount::text',
   'currency',
-  'financial_context_type',
   'transaction_date',
   'description',
   'category_id',
   'category_label_snapshot',
   'created_at',
   'updated_at',
-  'finance_account_effects(account_id, finance_accounts(id, name, currency, financial_context_type, owner_person_id, household_id))',
 ].join(', ');
 
 const TRASH_SELECT_COLUMNS = [
   'id',
+  'root_transaction_id',
   'transaction_type',
   'amount:amount::text',
   'currency',
@@ -220,6 +221,68 @@ function fromScaledBigInt(scaled) {
   return neg && !zero ? `-${base}` : base;
 }
 
+function refundEventToDto(row) {
+  return {
+    id: row.id,
+    rootRefundEventId: row.root_refund_event_id,
+    correctedFromRefundEventId: row.corrected_from_refund_event_id ?? null,
+    amount: String(row.amount),
+    effectiveDate: row.effective_date,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function refundCompositionForRow(row) {
+  if (row.transaction_type !== FINANCE_TRANSACTION_TYPES.EXPENSE) {
+    return { totalRefunded: '0', netAmount: String(row.amount), refundCount: 0, refundEvents: [] };
+  }
+
+  const refundEvents = Array.isArray(row.__refundEvents) ? row.__refundEvents : [];
+  const total = refundEvents.reduce((sum, refund) => sum + toScaledBigInt(refund.amount), 0n);
+  const net = toScaledBigInt(row.amount) - total;
+  return {
+    totalRefunded: fromScaledBigInt(total),
+    netAmount: fromScaledBigInt(net),
+    refundCount: refundEvents.length,
+    refundEvents,
+  };
+}
+
+async function attachRefundCompositions(financeContext, rows) {
+  const transactions = Array.isArray(rows) ? rows : [];
+  const expenseRoots = [...new Set(transactions
+    .filter((row) => row.transaction_type === FINANCE_TRANSACTION_TYPES.EXPENSE)
+    .map((row) => row.root_transaction_id ?? row.id)
+    .filter(Boolean))];
+
+  if (expenseRoots.length === 0) return transactions;
+
+  const { data, error } = await financeContext.client
+    .from('finance_refund_events')
+    .select('id, root_refund_event_id, corrected_from_refund_event_id, expense_root_transaction_id, amount:amount::text, effective_date, status, created_at, updated_at')
+    .in('expense_root_transaction_id', expenseRoots)
+    .eq('status', 'ACTIVE')
+    .order('effective_date', { ascending: true })
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true });
+
+  if (error) throwSupabaseError(error);
+
+  const refundsByRoot = new Map();
+  for (const row of data ?? []) {
+    const key = row.expense_root_transaction_id;
+    if (!refundsByRoot.has(key)) refundsByRoot.set(key, []);
+    refundsByRoot.get(key).push(refundEventToDto(row));
+  }
+
+  return transactions.map((row) => ({
+    ...row,
+    __refundEvents: refundsByRoot.get(row.root_transaction_id ?? row.id) ?? [],
+  }));
+}
+
 function scopeFilters(query, financeContext) {
   if (financeContext.contextType === FINANCE_CONTEXT_TYPES.PERSONAL) {
     query = query
@@ -235,36 +298,26 @@ function scopeFilters(query, financeContext) {
   return query;
 }
 
-function accountVisibleInContext(account, financeContext) {
-  if (!account) return false;
-  if (account.financial_context_type !== financeContext.contextType) return false;
-  return financeContext.contextType === FINANCE_CONTEXT_TYPES.PERSONAL
-    ? account.owner_person_id === financeContext.personId
-    : account.household_id === financeContext.householdId;
-}
-
-function movementToDto(row, financeContext) {
-  const accountEffect = Array.isArray(row.finance_account_effects) ? row.finance_account_effects[0] : null;
-  const account = accountEffect?.finance_accounts ?? null;
-  const dto = {
+function movementToDto(row) {
+  const refundComposition = refundCompositionForRow(row);
+  return {
     id: row.id,
+    rootTransactionId: row.root_transaction_id ?? row.id,
+    transferId: row.transfer_id ?? null,
     transactionType: row.transaction_type,
     amount: String(row.amount),
+    grossAmount: String(row.amount),
+    totalRefunded: refundComposition.totalRefunded,
+    netAmount: refundComposition.netAmount,
+    refundCount: refundComposition.refundCount,
+    refundEvents: refundComposition.refundEvents,
     currency: row.currency,
-    financialContextType: row.financial_context_type,
     transactionDate: row.transaction_date,
     description: row.description ?? null,
     categoryId: row.category_id ?? null,
     categoryLabelSnapshot: row.category_label_snapshot ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  };
-  if (!accountVisibleInContext(account, financeContext)) return dto;
-  return {
-    ...dto,
-    accountId: account.id,
-    accountName: account.name,
-    accountCurrency: account.currency,
   };
 }
 
@@ -286,6 +339,8 @@ function movementToTrashDto(row) {
 
 const DETAIL_SELECT_COLUMNS = [
   'id',
+  'root_transaction_id',
+  'transfer_id',
   'transaction_type',
   'amount:amount::text',
   'currency',
@@ -302,16 +357,25 @@ const DETAIL_SELECT_COLUMNS = [
   'corrected_from_transaction_id',
   'created_at',
   'updated_at',
-  'finance_account_effects(account_id, finance_accounts(id, name, currency, financial_context_type, owner_person_id, household_id))',
+  'finance_account_effects(account_id, effect_type, effect_role, finance_accounts(id, name, currency, account_type, balance_state))',
 ].join(', ');
 
-function transactionToDetailDto(row, financeContext) {
-  const accountEffect = row.finance_account_effects?.[0];
+function transactionToDetailDto(row) {
+  const accountEffect = row.finance_account_effects?.find((effect) => effect.effect_role === 'PRIMARY' && effect.effect_type === row.transaction_type)
+    ?? row.finance_account_effects?.[0];
   const account = accountEffect?.finance_accounts;
-  const dto = {
+  const refundComposition = refundCompositionForRow(row);
+  return {
     id: row.id,
+    rootTransactionId: row.root_transaction_id ?? row.id,
+    transferId: row.transfer_id ?? null,
     transactionType: row.transaction_type,
     amount: String(row.amount),
+    grossAmount: String(row.amount),
+    totalRefunded: refundComposition.totalRefunded,
+    netAmount: refundComposition.netAmount,
+    refundCount: refundComposition.refundCount,
+    refundEvents: refundComposition.refundEvents,
     currency: row.currency,
     financialContextType: row.financial_context_type,
     ownerPersonId: row.owner_person_id ?? null,
@@ -326,12 +390,11 @@ function transactionToDetailDto(row, financeContext) {
     correctedFromTransactionId: row.corrected_from_transaction_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  };
-  return {
-    ...dto,
-    accountId: accountVisibleInContext(account, financeContext) ? account.id : null,
-    accountName: accountVisibleInContext(account, financeContext) ? account.name : null,
-    accountCurrency: accountVisibleInContext(account, financeContext) ? account.currency : null,
+    accountId: account?.id ?? null,
+    accountName: account?.name ?? null,
+    accountCurrency: account?.currency ?? null,
+    accountType: account?.account_type ?? null,
+    accountBalanceState: account?.balance_state ?? null,
   };
 }
 
@@ -357,7 +420,8 @@ async function getFinanceTransactionDetail(financeContext, transactionId) {
     throwSupabaseError(error);
   }
 
-  return transactionToDetailDto(data, financeContext);
+  const [enriched] = await attachRefundCompositions(financeContext, [data]);
+  return transactionToDetailDto(enriched);
 }
 
 async function listFinanceMovements(financeContext, query = {}) {
@@ -382,7 +446,8 @@ async function listFinanceMovements(financeContext, query = {}) {
   const { data, error } = await request;
   if (error) throwSupabaseError(error);
 
-  const movements = (data ?? []).map((row) => movementToDto(row, financeContext));
+  const enriched = await attachRefundCompositions(financeContext, data ?? []);
+  const movements = enriched.map(movementToDto);
   return { period: month, contextType: financeContext.contextType, movements };
 }
 
@@ -427,17 +492,17 @@ async function summarizeFinance(financeContext, query = {}) {
   const { data, error } = await request;
   if (error) throwSupabaseError(error);
 
+  const enriched = await attachRefundCompositions(financeContext, data ?? []);
   const buckets = new Map();
-  for (const row of data ?? []) {
+  for (const row of enriched) {
     if (!buckets.has(row.currency)) {
       buckets.set(row.currency, { expense: 0n, income: 0n });
     }
     const bucket = buckets.get(row.currency);
-    const scaled = toScaledBigInt(row.amount);
     if (row.transaction_type === FINANCE_TRANSACTION_TYPES.EXPENSE) {
-      bucket.expense += scaled;
+      bucket.expense += toScaledBigInt(refundCompositionForRow(row).netAmount);
     } else if (row.transaction_type === FINANCE_TRANSACTION_TYPES.INCOME) {
-      bucket.income += scaled;
+      bucket.income += toScaledBigInt(row.amount);
     }
   }
 

@@ -1,6 +1,10 @@
 import { OPERATION_KINDS, requestJson } from '../api';
 import type { FinanceContextType } from './financeContext';
+import { normalizeFinanceTransactionDetailPayload } from './financeTransactionDetail';
+import type { FinanceRefundEventDto, FinanceTransactionDetailDto } from './financeTransactionDetail';
 import * as Crypto from 'expo-crypto';
+
+export type { FinanceTransactionDetailDto, FinanceTransactionDetailStatus } from './financeTransactionDetail';
 
 export type FinanceTransactionKind = 'expense' | 'income';
 
@@ -65,8 +69,15 @@ export type CreateFinanceTransactionResponse = {
 
 export type FinanceMovementDto = {
   id: string;
+  rootTransactionId: string;
+  transferId: string | null;
   transactionType: FinanceTransactionKind;
   amount: string;
+  grossAmount: string;
+  totalRefunded: string;
+  netAmount: string;
+  refundCount: number;
+  refundEvents: FinanceRefundEventDto[];
   currency: string;
   financialContextType: FinanceContextType;
   transactionDate: string;
@@ -118,32 +129,7 @@ export type GetFinanceSummaryResponse = {
   currencies: FinanceSummaryCurrencyDto[];
 };
 
-export type FinanceTransactionDetailDto = {
-  id: string;
-  transactionType: FinanceTransactionKind;
-  amount: string;
-  currency: string;
-  financialContextType: FinanceContextType;
-  ownerPersonId: string | null;
-  householdId: string | null;
-  transactionDate: string;
-  description: string | null;
-  notes: string | null;
-  categoryId: string | null;
-  categoryLabelSnapshot: string | null;
-  status: string;
-  trashedAt: string | null;
-  correctedFromTransactionId: string | null;
-  createdAt: string;
-  updatedAt: string;
-  accountId: string | null;
-  accountName: string | null;
-  accountCurrency: string | null;
-};
-
-export type GetFinanceTransactionDetailResponse = {
-  transaction: FinanceTransactionDetailDto;
-};
+export type GetFinanceTransactionDetailResponse = FinanceTransactionDetailDto;
 
 export type CorrectFinanceTransactionPayload = {
   transactionId: string;
@@ -166,22 +152,52 @@ export type CorrectFinanceTransactionResponse = {
   outcome: 'created' | 'replay';
 };
 
+export type FinanceRefundMutationResponse = {
+  refund: FinanceRefundEventDto;
+  outcome: 'created' | 'replay';
+};
+
+export function assertCanonicalCorrectionSuccess(
+  response: CorrectFinanceTransactionResponse,
+): CorrectFinanceTransactionResponse {
+  if (
+    !response ||
+    (response.outcome !== 'created' && response.outcome !== 'replay') ||
+    !response.transaction?.id ||
+    response.transaction.status !== 'ACTIVE'
+  ) {
+    throw new Error('Finance correction response was not canonical success.');
+  }
+  return response;
+}
+
 const encodeQuery = (params: Record<string, string>) => {
   const search = new URLSearchParams(params);
   return search.toString();
 };
 
-export const listFinanceExpenseCategories = (
+export const listFinanceCategories = (
   accessToken: string,
   contextType: FinanceContextType,
+  type: FinanceTransactionKind,
 ) =>
   requestJson<ListFinanceCategoriesResponse>(
-    `/api/finance/categories?${encodeQuery({ contextType, type: 'expense' })}`,
+    `/api/finance/categories?${encodeQuery({ contextType, type })}`,
     {
       accessToken,
       operationKind: OPERATION_KINDS.READ_ONLY,
     },
   );
+
+export const listFinanceExpenseCategories = (
+  accessToken: string,
+  contextType: FinanceContextType,
+) => listFinanceCategories(accessToken, contextType, 'expense');
+
+export const listFinanceIncomeCategories = (
+  accessToken: string,
+  contextType: FinanceContextType,
+) => listFinanceCategories(accessToken, contextType, 'income');
 
 const createFinanceTransaction = (
   path: '/api/finance/expenses' | '/api/finance/incomes',
@@ -270,7 +286,7 @@ export const getFinanceSummary = ({
     },
   );
 
-function canonicalizeV2Value(value: unknown): unknown {
+export function canonicalizeV2Value(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => canonicalizeV2Value(item));
   }
@@ -490,8 +506,8 @@ export const getFinanceTransactionDetail = ({
   transactionId,
   signal,
   contextScope,
-}: GetFinanceTransactionDetailOptions) =>
-  requestJson<GetFinanceTransactionDetailResponse>(
+}: GetFinanceTransactionDetailOptions): Promise<FinanceTransactionDetailDto> =>
+  requestJson<unknown>(
     `/api/finance/transactions/${transactionId}?${encodeQuery({ contextType })}`,
     {
       accessToken,
@@ -499,7 +515,115 @@ export const getFinanceTransactionDetail = ({
       contextScope,
       operationKind: OPERATION_KINDS.READ_ONLY,
     },
-  );
+  ).then(normalizeFinanceTransactionDetailPayload);
+
+type CreateFinanceRefundOptions = {
+  accessToken: string;
+  contextType: FinanceContextType;
+  personId: string;
+  householdId: string | null;
+  transactionId: string;
+  amount: string;
+  effectiveDate: string;
+  mutationId: string;
+  idempotencyKey: string;
+  signal?: AbortSignal | null;
+  contextScope?: string | null;
+};
+
+export const createFinanceRefund = async ({
+  accessToken,
+  contextType,
+  personId,
+  householdId,
+  transactionId,
+  amount,
+  effectiveDate,
+  mutationId,
+  idempotencyKey,
+  signal,
+  contextScope,
+}: CreateFinanceRefundOptions): Promise<FinanceRefundMutationResponse> => {
+  const scopeId = contextType === 'personal' ? personId : householdId!;
+  const payload = { transactionId, amount, effectiveDate };
+  await hashIdempotencyRequestV2({
+    operation: 'finance.refund.create',
+    scopeType: contextType,
+    scopeId,
+    targetId: transactionId,
+    payload,
+    expectedVersion: null,
+    mutationId,
+  });
+
+  return requestJson<FinanceRefundMutationResponse>('/api/finance/refunds', {
+    method: 'POST',
+    accessToken,
+    operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION,
+    body: {
+      ...payload,
+      contextType,
+      mutationId,
+      idempotencyKey,
+    },
+    signal,
+    contextScope,
+  });
+};
+
+type CorrectFinanceRefundOptions = {
+  accessToken: string;
+  contextType: FinanceContextType;
+  personId: string;
+  householdId: string | null;
+  refundEventId: string;
+  amount: string;
+  effectiveDate: string;
+  mutationId: string;
+  idempotencyKey: string;
+  signal?: AbortSignal | null;
+  contextScope?: string | null;
+};
+
+export const correctFinanceRefund = async ({
+  accessToken,
+  contextType,
+  personId,
+  householdId,
+  refundEventId,
+  amount,
+  effectiveDate,
+  mutationId,
+  idempotencyKey,
+  signal,
+  contextScope,
+}: CorrectFinanceRefundOptions): Promise<FinanceRefundMutationResponse> => {
+  const scopeId = contextType === 'personal' ? personId : householdId!;
+  const payload = { refundEventId, amount, effectiveDate };
+  await hashIdempotencyRequestV2({
+    operation: 'finance.refund.correct',
+    scopeType: contextType,
+    scopeId,
+    targetId: refundEventId,
+    payload,
+    expectedVersion: null,
+    mutationId,
+  });
+
+  return requestJson<FinanceRefundMutationResponse>('/api/finance/refunds/correct', {
+    method: 'POST',
+    accessToken,
+    operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION,
+    body: {
+      ...payload,
+      contextType,
+      mutationId,
+      idempotencyKey,
+    },
+    signal,
+    contextScope,
+  });
+};
 
 type CorrectFinanceTransactionOptions = {
   accessToken: string;
@@ -581,6 +705,7 @@ export const correctFinanceTransaction = async ({
       accessToken,
       operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION,
       body: {
+        ...payload,
         transactionId,
         contextType,
         mutationId,
@@ -590,5 +715,5 @@ export const correctFinanceTransaction = async ({
       signal,
       contextScope,
     },
-  );
+  ).then(assertCanonicalCorrectionSuccess);
 };

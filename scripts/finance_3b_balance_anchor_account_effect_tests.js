@@ -142,7 +142,20 @@ async function applyMigration(rel) {
   await queryDb(fs.readFileSync(path.join(root, rel), 'utf8'));
 }
 
+async function tableExists(tableName) {
+  const { rows } = await queryDb(
+    'select to_regclass($1) is not null as exists',
+    [`public.${tableName}`],
+  );
+  return rows[0]?.exists === true;
+}
+
 async function applyMigrations() {
+  if (await tableExists('finance_accounts')) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return;
+  }
+
   await applyMigration('supabase/migrations/20260813010000_finance_category_authority_v1_1.sql');
   await applyMigration('supabase/migrations/20260813020000_finance_expense_income_transactions_v1_1.sql');
   await applyMigration('supabase/migrations/20260814010000_finance_account_authority_v1_1.sql');
@@ -527,15 +540,18 @@ async function testLifecycleAndNegativeScope(actors) {
     initialBalance: { amount: '-50', effectiveDate: '2026-08-14' },
   }));
   equal(card.currentBalance, '-50', 'CREDIT_CARD can receive generic Anchor');
-  await expectError(() => createExpense(personalA, { amount: '1', currency: 'ARS', date: '2026-08-15', account: { id: card.id } }), 'finance_transaction_forbidden', 'B79 CREDIT_CARD purchase/debt semantics require 3D policy');
+  await trackTransaction(await createExpense(personalA, { amount: '1', currency: 'ARS', date: '2026-08-15', account: { id: card.id } }));
+  equal((await refreshed(personalA, card.id)).currentBalance, '-51', 'B79 CREDIT_CARD generic account-backed Expense adjusts signed balance without statement semantics');
 
   const migrationText = fs.readFileSync(path.join(root, 'supabase/migrations/20260814020000_finance_balance_anchor_account_effects_v1_1.sql'), 'utf8');
   const backendFinance = [
     'backend/src/services/finance.account.service.js',
     'backend/src/services/finance.transaction.service.js',
+    'backend/src/services/finance.balance.correction.service.js',
     'backend/src/routes/finance.js',
+    'backend/src/routes/finance.balance.routes.js',
   ].map((rel) => fs.readFileSync(path.join(root, rel), 'utf8')).join('\n');
-  assert(!/correction|corrective|balance adjustment|adjustment_reason/i.test(backendFinance), 'B74/B75 no Balance Correction or second corrective Anchor behavior');
+  assert(/finance_correct_account_balance_v1|correctAccountBalance/i.test(backendFinance), 'B74/B75 Balance Correction exists as Stage 3C/C53 Anchor behavior');
   assert(!/commission|cross.?currency transfer|exchange_rate|fx_rate/i.test(backendFinance), 'B76-B78 no cross-currency Transfer/commission');
   assert(!/finance_credit_cards|statement|closing_date|minimum_payment|installments|credit_limit|card debt/i.test(migrationText), 'B79 no Credit Card debt schema');
   assert(!/Account picker|Saldo actual UI|Nueva cuenta balance|Pagado desde|Ingres[oó] en/i.test(backendFinance), 'B80 no frontend');
@@ -562,8 +578,23 @@ async function testStaticContracts() {
       '20260814070000_finance_transfer_commission_composition_v1_1.sql',
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
+      '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
+      '20260819000000_finance_transaction_restore_mutation_v1_1.sql',
+      '20260819010000_finance_transfer_regression_repair_v1_1.sql',
+      '20260819020000_finance_transaction_correction_v1_1.sql',
+      '20260824083947_finance_refund_persistence_root_transaction_id_v1_1.sql',
+      '20260824093347_finance_refund_events_persistence_v1_1.sql',
+      '20260824103000_finance_refund_end_to_end_v1_1.sql',
+      '20260824120000_finance_balance_correction_idempotency_v1_1.sql',
+      '20260825000000_finance_payment_foundation_v1_1.sql',
+      '20260826000000_finance_payment_register_v1_1.sql',
+      '20260828002827_finance_pool_foundation_v1_1.sql',
+      '20260828010000_finance_known_organizable_unknown_count_fix_v1_1.sql',
+      '20260828020000_finance_pool_financial_integration_v1_1.sql',
+      '20260828030000_finance_spending_limit_foundation_v1_1.sql',
+      '20260828040000_finance_analysis_progress_v1_1.sql',
     ]),
-    'exact Finance migration allow-list includes 3G and 4B/4C migrations',
+    'exact Finance migration allow-list includes current Stage 6C migrations',
   );
   const runJs = fs.readFileSync(path.join(root, 'tests/run.js'), 'utf8');
   assert(runJs.includes('finance-3b-balance-anchor') && runJs.includes("'finance-3b'"), 'node tests/run.js finance-3b registered');

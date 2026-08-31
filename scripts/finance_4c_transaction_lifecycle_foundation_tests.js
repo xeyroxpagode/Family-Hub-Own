@@ -147,7 +147,20 @@ async function applyMigration(rel) {
   await queryDb(fs.readFileSync(path.join(root, rel), 'utf8'));
 }
 
+async function tableExists(tableName) {
+  const { rows } = await queryDb(
+    'select to_regclass($1) is not null as exists',
+    [`public.${tableName}`],
+  );
+  return rows[0]?.exists === true;
+}
+
 async function applyMigrations() {
+  if (await tableExists('finance_transactions')) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return;
+  }
+
   await applyMigration('supabase/migrations/20260813010000_finance_category_authority_v1_1.sql');
   await applyMigration('supabase/migrations/20260813020000_finance_expense_income_transactions_v1_1.sql');
   await applyMigration('supabase/migrations/20260814010000_finance_account_authority_v1_1.sql');
@@ -369,7 +382,12 @@ async function testSchemaAndDefaults(actors) {
       and conname = 'finance_transactions_status_check'
   `);
   equal(statusConstraints.rows.length, 1, 'status CHECK constraint exists');
-  assert(statusConstraints.rows[0].def.includes("status = ANY (ARRAY['ACTIVE'::text, 'TRASHED'::text])"), 'CHECK allows only ACTIVE/TRASHED');
+  assert(
+    statusConstraints.rows[0].def.includes("'ACTIVE'::text")
+      && statusConstraints.rows[0].def.includes("'TRASHED'::text")
+      && statusConstraints.rows[0].def.includes("'SUPERSEDED'::text"),
+    'CHECK allows ACTIVE/TRASHED/SUPERSEDED',
+  );
 
   // Verify consistency constraint
   const consistencyConstraints = await queryDb(`
@@ -569,8 +587,22 @@ async function testStaticContracts() {
       '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
       '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
       '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
+      '20260819000000_finance_transaction_restore_mutation_v1_1.sql',
+      '20260819010000_finance_transfer_regression_repair_v1_1.sql',
+      '20260819020000_finance_transaction_correction_v1_1.sql',
+      '20260824083947_finance_refund_persistence_root_transaction_id_v1_1.sql',
+      '20260824093347_finance_refund_events_persistence_v1_1.sql',
+      '20260824103000_finance_refund_end_to_end_v1_1.sql',
+      '20260824120000_finance_balance_correction_idempotency_v1_1.sql',
+      '20260825000000_finance_payment_foundation_v1_1.sql',
+      '20260826000000_finance_payment_register_v1_1.sql',
+      '20260828002827_finance_pool_foundation_v1_1.sql',
+      '20260828010000_finance_known_organizable_unknown_count_fix_v1_1.sql',
+      '20260828020000_finance_pool_financial_integration_v1_1.sql',
+      '20260828030000_finance_spending_limit_foundation_v1_1.sql',
+      '20260828040000_finance_analysis_progress_v1_1.sql',
     ]),
-    'exact Finance migration allow-list includes 4C/4D migration',
+    'exact Finance migration allow-list includes current Stage 6C migrations',
   );
   const runJs = fs.readFileSync(path.join(root, 'tests/run.js'), 'utf8');
   assert(runJs.includes('finance-4c-lifecycle') && runJs.includes("'finance-4c'"), 'node tests/run.js finance-4c registered');

@@ -44,10 +44,16 @@
     "quality": "node tests/run.js quality",
     "outbox:process": "node backend/scripts/process-outbox.js",
     "outbox:inspect": "node backend/scripts/inspect-outbox.js",
-    "outbox:retry": "node backend/scripts/retry-outbox.js"
+    "outbox:retry": "node backend/scripts/retry-outbox.js",
+    "seed:finance": "node backend/scripts/seed-finance-comprehensive.js"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "node-fetch": "^3.3.2",
+    "uuid": "^14.0.2"
   }
 }
