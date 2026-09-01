@@ -13,6 +13,9 @@ export type FinanceSpendingLimitStatus = 'ACTIVE' | 'CANCELLED';
 export type FinanceSpendingLimitSourceKind = 'VERSION' | 'EXCEPTION';
 export type FinanceSpendingLimitProgressStatus = 'UNDER' | 'AT' | 'OVER';
 
+export type FinanceSpendingLimitEditScope = 'ONE_OFF' | 'THIS_PERIOD' | 'THIS_AND_FOLLOWING';
+export type FinanceSpendingLimitCancelScope = 'ONE_OFF' | 'THIS_PERIOD' | 'THIS_AND_FOLLOWING';
+
 export type FinanceSpendingLimitDto = {
   id: string;
   scopeType: FinanceSpendingLimitScopeType;
@@ -60,12 +63,78 @@ export type FinanceSpendingLimitProgressResponse = {
   limits: FinanceSpendingLimitProgressDto[];
 };
 
+export type CreateFinanceSpendingLimitInput = {
+  scopeType: FinanceSpendingLimitScopeType;
+  categoryId: string | null;
+  periodType: FinanceSpendingLimitPeriodType;
+  period: string;
+  recurrenceType: FinanceSpendingLimitRecurrenceType;
+  amount: string;
+  currency: string;
+};
+
+export type CreateFinanceSpendingLimitResponse = {
+  outcome: 'completed' | 'replay';
+  limit: {
+    id: string;
+    scopeType: FinanceSpendingLimitScopeType;
+    categoryId: string | null;
+    categoryLabelSnapshot: string | null;
+    periodType: FinanceSpendingLimitPeriodType;
+    period: string;
+    recurrenceType: FinanceSpendingLimitRecurrenceType;
+    amount: string;
+  };
+};
+
+export type EditFinanceSpendingLimitInput = {
+  id: string;
+  period: string;
+  editScope: FinanceSpendingLimitEditScope;
+  amount: string;
+};
+
+export type EditFinanceSpendingLimitResponse = {
+  outcome: 'completed' | 'replay';
+  limit: {
+    id: string;
+    periodType: FinanceSpendingLimitPeriodType;
+    period: string;
+    editScope: FinanceSpendingLimitEditScope;
+    amount: string;
+  };
+};
+
+export type CancelFinanceSpendingLimitInput = {
+  id: string;
+  period: string;
+  cancelScope: FinanceSpendingLimitCancelScope;
+};
+
+export type CancelFinanceSpendingLimitResponse = {
+  outcome: 'completed' | 'replay';
+  limit: {
+    id: string;
+    periodType: FinanceSpendingLimitPeriodType;
+    period: string;
+    cancelScope: FinanceSpendingLimitCancelScope;
+    status: 'CANCELLED';
+  };
+};
+
 type FinanceReadOptions = {
   accessToken: string;
   contextType: FinanceContextType;
   currency: string;
   periodType?: FinanceSpendingLimitPeriodType;
   period?: string;
+  signal?: AbortSignal | null;
+  contextScope?: string | null;
+};
+
+type FinanceMutationOptions = {
+  accessToken: string;
+  contextType: FinanceContextType;
   signal?: AbortSignal | null;
   contextScope?: string | null;
 };
@@ -105,5 +174,77 @@ export const getFinanceSpendingLimitProgress = ({
       signal,
       contextScope,
       operationKind: OPERATION_KINDS.READ_ONLY,
+    },
+  );
+
+export const createFinanceSpendingLimit = ({
+  accessToken,
+  contextType,
+  contextScope,
+  input,
+  mutationId,
+  idempotencyKey,
+  payloadHash,
+  signal,
+}: FinanceMutationOptions & { input: CreateFinanceSpendingLimitInput; mutationId: string; idempotencyKey: string; payloadHash: string; signal?: AbortSignal | null }) =>
+  requestJson<CreateFinanceSpendingLimitResponse>(
+    '/api/finance/spending-limits',
+    {
+      accessToken,
+      signal,
+      contextScope,
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
+      method: 'POST',
+      mutationId,
+      idempotencyKey,
+      body: { ...input, mutationId, idempotencyKey, payloadHash },
+    },
+  );
+
+export const editFinanceSpendingLimit = ({
+  accessToken,
+  contextType,
+  contextScope,
+  input,
+  mutationId,
+  idempotencyKey,
+  payloadHash,
+  signal,
+}: FinanceMutationOptions & { input: EditFinanceSpendingLimitInput; mutationId: string; idempotencyKey: string; payloadHash: string; signal?: AbortSignal | null }) =>
+  requestJson<EditFinanceSpendingLimitResponse>(
+    `/api/finance/spending-limits/${input.id}`,
+    {
+      accessToken,
+      signal,
+      contextScope,
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
+      method: 'PATCH',
+      mutationId,
+      idempotencyKey,
+      body: { ...input, mutationId, idempotencyKey, payloadHash },
+    },
+  );
+
+export const cancelFinanceSpendingLimit = ({
+  accessToken,
+  contextType,
+  contextScope,
+  input,
+  mutationId,
+  idempotencyKey,
+  payloadHash,
+  signal,
+}: FinanceMutationOptions & { input: CancelFinanceSpendingLimitInput; mutationId: string; idempotencyKey: string; payloadHash: string; signal?: AbortSignal | null }) =>
+  requestJson<CancelFinanceSpendingLimitResponse>(
+    `/api/finance/spending-limits/${input.id}/cancel`,
+    {
+      accessToken,
+      signal,
+      contextScope,
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
+      method: 'POST',
+      mutationId,
+      idempotencyKey,
+      body: { ...input, mutationId, idempotencyKey, payloadHash },
     },
   );

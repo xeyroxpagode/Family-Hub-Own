@@ -14,6 +14,8 @@ import {
 } from '../../services/finance/financeMovements';
 import {
   assignExpenseToPoolClient,
+  distributeIncomeToPoolsClient,
+  getCategoryPoolDefaultClient,
 } from '../../services/finance/financePools';
 import {
   createFinanceTransfer,
@@ -232,6 +234,14 @@ export function NewMovementSheet({
   const [incomeAccountId, setIncomeAccountId] = useState<string | null>(null);
   const [expensePoolId, setExpensePoolId] = useState<string | null>(null);
 
+  // Category → Pool suggested default state (Stage 6E.4)
+  const [categoryPoolDefault, setCategoryPoolDefault] = useState<{ poolId: string | null; poolName: string | null } | null>(null);
+  const [userTouchedPool, setUserTouchedPool] = useState(false);
+
+  // Income pool distribution state
+  const [incomePoolAllocations, setIncomePoolAllocations] = useState<{ poolId: string; amount: string }[]>([]);
+  const [incomePoolOrganizerOpen, setIncomePoolOrganizerOpen] = useState(false);
+
   const [transferSource, setTransferSource] = useState<FinanceAccountDto | null>(null);
   const [transferDestination, setTransferDestination] = useState<FinanceAccountDto | null>(null);
   const [transferAmountText, setTransferAmountText] = useState('');
@@ -270,6 +280,8 @@ export function NewMovementSheet({
       setCategoriesError(null);
       setSubmitError(null);
       setExpensePoolId(null);
+      setCategoryPoolDefault(null);
+      setUserTouchedPool(false);
     }
   }, [contextLabel, contextType, visible]);
 
@@ -308,6 +320,40 @@ export function NewMovementSheet({
       cancelled = true;
     };
   }, [accessToken, contextType, contextUnavailable, operation, visible]);
+
+  // Fetch category pool default when category changes (Stage 6E.4)
+  useEffect(() => {
+    if (!visible || !isExpense(operation) || !accessToken || contextUnavailable || !selectedCategoryId) {
+      setCategoryPoolDefault(null);
+      setUserTouchedPool(false);
+      return;
+    }
+
+    let cancelled = false;
+    getCategoryPoolDefaultClient({
+      accessToken,
+      contextType,
+      categoryId: selectedCategoryId,
+      currency,
+      contextScope: `finance-category-pool-default:${contextType}:${selectedCategoryId}:${currency}`,
+    })
+      .then((next) => {
+        if (cancelled) return;
+        setCategoryPoolDefault({ poolId: next.poolId, poolName: next.poolName });
+        // Auto-apply suggestion only if user hasn't explicitly touched pool field
+        if (next.poolId && !userTouchedPool) {
+          setExpensePoolId(next.poolId);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCategoryPoolDefault({ poolId: null, poolName: null });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, contextType, contextUnavailable, currency, operation, selectedCategoryId, userTouchedPool, visible]);
 
   const expenseAccountsState = useEligibleAccounts({
     accessToken,
@@ -367,6 +413,22 @@ export function NewMovementSheet({
     [expensePoolId, expensePoolsState.pools],
   );
 
+  // Income pool eligibility: same context, same currency, ACTIVE pools
+  // Only enabled when an eligible income account is selected (KNOWN balance, not CREDIT_CARD)
+  const incomePoolEligible = Boolean(
+    selectedIncomeAccount &&
+    selectedIncomeAccount.balanceState === 'KNOWN' &&
+    selectedIncomeAccount.accountType !== 'CREDIT_CARD'
+  );
+
+  const incomePoolsState = useEligiblePools({
+    accessToken,
+    enabled: visible && isIncome(operation) && incomePoolEligible,
+    contextType,
+    transactionCurrency: currency,
+    activeHousehold,
+  });
+
   const transferCrossCurrency =
     transferSource !== null
     && transferDestination !== null
@@ -418,7 +480,7 @@ export function NewMovementSheet({
       (commissionMode === 'none' || (commissionMode === 'custom' && commission.isValid))
     : Boolean(accessToken) && !contextUnavailable && amount.isValid && !submitting && !expenseCreatedAfterPoolFailure;
 
-  const resetDraft = () => {
+const resetDraft = () => {
     setOperation('expense');
     setAmountText('');
     setAmount(parseMoneyInputText('', 'ARS'));
@@ -437,6 +499,10 @@ export function NewMovementSheet({
     setExpenseAccountId(null);
     setIncomeAccountId(null);
     setExpensePoolId(null);
+    setCategoryPoolDefault(null);
+    setUserTouchedPool(false);
+    setIncomePoolAllocations([]);
+    setIncomePoolOrganizerOpen(false);
     setTransferSource(null);
     setTransferDestination(null);
     setTransferAmountText('');
@@ -465,6 +531,10 @@ export function NewMovementSheet({
     setAmount(parseMoneyInputText(amountText, nextCurrency));
     setSubmitError(null);
     setExpensePoolId(null);
+    setCategoryPoolDefault(null);
+    setUserTouchedPool(false);
+    // Clear income pool allocations when currency changes
+    setIncomePoolAllocations([]);
   };
 
   const resetTransferDependentState = () => {
@@ -570,6 +640,41 @@ export function NewMovementSheet({
       return;
     }
 
+    // Validate income pool allocations
+    if (isIncome(operation) && incomePoolAllocations.length > 0) {
+      if (!incomeAccountId) {
+        setSubmitError('Elegí una cuenta para organizar el ingreso en pozos.');
+        return;
+      }
+      if (selectedIncomeAccount?.balanceState !== 'KNOWN' || selectedIncomeAccount?.accountType === 'CREDIT_CARD') {
+        setSubmitError('La cuenta del ingreso debe tener saldo conocido y no ser tarjeta de crédito para organizar en pozos.');
+        return;
+      }
+      // Validate each allocation
+      for (const allocation of incomePoolAllocations) {
+        if (!allocation.amount || isNaN(Number(allocation.amount)) || Number(allocation.amount) <= 0) {
+          setSubmitError('Cada pozo debe tener un monto mayor que cero.');
+          return;
+        }
+      }
+      // Validate total doesn't exceed income amount
+      const incomeAmt = Number(amount.technicalValue.amount);
+      let allocatedTotal = 0;
+      for (const allocation of incomePoolAllocations) {
+        allocatedTotal += Number(allocation.amount);
+      }
+      if (allocatedTotal > incomeAmt) {
+        setSubmitError('La suma de los montos organizados no puede superar el monto del ingreso.');
+        return;
+      }
+      // Validate no duplicate pools
+      const poolIds = incomePoolAllocations.map(a => a.poolId);
+      if (new Set(poolIds).size !== poolIds.length) {
+        setSubmitError('No se puede repetir el mismo pozo en la distribución.');
+        return;
+      }
+    }
+
     const payload = {
       amount: amount.technicalValue.amount,
       currency,
@@ -612,7 +717,32 @@ export function NewMovementSheet({
           }
         }
       } else if (isIncome(submittedOperation)) {
-        await createFinanceIncome(accessToken, payload);
+        const incomeResponse = await createFinanceIncome(accessToken, payload);
+        const incomeRootId = incomeResponse.transaction.id;
+
+        // Distribute to pools if allocations exist
+        if (incomePoolAllocations.length > 0 && incomeAccountId && personId) {
+          try {
+            await distributeIncomeToPoolsClient({
+              accessToken,
+              contextType,
+              currency,
+              incomeRootTransactionId: incomeRootId,
+              allocations: incomePoolAllocations.map(a => ({ poolId: a.poolId, amount: a.amount })),
+              personId,
+              householdId,
+            });
+          } catch (poolError) {
+            console.warn('Income pool distribution failed:', poolError);
+            // Income remains created, surface error but don't delete income
+            const message = poolError instanceof ApiError
+              ? poolError.message
+              : 'Ingreso registrado, pero no pudimos organizar los pozos. Podés hacerlo desde el detalle.';
+            setSubmitError(message);
+            onSuccess(submittedOperation);
+            return;
+          }
+        }
       }
       resetDraft();
       onRequestClose();
@@ -1064,6 +1194,11 @@ if (commissionMode === 'custom' && !commission.isValid) {
                   accessibilityLabel={selectedExpensePool ? `Pozo ${selectedExpensePool.name}` : 'Elegir pozo para el gasto'}
                 />
               )}
+              {!userTouchedPool && categoryPoolDefault?.poolId && selectedExpensePool && categoryPoolDefault.poolId === selectedExpensePool.id && (
+                <AppText variant="caption" tone="secondary">
+                  Sugerido por {selectedCategory?.label ?? 'categoria'}
+                </AppText>
+              )}
               {expensePoolsState.error ? (
                 <AppText variant="caption" tone="warning">
                   {expensePoolsState.error}
@@ -1077,21 +1212,210 @@ if (commissionMode === 'custom' && !commission.isValid) {
           ) : null}
 
           {isIncome(operation) ? (
-            <View style={styles.fieldGroup}>
-              <FormActionRow
-                label="Cuenta"
-                value={selectedIncomeAccount ? `${selectedIncomeAccount.name} · ${selectedIncomeAccount.currency}` : 'Sin cuenta'}
-                onPress={() => setActivePicker('incomeAccount')}
-                disabled={submitting || incomeAccountsState.loading}
-                accessibilityLabel="Elegir cuenta para ingreso"
-              />
-              {incomeAccountsState.error ? (
-                <AppText variant="caption" tone="warning">
-                  {incomeAccountsState.error}
-                </AppText>
-              ) : null}
+            <React.Fragment>
+              <View style={styles.fieldGroup}>
+                <FormActionRow
+                  label="Cuenta"
+                  value={selectedIncomeAccount ? `${selectedIncomeAccount.name} · ${selectedIncomeAccount.currency}` : 'Sin cuenta'}
+                  onPress={() => setActivePicker('incomeAccount')}
+                  disabled={submitting || incomeAccountsState.loading}
+                  accessibilityLabel="Elegir cuenta para ingreso"
+                />
+                {incomeAccountsState.error ? (
+                  <AppText variant="caption" tone="warning">
+                    {incomeAccountsState.error}
+                  </AppText>
+                ) : null}
+              </View>
+
+              {/* Income Pool Organizer */}
+              <View style={styles.fieldGroup}>
+                {selectedIncomeAccount === null ? (
+                <View style={styles.poolFieldDisabled}>
+                  <FormActionRow
+                    label="Organizar ingreso"
+                    value="Elegí una cuenta con saldo conocido para organizar este ingreso"
+                    onPress={() => {}}
+                    disabled={true}
+                    accessibilityLabel="Organizar ingreso no disponible sin cuenta"
+                  />
+                </View>
+              ) : selectedIncomeAccount.balanceState !== 'KNOWN' || selectedIncomeAccount.accountType === 'CREDIT_CARD' ? (
+                <View style={styles.poolFieldDisabled}>
+                  <FormActionRow
+                    label="Organizar ingreso"
+                    value="Esta cuenta no tiene un saldo establecido"
+                    onPress={() => {}}
+                    disabled={true}
+                    accessibilityLabel="Organizar ingreso no disponible para cuenta con saldo desconocido"
+                  />
+                  <AppText variant="caption" tone="tertiary">
+                    La organización en pozos requiere una cuenta de dinero con saldo conocido.
+                  </AppText>
+                </View>
+              ) : (
+                <React.Fragment>
+                  <InteractivePressable
+                    onPress={() => setIncomePoolOrganizerOpen((current) => !current)}
+                    disabled={submitting}
+                    haptic="light"
+                    pressScale={motion.scale.card}
+                    style={styles.incomePoolOrganizerTrigger}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: incomePoolOrganizerOpen }}
+                    accessibilityLabel="Organizar ingreso"
+                  >
+                    <View style={styles.incomePoolOrganizerTriggerContent}>
+                      <HomePlusIcon name="albums-outline" size={20} color={colors.sage[700]} />
+                      <AppText variant="bodySmall" weight="800">
+                        Organizar ingreso
+                      </AppText>
+                    </View>
+                    <HomePlusIcon
+                      name={incomePoolOrganizerOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
+                      size={18}
+                      color={colors.text.tertiary}
+                    />
+                  </InteractivePressable>
+
+                  {incomePoolOrganizerOpen && (
+                    <View style={styles.incomePoolOrganizerContent}>
+                      {incomePoolsState.loading ? (
+                        <AppText variant="caption" tone="tertiary">Cargando pozos...</AppText>
+                      ) : incomePoolsState.error ? (
+                        <AppText variant="caption" tone="warning">{incomePoolsState.error}</AppText>
+                      ) : incomePoolsState.pools.length === 0 ? (
+                        <AppText variant="caption" tone="tertiary">No tenés pozos activos para este contexto y moneda.</AppText>
+                      ) : (
+                        <React.Fragment>
+                          {incomePoolAllocations.length === 0 ? (
+                            <AppText variant="caption" tone="tertiary" style={styles.incomePoolEmptyHint}>
+                              Agregá un pozo para empezar a organizar el ingreso.
+                            </AppText>
+                          ) : null}
+
+                          {incomePoolAllocations.map((allocation, index) => (
+                            <View key={allocation.poolId} style={styles.incomePoolAllocationRow}>
+                              <View style={styles.incomePoolAllocationPool}>
+                                <AppText variant="bodySmall" weight="700" numberOfLines={1}>
+                                  {incomePoolsState.pools.find(p => p.id === allocation.poolId)?.name ?? 'Pozo'}
+                                </AppText>
+                                <AppText variant="caption" tone="tertiary" numberOfLines={1}>
+                                  {incomePoolsState.pools.find(p => p.id === allocation.poolId)?.balance ?? '0'} {currency}
+                                </AppText>
+                              </View>
+                              <MoneyInput
+                                value={allocation.amount}
+                                currency={currency}
+                                onValueChange={(next) => {
+                                  const newAllocations = [...incomePoolAllocations];
+                                  newAllocations[index] = { ...allocation, amount: next.technicalValue?.amount ?? '' };
+                                  setIncomePoolAllocations(newAllocations);
+                                  setSubmitError(null);
+                                }}
+                                onCurrencyChange={() => undefined}
+                                availableCurrencies={[currency]}
+                                disabled={submitting}
+                                errorText={allocation.amount && (isNaN(Number(allocation.amount)) || Number(allocation.amount) <= 0) ? 'Revisa el monto.' : undefined}
+                                label="Monto"
+                                testID={`finance-income-pool-allocation-${index}`}
+                              />
+                              <InteractivePressable
+                                onPress={() => {
+                                  const newAllocations = incomePoolAllocations.filter((_, i) => i !== index);
+                                  setIncomePoolAllocations(newAllocations);
+                                  setSubmitError(null);
+                                }}
+                                disabled={submitting}
+                                haptic="light"
+                                pressScale={motion.scale.card}
+                                style={styles.incomePoolRemoveButton}
+                                accessibilityLabel="Quitar pozo"
+                              >
+                                <HomePlusIcon name="trash-outline" size={18} color={colors.danger.strong} />
+                              </InteractivePressable>
+                            </View>
+                          ))}
+
+                          <InteractivePressable
+                            onPress={() => {
+                              const availablePools = incomePoolsState.pools.filter(
+                                p => !incomePoolAllocations.some(a => a.poolId === p.id)
+                              );
+                              if (availablePools.length > 0) {
+                                const newAllocation = { poolId: availablePools[0].id, amount: '' };
+                                setIncomePoolAllocations([...incomePoolAllocations, newAllocation]);
+                              }
+                            }}
+                            disabled={submitting || incomePoolsState.pools.length <= incomePoolAllocations.length}
+                            haptic="light"
+                            pressScale={motion.scale.card}
+                            style={styles.incomePoolAddButton}
+                            accessibilityLabel="Agregar pozo"
+                          >
+                            <HomePlusIcon name="add-outline" size={18} color={colors.terracotta[700]} />
+                            <AppText variant="bodySmall" weight="800">Agregar pozo</AppText>
+                          </InteractivePressable>
+                        </React.Fragment>
+                      )}
+
+                      {/* Live summary */}
+                      {incomePoolAllocations.length > 0 && (
+                        <View style={styles.incomePoolSummary}>
+                          <View style={styles.incomePoolSummaryRow}>
+                            <AppText variant="caption" tone="secondary" weight="700">Ingreso</AppText>
+                            <AppText variant="bodySmall" weight="800" tone="primary">
+                              {formatCanonicalAmountForDisplay(amount.technicalValue?.amount ?? '0')} {currency}
+                            </AppText>
+                          </View>
+                          <View style={styles.incomePoolSummaryRow}>
+                            <AppText variant="caption" tone="secondary" weight="700">Organizado</AppText>
+                            <AppText variant="bodySmall" weight="800" tone="success">
+                              {(() => {
+                                let total = '0';
+                                for (const a of incomePoolAllocations) {
+                                  if (a.amount && !isNaN(Number(a.amount))) {
+                                    total = String(Number(total) + Number(a.amount));
+                                  }
+                                }
+                                return formatCanonicalAmountForDisplay(total);
+                              })()} {currency}
+                            </AppText>
+                          </View>
+                          <View style={styles.incomePoolSummaryRow}>
+                            <AppText variant="caption" tone="secondary" weight="700">Sin asignar</AppText>
+                            <AppText variant="bodySmall" weight="800" tone={(() => {
+                              const incomeAmt = Number(amount.technicalValue?.amount ?? '0');
+                              let allocated = 0;
+                              for (const a of incomePoolAllocations) {
+                                if (a.amount && !isNaN(Number(a.amount))) {
+                                  allocated += Number(a.amount);
+                                }
+                              }
+                              return allocated > incomeAmt ? 'danger' : 'tertiary';
+                            })()}>
+                              {(() => {
+                                const incomeAmt = Number(amount.technicalValue?.amount ?? '0');
+                                let allocated = 0;
+                                for (const a of incomePoolAllocations) {
+                                  if (a.amount && !isNaN(Number(a.amount))) {
+                                    allocated += Number(a.amount);
+                                  }
+                                }
+                                const remaining = incomeAmt - allocated;
+                                return formatCanonicalAmountForDisplay(String(Math.max(0, remaining)));
+                              })()} {currency}
+                            </AppText>
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </React.Fragment>
+              )}
             </View>
-          ) : null}
+          </React.Fragment>
+        ) : null}
 
           {!isTransfer(operation) ? (
             <View style={styles.contextSummary}>
@@ -1189,6 +1513,15 @@ if (commissionMode === 'custom' && !commission.isValid) {
           onRequestClose={() => setActivePicker(null)}
           onSelect={(account) => {
             setExpenseAccountId(account?.id ?? null);
+            const accountCanUsePool =
+              account !== null
+              && (account.balanceState === 'KNOWN' || account.accountType === 'CREDIT_CARD');
+            setExpensePoolId(
+              !userTouchedPool && accountCanUsePool && categoryPoolDefault?.poolId
+                ? categoryPoolDefault.poolId
+                : null,
+            );
+            setUserTouchedPool(false);
             setActivePicker(null);
           }}
         />
@@ -1208,6 +1541,8 @@ if (commissionMode === 'custom' && !commission.isValid) {
           onRequestClose={() => setActivePicker(null)}
           onSelect={(account) => {
             setIncomeAccountId(account?.id ?? null);
+            // Clear income pool allocations when account changes
+            setIncomePoolAllocations([]);
             setActivePicker(null);
           }}
         />
@@ -1259,6 +1594,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
           onRequestClose={() => setActivePicker(null)}
           onSelect={(pool) => {
             setExpensePoolId(pool?.id ?? null);
+            setUserTouchedPool(true);
             setActivePicker(null);
           }}
         />
@@ -1424,5 +1760,73 @@ const styles = StyleSheet.create({
   },
   poolFieldDisabled: {
     gap: spacing[1],
+  },
+  incomePoolOrganizerTrigger: {
+    minHeight: touchTargets.normal,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.soft,
+    paddingHorizontal: spacing[4],
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  incomePoolOrganizerTriggerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[3],
+  },
+  incomePoolOrganizerContent: {
+    gap: spacing[3],
+    paddingTop: spacing[1],
+  },
+  incomePoolAllocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  incomePoolAllocationPool: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing[0],
+  },
+  incomePoolRemoveButton: {
+    minHeight: touchTargets.normal,
+    minWidth: touchTargets.normal,
+    borderRadius: radius.lg,
+    backgroundColor: colors.danger.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing[2],
+  },
+  incomePoolAddButton: {
+    minHeight: touchTargets.normal,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.terracotta[300],
+    backgroundColor: colors.terracotta[50],
+    paddingHorizontal: spacing[3],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+  },
+  incomePoolEmptyHint: {
+    textAlign: 'center',
+    marginVertical: spacing[2],
+  },
+  incomePoolSummary: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.sage[50],
+    padding: spacing[3],
+    gap: spacing[1],
+  },
+  incomePoolSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing[3],
   },
 });

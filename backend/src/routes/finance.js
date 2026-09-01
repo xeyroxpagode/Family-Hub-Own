@@ -13,6 +13,7 @@ const refundsController = require('../controllers/finance.refunds.controller');
 const readController = require('../controllers/finance.read.controller');
 const paymentController = require('../controllers/finance.payment.controller');
 const poolController = require('../controllers/finance.pool.controller');
+const categoryPoolDefaultController = require('../controllers/finance.category-pool-default.controller');
 const spendingLimitController = require('../controllers/finance.spending-limit.controller');
 const analysisController = require('../controllers/finance.analysis.controller');
 
@@ -79,6 +80,11 @@ router.post('/pools/expense-assignment', poolController.assignExpenseToPool);
 router.patch('/pools/expense-assignment/:root_id', poolController.assignExpenseToPool);
 router.post('/pools/expense-assignment/unassign', poolController.unassignExpensePool);
 router.post('/pools/income-distributions', poolController.distributeIncomeToPools);
+
+// Category → Pool Suggested Default (Stage 6E.4)
+router.get('/categories/pool-default', categoryPoolDefaultController.getCategoryPoolDefault);
+router.post('/categories/pool-default', categoryPoolDefaultController.upsertCategoryPoolDefault);
+router.post('/categories/pool-default/clear', categoryPoolDefaultController.clearCategoryPoolDefault);
 
 // Spending Limits (Stage 6C.3)
 router.get('/spending-limits', spendingLimitController.listSpendingLimits);

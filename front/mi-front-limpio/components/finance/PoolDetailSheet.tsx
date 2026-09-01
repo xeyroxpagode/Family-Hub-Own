@@ -18,6 +18,7 @@ import { ReleasePoolSheet } from './ReleasePoolSheet';
 import { RenamePoolSheet } from './RenamePoolSheet';
 import { ArchivePoolSheet } from './ArchivePoolSheet';
 import { TransferBetweenPoolsSheet } from './TransferBetweenPoolsSheet';
+import { CategoryPoolDefaultSheet } from './CategoryPoolDefaultSheet';
 
 type PoolDetailSheetProps = {
   visible: boolean;
@@ -51,6 +52,7 @@ export function PoolDetailSheet({
   const [renameVisible, setRenameVisible] = useState(false);
   const [archiveVisible, setArchiveVisible] = useState(false);
   const [transferVisible, setTransferVisible] = useState(false);
+  const [categoryDefaultVisible, setCategoryDefaultVisible] = useState(false);
 
   React.useEffect(() => {
     if (visible) return;
@@ -59,6 +61,7 @@ export function PoolDetailSheet({
     setRenameVisible(false);
     setArchiveVisible(false);
     setTransferVisible(false);
+    setCategoryDefaultVisible(false);
   }, [visible]);
 
   if (!visible || !pool) return null;
@@ -83,12 +86,17 @@ export function PoolDetailSheet({
     setTransferVisible(true);
   };
 
+  const handleCategoryDefaultPress = () => {
+    setCategoryDefaultVisible(true);
+  };
+
   const handleActionSheetClose = () => {
     setAllocateVisible(false);
     setReleaseVisible(false);
     setRenameVisible(false);
     setArchiveVisible(false);
     setTransferVisible(false);
+    setCategoryDefaultVisible(false);
     onRequestClose();
   };
 
@@ -110,6 +118,15 @@ export function PoolDetailSheet({
 
   const handleTransferClose = () => {
     setTransferVisible(false);
+  };
+
+  const handleCategoryDefaultClose = () => {
+    setCategoryDefaultVisible(false);
+  };
+
+  const handleCategoryDefaultSuccess = () => {
+    setCategoryDefaultVisible(false);
+    onSuccess();
   };
 
   const handleAllocateSuccess = () => {
@@ -142,7 +159,7 @@ export function PoolDetailSheet({
   const isBalanceZero = isZeroDecimalString(pool.balance);
   const canRelease = !isBalanceNegative && !isBalanceZero;
   const canTransfer = pools.filter((p) => p.status === 'ACTIVE' && p.id !== pool.id).length > 0;
-  const nestedSheetVisible = allocateVisible || releaseVisible || renameVisible || archiveVisible || transferVisible;
+  const nestedSheetVisible = allocateVisible || releaseVisible || renameVisible || archiveVisible || transferVisible || categoryDefaultVisible;
 
   return (
     <>
@@ -150,7 +167,6 @@ export function PoolDetailSheet({
         visible={!nestedSheetVisible}
         title={pool.name}
         onRequestClose={handleActionSheetClose}
-        size="content"
       >
         <View style={styles.actionContent}>
           <View style={styles.balancePreview}>
@@ -243,6 +259,18 @@ export function PoolDetailSheet({
             <AppText variant="body" weight="700" tone="danger">Archivar pozo</AppText>
             <AppText variant="caption" tone="secondary">El historial se conserva</AppText>
           </InteractivePressable>
+
+          <InteractivePressable
+            onPress={handleCategoryDefaultPress}
+            haptic="light"
+            pressScale={motion.scale.card}
+            style={styles.actionItem}
+            accessibilityRole="button"
+          >
+            <HomePlusIcon name="link-outline" size={24} color={colors.info.text} />
+            <AppText variant="body" weight="700">Pozo sugerido por categoria</AppText>
+            <AppText variant="caption" tone="secondary">Configurar sugerencia para nuevos gastos</AppText>
+          </InteractivePressable>
         </View>
       </ActionSheet>
 
@@ -301,6 +329,18 @@ export function PoolDetailSheet({
         preselectedSourceId={pool.id}
         onRequestClose={handleTransferClose}
         onSuccess={handleTransferSuccess}
+      />
+
+      <CategoryPoolDefaultSheet
+        visible={categoryDefaultVisible}
+        accessToken={accessToken}
+        contextType={contextType}
+        contextLabel={contextLabel}
+        currency={currency}
+        pool={pool}
+        pools={pools}
+        onRequestClose={handleCategoryDefaultClose}
+        onSuccess={handleCategoryDefaultSuccess}
       />
     </>
   );

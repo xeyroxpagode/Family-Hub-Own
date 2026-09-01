@@ -40,6 +40,17 @@ export type MoreStackParamList = {
     contextType: import('../services/finance/financeContext').FinanceContextType;
     currency: string;
   };
+  FinanceSpendingLimitsManagement: {
+    contextType: import('../services/finance/financeContext').FinanceContextType;
+    currency: string;
+    period: string;
+  };
+  FinanceAnalysisDetail: {
+    contextType: import('../services/finance/financeContext').FinanceContextType;
+    currency: string;
+    periodType: import('../services/finance/financeAnalysis').FinanceAnalysisPeriodType;
+    period: string;
+  };
   Presence: undefined;
 };
 

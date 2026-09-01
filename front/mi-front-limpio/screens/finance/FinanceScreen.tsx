@@ -764,6 +764,8 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
             onRetry={retryReads}
             onMovePeriod={movePeriod}
             analysis={analysis}
+            navigation={navigation}
+            contextType={selectedContext}
           />
           <FinancePoolSummary
             summary={poolSummary}
@@ -780,6 +782,11 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
             loading={spendingLimitProgressLoading}
             error={spendingLimitProgressError}
             onRetry={retryReads}
+            onManage={() => navigation.navigate('FinanceSpendingLimitsManagement', {
+              contextType: selectedContext,
+              currency: selectedSummaryCurrency ?? 'ARS',
+              period: selectedPeriod,
+            })}
           />
           <FinanceAnalysisHighlights
             analysis={analysis}
@@ -1020,6 +1027,8 @@ function FinanceSummarySurface({
   onRetry,
   onMovePeriod,
   analysis,
+  navigation,
+  contextType,
 }: {
   period: string;
   loading: boolean;
@@ -1031,6 +1040,8 @@ function FinanceSummarySurface({
   onRetry: () => void;
   onMovePeriod: (direction: 'previous' | 'next') => void;
   analysis: FinanceAnalysisResponse | null;
+  navigation: any;
+  contextType: import('../../services/finance/financeContext').FinanceContextType;
 }) {
   if (loading && currencies.length === 0) return <FinanceSurfaceLoading />;
   if (error && currencies.length === 0) {
@@ -1123,6 +1134,27 @@ function FinanceSummarySurface({
                 tone={isZeroDecimalString(summaryNet) ? 'primary' : summaryNet.startsWith('-') ? 'danger' : 'success'}
               />
             </View>
+            {selectedBucket && analysis && (
+              <InteractivePressable
+                onPress={() => navigation.navigate('FinanceAnalysisDetail', {
+                  contextType,
+                  currency: selectedBucket.currency,
+                  periodType: 'MONTHLY',
+                  period,
+                })}
+                haptic="light"
+                pressScale={motion.scale.card}
+                style={styles.analysisEntryButton}
+                accessibilityRole="button"
+                accessibilityLabel="Ver análisis detallado"
+              >
+                <HomePlusIcon name="analytics-outline" size={18} color={colors.terracotta[600]} />
+                <AppText variant="bodySmall" weight="800" tone="brand">
+                  Ver análisis
+                </AppText>
+                <HomePlusIcon name="chevron-forward-outline" size={16} color={colors.text.tertiary} />
+              </InteractivePressable>
+            )}
           </View>
         )}
       </View>
@@ -1474,6 +1506,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[3],
     gap: spacing[1],
+  },
+  analysisEntryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[4],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.card,
   },
   movementGroups: {
     gap: spacing[4],

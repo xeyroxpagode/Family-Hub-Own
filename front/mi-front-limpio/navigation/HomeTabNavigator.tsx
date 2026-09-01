@@ -40,6 +40,8 @@ import { MoreScreen } from '../screens/MoreScreen';
 import { FinanceAccountsScreen } from '../screens/finance/FinanceAccountsScreen';
 import { FinancePapeleraScreen } from '../screens/finance/FinancePapeleraScreen';
 import { FinancePoolManagementScreen } from '../components/finance/FinancePoolManagementScreen';
+import { FinanceSpendingLimitsManagementScreen } from '../components/finance/FinanceSpendingLimitsManagementScreen';
+import { FinanceAnalysisDetailScreen } from '../screens/finance/FinanceAnalysisDetailScreen';
 import { PresenceScreen } from '../screens/presence/PresenceScreen';
 import { APP_ICONS } from '../constants/icons';
 import {
@@ -191,6 +193,8 @@ function MoreStackScreen() {
       <MoreStack.Screen name="FinanceAccounts" component={FinanceAccountsScreen} />
       <MoreStack.Screen name="FinancePapelera" component={FinancePapeleraScreen} />
       <MoreStack.Screen name="FinancePoolManagement" component={FinancePoolManagementScreen} />
+      <MoreStack.Screen name="FinanceSpendingLimitsManagement" component={FinanceSpendingLimitsManagementScreen} />
+      <MoreStack.Screen name="FinanceAnalysisDetail" component={FinanceAnalysisDetailScreen} />
       <MoreStack.Screen name="Presence" component={PresenceScreen} />
     </MoreStack.Navigator>
   );

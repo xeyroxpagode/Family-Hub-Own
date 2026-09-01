@@ -64,6 +64,10 @@
     "../scripts/finance_6d_resumen_dashboard_tests.ts",
     "../scripts/finance_6e1_pool_management_tests.ts",
     "../scripts/finance_6e2_expense_pool_frontend_tests.ts",
+    "../scripts/finance_6e3_income_pool_frontend_tests.ts",
+    "../scripts/finance_6e4_category_pool_default_tests.ts",
+    "../scripts/finance_6f_spending_limits_frontend_tests.ts",
+    "../scripts/finance_6g_analysis_detail_frontend_tests.ts",
     "../front/mi-front-limpio/navigation/financeNavigation.ts"
   ],
   "exclude": ["node_modules"]

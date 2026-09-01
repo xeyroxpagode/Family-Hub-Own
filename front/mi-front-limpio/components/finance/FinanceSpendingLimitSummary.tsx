@@ -1,8 +1,9 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { colors, radius, spacing, typography } from '../../constants/theme';
-import { AppCard, AppText, Skeleton } from '../../components/ui';
+import { AppCard, AppText, Skeleton, InteractivePressable } from '../../components/ui';
 import { formatFinanceAmount, isZeroDecimalString } from '../../services/finance/financeDisplay';
+import { HomePlusIcon } from '../../constants/icons';
 import type { FinanceSpendingLimitProgressDto } from '../../services/finance/financeSpendingLimits';
 
 function ProgressBar({ percent, status }: { percent: number; status: 'UNDER' | 'AT' | 'OVER' }) {
@@ -89,11 +90,13 @@ export function FinanceSpendingLimitSummary({
   loading,
   error,
   onRetry,
+  onManage,
 }: {
   progress: FinanceSpendingLimitProgressDto[] | null;
   loading: boolean;
   error: string | null;
   onRetry?: () => void;
+  onManage?: () => void;
 }) {
   if (loading && !progress) {
     return (
@@ -141,6 +144,21 @@ export function FinanceSpendingLimitSummary({
         <AppText variant="title3" weight="800">
           Control de gastos
         </AppText>
+        {onManage && (
+          <InteractivePressable
+            onPress={onManage}
+            haptic="light"
+            pressScale={1}
+            style={styles.manageButton}
+            accessibilityRole="button"
+            accessibilityLabel="Administrar límites de gasto"
+          >
+            <AppText variant="caption" weight="800" tone="primary">
+              Administrar
+            </AppText>
+            <HomePlusIcon name="chevron-forward-outline" size={14} color={colors.terracotta[600]} />
+          </InteractivePressable>
+        )}
       </View>
       <View style={styles.limitsList}>
         {displayLimits.map((limit) => (
@@ -153,6 +171,9 @@ export function FinanceSpendingLimitSummary({
 
 const styles = StyleSheet.create({
   sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: spacing[3],
   },
   limitsList: {
@@ -196,5 +217,10 @@ const styles = StyleSheet.create({
   },
   errorText: {
     marginTop: spacing[2],
+  },
+  manageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
   },
 });

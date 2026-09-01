@@ -617,3 +617,293 @@ export const unassignExpensePoolClient = async ({
     },
   );
 };
+
+// Income Pool distribution types
+export type DistributeIncomeToPoolsRequest = {
+  incomeRootTransactionId: string;
+  currency: string;
+  allocations: Array<{ poolId: string; amount: string }>;
+  contextType: FinanceContextType;
+  mutationId: string;
+  idempotencyKey: string;
+  payloadHash: string;
+};
+
+export type DistributeIncomeToPoolsResponse = {
+  operationId: string;
+  incomeRootTransactionId: string;
+  amount: string;
+  outcome: 'created' | 'replay';
+};
+
+export type FinanceIncomePoolDistributionDto = {
+  poolId: string;
+  poolName: string;
+  amount: string;
+  currency: string;
+};
+
+export type FinanceIncomePoolDistributionResponse = {
+  incomeRootTransactionId: string;
+  distributions: FinanceIncomePoolDistributionDto[];
+};
+
+export const distributeIncomeToPoolsClient = async ({
+  accessToken,
+  contextType,
+  currency,
+  incomeRootTransactionId,
+  allocations,
+  personId,
+  householdId,
+  signal,
+  contextScope,
+}: {
+  accessToken: string;
+  contextType: FinanceContextType;
+  currency: string;
+  incomeRootTransactionId: string;
+  allocations: Array<{ poolId: string; amount: string }>;
+  personId: string | null;
+  householdId: string | null;
+  signal?: AbortSignal | null;
+  contextScope?: string | null;
+}): Promise<DistributeIncomeToPoolsResponse> => {
+  const mutationId = generateMutationId();
+  const idempotencyKey = createIdempotencyKey('finance.pool.income.distribute');
+  const payload = { incomeRootTransactionId, currency, allocations };
+  const payloadHash = await buildFrontendPayloadHash(
+    'finance.pool.income.distribute',
+    { contextType, personId, householdId },
+    incomeRootTransactionId,
+    payload,
+    mutationId
+  );
+
+  return requestJson<DistributeIncomeToPoolsResponse>(
+    '/api/finance/pools/income-distributions',
+    {
+      accessToken,
+      signal,
+      contextScope,
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
+      method: 'POST',
+      mutationId,
+      idempotencyKey,
+      body: {
+        incomeRootTransactionId,
+        currency,
+        allocations,
+        contextType,
+        mutationId,
+        idempotencyKey,
+        payloadHash,
+      },
+    },
+  );
+};
+
+export const getIncomePoolDistributionClient = ({
+  accessToken,
+  contextType,
+  incomeRootTransactionId,
+  signal,
+  contextScope,
+}: {
+  accessToken: string;
+  contextType: FinanceContextType;
+  incomeRootTransactionId: string;
+  signal?: AbortSignal | null;
+  contextScope?: string | null;
+}) =>
+  requestJson<FinanceIncomePoolDistributionResponse>(
+    `/api/finance/pools/income-distributions/${incomeRootTransactionId}?${encodeQuery({ contextType })}`,
+    {
+      accessToken,
+      signal,
+      contextScope,
+      operationKind: OPERATION_KINDS.READ_ONLY,
+    },
+  );
+
+// Category → Pool Suggested Default (Stage 6E.4)
+export type FinanceCategoryPoolDefaultDto = {
+  id: string;
+  categoryId: string;
+  financialContextType: FinanceContextType;
+  ownerPersonId: string | null;
+  householdId: string | null;
+  currency: string;
+  poolId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GetCategoryPoolDefaultResponse = {
+  categoryId: string;
+  poolId: string | null;
+  poolName: string | null;
+  poolStatus: string | null;
+  currency: string;
+};
+
+export type UpsertCategoryPoolDefaultRequest = {
+  categoryId: string;
+  currency: string;
+  poolId: string | null;
+  contextType: FinanceContextType;
+  mutationId: string;
+  idempotencyKey: string;
+  payloadHash: string;
+};
+
+export type UpsertCategoryPoolDefaultResponse = {
+  default: FinanceCategoryPoolDefaultDto;
+  outcome: 'upserted' | 'replay';
+};
+
+export type ClearCategoryPoolDefaultRequest = {
+  categoryId: string;
+  currency: string;
+  contextType: FinanceContextType;
+  mutationId: string;
+  idempotencyKey: string;
+  payloadHash: string;
+};
+
+export type ClearCategoryPoolDefaultResponse = {
+  default: FinanceCategoryPoolDefaultDto;
+  outcome: 'cleared' | 'noop' | 'replay';
+};
+
+export const getCategoryPoolDefaultClient = ({
+  accessToken,
+  contextType,
+  categoryId,
+  currency,
+  signal,
+  contextScope,
+}: {
+  accessToken: string;
+  contextType: FinanceContextType;
+  categoryId: string;
+  currency: string;
+  signal?: AbortSignal | null;
+  contextScope?: string | null;
+}) =>
+  requestJson<GetCategoryPoolDefaultResponse>(
+    `/api/finance/categories/pool-default?${encodeQuery({ contextType, categoryId, currency })}`,
+    {
+      accessToken,
+      signal,
+      contextScope,
+      operationKind: OPERATION_KINDS.READ_ONLY,
+    },
+  );
+
+export const upsertCategoryPoolDefaultClient = async ({
+  accessToken,
+  contextType,
+  categoryId,
+  currency,
+  poolId,
+  personId,
+  householdId,
+  signal,
+  contextScope,
+}: {
+  accessToken: string;
+  contextType: FinanceContextType;
+  categoryId: string;
+  currency: string;
+  poolId: string | null;
+  personId: string | null;
+  householdId: string | null;
+  signal?: AbortSignal | null;
+  contextScope?: string | null;
+}): Promise<UpsertCategoryPoolDefaultResponse> => {
+  const mutationId = generateMutationId();
+  const idempotencyKey = createIdempotencyKey('finance.category_pool_default.upsert');
+  const payload = { categoryId, currency, poolId };
+  const payloadHash = await buildFrontendPayloadHash(
+    'finance.category_pool_default.upsert',
+    { contextType, personId, householdId },
+    categoryId,
+    payload,
+    mutationId,
+  );
+
+  return requestJson<UpsertCategoryPoolDefaultResponse>(
+    '/api/finance/categories/pool-default',
+    {
+      accessToken,
+      signal,
+      contextScope,
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
+      method: 'POST',
+      mutationId,
+      idempotencyKey,
+      body: {
+        categoryId,
+        currency,
+        poolId,
+        contextType,
+        mutationId,
+        idempotencyKey,
+        payloadHash,
+      },
+    },
+  );
+};
+
+export const clearCategoryPoolDefaultClient = async ({
+  accessToken,
+  contextType,
+  categoryId,
+  currency,
+  personId,
+  householdId,
+  signal,
+  contextScope,
+}: {
+  accessToken: string;
+  contextType: FinanceContextType;
+  categoryId: string;
+  currency: string;
+  personId: string | null;
+  householdId: string | null;
+  signal?: AbortSignal | null;
+  contextScope?: string | null;
+}): Promise<ClearCategoryPoolDefaultResponse> => {
+  const mutationId = generateMutationId();
+  const idempotencyKey = createIdempotencyKey('finance.category_pool_default.clear');
+  const payload = { categoryId, currency };
+  const payloadHash = await buildFrontendPayloadHash(
+    'finance.category_pool_default.clear',
+    { contextType, personId, householdId },
+    categoryId,
+    payload,
+    mutationId,
+  );
+
+  return requestJson<ClearCategoryPoolDefaultResponse>(
+    '/api/finance/categories/pool-default/clear',
+    {
+      accessToken,
+      signal,
+      contextScope,
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
+      method: 'POST',
+      mutationId,
+      idempotencyKey,
+      body: {
+        categoryId,
+        currency,
+        contextType,
+        mutationId,
+        idempotencyKey,
+        payloadHash,
+      },
+    },
+  );
+};
