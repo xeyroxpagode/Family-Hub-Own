@@ -46,6 +46,7 @@ router.get('/movements', readController.getMovements);
 router.get('/summary', readController.getSummary);
 router.get('/trash', readController.getTrash);
 router.get('/transactions/:transactionId', readController.getTransactionDetail);
+router.get('/transfers/:transferId', readController.getTransferDetail);
 router.get('/analysis', analysisController.getAnalysis);
 
 // Payments (Stage 5C)

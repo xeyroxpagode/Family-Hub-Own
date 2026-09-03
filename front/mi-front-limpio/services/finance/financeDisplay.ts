@@ -52,6 +52,13 @@ export function financeMovementTitle(transactionType: FinanceTransactionKind, de
   return transactionType === 'expense' ? 'Gasto' : 'Ingreso';
 }
 
+export function financeTransferTitle(movement: { destinationAccount: { accountType: string } }): string {
+  if (movement.destinationAccount.accountType === 'CREDIT_CARD') {
+    return 'Pago de tarjeta';
+  }
+  return 'Transferencia';
+}
+
 export function isValidFinanceAmount(value: string): boolean {
   const trimmed = String(value ?? '').trim();
   if (!trimmed) return false;

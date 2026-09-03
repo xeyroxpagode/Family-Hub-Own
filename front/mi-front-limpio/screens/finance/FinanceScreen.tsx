@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutAnimation, Platform, Pressable, StyleSheet, UIManager, View } from 'react-native';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 
-import { MovementDetailSheet, NewMovementSheet, TransactionCorrectionSheet, NewPaymentSheet, RegisterPaymentSheet, PaymentDetailSheet, PaymentsList, EditPaymentDueSheet, PayCreditCardSheet } from '../../components/finance';
+import { MovementDetailSheet, NewMovementSheet, TransactionCorrectionSheet, NewPaymentSheet, RegisterPaymentSheet, PaymentDetailSheet, PaymentsList, EditPaymentDueSheet, PayCreditCardSheet, TransferDetailSheet } from '../../components/finance';
 import { FinancePoolSummary, FinanceSpendingLimitSummary, FinanceAnalysisHighlights } from '../../components/finance';
 import {
   AppButton,
@@ -23,7 +23,7 @@ import { useHousehold } from '../../context/HouseholdContext';
 import { parseFinanceEntryParams } from '../../navigation/financeNavigation';
 import type { MoreStackParamList } from '../../navigation/types';
 import { AbortError, ApiError } from '../../services/api';
-import { formatFinanceAmount, financeMovementTitle, isZeroDecimalString } from '../../services/finance/financeDisplay';
+import { formatFinanceAmount, financeMovementTitle, financeTransferTitle, isZeroDecimalString } from '../../services/finance/financeDisplay';
 import {
   FINANCE_CONTEXT_TYPES,
   FINANCE_TAB_LABELS,
@@ -39,9 +39,11 @@ import {
 import {
   getFinanceSummary,
   getFinanceTransactionDetail,
+  getFinanceTransferDetail,
   listFinanceMovements,
   type FinanceTransactionDetailDto,
-  type FinanceMovementDto,
+  type FinanceTransferDetailDto,
+  type FinanceUnifiedMovementDto,
   type FinanceSummaryCurrencyDto,
   type GetFinanceSummaryResponse,
   type ListFinanceMovementsResponse,
@@ -67,6 +69,8 @@ import {
   getFinanceAnalysis,
   type FinanceAnalysisResponse,
 } from '../../services/finance/financeAnalysis';
+
+type TransactionMovementDto = Extract<FinanceUnifiedMovementDto, { kind: 'EXPENSE' | 'INCOME' }>;
 
 const TAB_EMPTY_COPY: Record<FinanceTabKey, { title: string; description: string; icon: React.ComponentProps<typeof HomePlusIcon>['name'] }> = {
   resumen: {
@@ -118,15 +122,15 @@ const EMPTY_READ_STATE: FinanceReadState = {
 };
 const EMPTY_SUMMARY_CURRENCIES: FinanceSummaryCurrencyDto[] = [];
 
-function groupMovementsByTransactionDate(movements: FinanceMovementDto[]) {
-  const groups: { date: string; movements: FinanceMovementDto[] }[] = [];
+function groupMovementsByTransactionDate(movements: FinanceUnifiedMovementDto[]) {
+  const groups: { date: string; movements: FinanceUnifiedMovementDto[] }[] = [];
   const indexByDate = new Map<string, number>();
 
   movements.forEach((movement) => {
-    const existingIndex = indexByDate.get(movement.transactionDate);
+    const existingIndex = indexByDate.get(movement.date);
     if (existingIndex === undefined) {
-      indexByDate.set(movement.transactionDate, groups.length);
-      groups.push({ date: movement.transactionDate, movements: [movement] });
+      indexByDate.set(movement.date, groups.length);
+      groups.push({ date: movement.date, movements: [movement] });
       return;
     }
     groups[existingIndex].movements.push(movement);
@@ -153,8 +157,11 @@ export function FinanceScreen() {
   const [newMovementVisible, setNewMovementVisible] = useState(false);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState(() => financeMonthFromLocalDate());
-  const [selectedMovement, setSelectedMovement] = useState<FinanceMovementDto | null>(null);
+const [selectedMovement, setSelectedMovement] = useState<TransactionMovementDto | null>(null);
   const [movementDetailVisible, setMovementDetailVisible] = useState(false);
+  const [selectedTransferId, setSelectedTransferId] = useState<string | null>(null);
+  const [transferDetailVisible, setTransferDetailVisible] = useState(false);
+  const [transferDetailRefreshNonce, setTransferDetailRefreshNonce] = useState(0);
   const [correctionTransactionId, setCorrectionTransactionId] = useState<string | null>(null);
   const [correctionVisible, setCorrectionVisible] = useState(false);
   const [selectedSummaryCurrency, setSelectedSummaryCurrency] = useState<string | null>(null);
@@ -406,8 +413,9 @@ export function FinanceScreen() {
     setDetailPrefetchSnapshot(null);
   };
 
-  const prefetchMovementDetail = (movement: FinanceMovementDto) => {
+  const prefetchMovementDetail = (movement: FinanceUnifiedMovementDto) => {
     if (!session?.access_token) return;
+    if (movement.kind === 'TRANSFER') return;
 
     const existing = detailPrefetchRef.current;
     if (
@@ -466,7 +474,11 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
     setReadRefreshNonce((current) => current + 1);
   };
 
-  const handleMovementPress = (movement: FinanceMovementDto) => {
+  const handleMovementPress = (movement: FinanceUnifiedMovementDto) => {
+    if (movement.kind === 'TRANSFER') {
+      handleTransferPress(movement);
+      return;
+    }
     setSelectedMovement(movement);
     setMovementDetailVisible(true);
     prefetchMovementDetail(movement);
@@ -476,6 +488,18 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
     setMovementDetailVisible(false);
     setSelectedMovement(null);
     if (!correctionVisible) clearDetailPrefetch();
+  };
+
+  const handleTransferPress = (movement: FinanceUnifiedMovementDto) => {
+    if (movement.kind !== 'TRANSFER') return;
+    setSelectedTransferId(movement.id);
+    setTransferDetailVisible(true);
+    setTransferDetailRefreshNonce((current) => current + 1);
+  };
+
+  const handleTransferDetailClose = () => {
+    setTransferDetailVisible(false);
+    setSelectedTransferId(null);
   };
 
   const handleCorrectionIntent = (transactionId: string) => {
@@ -832,7 +856,7 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
         onSuccess={handleCreateSuccess}
       />
 
-      <MovementDetailSheet
+<MovementDetailSheet
         visible={movementDetailVisible}
         movement={selectedMovement}
         contextType={selectedContext}
@@ -846,6 +870,15 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
         onCorrectionIntent={handleCorrectionIntent}
         onRefundSuccess={handleRefundSuccess}
         onPoolAssignmentSuccess={handlePoolAssignmentSuccess}
+      />
+
+      <TransferDetailSheet
+        visible={transferDetailVisible}
+        accessToken={session?.access_token ?? null}
+        contextType={selectedContext}
+        contextLabel={contextLabel}
+        transferId={selectedTransferId}
+        onRequestClose={handleTransferDetailClose}
       />
 
       <TransactionCorrectionSheet
@@ -1204,10 +1237,10 @@ function FinanceMovementsSurface({
   period: string;
   loading: boolean;
   error: string | null;
-  movements: FinanceMovementDto[];
+  movements: FinanceUnifiedMovementDto[];
   onRetry: () => void;
   onMovePeriod: (direction: 'previous' | 'next') => void;
-  onMovementPress?: (movement: FinanceMovementDto) => void;
+  onMovementPress?: (movement: FinanceUnifiedMovementDto) => void;
 }) {
   if (loading && movements.length === 0) return <FinanceSurfaceLoading />;
   if (error && movements.length === 0) {
@@ -1230,7 +1263,7 @@ function FinanceMovementsSurface({
         <AppCard variant="quiet" padding="generous">
           <EmptyState
             title="Sin movimientos en este periodo"
-            description="No hay gastos ni ingresos registrados para este mes."
+            description="No hay gastos, ingresos ni transferencias registrados para este mes."
             illustration={<HomePlusIcon name="swap-vertical-outline" size={30} color={colors.terracotta[600]} />}
           />
         </AppCard>
@@ -1243,46 +1276,126 @@ function FinanceMovementsSurface({
               </AppText>
               <AppCard variant="quiet" padding="default" style={styles.movementListCard}>
                 {group.movements.map((movement) => {
-                  const hasRefund = movement.transactionType === 'expense' && !isZeroDecimalString(movement.totalRefunded ?? '0');
-                  return (
-                    <InteractivePressable
-                      key={movement.id}
-                      onPress={() => onMovementPress?.(movement)}
-                      haptic="light"
-                      pressScale={motion.scale.card}
-                      style={styles.movementRow}
-                      accessibilityRole="button"
-                      accessibilityLabel={financeMovementTitle(movement.transactionType, movement.description)}
-                    >
-                      <View style={styles.movementCopy}>
-                        <AppText variant="body" weight="800" numberOfLines={1}>
-                          {financeMovementTitle(movement.transactionType, movement.description)}
-                        </AppText>
-                        {movement.categoryLabelSnapshot ? (
-                          <AppText variant="caption" tone="secondary" numberOfLines={1}>
-                            {movement.categoryLabelSnapshot}
-                          </AppText>
-                        ) : null}
-                        {hasRefund ? (
-                          <AppText variant="caption" tone="success" weight="800" numberOfLines={1}>
-                            Devuelto {formatFinanceAmount(movement.totalRefunded, movement.currency, { sign: 'none' })} · Neto {formatFinanceAmount(movement.netAmount, movement.currency, { sign: 'none' })}
-                          </AppText>
-                        ) : null}
-                      </View>
-                      <AppText
-                        variant="bodySmall"
-                        tone={movement.transactionType === 'expense' ? 'danger' : 'success'}
-                        weight="800"
-                        style={styles.movementAmount}
-                        numberOfLines={1}
+                  if (movement.kind === 'EXPENSE') {
+                    const hasRefund = !isZeroDecimalString(movement.totalRefunded);
+                    return (
+                      <InteractivePressable
+                        key={`${movement.kind}:${movement.id}`}
+                        onPress={() => onMovementPress?.(movement)}
+                        haptic="light"
+                        pressScale={motion.scale.card}
+                        style={styles.movementRow}
+                        accessibilityRole="button"
+                        accessibilityLabel={financeMovementTitle('expense', movement.description)}
                       >
-                        {formatFinanceAmount(movement.amount, movement.currency, {
-                          sign: 'transaction',
-                          transactionType: movement.transactionType,
-                        })}
-                      </AppText>
-                    </InteractivePressable>
-                  );
+                        <View style={styles.movementCopy}>
+                          <AppText variant="body" weight="800" numberOfLines={1}>
+                            {financeMovementTitle('expense', movement.description)}
+                          </AppText>
+                          {movement.categoryLabel ? (
+                            <AppText variant="caption" tone="secondary" numberOfLines={1}>
+                              {movement.categoryLabel}
+                            </AppText>
+                          ) : null}
+                          {hasRefund ? (
+                            <AppText variant="caption" tone="success" weight="800" numberOfLines={1}>
+                              Devuelto {formatFinanceAmount(movement.totalRefunded, movement.currency, { sign: 'none' })} · Neto {formatFinanceAmount(movement.netAmount, movement.currency, { sign: 'none' })}
+                            </AppText>
+                          ) : null}
+                        </View>
+                        <AppText
+                          variant="bodySmall"
+                          tone="danger"
+                          weight="800"
+                          style={styles.movementAmount}
+                          numberOfLines={1}
+                        >
+                          {formatFinanceAmount(movement.amount, movement.currency, {
+                            sign: 'transaction',
+                            transactionType: 'expense',
+                          })}
+                        </AppText>
+                      </InteractivePressable>
+                    );
+                  }
+                  if (movement.kind === 'INCOME') {
+                    return (
+                      <InteractivePressable
+                        key={`${movement.kind}:${movement.id}`}
+                        onPress={() => onMovementPress?.(movement)}
+                        haptic="light"
+                        pressScale={motion.scale.card}
+                        style={styles.movementRow}
+                        accessibilityRole="button"
+                        accessibilityLabel={financeMovementTitle('income', movement.description)}
+                      >
+                        <View style={styles.movementCopy}>
+                          <AppText variant="body" weight="800" numberOfLines={1}>
+                            {financeMovementTitle('income', movement.description)}
+                          </AppText>
+                          {movement.categoryLabel ? (
+                            <AppText variant="caption" tone="secondary" numberOfLines={1}>
+                              {movement.categoryLabel}
+                            </AppText>
+                          ) : null}
+                        </View>
+                        <AppText
+                          variant="bodySmall"
+                          tone="success"
+                          weight="800"
+                          style={styles.movementAmount}
+                          numberOfLines={1}
+                        >
+                          {formatFinanceAmount(movement.amount, movement.currency, {
+                            sign: 'transaction',
+                            transactionType: 'income',
+                          })}
+                        </AppText>
+                      </InteractivePressable>
+                    );
+                  }
+if (movement.kind === 'TRANSFER') {
+                    const title = financeTransferTitle(movement);
+                    const isCrossCurrency = movement.sourceCurrency !== movement.destinationCurrency;
+                    const amountLabel = isCrossCurrency
+                      ? `${formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' })} → ${formatFinanceAmount(movement.destinationAmount, movement.destinationCurrency, { sign: 'none' })}`
+                      : formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' });
+                    return (
+                      <InteractivePressable
+                        key={`${movement.kind}:${movement.id}`}
+                        onPress={() => onMovementPress?.(movement)}
+                        haptic="light"
+                        pressScale={motion.scale.card}
+                        style={styles.movementRow}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${title}, ${movement.sourceAccount.name} a ${movement.destinationAccount.name}`}
+                      >
+                        <View style={styles.movementCopy}>
+                          <AppText variant="body" weight="800" numberOfLines={1}>
+                            {title}
+                          </AppText>
+                          <AppText variant="caption" tone="secondary" numberOfLines={1}>
+                            {movement.sourceAccount.name} → {movement.destinationAccount.name}
+                          </AppText>
+                          {movement.description?.trim() ? (
+                            <AppText variant="caption" tone="tertiary" numberOfLines={1}>
+                              {movement.description.trim()}
+                            </AppText>
+                          ) : null}
+                        </View>
+                        <AppText
+                          variant="bodySmall"
+                          tone="primary"
+                          weight="800"
+                          style={styles.movementAmount}
+                          numberOfLines={2}
+                        >
+                          {amountLabel}
+                        </AppText>
+                      </InteractivePressable>
+                    );
+                  }
+                  return null;
                 })}
               </AppCard>
             </View>

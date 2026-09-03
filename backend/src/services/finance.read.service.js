@@ -41,6 +41,7 @@ const {
 } = require('../constants/finance.constants');
 
 const PERIOD_MONTH_RE = /^\d{4}-\d{2}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TEN_THOUSAND = 10000n;
 
 /**
@@ -74,21 +75,6 @@ function assertNoCallerOwnerSelectors(query = {}) {
     }
   }
 }
-
-const SELECT_COLUMNS = [
-  'id',
-  'root_transaction_id',
-  'transfer_id',
-  'transaction_type',
-  'amount:amount::text',
-  'currency',
-  'transaction_date',
-  'description',
-  'category_id',
-  'category_label_snapshot',
-  'created_at',
-  'updated_at',
-].join(', ');
 
 const TRASH_SELECT_COLUMNS = [
   'id',
@@ -298,26 +284,98 @@ function scopeFilters(query, financeContext) {
   return query;
 }
 
-function movementToDto(row) {
-  const refundComposition = refundCompositionForRow(row);
+function unifiedRefundCompositionForRow(row) {
+  const composition = row.refund_composition ?? {};
+  const refundEvents = Array.isArray(composition.refundEvents) ? composition.refundEvents : [];
+  const total = refundEvents.reduce((sum, event) => sum + toScaledBigInt(event.amount), 0n);
+  const net = toScaledBigInt(row.amount) - total;
+  return {
+    totalRefunded: fromScaledBigInt(total),
+    netAmount: fromScaledBigInt(net),
+    refundCount: refundEvents.length,
+    refundEvents,
+  };
+}
+
+function unifiedTransferMovementToDto(row) {
+  const detail = row.transfer_detail ?? {};
+  const refundComposition = unifiedRefundCompositionForRow(row);
+  const sourceAccount = detail.sourceAccount ?? {};
+  const destinationAccount = detail.destinationAccount ?? {};
+  const commission = detail.commission ?? null;
   return {
     id: row.id,
     rootTransactionId: row.root_transaction_id ?? row.id,
     transferId: row.transfer_id ?? null,
-    transactionType: row.transaction_type,
+    kind: FINANCE_TRANSACTION_TYPES.TRANSFER,
+    transactionType: FINANCE_TRANSACTION_TYPES.TRANSFER,
+    date: row.occurrence_date ?? detail.transfer_date ?? detail.date,
+    transactionDate: row.occurrence_date ?? detail.transfer_date ?? detail.date,
     amount: String(row.amount),
-    grossAmount: String(row.amount),
+    grossAmount: String(row.gross_amount ?? row.amount),
     totalRefunded: refundComposition.totalRefunded,
     netAmount: refundComposition.netAmount,
     refundCount: refundComposition.refundCount,
     refundEvents: refundComposition.refundEvents,
     currency: row.currency,
-    transactionDate: row.transaction_date,
+    description: row.description ?? null,
+    notes: detail.notes ?? null,
+    categoryId: null,
+    categoryLabelSnapshot: null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at ?? row.created_at,
+    sourceAccount: {
+      id: sourceAccount.id ?? null,
+      name: sourceAccount.name ?? null,
+      accountType: sourceAccount.accountType ?? null,
+      currency: sourceAccount.currency ?? null,
+    },
+    destinationAccount: {
+      id: destinationAccount.id ?? null,
+      name: destinationAccount.name ?? null,
+      accountType: destinationAccount.accountType ?? null,
+      currency: destinationAccount.currency ?? null,
+    },
+    sourceAmount: String(detail.sourceAmount ?? row.amount),
+    sourceCurrency: detail.sourceCurrency ?? row.currency,
+    destinationAmount: String(detail.destinationAmount ?? row.amount),
+    destinationCurrency: detail.destinationCurrency ?? row.currency,
+    commission: commission
+      ? {
+          expenseRootTransactionId: commission.expenseRootTransactionId ?? null,
+          amount: commission.amount ?? null,
+          currency: commission.currency ?? null,
+        }
+      : null,
+  };
+}
+
+function unifiedRowToDto(row) {
+  if (row.kind === FINANCE_TRANSACTION_TYPES.TRANSFER) {
+    return unifiedTransferMovementToDto(row);
+  }
+
+  const refundComposition = unifiedRefundCompositionForRow(row);
+  return {
+    id: row.id,
+    rootTransactionId: row.root_transaction_id ?? row.id,
+    transferId: row.transfer_id ?? null,
+    kind: row.kind,
+    transactionType: row.kind,
+    date: row.occurrence_date,
+    transactionDate: row.occurrence_date,
+    amount: String(row.amount),
+    grossAmount: String(row.gross_amount ?? row.amount),
+    totalRefunded: refundComposition.totalRefunded,
+    netAmount: refundComposition.netAmount,
+    refundCount: refundComposition.refundCount,
+    refundEvents: refundComposition.refundEvents,
+    currency: row.currency,
     description: row.description ?? null,
     categoryId: row.category_id ?? null,
     categoryLabelSnapshot: row.category_label_snapshot ?? null,
     createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    updatedAt: row.updated_at ?? row.created_at,
   };
 }
 
@@ -424,30 +482,42 @@ async function getFinanceTransactionDetail(financeContext, transactionId) {
   return transactionToDetailDto(enriched);
 }
 
+async function getTransferDetail(financeContext, transferId) {
+  assertNoCallerOwnerSelectors({});
+  assertResolvedFinanceContext(financeContext);
+
+  if (!transferId || typeof transferId !== 'string' || !UUID_RE.test(transferId)) {
+    throw createHttpError(400, 'transferId invalido.', 'validation_error');
+  }
+
+  const { data, error } = await financeContext.client.rpc('finance_get_transfer_detail_v1', {
+    p_transfer_id: transferId,
+  });
+
+  if (error) throwSupabaseError(error);
+
+  if (!data) {
+    throw createHttpError(404, 'Transferencia no encontrada.', 'finance_transfer_not_found');
+  }
+
+  return data;
+}
+
 async function listFinanceMovements(financeContext, query = {}) {
   assertNoCallerOwnerSelectors(query);
   assertResolvedFinanceContext(financeContext);
   const month = normalizePeriodMonth(query.month ?? query.period);
-  const { start, endExclusive } = periodRange(month);
 
-  let request = financeContext.client
-    .from('finance_transactions')
-    .select(SELECT_COLUMNS);
+  const { data, error } = await financeContext.client.rpc('finance_list_unified_movements_v1', {
+    p_financial_context_type: financeContext.contextType,
+    p_owner_person_id: financeContext.contextType === FINANCE_CONTEXT_TYPES.PERSONAL ? financeContext.personId : null,
+    p_household_id: financeContext.contextType === FINANCE_CONTEXT_TYPES.HOUSEHOLD ? financeContext.householdId : null,
+    p_period: month,
+  });
 
-  request = scopeFilters(request, financeContext);
-  request = request
-    .eq('status', 'ACTIVE')
-    .gte('transaction_date', start)
-    .lt('transaction_date', endExclusive)
-    .order('transaction_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false });
-
-  const { data, error } = await request;
   if (error) throwSupabaseError(error);
 
-  const enriched = await attachRefundCompositions(financeContext, data ?? []);
-  const movements = enriched.map(movementToDto);
+  const movements = (Array.isArray(data) ? data : []).map(unifiedRowToDto);
   return { period: month, contextType: financeContext.contextType, movements };
 }
 
@@ -526,6 +596,7 @@ module.exports = {
   listFinanceTrash,
   summarizeFinance,
   getFinanceTransactionDetail,
+  getTransferDetail,
   normalizePeriodMonth,
   periodRange,
   assertNoCallerOwnerSelectors,

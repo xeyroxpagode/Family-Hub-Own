@@ -536,6 +536,19 @@ const commands = {
       { env },
     );
   },
+  'finance-7d-unified-movements-frontend': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3001',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Finance 7D Unified Movements Frontend tests',
+      'node',
+      ['scripts/compiled/scripts/finance_7d_unified_movements_frontend_tests.js'],
+      { env },
+    );
+  },
   'runtime-smoke': () => runCommand(
     'Frontend runtime smoke',
     'node',
@@ -626,6 +639,7 @@ const suites = {
   'finance-6e2': ['compile-frontend-tests', 'finance-6e2-expense-pool-frontend', 'finance-6c2-pool-financial-integration'],
   'finance-6e4': ['compile-frontend-tests', 'finance-6e4-category-pool-default-frontend'],
   'finance-6f': ['compile-frontend-tests', 'finance-6f-spending-limits-frontend'],
+  'finance-7d': ['compile-frontend-tests', 'finance-7d-unified-movements-frontend'],
   finance: ['compile-frontend-tests', 'finance-1b-contract', 'finance-1b-database', 'finance-1c-ownership-privacy', 'finance-1d-source-context-boundary', 'finance-1e-frontend', 'finance-1f-integration', 'finance-2a-transaction-contract', 'finance-2b-category-authority', 'finance-2c-expense-income', 'finance-2d-money-input', 'finance-2e-expense-income-ui', 'finance-2f-read-authority', 'finance-2f-ui', 'finance-3a-account-authority', 'finance-3b-balance-anchor', 'finance-3c-balance-correction', 'finance-3d-credit-card-semantics', 'finance-3e-canonical-transfer', 'finance-3f-cross-currency-transfer', 'finance-3g-transfer-commission-composition', 'finance-3h-account-transfer-ui', 'finance-4b-effect-status', 'finance-4c-lifecycle', 'finance-4d-trash', 'finance-4g-restore', 'finance-4i-b', 'finance-4j', 'finance-5e-frontend', 'finance-5f', 'finance-5g', 'finance-6d', 'finance-6e1', 'finance-6f'],
   'planner-presets-drafts': ['compile-frontend-tests', 'planner-v1-presets-drafts'],
   'planner-presets-drafts-integration': ['compile-frontend-tests', 'planner-v1-presets-drafts-integration'],

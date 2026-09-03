@@ -27,3 +27,4 @@ export * from './ArchivePoolSheet';
 export * from './TransferBetweenPoolsSheet';
 export * from './PoolSelectorSheet';
 export * from './CategoryPoolDefaultSheet';
+export * from './TransferDetailSheet';
