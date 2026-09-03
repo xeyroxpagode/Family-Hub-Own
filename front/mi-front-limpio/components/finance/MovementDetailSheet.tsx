@@ -351,7 +351,7 @@ export function MovementDetailSheet({
   const selectedRefundForHandlers = refundEvents.find((refund) => refund.id === selectedRefundId) ?? null;
 
   const resetRefundDraft = (mode: 'create' | 'correct', refundId?: string) => {
-    const refund = refundId ? refundEvents.find((item) => item.id === refundId) : null;
+    const refund = refundId ? refundEvents.find((item: typeof refundEvents[0]) => item.id === refundId) : null;
     const amountText = refund?.amount ?? '';
     const date = refund?.effectiveDate ?? new Date().toISOString().slice(0, 10);
     setRefundAmountText(amountText);
@@ -544,7 +544,7 @@ export function MovementDetailSheet({
               <AppText variant="title2" weight="800" tone={isExpense ? 'danger' : 'success'}>
                 {formatFinanceAmount(current.amount, current.currency, {
                   sign: 'transaction',
-                  transactionType: current.transactionType,
+                  transactionType: isExpense ? 'expense' : 'income',
                 })}
               </AppText>
             </View>
@@ -704,7 +704,7 @@ export function MovementDetailSheet({
 
         {step === 'refundSelect' && (
           <View style={styles.recoveryView}>
-            {refundEvents.map((refund) => (
+            {refundEvents.map((refund: typeof refundEvents[0]) => (
               <InteractivePressable
                 key={refund.id}
                 onPress={() => resetRefundDraft('correct', refund.id)}

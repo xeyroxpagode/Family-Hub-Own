@@ -6,7 +6,44 @@ import * as Crypto from 'expo-crypto';
 
 export type { FinanceTransactionDetailDto, FinanceTransactionDetailStatus } from './financeTransactionDetail';
 
+export type FinanceTransferDetailDto = {
+  id: string;
+  date: string;
+  description: string | null;
+  notes: string | null;
+
+  sourceAccount: {
+    id: string;
+    name: string;
+    accountType: 'ACCOUNT' | 'CREDIT_CARD';
+    currency: string;
+  };
+
+  destinationAccount: {
+    id: string;
+    name: string;
+    accountType: 'ACCOUNT' | 'CREDIT_CARD';
+    currency: string;
+  };
+
+  sourceAmount: string;
+  sourceCurrency: string;
+
+  destinationAmount: string;
+  destinationCurrency: string;
+
+  commission: {
+    expenseRootTransactionId: string | null;
+    amount: string | null;
+    currency: string | null;
+  } | null;
+
+  createdAt: string;
+};
+
 export type FinanceTransactionKind = 'expense' | 'income';
+
+export type FinanceMovementKind = 'EXPENSE' | 'INCOME' | 'TRANSFER';
 
 export type FinanceCategoryDto = {
   id: string;
@@ -91,6 +128,60 @@ export type FinanceMovementDto = {
   accountCurrency?: string | null;
 };
 
+export type FinanceExpenseMovementDto = FinanceMovementDto & {
+  kind: 'EXPENSE';
+  transactionType: 'expense';
+  date: string;
+  categoryLabel: string | null;
+};
+
+export type FinanceIncomeMovementDto = FinanceMovementDto & {
+  kind: 'INCOME';
+  transactionType: 'income';
+  date: string;
+  categoryLabel: string | null;
+};
+
+export type FinanceTransferAccountDto = {
+  id: string;
+  name: string;
+  accountType: 'ACCOUNT' | 'CREDIT_CARD';
+  currency: string;
+};
+
+export type FinanceTransferCommissionDto = {
+  expenseRootTransactionId: string;
+  amount: string;
+  currency: string;
+};
+
+export type FinanceTransferMovementDto = {
+  kind: 'TRANSFER';
+  id: string;
+  date: string;
+  description: string | null;
+  notes: string | null;
+  sourceAccount: FinanceTransferAccountDto;
+  destinationAccount: FinanceTransferAccountDto;
+  sourceAmount: string;
+  sourceCurrency: string;
+  destinationAmount: string;
+  destinationCurrency: string;
+  commission: FinanceTransferCommissionDto | null;
+  createdAt: string;
+};
+
+export type FinanceUnifiedMovementDto =
+  | FinanceExpenseMovementDto
+  | FinanceIncomeMovementDto
+  | FinanceTransferMovementDto;
+
+export type ListFinanceMovementsResponse = {
+  period: string;
+  contextType: FinanceContextType;
+  movements: FinanceUnifiedMovementDto[];
+};
+
 export type FinanceTrashMovementDto = {
   id: string;
   transactionType: FinanceTransactionKind;
@@ -103,12 +194,6 @@ export type FinanceTrashMovementDto = {
   trashedAt: string;
   createdAt: string;
   updatedAt: string;
-};
-
-export type ListFinanceMovementsResponse = {
-  period: string;
-  contextType: FinanceContextType;
-  movements: FinanceMovementDto[];
 };
 
 export type ListFinanceTrashResponse = {
@@ -244,7 +329,110 @@ export const listFinanceMovements = ({
       contextScope,
       operationKind: OPERATION_KINDS.READ_ONLY,
     },
-  );
+  ).then((response) => ({
+    ...response,
+    movements: response.movements.map((movement) => mapBackendMovementToUnified(movement, response.contextType)),
+  }));
+
+function mapBackendMovementToUnified(movement: any, contextType: FinanceContextType): FinanceUnifiedMovementDto {
+  const transactionType = movement.transactionType ?? movement.kind?.toLowerCase();
+  if (transactionType === 'expense' || movement.kind === 'EXPENSE') {
+    const date = movement.transactionDate ?? movement.date;
+    const categoryLabel = movement.categoryLabelSnapshot ?? movement.categoryLabel ?? null;
+    return {
+      kind: 'EXPENSE',
+      id: movement.id,
+      rootTransactionId: movement.rootTransactionId ?? movement.id,
+      transactionType: 'expense',
+      amount: movement.amount,
+      grossAmount: movement.grossAmount ?? movement.amount,
+      totalRefunded: movement.totalRefunded ?? '0',
+      netAmount: movement.netAmount ?? movement.amount,
+      refundCount: movement.refundCount ?? 0,
+      refundEvents: movement.refundEvents ?? [],
+      currency: movement.currency,
+      financialContextType: movement.financialContextType ?? contextType,
+      transactionDate: date,
+      date,
+      description: movement.description,
+      categoryId: movement.categoryId,
+      categoryLabel,
+      categoryLabelSnapshot: categoryLabel,
+      transferId: movement.transferId ?? null,
+      createdAt: movement.createdAt,
+      updatedAt: movement.updatedAt ?? movement.createdAt,
+      accountId: movement.accountId ?? null,
+      accountName: movement.accountName ?? null,
+      accountCurrency: movement.accountCurrency ?? null,
+    };
+  }
+  if (transactionType === 'income' || movement.kind === 'INCOME') {
+    const date = movement.transactionDate ?? movement.date;
+    const categoryLabel = movement.categoryLabelSnapshot ?? movement.categoryLabel ?? null;
+    return {
+      kind: 'INCOME',
+      id: movement.id,
+      rootTransactionId: movement.rootTransactionId ?? movement.id,
+      transferId: movement.transferId ?? null,
+      transactionType: 'income',
+      amount: movement.amount,
+      grossAmount: movement.grossAmount ?? movement.amount,
+      totalRefunded: movement.totalRefunded ?? '0',
+      netAmount: movement.netAmount ?? movement.amount,
+      refundCount: movement.refundCount ?? 0,
+      refundEvents: movement.refundEvents ?? [],
+      currency: movement.currency,
+      financialContextType: movement.financialContextType ?? contextType,
+      transactionDate: date,
+      date,
+      description: movement.description,
+      categoryId: movement.categoryId,
+      categoryLabel,
+      categoryLabelSnapshot: categoryLabel,
+      createdAt: movement.createdAt,
+      updatedAt: movement.updatedAt ?? movement.createdAt,
+      accountId: movement.accountId ?? null,
+      accountName: movement.accountName ?? null,
+      accountCurrency: movement.accountCurrency ?? null,
+    };
+  }
+  if (transactionType === 'transfer' || movement.kind === 'TRANSFER') {
+    const sourceAccount = movement.sourceAccount ?? {};
+    const destinationAccount = movement.destinationAccount ?? {};
+    return {
+      kind: 'TRANSFER',
+      id: movement.id,
+      date: movement.date ?? movement.transactionDate,
+      description: movement.description,
+      notes: movement.notes ?? null,
+      sourceAccount: {
+        id: sourceAccount.id ?? movement.sourceAccountId,
+        name: sourceAccount.name ?? movement.sourceAccountName,
+        accountType: sourceAccount.accountType ?? movement.sourceAccountType,
+        currency: sourceAccount.currency ?? movement.sourceCurrency,
+      },
+      destinationAccount: {
+        id: destinationAccount.id ?? movement.destinationAccountId,
+        name: destinationAccount.name ?? movement.destinationAccountName,
+        accountType: destinationAccount.accountType ?? movement.destinationAccountType,
+        currency: destinationAccount.currency ?? movement.destinationCurrency,
+      },
+      sourceAmount: movement.sourceAmount,
+      sourceCurrency: movement.sourceCurrency,
+      destinationAmount: movement.destinationAmount,
+      destinationCurrency: movement.destinationCurrency,
+      commission: movement.commission
+        ? {
+            expenseRootTransactionId: movement.commission.expenseRootTransactionId,
+            amount: movement.commission.amount,
+            currency: movement.commission.currency,
+          }
+        : null,
+      createdAt: movement.createdAt,
+    };
+  }
+  throw new Error(`Unknown movement kind: ${movement.kind ?? movement.transactionType}`);
+}
 
 type FinanceTrashOptions = {
   accessToken: string;
@@ -516,6 +704,31 @@ export const getFinanceTransactionDetail = ({
       operationKind: OPERATION_KINDS.READ_ONLY,
     },
   ).then(normalizeFinanceTransactionDetailPayload);
+
+type GetFinanceTransferDetailOptions = {
+  accessToken: string;
+  contextType: FinanceContextType;
+  transferId: string;
+  signal?: AbortSignal | null;
+  contextScope?: string | null;
+};
+
+export const getFinanceTransferDetail = ({
+  accessToken,
+  contextType,
+  transferId,
+  signal,
+  contextScope,
+}: GetFinanceTransferDetailOptions): Promise<FinanceTransferDetailDto> =>
+  requestJson<FinanceTransferDetailDto>(
+    `/api/finance/transfers/${transferId}?${encodeQuery({ contextType })}`,
+    {
+      accessToken,
+      signal,
+      contextScope,
+      operationKind: OPERATION_KINDS.READ_ONLY,
+    },
+  );
 
 type CreateFinanceRefundOptions = {
   accessToken: string;

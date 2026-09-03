@@ -68,6 +68,8 @@
     "../scripts/finance_6e4_category_pool_default_tests.ts",
     "../scripts/finance_6f_spending_limits_frontend_tests.ts",
     "../scripts/finance_6g_analysis_detail_frontend_tests.ts",
+"../scripts/finance_7d_unified_movements_frontend_tests.ts",
+    "../scripts/finance_7e_transfer_detail_frontend_tests.ts",
     "../front/mi-front-limpio/navigation/financeNavigation.ts"
   ],
   "exclude": ["node_modules"]
