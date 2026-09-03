@@ -7,7 +7,7 @@
 | source branch | `finance-v1-unified` |
 | audit reference HEAD | `ad4f966` |
 | snapshot pre-commit HEAD | `ad4f9668f4da8cfefadf512b680f8284640d31ff` |
-| final handoff commit | `chore(handoff): snapshot audited finance base for messaging-feed` (hash: RESOLVED_POST_COMMIT) |
+| final handoff commit | `chore(handoff): snapshot audited finance base for messaging-feed` — hash `9915f56328792514d17b10b4e30b8362053cc1a9` (short `9915f56`) |
 | remote branch | `handoff/messaging-feed-audited-finance-base` (sin upstream en el momento del snapshot) |
 | tag | `messaging-feed-audited-base-2026-09-03` |
 | fecha | `2026-09-03` (`2026-09-03 15:07:30 UTC-03:00`) |
