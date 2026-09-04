@@ -48,7 +48,7 @@ const MOCK_POSTS: Post[] = [
     id: '1',
     authorName: 'Valeria',
     authorInitials: 'V',
-    authorColor: '#CD7353',
+    authorColor: '#E7643F',
     timeAgo: 'hace 3 horas',
     text: 'Juan terminó el año escolar con diez calificaciones hoy 🎉',
     illustration: '📚',
@@ -90,7 +90,7 @@ const MOCK_POSTS: Post[] = [
   },
 ];
 
-const AUTHOR_COLORS = ['#CD7353', '#6B4FE8', '#7C9E7A', '#D4975A', '#E57373', '#64B5F6'];
+const AUTHOR_COLORS = ['#E7643F', '#6B4FE8', '#7C9E7A', '#D4975A', '#E57373', '#64B5F6'];
 
 function getInitials(name: string): string {
   const parts = name.trim().split(' ');
@@ -289,7 +289,7 @@ const S = StyleSheet.create({
   headerSub: { fontSize: 13, color: '#888888', marginTop: 2 },
   addBtn: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: '#CD7353',
+    backgroundColor: '#E7643F',
     alignItems: 'center', justifyContent: 'center',
   },
   addBtnText: { color: '#FFFFFF', fontSize: 24, fontWeight: '700', lineHeight: 28 },
@@ -385,7 +385,7 @@ const S = StyleSheet.create({
   },
   cancelBtnText: { color: '#888888', fontWeight: '600' },
   saveBtn: {
-    flex: 2, backgroundColor: '#CD7353',
+    flex: 2, backgroundColor: '#E7643F',
     borderRadius: 12, paddingVertical: 14, alignItems: 'center',
   },
   saveBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },

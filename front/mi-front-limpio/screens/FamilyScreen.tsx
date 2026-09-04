@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
-import { AppText, AppScreen, AppCard, EmptyState, SegmentedControl } from '../components/ui';
+import { AppText, AppScreen, SegmentedControl } from '../components/ui';
 import { colors, spacing } from '../constants/theme';
 import { HomePlusIcon } from '../constants/icons';
 import { useAuth } from '../context/AuthContext';
@@ -32,6 +32,7 @@ import {
   cancelMyRoleRequest,
 } from '../services/family';
 import { createInvitation, revokeInvitation, type Invitation } from '../services/invitations';
+import { FamilyMapPanel } from './presence/PresenceScreen';
 
 export const FamilyScreen = () => {
   const navigation = useNavigation<any>();
@@ -49,7 +50,7 @@ export const FamilyScreen = () => {
   const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null);
   const [inviteLinkVisible, setInviteLinkVisible] = useState(false);
   const [localInviteLink, setLocalInviteLink] = useState<Invitation | null>(null);
-  const [activeTab, setActiveTab] = useState<'people' | 'map' | 'places'>('people');
+  const [activeTab, setActiveTab] = useState<'people' | 'map'>('people');
   const [feedback, setFeedback] = useState<{
     type: FamilySnackbarType;
     message: string;
@@ -420,7 +421,7 @@ export const FamilyScreen = () => {
         <View style={{ flex: 1 }}>
           <AppText variant="title1">Familia</AppText>
            <AppText variant="bodySmall" tone="secondary">
-             Personas, ubicación compartida y lugares del hogar.
+             Integrantes, invitaciones y ubicación compartida.
           </AppText>
         </View>
       </View>
@@ -431,7 +432,6 @@ export const FamilyScreen = () => {
          options={[
            { value: 'people', label: 'Personas' },
            { value: 'map', label: 'Mapa' },
-           { value: 'places', label: 'Lugares' },
          ]}
        />
 
@@ -448,21 +448,7 @@ export const FamilyScreen = () => {
        ) : null}
 
        {activeTab === 'map' ? (
-         <AppCard variant="quiet" padding="generous">
-           <EmptyState
-             title="No hay ubicaciones compartidas"
-             description="Cuando un integrante autorice compartir su ubicación, aparecerá aquí. Si falla un permiso de ubicación, revisalo en los ajustes del dispositivo."
-           />
-         </AppCard>
-       ) : null}
-
-       {activeTab === 'places' ? (
-         <AppCard variant="quiet" padding="generous">
-           <EmptyState
-             title="Todavía no hay lugares registrados"
-             description="Este hogar aún no tiene lugares guardados. La creación de lugares se habilitará cuando esté disponible el soporte de ubicación."
-           />
-         </AppCard>
+         <FamilyMapPanel embedded />
        ) : null}
 
       {familyData ? (

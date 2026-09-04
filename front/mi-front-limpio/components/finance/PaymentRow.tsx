@@ -23,6 +23,14 @@ export const PaymentRow = memo(function PaymentRow({
   const isCreditCard = payment.kind === PAYMENT_KINDS.CREDIT_CARD;
   const amountLine = formatExpectedAmount(payment.expectedAmountKnown, payment.expectedAmount, payment.currency);
   const dueDateText = formatDueDateHuman(payment.dueDate, overdue);
+  const paymentTone = payment.status === 'PAID' ? 'success' : overdue ? 'danger' : 'warning';
+  const paymentIcon = payment.status === 'PAID'
+    ? 'checkmark-outline'
+    : overdue
+      ? 'alert-circle-outline'
+      : isCreditCard
+        ? 'card-outline'
+        : 'calendar-outline';
 
   return (
     <InteractivePressable
@@ -35,6 +43,9 @@ export const PaymentRow = memo(function PaymentRow({
       accessibilityLabel={buildAccessibilityLabel(payment)}
       accessibilityState={{ disabled }}
     >
+      <View style={[styles.statusIcon, { backgroundColor: paymentTone === 'success' ? colors.success.soft : paymentTone === 'danger' ? colors.danger.soft : colors.warning.soft }]}>
+        <HomePlusIcon name={paymentIcon} size={18} color={paymentTone === 'success' ? colors.success.base : paymentTone === 'danger' ? colors.danger.base : colors.warning.base} />
+      </View>
       <View style={styles.content} pointerEvents="none">
         <View style={styles.mainCopy}>
           <AppText variant="body" weight="800" numberOfLines={1} style={styles.title}>
@@ -124,6 +135,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[3],
     gap: spacing[3],
+  },
+  statusIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   content: {
     flex: 1,

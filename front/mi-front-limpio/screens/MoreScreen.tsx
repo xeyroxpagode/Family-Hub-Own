@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { AppScreen } from '../components/ui/AppScreen';
 import { AppCard } from '../components/ui/AppCard';
 import { AppText } from '../components/ui/AppText';
+import { InteractivePressable } from '../components/ui/InteractivePressable';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
@@ -11,7 +12,7 @@ import { colors, radius, spacing } from '../constants/theme';
 const MODULES = [
   {
     id: 'feed',
-    label: 'Feed',
+    label: 'Actividad',
     description: 'Actividad del hogar',
     icon: 'chatbubbles',
     color: colors.terracotta[600],
@@ -20,33 +21,23 @@ const MODULES = [
     isDemo: true,
   },
   {
-    id: 'family',
-    label: 'Familia',
-    description: 'Personas, roles y accesos',
-    icon: 'people',
-    color: colors.sage[600],
-    bg: colors.sage[50],
-    screen: 'Family' as const,
-    isDemo: false,
-  },
-  {
-    id: 'presence',
-    label: 'Ubicacion',
-    description: 'Mapa familiar en vivo',
-    icon: 'location',
-    color: colors.terracotta[600],
-    bg: colors.terracotta[50],
-    screen: 'Presence' as const,
-    isDemo: false,
-  },
-  {
     id: 'finance',
     label: 'Finanzas',
-    description: 'Personal y hogar',
+    description: 'Saldos, pagos y movimientos',
     icon: 'wallet',
-    color: colors.sand[600],
-    bg: colors.sand[50],
+    color: colors.terracotta[600],
+    bg: colors.terracotta[50],
     screen: 'Finance' as const,
+    isDemo: false,
+  },
+  {
+    id: 'inventory',
+    label: 'Inventario',
+    description: 'Compras y lo que falta en casa',
+    icon: 'archive',
+    color: colors.sage[600],
+    bg: colors.sage[50],
+    screen: 'Inventory' as const,
     isDemo: false,
   },
 ];
@@ -54,7 +45,7 @@ const MODULES = [
 export function MoreScreen() {
   const navigation = useNavigation<any>();
 
-  const handleModulePress = (screen: string | null) => {
+  const handleModulePress = (screen: string | null | undefined) => {
     if (!screen) {
       return;
     }
@@ -68,37 +59,34 @@ export function MoreScreen() {
       </View>
 
       <View style={styles.modules}>
-        {MODULES.map((module) => (
-          <AppCard
-            key={module.id}
-            variant="default"
-            padding="default"
-            onPress={() => handleModulePress(module.screen)}
-          >
-            <View style={styles.moduleRow}>
-              <View
-                style={[
-                  styles.moduleIcon,
-                  { backgroundColor: module.bg },
-                ]}
+        <AppCard variant="quiet" padding="compact">
+          {MODULES.map((module, index) => (
+            <React.Fragment key={module.id}>
+              {index > 0 ? <View style={styles.divider} /> : null}
+              <InteractivePressable
+                onPress={() => handleModulePress(module.screen)}
+                style={styles.modulePressable}
+                accessibilityLabel={`Abrir ${module.label}`}
               >
-                <HomePlusIcon name={module.icon as any} size={22} color={module.color} />
-              </View>
-              <View style={styles.moduleInfo}>
-                <AppText variant="body" weight="700">
-                  {module.label}
-                </AppText>
-                <AppText variant="caption" tone="secondary">
-                  {module.description}
-                </AppText>
-              </View>
-              {module.isDemo && (
-                <StatusBadge label="Demo" tone="warning" style={styles.demoBadge} />
-              )}
-              <HomePlusIcon name="chevron-forward-outline" size={20} color={colors.text.tertiary} />
-            </View>
-          </AppCard>
-        ))}
+                <View style={styles.moduleRow}>
+                  <View style={[styles.moduleIcon, { backgroundColor: module.bg }]}>
+                    <HomePlusIcon name={module.icon as any} size={22} color={module.color} />
+                  </View>
+                  <View style={styles.moduleInfo}>
+                    <AppText variant="body" weight="700">
+                      {module.label}
+                    </AppText>
+                    <AppText variant="caption" tone="secondary">
+                      {module.description}
+                    </AppText>
+                  </View>
+                  {module.isDemo ? <StatusBadge label="Demo" tone="warning" style={styles.demoBadge} /> : null}
+                  <HomePlusIcon name="chevron-forward-outline" size={20} color={colors.text.tertiary} />
+                </View>
+              </InteractivePressable>
+            </React.Fragment>
+          ))}
+        </AppCard>
       </View>
     </AppScreen>
   );
@@ -114,7 +102,15 @@ const styles = StyleSheet.create({
   modules: {
     paddingHorizontal: spacing[5],
     paddingBottom: spacing[6],
-    gap: spacing[3],
+  },
+  modulePressable: {
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[2],
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border.subtle,
+    marginLeft: 56,
   },
   moduleRow: {
     flexDirection: 'row',

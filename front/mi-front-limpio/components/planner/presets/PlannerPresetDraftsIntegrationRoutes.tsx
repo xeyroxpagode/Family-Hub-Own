@@ -72,6 +72,7 @@ export function PlannerPresetDetailRoute() {
   const route = useRoute<any>();
   const navigation = useNavigation<Navigation>();
   const { session } = useAuth();
+  const accessToken = session?.access_token;
   const sheet = usePlannerSheet();
   const presetId = route.params?.presetId as string | undefined;
   const [preset, setPreset] = useState<PlannerPreset | null>(null);
@@ -79,7 +80,7 @@ export function PlannerPresetDetailRoute() {
   const [safeError, setSafeError] = useState<string | null>(null);
 
   const loadPreset = useCallback(async () => {
-    if (!session?.access_token || !presetId) {
+    if (!accessToken || !presetId) {
       setSafeError('No pudimos abrir este preset.');
       setLoading(false);
       return;
@@ -87,14 +88,14 @@ export function PlannerPresetDetailRoute() {
     setLoading(true);
     setSafeError(null);
     try {
-      const response = await getPlannerPreset(session.access_token, presetId);
+      const response = await getPlannerPreset(accessToken, presetId);
       setPreset(response.preset);
     } catch {
       setSafeError('No pudimos abrir este preset.');
     } finally {
       setLoading(false);
     }
-  }, [presetId, session?.access_token]);
+  }, [accessToken, presetId]);
 
   useEffect(() => {
     void loadPreset();
@@ -102,7 +103,7 @@ export function PlannerPresetDetailRoute() {
 
   const handleAction = useCallback(
     async (action: PresetDetailAction, targetPreset: PlannerPreset) => {
-      const token = session?.access_token;
+      const token = accessToken;
       if (!token) return;
 
       if (action === 'use') {
@@ -161,7 +162,7 @@ export function PlannerPresetDetailRoute() {
         await loadPreset();
       }
     },
-    [loadPreset, navigation, session?.access_token, sheet],
+    [accessToken, loadPreset, navigation, sheet],
   );
 
   if (loading) return <LoadingState label="Cargando preset..." />;
@@ -184,13 +185,14 @@ export function PlannerPresetCreateRoute() {
   const navigation = useNavigation<Navigation>();
   const duplicateFromPresetId = route.params?.duplicateFromPresetId as string | undefined;
   const { session } = useAuth();
+  const accessToken = session?.access_token;
   const [initialPreset, setInitialPreset] = useState<PlannerPreset | undefined>(undefined);
   const [safeError, setSafeError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!duplicateFromPresetId || !session?.access_token) return;
+    if (!duplicateFromPresetId || !accessToken) return;
     let disposed = false;
-    void getPlannerPreset(session.access_token, duplicateFromPresetId)
+    void getPlannerPreset(accessToken, duplicateFromPresetId)
       .then((response) => {
         if (!disposed) setInitialPreset(response.preset);
       })
@@ -198,11 +200,11 @@ export function PlannerPresetCreateRoute() {
         if (!disposed) setSafeError('No pudimos preparar la copia.');
       });
     return () => { disposed = true; };
-  }, [duplicateFromPresetId, session?.access_token]);
+  }, [accessToken, duplicateFromPresetId]);
 
   const commit = useCallback(
     async (input: PresetCommitInput) => {
-      const token = session?.access_token;
+      const token = accessToken;
       if (!token) return;
       const identity = createPlannerPresetIdentity('planner.presets.create');
       try {
@@ -221,7 +223,7 @@ export function PlannerPresetCreateRoute() {
         setSafeError('No pudimos guardar el preset.');
       }
     },
-    [navigation, session?.access_token],
+    [accessToken, navigation],
   );
 
   return (
@@ -242,19 +244,20 @@ export function PlannerPresetEditRoute() {
   const route = useRoute<any>();
   const navigation = useNavigation<Navigation>();
   const { session } = useAuth();
+  const accessToken = session?.access_token;
   const presetId = route.params?.presetId as string | undefined;
   const [preset, setPreset] = useState<PlannerPreset | null>(null);
   const [safeError, setSafeError] = useState<string | null>(null);
 
   const loadPreset = useCallback(async () => {
-    if (!session?.access_token || !presetId) return;
+    if (!accessToken || !presetId) return;
     try {
-      const response = await getPlannerPreset(session.access_token, presetId);
+      const response = await getPlannerPreset(accessToken, presetId);
       setPreset(response.preset);
     } catch {
       setSafeError('No pudimos abrir este preset.');
     }
-  }, [presetId, session?.access_token]);
+  }, [accessToken, presetId]);
 
   useEffect(() => {
     void loadPreset();
@@ -262,7 +265,7 @@ export function PlannerPresetEditRoute() {
 
   const commit = useCallback(
     async (input: PresetCommitInput) => {
-      const token = session?.access_token;
+      const token = accessToken;
       if (!token || !preset) return;
       const identity = createPlannerPresetIdentity('planner.presets.update');
       try {
@@ -276,12 +279,12 @@ export function PlannerPresetEditRoute() {
         setSafeError('No pudimos guardar los cambios.');
       }
     },
-    [navigation, preset, session?.access_token],
+    [accessToken, navigation, preset],
   );
 
   const startRevision = useCallback(
     async (targetPresetId: string) => {
-      const token = session?.access_token;
+      const token = accessToken;
       if (!token) return;
       const identity = createPlannerPresetIdentity('planner.presets.revisions.start');
       try {
@@ -294,12 +297,12 @@ export function PlannerPresetEditRoute() {
         setSafeError('No pudimos iniciar la revision.');
       }
     },
-    [loadPreset, session?.access_token],
+    [accessToken, loadPreset],
   );
 
   const publishRevision = useCallback(
     async (revisionId: string) => {
-      const token = session?.access_token;
+      const token = accessToken;
       const version = preset?.planner_preset_revisions?.find((revision) => revision.id === revisionId)?.version;
       if (!token || version === undefined) return;
       const identity = createPlannerPresetIdentity('planner.presets.revisions.publish');
@@ -314,7 +317,7 @@ export function PlannerPresetEditRoute() {
         setSafeError('No pudimos publicar la revision.');
       }
     },
-    [loadPreset, preset?.planner_preset_revisions, session?.access_token],
+    [accessToken, loadPreset, preset?.planner_preset_revisions],
   );
 
   if (!preset) return <LoadingState label="Cargando preset..." />;

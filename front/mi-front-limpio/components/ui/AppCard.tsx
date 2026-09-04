@@ -34,17 +34,17 @@ const variantStyles: Record<AppCardVariant, ViewStyle> = {
   default: {
     backgroundColor: colors.surface.card,
     borderColor: colors.border.subtle,
-    ...shadows.shadow1,
+    ...shadows.none,
   },
   elevated: {
     backgroundColor: colors.surface.elevated,
     borderColor: colors.border.subtle,
-    ...shadows.shadow2,
+    ...shadows.shadow1,
   },
   glass: {
     backgroundColor: colors.surface.glass,
     borderColor: colors.border.subtle,
-    ...shadows.shadow3,
+    ...shadows.shadow1,
   },
   quiet: {
     backgroundColor: colors.surface.soft,
@@ -54,17 +54,17 @@ const variantStyles: Record<AppCardVariant, ViewStyle> = {
   danger: {
     backgroundColor: colors.danger.soft,
     borderColor: colors.danger.base,
-    ...shadows.shadow1,
+    ...shadows.none,
   },
   success: {
     backgroundColor: colors.success.soft,
     borderColor: colors.success.base,
-    ...shadows.shadow1,
+    ...shadows.none,
   },
   warning: {
     backgroundColor: colors.warning.soft,
     borderColor: colors.warning.base,
-    ...shadows.shadow1,
+    ...shadows.none,
   },
 };
 

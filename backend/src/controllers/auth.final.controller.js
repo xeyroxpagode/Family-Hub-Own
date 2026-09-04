@@ -114,6 +114,15 @@ const me = async (req, res) => {
   try {
     const accessToken = getBearerToken(req)
     const user = req.user ?? (await getAuthenticatedUser(accessToken))
+
+    // Legacy accounts can predate public.people. Repair that invariant before
+    // resolving the authenticated workspace so a valid session is usable.
+    await createPersonForUser({
+      user,
+      session: { access_token: accessToken },
+      displayName: user.user_metadata?.display_name ?? user.user_metadata?.nombre ?? user.email,
+    })
+
     const payload = await buildMe({ user, accessToken })
 
     return res.status(200).json(payload)

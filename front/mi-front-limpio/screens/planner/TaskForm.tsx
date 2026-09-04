@@ -533,7 +533,7 @@ export function TaskForm({
 
   const content = loading ? (
     <View style={[S.content, { minHeight: 220, justifyContent: 'center', alignItems: 'center' }]}>
-      <ActivityIndicator color="#CD7353" />
+      <ActivityIndicator color="#E7643F" />
       <Text style={[S.emptyText, { marginTop: 12 }]}>Cargando formulario...</Text>
     </View>
   ) : (

@@ -209,7 +209,7 @@ const styles = StyleSheet.create({
   inner: { width: '100%' },
   topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   userEmail: { fontSize: 12, color: '#6B6B6B', flex: 1, marginRight: 12 },
-  logoutText: { color: '#CD7353', fontSize: 13, fontWeight: '600' },
+  logoutText: { color: '#E7643F', fontSize: 13, fontWeight: '600' },
   header: { alignItems: 'center', marginBottom: 32 },
   title: { fontSize: 26, fontWeight: '700', color: '#1C1C1C', marginBottom: 8 },
   subtitle: { fontSize: 14, color: '#6B6B6B', textAlign: 'center', lineHeight: 22 },
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   inputFocused: {
-    borderColor: '#CD7353',
+    borderColor: '#E7643F',
     backgroundColor: '#FFFFFF',
   },
   inputError: {
@@ -248,11 +248,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
   },
-  pillSelected: { backgroundColor: '#F5E6DF', borderColor: '#CD7353' },
+  pillSelected: { backgroundColor: '#F5E6DF', borderColor: '#E7643F' },
   pillText: { fontSize: 14, color: '#1C1C1C', fontWeight: '500' },
   errorText: { color: '#B6472C', fontSize: 13, marginBottom: 16, lineHeight: 18 },
   primaryButton: {
-    backgroundColor: '#CD7353',
+    backgroundColor: '#E7643F',
     width: '100%',
     paddingVertical: 16,
     borderRadius: 12,
@@ -273,8 +273,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 52,
     borderWidth: 1.5,
-    borderColor: '#CD7353',
+    borderColor: '#E7643F',
   },
-  secondaryButtonText: { color: '#CD7353', fontSize: 16, fontWeight: '700' },
+  secondaryButtonText: { color: '#E7643F', fontSize: 16, fontWeight: '700' },
   buttonDisabled: { opacity: 0.6 },
 });

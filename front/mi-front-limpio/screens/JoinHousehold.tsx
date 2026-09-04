@@ -70,7 +70,7 @@ export const JoinHouseholdScreen = ({ route }: Props) => {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#CD7353" style={{ marginBottom: 20 }} />
+          <ActivityIndicator size="large" color="#E7643F" style={{ marginBottom: 20 }} />
           <Text style={styles.loadingTitle}>Uniéndote al hogar...</Text>
           <Text style={styles.loadingSubtitle}>Esto tomará solo un momento.</Text>
         </View>
@@ -127,7 +127,7 @@ export const JoinHouseholdScreen = ({ route }: Props) => {
         </TouchableOpacity>
         {isSessionError && (
           <TouchableOpacity
-            style={[styles.continueBtn, { marginTop: 12, backgroundColor: '#CD7353' }]}
+            style={[styles.continueBtn, { marginTop: 12, backgroundColor: '#E7643F' }]}
             onPress={() => void handleSignOut()}
             accessibilityRole="button"
           >
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     padding: 16,
     width: '100%',
     borderLeftWidth: 4,
-    borderLeftColor: '#CD7353',
+    borderLeftColor: '#E7643F',
     marginBottom: 24,
   },
   errorMessage: { fontSize: 15, color: '#1C1C1C', lineHeight: 22 },

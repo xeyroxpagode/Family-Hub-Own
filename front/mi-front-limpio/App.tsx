@@ -1,13 +1,5 @@
 import React from 'react';
 import { NavigationContainer, type LinkingOptions } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
-import { DMSerifDisplay_400Regular } from '@expo-google-fonts/dm-serif-display';
-import {
-  DMSans_400Regular,
-  DMSans_500Medium,
-  DMSans_600SemiBold,
-  DMSans_700Bold,
-} from '@expo-google-fonts/dm-sans';
 import * as Linking from 'expo-linking';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './context/AuthContext';
@@ -17,7 +9,6 @@ import { AppNavigator } from './navigation/AppNavigator';
 import type { RootStackParamList } from './navigation/types';
 import { registerLifecycleHandlers } from './services/registerLifecycleHandlers';
 import { FeatureFlagsProvider } from './context/FeatureFlagsContext';
-import { AuthLoadingScreen } from './screens/AuthLoading';
 
 registerLifecycleHandlers();
 
@@ -57,16 +48,6 @@ const linking: LinkingOptions<RootStackParamList> = {
 };
 
 export default function App() {
-  const [fontsLoaded] = useFonts({
-    DMSans_400Regular,
-    DMSans_500Medium,
-    DMSans_600SemiBold,
-    DMSans_700Bold,
-    DMSerifDisplay_400Regular,
-  });
-
-  if (!fontsLoaded) return <AuthLoadingScreen />;
-
   return (
     <SafeAreaProvider>
       <AuthProvider>

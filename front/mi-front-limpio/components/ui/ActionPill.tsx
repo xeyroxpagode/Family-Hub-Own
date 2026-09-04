@@ -17,7 +17,7 @@ export type ActionPillProps = Omit<PressableProps, 'children' | 'style'> & {
 
 const toneStyles: Record<
   ActionPillTone,
-  { backgroundColor: string; borderColor: string; textTone: 'primary' | 'success' | 'warning' }
+  { backgroundColor: string; borderColor: string; textTone: 'primary' | 'brand' | 'success' | 'warning' }
 > = {
   default: {
     backgroundColor: colors.surface.soft,
@@ -27,7 +27,7 @@ const toneStyles: Record<
   primary: {
     backgroundColor: colors.terracotta[50],
     borderColor: colors.terracotta[300],
-    textTone: 'primary',
+    textTone: 'brand',
   },
   success: {
     backgroundColor: colors.success.soft,

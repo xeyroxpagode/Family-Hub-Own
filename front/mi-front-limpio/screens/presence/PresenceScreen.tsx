@@ -20,6 +20,10 @@ const DEFAULT_REGION: Region = {
 
 type PermissionState = 'unknown' | 'granted' | 'denied' | 'disabled';
 
+export type FamilyMapPanelProps = {
+  embedded?: boolean;
+};
+
 const getMemberCoordinate = (member: PresenceMember) => {
   if (!member.location) return null;
   const { latitude, longitude } = member.location;
@@ -44,7 +48,7 @@ const getRelativeTime = (iso: string | null | undefined) => {
   return hours === 1 ? 'Hace 1 h' : `Hace ${hours} h`;
 };
 
-export function PresenceScreen() {
+export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
   const { session } = useAuth();
   const { currentHousehold } = useHousehold();
   const accessToken = session?.access_token ?? null;
@@ -230,25 +234,24 @@ export function PresenceScreen() {
   }, [myMember?.sharing_enabled, permissionState, startForegroundWatch, stopWatch]);
 
   if (Platform.OS === 'web') {
+    const fallback = (
+      <EmptyState
+        title="GPS disponible en mobile"
+        description="El mapa en vivo usa permisos nativos de ubicacion."
+      />
+    );
+
+    if (embedded) return fallback;
+
     return (
       <AppScreen background="base" bottomInset="tab">
-        <EmptyState
-          title="GPS disponible en mobile"
-          description="El mapa en vivo usa permisos nativos de ubicacion."
-        />
+        {fallback}
       </AppScreen>
     );
   }
 
-  return (
-    <AppScreen padded={false} background="base" bottomInset="tab">
-      <View style={styles.header}>
-        <AppText variant="title2">Ubicacion familiar</AppText>
-        <AppText variant="bodySmall" tone="secondary">
-          Compartis solo cuando lo activas.
-        </AppText>
-      </View>
-
+  const mapContent = (
+    <>
       {loading ? (
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={colors.brand} />
@@ -277,7 +280,7 @@ export function PresenceScreen() {
           />
         </View>
       ) : (
-        <View style={styles.mapWrap}>
+        <View style={[styles.mapWrap, embedded ? styles.embeddedMapWrap : null]}>
           <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion} showsUserLocation={permissionState === 'granted'}>
             {visibleMembers.map((member) => {
               const coordinate = getMemberCoordinate(member);
@@ -338,8 +341,28 @@ export function PresenceScreen() {
         ))}
       </View>
       {refreshing ? null : null}
+    </>
+  );
+
+  if (embedded) {
+    return <View style={styles.embeddedRoot}>{mapContent}</View>;
+  }
+
+  return (
+    <AppScreen padded={false} background="base" bottomInset="tab">
+      <View style={styles.header}>
+        <AppText variant="title2">Ubicacion familiar</AppText>
+        <AppText variant="bodySmall" tone="secondary">
+          Compartis solo cuando lo activas.
+        </AppText>
+      </View>
+      {mapContent}
     </AppScreen>
   );
+}
+
+export function PresenceScreen() {
+  return <FamilyMapPanel />;
 }
 
 const styles = StyleSheet.create({
@@ -363,6 +386,13 @@ const styles = StyleSheet.create({
     minHeight: 460,
     flex: 1,
     overflow: 'hidden',
+  },
+  embeddedRoot: {
+    marginTop: spacing[1],
+    marginHorizontal: -spacing[5],
+  },
+  embeddedMapWrap: {
+    minHeight: 340,
   },
   map: {
     flex: 1,

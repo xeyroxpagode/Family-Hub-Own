@@ -64,6 +64,8 @@ from root_per_txn r
 where ft.id = r.id;
 
 -- 5) Verify backfill: no NULL roots should remain
+set constraints all immediate;
+
 alter table public.finance_transactions
   alter column root_transaction_id set not null;
 

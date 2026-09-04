@@ -35,15 +35,6 @@ const toneColors: Record<AppTextTone, string> = {
   info: colors.info.text,
 };
 
-function fontFamilyForWeight(weight?: TextStyle['fontWeight']) {
-  if (!weight) return null;
-  const numericWeight = typeof weight === 'string' ? Number(weight) : weight;
-  if (weight === 'bold' || numericWeight >= 700) return { fontFamily: 'DMSans_700Bold' };
-  if (numericWeight >= 600) return { fontFamily: 'DMSans_600SemiBold' };
-  if (numericWeight >= 500) return { fontFamily: 'DMSans_500Medium' };
-  return { fontFamily: 'DMSans_400Regular' };
-}
-
 export function AppText({
   variant = 'body',
   tone = 'primary',
@@ -59,7 +50,6 @@ export function AppText({
       style={[
         typography[variant],
         { color: toneColors[tone], textAlign: align },
-        fontFamilyForWeight(weight),
         weight ? { fontWeight: weight } : null,
         style,
       ]}

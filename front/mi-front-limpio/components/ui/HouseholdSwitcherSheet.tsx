@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View, Alert } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Modal, PanResponder, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
@@ -8,7 +8,7 @@ import { AppText } from './AppText';
 import { AppCard } from './AppCard';
 import { AppButton } from './AppButton';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, radius, spacing, shadows, typography } from '../../constants/theme';
+import { colors, radius, spacing, shadows } from '../../constants/theme';
 import { setActiveHousehold, getUserHouseholds, type UserHousehold } from '../../services/api';
 import { normalizeUserHouseholds, getHouseholdCountByStatus } from '../../utils/householdUtils';
 import { runHouseholdSwitch } from '../../services/core/lifecycle';
@@ -17,15 +17,6 @@ export type HouseholdSwitcherSheetProps = {
   visible: boolean;
   onRequestClose: () => void;
   accessToken: string | null;
-};
-
-const ROLE_LABELS: Record<string, string> = {
-  coordinator: 'Coordinador',
-  adult: 'Adulto',
-  adolescent: 'Adolescente',
-  senior: 'Adulto mayor',
-  child: 'Niño',
-  guest: 'Invitado',
 };
 
 function getRoleDisplay(role: string): { label: string; color: string; bg: string } {
@@ -41,13 +32,6 @@ function getRoleDisplay(role: string): { label: string; color: string; bg: strin
   return mapping[roleLower] ?? { label: role, color: colors.text.tertiary, bg: colors.surface.soft };
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  active: 'Activo',
-  pending: 'Pendiente',
-  finalized: 'Finalizado',
-  suspended: 'Suspendido',
-};
-
 export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }: HouseholdSwitcherSheetProps) {
   const { refetchMe, authMe } = useAuth();
   const { currentHousehold } = useHousehold();
@@ -56,36 +40,42 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
   const [households, setHouseholds] = useState<UserHousehold[]>([]);
   const [loading, setLoading] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const dragY = React.useRef(new Animated.Value(0)).current;
 
-  React.useEffect(() => {
-    if (visible) {
-      void loadHouseholds();
-    }
-  }, [visible]);
+  const handlePanResponder = React.useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => gesture.dy > 6,
+    onPanResponderMove: (_, gesture) => dragY.setValue(Math.max(0, gesture.dy)),
+    onPanResponderRelease: (_, gesture) => {
+      if (gesture.dy > 96 || gesture.vy > 0.9) {
+        onRequestClose();
+        dragY.setValue(0);
+        return;
+      }
+      Animated.spring(dragY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
+    },
+    onPanResponderTerminate: () => {
+      Animated.spring(dragY, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
+    },
+  }), [dragY, onRequestClose]);
 
   const loadHouseholds = useCallback(async () => {
-    console.log('[H042.3I][Switcher] visible', visible)
-    console.log('[H042.3I][Switcher] accessToken?', Boolean(accessToken))
-    console.log('[H042.3I][Switcher] authMe active_household_id', authMe?.person?.active_household_id)
-    
     if (!accessToken) {
-      Alert.alert('Sesion', 'No pudimos preparar tu sesion. Volvé a intentar.');
+      setLoadError('No pudimos preparar tu sesión. Volvé a intentar.');
       return;
     }
 
     setLoading(true);
     setUsingFallback(false);
+    setLoadError(null);
 
     try {
       const response = await getUserHouseholds(accessToken);
       const rawHouseholds = response.households ?? [];
-      console.log('[H042.3I][Switcher] getUserHouseholds raw', rawHouseholds)
       const normalized = normalizeUserHouseholds(rawHouseholds, currentHousehold?.id);
-      console.log('[H042.3I][Switcher] normalized', normalized)
       setHouseholds(normalized);
 
       if (normalized.length === 0 && authMe?.memberships && authMe.memberships.length > 0) {
-        console.warn('[HouseholdSwitcherSheet] getUserHouseholds devolvió vacío, usando fallback de authMe');
         const fallbackHouseholds: UserHousehold[] = authMe.memberships.map(m => ({
           household_id: m.household_id,
           household_name: authMe.active_household?.name || 'Hogar',
@@ -97,9 +87,7 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
         setUsingFallback(true);
       }
     } catch (error) {
-      console.error('[HouseholdSwitcherSheet] Error cargando hogares:', error);
       if (authMe?.memberships && authMe.memberships.length > 0) {
-        console.warn('[HouseholdSwitcherSheet] Usando fallback de authMe después de error');
         const fallbackHouseholds: UserHousehold[] = authMe.memberships.map(m => ({
           household_id: m.household_id,
           household_name: authMe.active_household?.name || 'Hogar',
@@ -109,11 +97,19 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
         const normalizedFallback = normalizeUserHouseholds(fallbackHouseholds, currentHousehold?.id);
         setHouseholds(normalizedFallback);
         setUsingFallback(true);
+      } else {
+        setLoadError(error instanceof Error ? error.message : 'No pudimos cargar tus hogares.');
       }
     } finally {
       setLoading(false);
     }
-  }, [accessToken, currentHousehold?.id, authMe]);
+  }, [accessToken, currentHousehold, authMe]);
+
+  React.useEffect(() => {
+    if (visible) {
+      void loadHouseholds();
+    }
+  }, [visible, loadHouseholds]);
 
   const handleSwitchHousehold = useCallback(async (householdId: string) => {
     if (!accessToken || !currentHousehold) return;
@@ -179,12 +175,12 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
         accessibilityRole="button"
         accessibilityLabel="Cerrar"
       >
-        <View style={styles.sheet} onStartShouldSetResponder={() => true}>
-          <View style={styles.handle} />
+        <Animated.View style={[styles.sheet, { transform: [{ translateY: dragY }] }]} onStartShouldSetResponder={() => true}>
+          <View style={styles.handle} {...handlePanResponder.panHandlers} />
 
           <View style={styles.header}>
             <AppText variant="title3" weight="800">
-              Cambiar hogar
+              Tu hogar
             </AppText>
             <AppButton variant="icon" size="sm" onPress={onRequestClose} accessibilityLabel="Cerrar selector de hogar"><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
           </View>
@@ -196,9 +192,18 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
           >
             {loading ? (
               <View style={styles.emptyState}>
+                <ActivityIndicator color={colors.brand} />
                 <AppText variant="bodySmall" tone="tertiary" align="center" style={{ marginTop: spacing[2] }}>
                   Cargando hogares...
                 </AppText>
+              </View>
+            ) : loadError && households.length === 0 ? (
+              <View style={styles.emptyState}>
+                <HomePlusIcon name="cloud-offline-outline" size={32} color={colors.danger.base} />
+                <AppText variant="bodySmall" tone="secondary" align="center" style={{ marginTop: spacing[2] }}>
+                  {loadError}
+                </AppText>
+                <AppButton title="Reintentar" variant="secondary" size="sm" onPress={() => void loadHouseholds()} style={{ marginTop: spacing[3] }} />
               </View>
             ) : households.length === 0 ? (
               <AppCard variant="quiet" padding="generous">
@@ -218,7 +223,7 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
               </AppCard>
             ) : (
               <View style={styles.householdList}>
-                {households.map((household) => {
+                {households.map((household, index) => {
                   const isActive = household.household_id === activeHouseholdId;
                   const roleInfo = getRoleDisplay(household.role);
                   const isPending = household.status === 'pending';
@@ -236,6 +241,7 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
                       disabled={isActive || loading || isPending}
                       style={({ pressed }) => [
                         styles.householdCard,
+                        index > 0 ? styles.householdRowDivider : null,
                         { opacity: isActive || loading || isPending ? 0.7 : pressed ? 0.9 : 1 },
                       ]}
                       accessibilityRole="button"
@@ -245,13 +251,13 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
                         <View
                           style={[
                             styles.householdAvatar,
-                            { backgroundColor: isActive ? colors.terracotta[50] : colors.surface.soft },
+                            { backgroundColor: isActive ? colors.sage[50] : colors.surface.soft },
                           ]}
                         >
                           <HomePlusIcon
                             name="home-outline"
                             size={24}
-                            color={isActive ? colors.terracotta[600] : colors.text.tertiary}
+                            color={isActive ? colors.sage[600] : colors.text.tertiary}
                           />
                         </View>
 
@@ -260,13 +266,6 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
                             <AppText variant="body" weight="700">
                               {household.household_name}
                             </AppText>
-                            {isActive && (
-                              <View style={styles.activeBadge}>
-                                <AppText variant="micro" tone="success" weight="700">
-                                  Actual
-                                </AppText>
-                              </View>
-                            )}
                           </View>
 
 <View style={styles.roleRow}>
@@ -296,14 +295,16 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
                           </View>
                         </View>
 
-                        {!isActive && !isPending && (
+                        {isActive ? (
+                          <HomePlusIcon name="checkmark-circle" size={23} color={colors.sage[600]} />
+                        ) : !isPending ? (
                           <HomePlusIcon
                             name="chevron-forward-outline"
                             size={20}
                             color={colors.text.tertiary}
                             style={styles.chevron}
                           />
-                        )}
+                        ) : null}
                       </View>
                     </Pressable>
                       );
@@ -338,7 +339,7 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
                   </Pressable>
                 </View>
               </ScrollView>
-        </View>
+        </Animated.View>
       </Pressable>
     </Modal>
   );
@@ -347,7 +348,7 @@ export function HouseholdSwitcherSheet({ visible, onRequestClose, accessToken }:
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(23, 32, 26, 0.58)',
+    backgroundColor: colors.surface.overlay,
     justifyContent: 'flex-end',
   },
   sheet: {
@@ -389,14 +390,21 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[6],
   },
   householdList: {
-    gap: spacing[2],
-  },
-  householdCard: {
-    padding: spacing[3],
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.soft,
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.border.default,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface.card,
+  },
+  householdCard: {
+    minHeight: 68,
+    justifyContent: 'center',
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[3],
+  },
+  householdRowDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border.subtle,
   },
   householdRow: {
     flexDirection: 'row',
@@ -433,12 +441,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: spacing[1],
   },
-  activeBadge: {
-    backgroundColor: colors.success.soft,
-    paddingHorizontal: spacing[2],
-    paddingVertical: spacing[1],
-    borderRadius: radius.pill,
-  },
   pendingBadge: {
     backgroundColor: colors.warning.soft,
     paddingHorizontal: spacing[2],
@@ -452,11 +454,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: 48,
     padding: spacing[3],
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.default,
     gap: spacing[2],
   },
 });

@@ -780,7 +780,7 @@ const confirmTrash = (task: PlannerTask) => {
   if (loading) {
     return (
       <View style={[S.emptyBox, { minHeight: 160 }]}>
-        <ActivityIndicator color="#CD7353" />
+        <ActivityIndicator color="#E7643F" />
         <Text style={[S.emptyText, { marginTop: 12 }]}>Cargando tareas...</Text>
       </View>
     );

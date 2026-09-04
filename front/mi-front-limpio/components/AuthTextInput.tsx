@@ -39,7 +39,7 @@ export const AuthTextInput = forwardRef<TextInput, AuthTextInputProps>(
             {...props}
             style={[styles.input, style]}
             placeholderTextColor="#746D66"
-            selectionColor="#CD7353"
+            selectionColor="#E7643F"
             cursorColor="#1C1C1C"
             editable={props.editable}
             importantForAutofill="yes"
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   inputContainerFocused: {
-    borderColor: '#C17F59',
+    borderColor: '#E7643F',
     backgroundColor: '#FFFFFF',
   },
   inputContainerError: {
@@ -124,7 +124,7 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
   },
   toggleText: {
-    color: '#CD7353',
+    color: '#E7643F',
     fontSize: 13,
     fontWeight: '600',
   },

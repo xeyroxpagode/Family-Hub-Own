@@ -45,13 +45,13 @@ export const HomeCoordinador = () => {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  content: { paddingTop: spacing[3] },
+  content: { paddingTop: spacing[4] },
 
   hero: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: spacing[3],
+    marginBottom: spacing[4],
     gap: spacing[3],
   },
   dateLabel: { textTransform: 'capitalize', marginTop: spacing[1] },

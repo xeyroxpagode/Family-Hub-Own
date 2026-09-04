@@ -225,7 +225,7 @@ const deepLink = activeInvitation
       </View>
 
       {loadingRequests ? (
-        <ActivityIndicator color="#CD7353" style={{ marginVertical: 16 }} />
+        <ActivityIndicator color="#E7643F" style={{ marginVertical: 16 }} />
       ) : joinRequests.length === 0 ? (
         <View style={styles.emptyBox}>
           <Text style={styles.emptyText}>No hay solicitudes pendientes.</Text>
@@ -293,9 +293,9 @@ const styles = StyleSheet.create({
   successText: { color: '#2F6E4F', fontSize: 13, marginBottom: 12, lineHeight: 18 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   sectionLabel: { fontSize: 13, fontWeight: '700', color: '#6B6B6B', letterSpacing: 0.5, textTransform: 'uppercase' },
-  refreshText: { color: '#CD7353', fontSize: 13, fontWeight: '700' },
+  refreshText: { color: '#E7643F', fontSize: 13, fontWeight: '700' },
   generateBtn: {
-    backgroundColor: '#CD7353',
+    backgroundColor: '#E7643F',
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
@@ -315,11 +315,11 @@ const styles = StyleSheet.create({
     borderColor: '#E2DFD6',
   },
   qrTitle: { fontSize: 18, fontWeight: '700', color: '#1C1C1C', marginBottom: 4 },
-  qrSubtitle: { fontSize: 13, color: '#CD7353', marginBottom: 20 },
+  qrSubtitle: { fontSize: 13, color: '#E7643F', marginBottom: 20 },
   qrContainer: { padding: 12, backgroundColor: '#FFFFFF', borderRadius: 12, marginBottom: 16 },
   tokenText: { fontSize: 11, color: '#6B6B6B', textAlign: 'center', marginBottom: 20, paddingHorizontal: 8 },
   qrActions: { flexDirection: 'row', gap: 12 },
-  shareBtn: { flex: 1, backgroundColor: '#CD7353', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  shareBtn: { flex: 1, backgroundColor: '#E7643F', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   shareBtnText: { color: '#FFFFFF', fontWeight: '600' },
   revokeBtn: { flex: 1, borderWidth: 1.5, borderColor: '#E2DFD6', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   revokeBtnText: { color: '#6B6B6B', fontWeight: '500' },
@@ -337,9 +337,9 @@ const styles = StyleSheet.create({
   requestMeta: { fontSize: 12, color: '#6B6B6B', marginBottom: 12 },
   roleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
   roleChip: { borderWidth: 1, borderColor: '#E2DFD6', borderRadius: 16, paddingVertical: 7, paddingHorizontal: 10 },
-  roleChipActive: { backgroundColor: '#FDF3EE', borderColor: '#CD7353' },
+  roleChipActive: { backgroundColor: '#FDF3EE', borderColor: '#E7643F' },
   roleChipText: { fontSize: 12, color: '#6B6B6B', fontWeight: '600' },
-  roleChipTextActive: { color: '#CD7353' },
+  roleChipTextActive: { color: '#E7643F' },
   requestActions: { flexDirection: 'row', gap: 10 },
   approveBtn: { flex: 1, backgroundColor: '#2F6E4F', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   approveBtnText: { color: '#FFFFFF', fontWeight: '700' },

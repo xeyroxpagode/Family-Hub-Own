@@ -42,7 +42,7 @@ export const P00Splash = ({ navigation, loading = false }: Props) => {
         </Text>
         {loading ? (
           <View style={styles.loaderContainer}>
-            <ActivityIndicator color="#CD7353" size="small" />
+            <ActivityIndicator color="#E7643F" size="small" />
             <Text style={styles.loaderText}>Preparando tu hogar...</Text>
           </View>
         ) : null}
@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
   loaderContainer: { marginTop: 24, alignItems: 'center' },
   loaderText: { marginTop: 12, fontSize: 13, color: '#6B6560' },
   footer: { paddingHorizontal: 24, paddingBottom: 40, alignItems: 'center' },
-  primaryButton: { backgroundColor: '#C17F59', width: '100%', paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginBottom: 16 },
+  primaryButton: { backgroundColor: '#E7643F', width: '100%', paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginBottom: 16 },
   primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   secondaryButton: { paddingVertical: 12, marginBottom: 24 },
   secondaryButtonText: { color: '#6B6560', fontSize: 15, fontWeight: '600' },

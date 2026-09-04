@@ -142,7 +142,7 @@ export function QuickActionSheet({ visible, onRequestClose, onNavigate }: QuickA
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(23, 32, 26, 0.58)',
+    backgroundColor: colors.surface.overlay,
     justifyContent: 'flex-end',
   },
   sheet: {

@@ -83,7 +83,7 @@ const RECURRENCE_OPTIONS: Schedule['recurrence'][] = ['none','daily','weekly','m
 const RECURRENCE_LABELS: Record<Schedule['recurrence'], string> = {
   none: 'Sin repetir', daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual',
 };
-const PALETTE = ['#CD7353','#6B4FE8','#7C9E7A','#D4975A','#D4A853','#E57373','#64B5F6','#81C784'];
+const PALETTE = ['#E7643F', '#208F7C', '#F2A93B', '#3178C6', '#A96D8A', '#D64C5A', '#52A78D', '#9A8F84'];
 
 // ─── Role theme ───────────────────────────────────────────────────────────────
 type RoleTheme = {
@@ -96,21 +96,21 @@ type RoleTheme = {
 function getRoleTheme(role: string | null): RoleTheme {
   switch (role) {
     case 'adulto':
-      return { bg: '#FAFAF8', surface: '#FFFFFF', text: '#1C1C1C', textMuted: '#6B6B6B',
-               primary: '#CD7353', border: '#E2DFD6', amber: '#F59E0B',
-               modalBg: '#FFFFFF', modalInputBg: '#F3F2EE', fs: 1.0, touch: 44 };
+      return { bg: '#FCFBF9', surface: '#FFFFFF', text: '#1A1714', textMuted: '#6B6560',
+               primary: '#E7643F', border: '#DED5CB', amber: '#D98622',
+               modalBg: '#FFFFFF', modalInputBg: '#F4F0EB', fs: 1.0, touch: 44 };
     case 'adolescente':
-      return { bg: '#0F172A', surface: '#1E293B', text: '#FFFFFF', textMuted: '#94A3B8',
-               primary: '#6B4FE8', border: 'rgba(107,79,232,0.2)', amber: '#F59E0B',
-               modalBg: '#1E293B', modalInputBg: '#0F172A', fs: 1.0, touch: 44 };
+      return { bg: '#FCFBF9', surface: '#FFFFFF', text: '#1A1714', textMuted: '#6B6560',
+               primary: '#208F7C', border: '#DED5CB', amber: '#D98622',
+               modalBg: '#FFFFFF', modalInputBg: '#F4F0EB', fs: 1.0, touch: 44 };
     case 'adulto_mayor':
-      return { bg: '#FFFAF5', surface: '#FFFFFF', text: '#1A1A1A', textMuted: '#555555',
-               primary: '#D4975A', border: 'rgba(212,151,90,0.25)', amber: '#D4975A',
-               modalBg: '#FFFFFF', modalInputBg: '#F5F0E8', fs: 1.2, touch: 56 };
+      return { bg: '#FCFBF9', surface: '#FFFFFF', text: '#1A1714', textMuted: '#4A4540',
+               primary: '#E7643F', border: '#DED5CB', amber: '#D98622',
+               modalBg: '#FFFFFF', modalInputBg: '#F4F0EB', fs: 1.2, touch: 56 };
     default: // coordinador
-      return { bg: '#0D1117', surface: '#161B22', text: '#FFFFFF', textMuted: '#888888',
-               primary: '#CD7353', border: 'rgba(205,115,83,0.15)', amber: '#F59E0B',
-               modalBg: '#1C2128', modalInputBg: '#0D1117', fs: 1.0, touch: 44 };
+      return { bg: '#FCFBF9', surface: '#FFFFFF', text: '#1A1714', textMuted: '#6B6560',
+               primary: '#E7643F', border: '#DED5CB', amber: '#D98622',
+               modalBg: '#FFFFFF', modalInputBg: '#F4F0EB', fs: 1.0, touch: 44 };
   }
 }
 
@@ -172,7 +172,7 @@ export const CalendarScreen = () => {
   const [formDays, setFormDays]           = useState<number[]>([1, 2, 3, 4, 5]);
   const [formRecurrence, setFormRecurrence] = useState<Schedule['recurrence']>('weekly');
   const [formCategory, setFormCategory]   = useState<Schedule['category']>('trabajo');
-  const [formColor, setFormColor]         = useState('#CD7353');
+  const [formColor, setFormColor]         = useState('#E7643F');
   const [formSaving, setFormSaving]       = useState(false);
 
   // ── Event form ────────────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ export const CalendarScreen = () => {
   const [evStart, setEvStart]       = useState('08:00');
   const [evEnd, setEvEnd]           = useState('09:00');
   const [evCategory, setEvCategory] = useState<CalendarEvent['category']>('personal');
-  const [evColor, setEvColor]       = useState('#CD7353');
+  const [evColor, setEvColor]       = useState('#E7643F');
   const [evAllDay, setEvAllDay]     = useState(false);
   const [evSaving, setEvSaving]     = useState(false);
 
@@ -238,13 +238,13 @@ export const CalendarScreen = () => {
   const resetScheduleForm = () => {
     setFormTitle(''); setFormStart('08:00'); setFormEnd('09:00');
     setFormDays([1,2,3,4,5]); setFormRecurrence('weekly');
-    setFormCategory('trabajo'); setFormColor('#CD7353');
+    setFormCategory('trabajo'); setFormColor('#E7643F');
   };
 
   const openEventModal = () => {
     setEvDateStr(dateToYMD(selectedDate));
     setEvTitle(''); setEvStart('08:00'); setEvEnd('09:00');
-    setEvCategory('personal'); setEvColor('#CD7353'); setEvAllDay(false);
+    setEvCategory('personal'); setEvColor('#E7643F'); setEvAllDay(false);
     setEventModalVisible(true);
   };
 

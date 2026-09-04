@@ -31,12 +31,14 @@ export function ErrorState({
       accessibilityRole="alert"
       style={[
         {
-          padding: spacing[5],
+          padding: spacing[4],
           borderRadius: radius.md,
-          backgroundColor: colors.danger.soft,
+          backgroundColor: colors.surface.card,
           borderWidth: 1,
-          borderColor: colors.danger.base,
-          gap: spacing[4],
+          borderColor: colors.border.default,
+          borderLeftWidth: 3,
+          borderLeftColor: colors.danger.base,
+          gap: spacing[3],
         },
         style,
       ]}
@@ -57,7 +59,7 @@ export function ErrorState({
       {onRetry ? (
         <AppButton
           title={retryLabel}
-          variant="danger"
+          variant="secondary"
           onPress={onRetry}
           accessibilityLabel={retryLabel}
         />

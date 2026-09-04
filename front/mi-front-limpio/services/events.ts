@@ -92,7 +92,7 @@ export async function createEvent(
       end_at: params.end_at ?? null,
       location: params.location ?? null,
       category: params.category ?? 'personal',
-      color: params.color ?? '#CD7353',
+      color: params.color ?? '#E7643F',
       all_day: params.all_day ?? false,
       assigned_to: params.assigned_to ?? null,
     })

@@ -79,7 +79,7 @@ export function AppInput({
               : focused
                 ? colors.brand
                 : colors.border.default,
-            backgroundColor: isDisabled ? colors.surface.muted : colors.surface.card,
+            backgroundColor: isDisabled ? colors.background.alt : colors.surface.card,
             color: isDisabled ? colors.text.disabled : colors.text.primary,
             textAlignVertical: isMultiline ? 'top' : 'center',
           },

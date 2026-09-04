@@ -42,10 +42,10 @@ import { FinancePapeleraScreen } from '../screens/finance/FinancePapeleraScreen'
 import { FinancePoolManagementScreen } from '../components/finance/FinancePoolManagementScreen';
 import { FinanceSpendingLimitsManagementScreen } from '../components/finance/FinanceSpendingLimitsManagementScreen';
 import { FinanceAnalysisDetailScreen } from '../screens/finance/FinanceAnalysisDetailScreen';
-import { PresenceScreen } from '../screens/presence/PresenceScreen';
 import { APP_ICONS } from '../constants/icons';
 import {
   AppTopBar,
+  AccountSheet,
   AppText,
   BottomNavigationIcon,
   FloatingActionButton,
@@ -128,6 +128,30 @@ function AttentionTopBarButton({ accessToken, householdId, navigation }: {
   );
 }
 
+function TopBarActions({ accessToken, householdId, navigation }: {
+  accessToken: string | null;
+  householdId: string | null;
+  navigation: any;
+}) {
+  return (
+    <View style={styles.topBarActions}>
+      <IconButton
+        icon="search-outline"
+        variant="plain"
+        onPress={() => navigation.navigate('HomeTabs', {
+          screen: 'PlannerTab',
+          params: {
+            screen: 'PlannerSearch',
+            params: { source: 'planner', returnTo: 'previous' },
+          },
+        })}
+        accessibilityLabel="Buscar en HomePlus"
+      />
+      <AttentionTopBarButton accessToken={accessToken} householdId={householdId} navigation={navigation} />
+    </View>
+  );
+}
+
 const TabIcon = ({
   iconKey,
   focused,
@@ -189,13 +213,13 @@ function MoreStackScreen() {
     <MoreStack.Navigator screenOptions={{ headerShown: false }}>
       <MoreStack.Screen name="MoreHome" component={MoreScreen} />
       <MoreStack.Screen name="Family" component={FamilyScreen} />
+      <MoreStack.Screen name="Inventory" component={InventarioScreen} />
       <MoreStack.Screen name="Finance" component={FinanceScreen} />
       <MoreStack.Screen name="FinanceAccounts" component={FinanceAccountsScreen} />
       <MoreStack.Screen name="FinancePapelera" component={FinancePapeleraScreen} />
       <MoreStack.Screen name="FinancePoolManagement" component={FinancePoolManagementScreen} />
       <MoreStack.Screen name="FinanceSpendingLimitsManagement" component={FinanceSpendingLimitsManagementScreen} />
       <MoreStack.Screen name="FinanceAnalysisDetail" component={FinanceAnalysisDetailScreen} />
-      <MoreStack.Screen name="Presence" component={PresenceScreen} />
     </MoreStack.Navigator>
   );
 }
@@ -252,6 +276,7 @@ export function HomeTabNavigator() {
   const insets = useSafeAreaInsets();
   
   const [showHouseholdSwitcher, setShowHouseholdSwitcher] = useState(false);
+  const [showAccountSheet, setShowAccountSheet] = useState(false);
 
   const personName = authMe?.person?.display_name ?? 'Usuario';
   const personAvatarUrl = authMe?.person?.avatar_url ?? null;
@@ -259,6 +284,10 @@ export function HomeTabNavigator() {
   const householdRole = authMe?.memberships?.find(m => m.household_id === authMe?.active_household?.id)?.role ?? 'adult';
 
   const handleAvatarPress = useCallback(() => {
+    setShowAccountSheet(true);
+  }, []);
+
+  const handleOpenProfile = useCallback(() => {
     navigation.navigate('ProfileScreen');
   }, [navigation]);
 
@@ -286,7 +315,7 @@ export function HomeTabNavigator() {
         onAvatarPress={handleAvatarPress}
         onHouseholdPress={handleHouseholdPress}
         rightSlot={(
-          <AttentionTopBarButton
+          <TopBarActions
             accessToken={session?.access_token ?? null}
             householdId={currentHousehold?.id ?? authMe?.active_household?.id ?? null}
             navigation={navigation}
@@ -299,14 +328,22 @@ export function HomeTabNavigator() {
         <Tab.Navigator
           screenOptions={{
             headerShown: false,
-            tabBarShowLabel: false,
+            tabBarShowLabel: true,
+            tabBarLabelStyle: {
+              fontSize: 11,
+              fontWeight: '600',
+              marginTop: -spacing[1],
+            },
+            tabBarActiveTintColor: colors.brand,
+            tabBarInactiveTintColor: colors.text.tertiary,
             tabBarStyle: {
               ...bottomNavigationStyle(insets.bottom),
               height: tabBarContentHeight,
             },
             tabBarItemStyle: {
               height: tabBarContentHeight,
-              paddingVertical: spacing[1],
+              paddingTop: spacing[2],
+              paddingBottom: spacing[1],
             },
             tabBarButton: (props) => <TabBarButton {...props} />,
           }}
@@ -322,20 +359,22 @@ export function HomeTabNavigator() {
                 />
               ),
               tabBarAccessibilityLabel: 'Inicio',
+              tabBarLabel: 'Inicio',
             }}
           />
 
           <Tab.Screen
-            name="InventoryTab"
-            component={InventarioScreen}
+            name="FamilyTab"
+            component={FamilyScreen}
             options={{
               tabBarIcon: ({ focused }) => (
                 <TabIcon
-                  iconKey="inventory"
+                  iconKey="people"
                   focused={focused}
                 />
               ),
-              tabBarAccessibilityLabel: 'Inventario',
+              tabBarAccessibilityLabel: 'Familia',
+              tabBarLabel: 'Familia',
             }}
           />
 
@@ -351,6 +390,7 @@ export function HomeTabNavigator() {
               tabBarIcon: () => <QuickActionTabIcon />,
               tabBarButton: (props) => <QuickActionTabButton {...props} />,
               tabBarAccessibilityLabel: 'Acciones rapidas',
+              tabBarLabel: '',
             }}
           />
 
@@ -364,7 +404,8 @@ export function HomeTabNavigator() {
                   focused={focused}
                 />
               ),
-              tabBarAccessibilityLabel: 'Calendario',
+              tabBarAccessibilityLabel: 'Agenda',
+              tabBarLabel: 'Agenda',
             }}
           />
 
@@ -379,6 +420,7 @@ export function HomeTabNavigator() {
                 />
               ),
               tabBarAccessibilityLabel: 'Más',
+              tabBarLabel: 'Más',
             }}
           />
         </Tab.Navigator>
@@ -393,6 +435,11 @@ export function HomeTabNavigator() {
         visible={showHouseholdSwitcher}
         onRequestClose={() => setShowHouseholdSwitcher(false)}
         accessToken={session?.access_token ?? null}
+      />
+      <AccountSheet
+        visible={showAccountSheet}
+        onRequestClose={() => setShowAccountSheet(false)}
+        onOpenProfile={handleOpenProfile}
       />
     </View>
   );
@@ -415,6 +462,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     transform: [{ translateY: -16 }],
+  },
+  topBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[1],
   },
   loadingContainer: {
     flex: 1,

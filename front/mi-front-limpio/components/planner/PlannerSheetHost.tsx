@@ -20,7 +20,7 @@
  * - Search (belongs to M7).
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   BackHandler,
   Keyboard,
@@ -394,7 +394,7 @@ function PlanFormHost() {
   const { session } = useAuth();
   const accessToken = session?.access_token;
   const [error, setError] = useState<string | null>(null);
-  const instanceTagRef = useRef(`sheet:${Math.random().toString(36).slice(2, 8)}`);
+  const instanceTag = `sheet:${useId()}`;
   const submitGateRef = useRef(createPlanWriteSingleFlightGate());
   // REC-0A — record mount/unmount of the Plan form host.
   void usePlanCompositionTrace('PlanFormHost');
@@ -411,7 +411,7 @@ function PlanFormHost() {
       operation: 'create',
       stage: 'intent_created',
       surface: 'PlannerSheetHost.PlanFormHost',
-      instanceTag: instanceTagRef.current,
+      instanceTag,
       mutationId: intentRef.current.mutationId,
       idempotencyKey: intentRef.current.idempotencyKey,
     });
@@ -429,7 +429,7 @@ function PlanFormHost() {
         operation: 'create',
         stage: 'submit_callback',
         surface: 'PlannerSheetHost.PlanFormHost',
-        instanceTag: instanceTagRef.current,
+        instanceTag,
         mutationId: intent?.mutationId,
         idempotencyKey: intent?.idempotencyKey,
       });
@@ -445,7 +445,7 @@ function PlanFormHost() {
           operation: 'create',
           stage: 'submit_blocked_inflight',
           surface: 'PlannerSheetHost.PlanFormHost',
-          instanceTag: instanceTagRef.current,
+          instanceTag,
           mutationId: intent.mutationId,
           idempotencyKey: intent.idempotencyKey,
         });
@@ -455,7 +455,7 @@ function PlanFormHost() {
         operation: 'create',
         stage: 'enqueue_call',
         surface: 'PlannerSheetHost.PlanFormHost',
-        instanceTag: instanceTagRef.current,
+        instanceTag,
         mutationId: intent.mutationId,
         idempotencyKey: intent.idempotencyKey,
       });
@@ -475,7 +475,7 @@ function PlanFormHost() {
           operation: 'create',
           stage: 'terminal_callback',
           surface: 'PlannerSheetHost.PlanFormHost',
-          instanceTag: instanceTagRef.current,
+          instanceTag,
           mutationId: intent.mutationId,
           idempotencyKey: intent.idempotencyKey,
           status: 'confirmed',
@@ -489,7 +489,7 @@ function PlanFormHost() {
           operation: 'create',
           stage: 'terminal_callback',
           surface: 'PlannerSheetHost.PlanFormHost',
-          instanceTag: instanceTagRef.current,
+          instanceTag,
           mutationId: intent.mutationId,
           idempotencyKey: intent.idempotencyKey,
           status: err instanceof Error ? err.name : 'error',
@@ -497,7 +497,7 @@ function PlanFormHost() {
         submitGateRef.current.release(intent.mutationId);
       }
     },
-    [accessToken, currentHousehold, sheet, intent],
+    [accessToken, currentHousehold, sheet, intent, instanceTag],
   );
 
   return (

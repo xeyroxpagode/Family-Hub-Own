@@ -22,7 +22,7 @@ export const AuthLoadingScreen = () => {
         <Text style={styles.subtitle}>
           Estamos cargando tu espacio familiar.
         </Text>
-        <ActivityIndicator color="#CD7353" size="small" style={styles.loader} />
+        <ActivityIndicator color="#E7643F" size="small" style={styles.loader} />
       </Animated.View>
       <Text style={styles.screenIndicator}>AUTH - BOOTSTRAP</Text>
     </SafeAreaView>

@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, spacing } from '../../constants/theme';
+import { colors, spacing, touchTargets } from '../../constants/theme';
 import { AppText } from './AppText';
 import { AppAvatar } from './AppAvatar';
 import { HomePlusIcon } from '../../constants/icons';
@@ -97,12 +97,13 @@ export function AppTopBar({
 
 const styles = StyleSheet.create({
   container: {
+    minHeight: 72,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
-    backgroundColor: colors.surface.card,
+    paddingVertical: spacing[2],
+    backgroundColor: colors.background.base,
     borderBottomWidth: 1,
     borderBottomColor: colors.border.subtle,
   },
@@ -114,7 +115,7 @@ const styles = StyleSheet.create({
   centerSection: {
     flex: 1,
     alignItems: 'center',
-    paddingHorizontal: spacing[3],
+    paddingHorizontal: spacing[2],
   },
   householdInfo: {
     alignItems: 'center',
@@ -142,6 +143,6 @@ const styles = StyleSheet.create({
     gap: spacing[2],
   },
   rightPlaceholder: {
-    width: 44,
+    width: touchTargets.normal,
   },
 });

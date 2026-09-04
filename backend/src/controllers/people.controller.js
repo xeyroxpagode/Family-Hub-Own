@@ -1,12 +1,29 @@
 const { supabase, supabaseAdmin } = require('../config/supabase')
 const { loadSharp } = require('../lib/sharp')
-const { getPersonByAuthUserId } = require('../lib/auth.service')
+const { createPersonForUser, getPersonByAuthUserId } = require('../lib/auth.service')
 const { createHttpError, sendError } = require('../lib/httpErrors')
 
 const AVATAR_BUCKET = 'avatars'
 const AVATAR_MAX_BYTES = 500 * 1024
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
+
+const ensurePersonForRequest = async (req, client) => {
+  const userId = req.user?.id
+
+  if (!userId) {
+    throw createHttpError(401, 'Token invalido o expirado.', 'unauthorized')
+  }
+
+  const existingPerson = await getPersonByAuthUserId(client, userId)
+  if (existingPerson) return existingPerson
+
+  return createPersonForUser({
+    user: req.user,
+    session: { access_token: req.accessToken },
+    displayName: req.user?.user_metadata?.display_name ?? req.user?.user_metadata?.nombre ?? req.user?.email,
+  })
+}
 
 const compressAvatarBuffer = async (inputBuffer) => {
   const sharp = loadSharp()
@@ -51,18 +68,8 @@ const uploadAvatar = async (personId, file) => {
 
 const getMe = async (req, res) => {
   try {
-    const userId = req.user?.id
-
-    if (!userId) {
-      throw createHttpError(401, 'Token invalido o expirado.', 'unauthorized')
-    }
-
     const client = supabaseAdmin || supabase
-    const person = await getPersonByAuthUserId(client, userId)
-
-    if (!person) {
-      throw createHttpError(404, 'Perfil no encontrado.', 'person_not_found')
-    }
+    const person = await ensurePersonForRequest(req, client)
 
     return res.status(200).json({
       person,
@@ -74,18 +81,8 @@ const getMe = async (req, res) => {
 
 const updateMe = async (req, res) => {
   try {
-    const userId = req.user?.id
-
-    if (!userId) {
-      throw createHttpError(401, 'Token invalido o expirado.', 'unauthorized')
-    }
-
     const client = supabaseAdmin || supabase
-    const person = await getPersonByAuthUserId(client, userId)
-
-    if (!person) {
-      throw createHttpError(404, 'Perfil no encontrado.', 'person_not_found')
-    }
+    const person = await ensurePersonForRequest(req, client)
 
     const displayName = normalizeString(req.body.display_name)
     const firstName = normalizeString(req.body.first_name) || null
@@ -153,22 +150,12 @@ const updateMe = async (req, res) => {
 
 const updateAvatar = async (req, res) => {
   try {
-    const userId = req.user?.id
-
-    if (!userId) {
-      throw createHttpError(401, 'Token invalido o expirado.', 'unauthorized')
-    }
-
     if (!req.file) {
       throw createHttpError(400, 'No se recibio ningun archivo.', 'avatar_file_required')
     }
 
     const client = supabaseAdmin || supabase
-    const person = await getPersonByAuthUserId(client, userId)
-
-    if (!person) {
-      throw createHttpError(404, 'Perfil no encontrado.', 'person_not_found')
-    }
+    const person = await ensurePersonForRequest(req, client)
 
     const avatarResult = await uploadAvatar(person.id, req.file)
 
@@ -194,18 +181,8 @@ const updateAvatar = async (req, res) => {
 
 const getMyHouseholds = async (req, res) => {
   try {
-    const userId = req.user?.id
-
-    if (!userId) {
-      throw createHttpError(401, 'Token invalido o expirado.', 'unauthorized')
-    }
-
     const client = supabaseAdmin || supabase
-    const person = await getPersonByAuthUserId(client, userId)
-
-    if (!person) {
-      throw createHttpError(404, 'Perfil no encontrado.', 'person_not_found')
-    }
+    const person = await ensurePersonForRequest(req, client)
 
     const { data: memberships, error: membershipsError } = await client
       .from('household_members')

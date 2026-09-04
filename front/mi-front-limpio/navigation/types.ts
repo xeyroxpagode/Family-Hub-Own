@@ -20,7 +20,7 @@ export type PrivateStackParamList = {
 
 export type HomeTabParamList = {
   HomeTab: undefined;
-  InventoryTab: undefined;
+  FamilyTab: undefined;
   QuickActionTab: undefined;
   PlannerTab: undefined;
   MoreTab: undefined;
@@ -28,6 +28,7 @@ export type HomeTabParamList = {
 
 export type MoreStackParamList = {
   MoreHome: undefined;
+  Inventory: undefined;
   Family: undefined;
   Finance: import('./financeNavigation').FinanceEntryParams | undefined;
   FinanceAccounts: {
@@ -51,7 +52,6 @@ export type MoreStackParamList = {
     periodType: import('../services/finance/financeAnalysis').FinanceAnalysisPeriodType;
     period: string;
   };
-  Presence: undefined;
 };
 
 // Re-export the canonical Planner V1 navigation authority (M1).

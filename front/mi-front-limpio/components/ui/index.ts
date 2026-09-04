@@ -1,5 +1,6 @@
 export * from './ActionPill';
 export * from './ActionSheet';
+export * from './AccountSheet';
 export * from './AppAvatar';
 export * from './AppButton';
 export * from './AppCard';

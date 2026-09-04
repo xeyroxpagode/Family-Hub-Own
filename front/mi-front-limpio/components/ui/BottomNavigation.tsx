@@ -21,7 +21,7 @@ export function BottomNavigationIcon({ icon, focused }: BottomNavigationIconProp
   }, [focused, scale]);
 
   return (
-    <View style={{ flex: 1, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ alignItems: 'center', justifyContent: 'center' }}>
       <Animated.View
         style={{
           width: componentSizes.bottomNavActiveItem,
@@ -62,7 +62,7 @@ export function FloatingActionButton({
           justifyContent: 'center',
           borderWidth: 3,
           borderColor: colors.surface.card,
-          ...shadows.shadow3,
+          ...shadows.shadow2,
         },
         style,
       ]}
@@ -79,12 +79,12 @@ export const bottomNavigationStyle = (bottomInset: number): ViewStyle => ({
   bottom: Math.max(bottomInset, spacing[3]),
   height: componentSizes.bottomNavHeight,
   paddingHorizontal: spacing[2],
-  paddingTop: 0,
-  paddingBottom: 0,
+  paddingTop: spacing[1],
+  paddingBottom: spacing[1],
   borderRadius: radius.xxl,
   borderTopWidth: 0,
   borderWidth: 1,
   borderColor: colors.border.default,
   backgroundColor: colors.surface.card,
-  ...shadows.shadow3,
+  ...shadows.shadow1,
 });

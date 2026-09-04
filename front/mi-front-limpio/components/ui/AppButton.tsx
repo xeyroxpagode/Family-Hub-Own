@@ -39,7 +39,7 @@ const sizeStyles: Record<
 
 const variantStyles: Record<
   AppButtonVariant,
-  { container: ViewStyle; textTone: 'primary' | 'inverse' | 'danger' }
+  { container: ViewStyle; textTone: 'primary' | 'brand' | 'inverse' | 'danger' }
 > = {
   primary: {
     container: { backgroundColor: colors.brand, borderColor: colors.brand },
@@ -47,7 +47,7 @@ const variantStyles: Record<
   },
   secondary: {
     container: { backgroundColor: colors.brandSoft, borderColor: colors.border.default },
-    textTone: 'primary',
+    textTone: 'brand',
   },
   ghost: {
     container: { backgroundColor: 'transparent', borderColor: 'transparent' },

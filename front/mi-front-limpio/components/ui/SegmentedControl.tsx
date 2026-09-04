@@ -30,7 +30,9 @@ export function SegmentedControl<T extends string>({
           minHeight: 52,
           padding: spacing[1],
           borderRadius: radius.lg,
-          backgroundColor: colors.surface.raised,
+          backgroundColor: colors.background.soft,
+          borderWidth: 1,
+          borderColor: colors.border.subtle,
           flexDirection: 'row',
           gap: spacing[1],
         },
@@ -55,10 +57,12 @@ export function SegmentedControl<T extends string>({
               borderRadius: radius.md,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: selected ? colors.brand : 'transparent',
+              backgroundColor: selected ? colors.surface.card : 'transparent',
+              borderWidth: selected ? 1 : 0,
+              borderColor: selected ? colors.border.default : 'transparent',
             }}
           >
-            <AppText variant="bodySmall" tone={selected ? 'inverse' : 'secondary'} weight="600">
+            <AppText variant="bodySmall" tone={selected ? 'brand' : 'secondary'} weight="600">
               {option.label}
             </AppText>
           </InteractivePressable>

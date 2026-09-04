@@ -1288,6 +1288,9 @@ function FinanceMovementsSurface({
                         accessibilityRole="button"
                         accessibilityLabel={financeMovementTitle('expense', movement.description)}
                       >
+                        <View style={[styles.movementIcon, styles.movementExpenseIcon]}>
+                          <HomePlusIcon name="arrow-down-outline" size={18} color={colors.danger.base} />
+                        </View>
                         <View style={styles.movementCopy}>
                           <AppText variant="body" weight="800" numberOfLines={1}>
                             {financeMovementTitle('expense', movement.description)}
@@ -1329,6 +1332,9 @@ function FinanceMovementsSurface({
                         accessibilityRole="button"
                         accessibilityLabel={financeMovementTitle('income', movement.description)}
                       >
+                        <View style={[styles.movementIcon, styles.movementIncomeIcon]}>
+                          <HomePlusIcon name="arrow-up-outline" size={18} color={colors.success.base} />
+                        </View>
                         <View style={styles.movementCopy}>
                           <AppText variant="body" weight="800" numberOfLines={1}>
                             {financeMovementTitle('income', movement.description)}
@@ -1370,6 +1376,9 @@ if (movement.kind === 'TRANSFER') {
                         accessibilityRole="button"
                         accessibilityLabel={`${title}, ${movement.sourceAccount.name} a ${movement.destinationAccount.name}`}
                       >
+                        <View style={[styles.movementIcon, styles.movementTransferIcon]}>
+                          <HomePlusIcon name="swap-horizontal-outline" size={18} color={colors.info.base} />
+                        </View>
                         <View style={styles.movementCopy}>
                           <AppText variant="body" weight="800" numberOfLines={1}>
                             {title}
@@ -1642,11 +1651,28 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   movementRow: {
-    minHeight: 62,
+    minHeight: 68,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
     paddingVertical: spacing[2],
+  },
+  movementIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  movementExpenseIcon: {
+    backgroundColor: colors.danger.soft,
+  },
+  movementIncomeIcon: {
+    backgroundColor: colors.success.soft,
+  },
+  movementTransferIcon: {
+    backgroundColor: colors.info.soft,
   },
   movementCopy: {
     flex: 1,

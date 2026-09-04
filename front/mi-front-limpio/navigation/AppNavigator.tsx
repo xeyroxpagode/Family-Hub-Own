@@ -128,7 +128,7 @@ const errStyles = StyleSheet.create({
   icon:      { fontSize: 56, marginBottom: 16 },
   title:     { fontSize: 22, fontWeight: '700', color: '#1C1C1C', textAlign: 'center', marginBottom: 12 },
   subtitle:  { fontSize: 15, color: '#6B6B6B', textAlign: 'center', lineHeight: 22, marginBottom: 32 },
-  btn:       { backgroundColor: '#CD7353', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 12 },
+  btn:       { backgroundColor: '#E7643F', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 12 },
   btnText:   { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   secondaryBtn: { marginTop: 14, paddingVertical: 12, paddingHorizontal: 24 },
   secondaryBtnText: { color: '#6B6B6B', fontSize: 15, fontWeight: '600' },

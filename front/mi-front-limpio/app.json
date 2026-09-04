@@ -1,18 +1,13 @@
 {
   "expo": {
     "name": "homeplus",
+    "owner": "neoooo",
     "slug": "homeplus",
     "scheme": "homeplus",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icons/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/icons/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": true,
       "usesAppleSignIn": true,
@@ -25,7 +20,6 @@
         "foregroundImage": "./assets/icons/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.homeplus"
     },
@@ -37,11 +31,24 @@
       "expo-web-browser",
       "expo-apple-authentication",
       [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icons/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FBFAF8"
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "HomePlus usa tu ubicacion solo cuando activas compartir con tu hogar."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2c0acf60-d0d8-4dc8-b406-20600560d633"
+      }
+    }
   }
 }

@@ -323,11 +323,16 @@ export function HomePlannerSections({ variant = 'light' }: Props) {
   return <View style={styles.container}>
     {(status === 'recoverable_error' || status === 'forbidden') ? <ErrorState title={status === 'forbidden' ? 'Sin permiso' : 'No pudimos cargar tu día'} description={state.errorCode === 'planner_forbidden' ? 'No tenés permiso para ver el Planner de este hogar.' : 'Podés reintentar sin perder la información que ya estaba disponible.'} style={styles.stateCard} onRetry={refreshAll} /> : null}
 
-    <AppCard variant="warning" padding="default" highlighted style={styles.card}>
-      <View style={styles.cardHeader}><View style={styles.cardHeaderIcon}><HomePlusIcon name="alert-circle" color={colors.warning.base} size={18} /></View><AppText variant="title3" tone="warning">Necesita atención</AppText><TouchableOpacity onPress={() => navigation.navigate('PlannerTab', { screen: 'PlannerAttentionActivity', params: { source: 'home', returnTo: 'home' } })} accessibilityRole="button" accessibilityLabel="Ver atención"><StatusBadge label="Ver" tone="warning" /></TouchableOpacity></View>
-      {daily.loading ? <Skeleton variant="paragraph" lines={2} style={styles.skeletonBlock} /> : daily.attentionError ? <ErrorState title="Atención no disponible" description={daily.attentionError} onRetry={daily.refresh} /> : daily.attention.length > 0 ? daily.attention.map((item) => <TouchableOpacity key={item.attentionId} style={styles.itemRow} onPress={() => navigation.navigate('PlannerTab', { screen: 'PlannerAttentionActivity', params: { source: 'home', returnTo: 'home' } })} accessibilityRole="button" accessibilityLabel={`${item.title}. ${item.summary}`}><View style={{ flex: 1 }}><AppText variant="bodySmall" tone={dark ? 'inverse' : 'primary'} weight="700">{item.title}</AppText><AppText variant="caption" tone={dark ? 'tertiary' : 'secondary'}>{item.summary}</AppText></View></TouchableOpacity>) : <AppText variant="bodySmall" tone="secondary">Nada requiere tu intervención por ahora.</AppText>}
-      <InventoryUrgencyCard alerts={inventoryAlerts} variant={variant} onPress={() => navigation.navigate('InventoryTab')} />
-    </AppCard>
+    {daily.attentionError ? <ErrorState title="Atención no disponible" description={daily.attentionError} onRetry={daily.refresh} /> : null}
+
+    {!daily.attentionError && daily.attention.length > 0 ? (
+      <AppCard variant="warning" padding="default" highlighted style={styles.card}>
+        <View style={styles.cardHeader}><View style={styles.cardHeaderIcon}><HomePlusIcon name="alert-circle" color={colors.warning.base} size={18} /></View><AppText variant="title3" tone="warning">Necesita atención</AppText><TouchableOpacity onPress={() => navigation.navigate('PlannerTab', { screen: 'PlannerAttentionActivity', params: { source: 'home', returnTo: 'home' } })} accessibilityRole="button" accessibilityLabel="Ver atención"><StatusBadge label="Ver" tone="warning" /></TouchableOpacity></View>
+        {daily.attention.map((item) => <TouchableOpacity key={item.attentionId} style={styles.itemRow} onPress={() => navigation.navigate('PlannerTab', { screen: 'PlannerAttentionActivity', params: { source: 'home', returnTo: 'home' } })} accessibilityRole="button" accessibilityLabel={`${item.title}. ${item.summary}`}><View style={{ flex: 1 }}><AppText variant="bodySmall" tone={dark ? 'inverse' : 'primary'} weight="700">{item.title}</AppText><AppText variant="caption" tone={dark ? 'tertiary' : 'secondary'}>{item.summary}</AppText></View></TouchableOpacity>)}
+      </AppCard>
+    ) : null}
+
+    <InventoryUrgencyCard alerts={inventoryAlerts} variant={variant} onPress={() => navigation.navigate('MoreTab', { screen: 'Inventory' })} />
 
     <AppCard variant={cardVariant} padding="default" style={styles.card}>
       <View style={styles.cardHeader}><View style={styles.cardHeaderIcon}><HomePlusIcon name="today-outline" color={dark ? colors.text.inverse : colors.terracotta[500]} size={18} /></View><AppText variant="title3" tone={dark ? 'inverse' : 'primary'}>Hoy</AppText></View>
