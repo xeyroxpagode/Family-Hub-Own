@@ -1,7 +1,8 @@
 import React from 'react';
 import { Image, Pressable, View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, radius, shadows, spacing, touchTargets } from '../../constants/theme';
+import { type ColorTokens } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { AppText } from './AppText';
 
 export type AppAvatarSize = 'sm' | 'md' | 'lg';
@@ -20,7 +21,7 @@ const sizeStyles: Record<AppAvatarSize, { width: number; height: number; fontSiz
   lg: { width: 64, height: 64, fontSize: 22, borderWidth: 3 },
 };
 
-const AVATAR_BG_COLORS = [
+const getAvatarBgColors = (colors: ColorTokens) => [
   colors.terracotta[500],
   'rgb(107,79,232)',
   colors.sage[500],
@@ -37,10 +38,11 @@ function getInitials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-function getAvatarBg(name: string): string {
+function getAvatarBg(name: string, colors: ColorTokens): string {
+  const bgColors = getAvatarBgColors(colors);
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_BG_COLORS[Math.abs(hash) % AVATAR_BG_COLORS.length];
+  return bgColors[Math.abs(hash) % bgColors.length];
 }
 
 export function AppAvatar({
@@ -53,10 +55,11 @@ export function AppAvatar({
   accessibilityLabel,
   style,
 }: AppAvatarProps) {
+  const { colors, radius, shadows } = useAppTheme();
   const { width, height, fontSize, borderWidth } = sizeStyles[size];
   const isDisabled = Boolean(disabled);
   const initials = getInitials(name);
-  const bg = getAvatarBg(name);
+  const bg = getAvatarBg(name, colors);
 
   const avatarContent = (
     <View

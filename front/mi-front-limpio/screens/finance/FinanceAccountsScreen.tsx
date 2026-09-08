@@ -10,7 +10,7 @@ import {
 } from '../../services/finance/financeAccounts';
 import type { FinanceContextType, FinanceActiveHousehold } from '../../services/finance/financeContext';
 import { getAccountBalancePresentation, formatAccountPresentationAmount } from '../../services/finance/accountDisplay';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { HomePlusIcon } from '../../constants/icons';
 import {
   AppButton,
@@ -29,7 +29,9 @@ import type { MoreStackParamList } from '../../navigation/types';
 import { AccountFormSheet } from '../../components/finance/AccountFormSheet';
 import { AccountDetailSheet } from '../../components/finance/AccountDetailSheet';
 import { AccountEditSheet } from '../../components/finance/AccountEditSheet';
-import { BalanceAnchorSheet, BalanceCorrectionSheet } from '../../components/finance/BalanceAnchorSheet';
+import { DirectCreditCardPaymentSheet } from '../../components/finance/DirectCreditCardPaymentSheet';
+import { PayCreditCardSheet } from '../../components/finance/PayCreditCardSheet';
+import type { PaymentDueDto } from '../../services/finance/financePayments';
 
 const CURRENCY_ORDER = ['ARS', 'USD', 'EUR'];
 
@@ -53,6 +55,9 @@ function FinanceAccountsSurface({
   activeHousehold,
   onRequestClose,
 }: FinanceAccountsScreenProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const [accounts, setAccounts] = useState<FinanceAccountDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,9 +65,9 @@ function FinanceAccountsSurface({
   const [createVisible, setCreateVisible] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
-  const [anchorVisible, setAnchorVisible] = useState(false);
-  const [correctVisible, setCorrectVisible] = useState(false);
   const [detailAccount, setDetailAccount] = useState<FinanceAccountDto | null>(null);
+  const [payCardAccount, setPayCardAccount] = useState<FinanceAccountDto | null>(null);
+  const [payCardDue, setPayCardDue] = useState<PaymentDueDto | null>(null);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const readKeyRef = useRef<string | null>(null);
@@ -294,8 +299,8 @@ function FinanceAccountsSurface({
         account={detailAccount}
         onRequestClose={() => { setDetailVisible(false); setDetailAccount(null); }}
         onEdit={(acc: FinanceAccountDto) => { setDetailVisible(false); setEditVisible(true); setDetailAccount(acc); }}
-        onAnchorBalance={(acc: FinanceAccountDto) => { setDetailVisible(false); setAnchorVisible(true); setDetailAccount(acc); }}
-        onCorrectBalance={(acc: FinanceAccountDto) => { setDetailVisible(false); setCorrectVisible(true); setDetailAccount(acc); }}
+        onPayCard={(acc: FinanceAccountDto) => { setDetailVisible(false); setDetailAccount(null); setPayCardAccount(acc); }}
+        onPayDue={(payment) => { setDetailVisible(false); setDetailAccount(null); setPayCardDue(payment); }}
         onChanged={handleAccountLifecycleChanged}
       />
 
@@ -308,22 +313,36 @@ function FinanceAccountsSurface({
         onSuccess={(acc: FinanceAccountDto) => { setEditVisible(false); handleDetailChanged(); }}
       />
 
-      <BalanceAnchorSheet
-        visible={anchorVisible}
+      <DirectCreditCardPaymentSheet
+        visible={payCardAccount !== null}
         accessToken={accessToken}
         contextType={contextType}
-        account={detailAccount}
-        onRequestClose={() => setAnchorVisible(false)}
-        onSuccess={(acc: FinanceAccountDto) => { setAnchorVisible(false); handleDetailChanged(); }}
+        contextLabel={contextLabel}
+        contextState={contextType === 'personal' ? 'personal_ready' : activeHousehold ? 'household_ready' : 'household_unavailable'}
+        activeHousehold={activeHousehold}
+        card={payCardAccount}
+        onRequestClose={() => setPayCardAccount(null)}
+        onSuccess={() => {
+          setPayCardAccount(null);
+          setSuccessFeedback('Tarjeta pagada');
+          handleDetailChanged();
+        }}
       />
 
-      <BalanceCorrectionSheet
-        visible={correctVisible}
-        accessToken={accessToken}
+      <PayCreditCardSheet
+        visible={payCardDue !== null}
+        accessToken={accessToken ?? null}
         contextType={contextType}
-        account={detailAccount}
-        onRequestClose={() => setCorrectVisible(false)}
-        onSuccess={(acc: FinanceAccountDto) => { setCorrectVisible(false); handleDetailChanged(); }}
+        contextLabel={contextLabel}
+        contextState={contextType === 'personal' ? 'personal_ready' : activeHousehold ? 'household_ready' : 'household_unavailable'}
+        activeHousehold={activeHousehold}
+        payment={payCardDue}
+        onRequestClose={() => setPayCardDue(null)}
+        onSuccess={() => {
+          setPayCardDue(null);
+          setSuccessFeedback('Pago registrado');
+          handleDetailChanged();
+        }}
       />
 
       <UndoToast
@@ -337,6 +356,10 @@ function FinanceAccountsSurface({
 }
 
 function ArchivedAccountsLink({ onPress }: { onPress: () => void }) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
+
   return (
     <InteractivePressable
       onPress={onPress}
@@ -399,7 +422,10 @@ export function FinanceAccountsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
   content: {
     gap: spacing[4],
   },
@@ -494,4 +520,5 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[2],
     alignSelf: 'flex-start',
   },
-});
+  });
+}

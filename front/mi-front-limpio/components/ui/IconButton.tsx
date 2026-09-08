@@ -2,7 +2,8 @@ import React from 'react';
 import { type StyleProp, type ViewStyle } from 'react-native';
 
 import { HomePlusIcon, type HomePlusIconName } from '../../constants/icons';
-import { colors, iconSizes, motion, radius, touchTargets } from '../../constants/theme';
+import { type ColorTokens } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { InteractivePressable, type InteractionHaptic } from './InteractivePressable';
 
 export type IconButtonVariant = 'plain' | 'surface' | 'brandSoft' | 'dangerSoft';
@@ -20,7 +21,7 @@ export type IconButtonProps = {
   children?: React.ReactNode;
 };
 
-const variantStyle: Record<IconButtonVariant, { backgroundColor: string; color: string; borderColor: string }> = {
+const getVariantStyle = (colors: ColorTokens): Record<IconButtonVariant, { backgroundColor: string; color: string; borderColor: string }> => ({
   plain: {
     backgroundColor: 'transparent',
     color: colors.text.primary,
@@ -41,21 +42,25 @@ const variantStyle: Record<IconButtonVariant, { backgroundColor: string; color: 
     color: colors.danger.base,
     borderColor: colors.border.default,
   },
-};
+});
 
 export function IconButton({
   icon,
   accessibilityLabel,
   onPress,
-  size = touchTargets.normal,
-  iconSize = iconSizes.header,
+  size,
+  iconSize,
   variant = 'surface',
   disabled = false,
   style,
   haptic = 'light',
   children,
 }: IconButtonProps) {
-  const visual = variantStyle[variant];
+  const theme = useAppTheme();
+  const { colors, iconSizes, motion, radius, touchTargets } = theme;
+  const resolvedSize = size ?? touchTargets.normal;
+  const resolvedIconSize = iconSize ?? iconSizes.header;
+  const visual = getVariantStyle(colors)[variant];
 
   return (
     <InteractivePressable
@@ -69,8 +74,8 @@ export function IconButton({
       pressedOpacity={0.85}
       style={[
         {
-          width: size,
-          height: size,
+          width: resolvedSize,
+          height: resolvedSize,
           borderRadius: radius.full,
           alignItems: 'center',
           justifyContent: 'center',
@@ -81,7 +86,7 @@ export function IconButton({
         style,
       ]}
     >
-      <HomePlusIcon name={icon} size={iconSize} color={disabled ? colors.text.disabled : visual.color} />
+      <HomePlusIcon name={icon} size={resolvedIconSize} color={disabled ? colors.text.disabled : visual.color} />
       {children}
     </InteractivePressable>
   );

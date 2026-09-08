@@ -17,8 +17,9 @@ import {
   UndoToast,
 } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { motion as themeMotion } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { parseFinanceEntryParams } from '../../navigation/financeNavigation';
 import type { MoreStackParamList } from '../../navigation/types';
@@ -91,7 +92,7 @@ const TAB_EMPTY_COPY: Record<FinanceTabKey, { title: string; description: string
 };
 
 const selectorLayoutAnimation = {
-  duration: motion.normal,
+  duration: themeMotion.normal,
   create: {
     type: LayoutAnimation.Types.easeInEaseOut,
     property: LayoutAnimation.Properties.opacity,
@@ -145,6 +146,9 @@ function safeFinanceReadError(error: unknown): string {
 }
 
 export function FinanceScreen() {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<MoreStackParamList, 'Finance'>>();
   const entryParams = useMemo(() => parseFinanceEntryParams(route.params), [route.params]);
@@ -157,7 +161,7 @@ export function FinanceScreen() {
   const [newMovementVisible, setNewMovementVisible] = useState(false);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState(() => financeMonthFromLocalDate());
-const [selectedMovement, setSelectedMovement] = useState<TransactionMovementDto | null>(null);
+  const [selectedMovement, setSelectedMovement] = useState<TransactionMovementDto | null>(null);
   const [movementDetailVisible, setMovementDetailVisible] = useState(false);
   const [selectedTransferId, setSelectedTransferId] = useState<string | null>(null);
   const [transferDetailVisible, setTransferDetailVisible] = useState(false);
@@ -463,7 +467,7 @@ const [selectedMovement, setSelectedMovement] = useState<TransactionMovementDto 
     setDetailPrefetchSnapshot(prefetch);
   };
 
-const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
+  const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
     setSuccessFeedback(
       operation === 'expense'
         ? 'Gasto registrado'
@@ -800,6 +804,7 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
               contextType: selectedContext,
               currency: selectedSummaryCurrency ?? 'ARS',
             })}
+            onOpenAccounts={openAccounts}
           />
           <FinanceSpendingLimitSummary
             progress={spendingLimitProgress}
@@ -962,18 +967,6 @@ const handleCreateSuccess = (operation: 'expense' | 'income' | 'transfer') => {
       >
         <View style={styles.overflowContent}>
           <InteractivePressable
-            onPress={openAccounts}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={styles.overflowItem}
-            accessibilityRole="button"
-            accessibilityLabel="Abrir Cuentas"
-          >
-            <HomePlusIcon name="wallet" size={22} color={colors.terracotta[600]} />
-            <AppText variant="body" weight="800">Cuentas</AppText>
-            <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
-          </InteractivePressable>
-          <InteractivePressable
             onPress={openPapelera}
             haptic="light"
             pressScale={motion.scale.card}
@@ -1008,6 +1001,10 @@ function FinancePeriodControl({
   period: string;
   onMovePeriod: (direction: 'previous' | 'next') => void;
 }) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
+
   return (
     <View style={styles.periodControl}>
       <InteractivePressable
@@ -1038,6 +1035,8 @@ function FinancePeriodControl({
 }
 
 function FinanceSurfaceLoading() {
+  const styles = createStyles(useAppTheme());
+
   return (
     <AppCard variant="quiet" padding="generous">
       <View style={styles.loadingBlock}>
@@ -1076,6 +1075,10 @@ function FinanceSummarySurface({
   navigation: any;
   contextType: import('../../services/finance/financeContext').FinanceContextType;
 }) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
+
   if (loading && currencies.length === 0) return <FinanceSurfaceLoading />;
   if (error && currencies.length === 0) {
     return (
@@ -1208,6 +1211,8 @@ function SummaryMetric({
   secondary?: string;
   secondaryTone?: 'primary' | 'secondary' | 'success' | 'danger' | 'warning';
 }) {
+  const styles = createStyles(useAppTheme());
+
   return (
     <View style={styles.summaryMetric}>
       <AppText variant="caption" tone="secondary" weight="700">
@@ -1242,6 +1247,10 @@ function FinanceMovementsSurface({
   onMovePeriod: (direction: 'previous' | 'next') => void;
   onMovementPress?: (movement: FinanceUnifiedMovementDto) => void;
 }) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
+
   if (loading && movements.length === 0) return <FinanceSurfaceLoading />;
   if (error && movements.length === 0) {
     return (
@@ -1354,7 +1363,7 @@ function FinanceMovementsSurface({
                       </InteractivePressable>
                     );
                   }
-if (movement.kind === 'TRANSFER') {
+                  if (movement.kind === 'TRANSFER') {
                     const title = financeTransferTitle(movement);
                     const isCrossCurrency = movement.sourceCurrency !== movement.destinationCurrency;
                     const amountLabel = isCrossCurrency
@@ -1406,255 +1415,259 @@ if (movement.kind === 'TRANSFER') {
   );
 }
 
-const styles = StyleSheet.create({
-  content: {
-    gap: spacing[4],
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-  },
-  backButton: {
-    width: touchTargets.normal,
-    height: touchTargets.normal,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-  },
-  overflowButton: {
-    width: touchTargets.normal,
-    height: touchTargets.normal,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-  },
-  overflowContent: {
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[2],
-    paddingBottom: spacing[4],
-    gap: spacing[2],
-  },
-  overflowItem: {
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    paddingHorizontal: spacing[2],
-    paddingVertical: spacing[2],
-  },
-  overflowHint: {
-    marginTop: spacing[1],
-    marginHorizontal: spacing[1],
-  },
-  headerText: {
-    flex: 1,
-    gap: spacing[1],
-  },
-  selectorArea: {
-    gap: spacing[2],
-  },
-  contextCard: {
-    minHeight: 64,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    backgroundColor: colors.surface.card,
-    overflow: 'hidden',
-  },
-  contextHeader: {
-    minHeight: 64,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-  },
-  contextIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.lg,
-    backgroundColor: colors.terracotta[50],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  contextCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  expandedArea: {
-    overflow: 'hidden',
-  },
-  contextDivider: {
-    height: 1,
-    marginHorizontal: spacing[4],
-    backgroundColor: colors.border.subtle,
-  },
-  contextOptions: {
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[2],
-    paddingBottom: spacing[3],
-    gap: spacing[1],
-  },
-  contextOption: {
-    minHeight: 44,
-    borderRadius: radius.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-  },
-  contextOptionLabel: {
-    flex: 1,
-  },
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-    paddingHorizontal: spacing[2],
-  },
-  movementsHeader: {
-    minHeight: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-  },
-  movementsHeaderCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  tabs: {
-    minHeight: 48,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface.muted,
-    padding: spacing[1],
-    flexDirection: 'row',
-    gap: spacing[1],
-  },
-  tab: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 40,
-    borderRadius: radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing[2],
-  },
-  tabSelected: {
-    backgroundColor: colors.terracotta[600],
-  },
-  loadingBlock: {
-    gap: spacing[3],
-  },
-  periodControl: {
-    minHeight: 44,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing[2],
-  },
-  periodButton: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  periodLabel: {
-    flex: 1,
-    textAlign: 'center',
-    minWidth: 0,
-  },
-  surfaceStack: {
-    gap: spacing[4],
-  },
-  surfaceTitleRow: {
-    minHeight: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing[3],
-  },
-  summaryStack: {
-    gap: spacing[3],
-  },
-  currencySelector: {
-    alignSelf: 'flex-start',
-    minHeight: 36,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.muted,
-    flexDirection: 'row',
-    padding: spacing[1],
-    gap: spacing[1],
-  },
-  currencyOption: {
-    minHeight: 28,
-    minWidth: 56,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing[3],
-  },
-  currencyOptionSelected: {
-    backgroundColor: colors.terracotta[600],
-  },
-  summaryRows: {
-    gap: spacing[2],
-  },
-  summaryMetric: {
-    minHeight: 58,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.card,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
-    gap: spacing[1],
-  },
-  analysisEntryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing[2],
-    paddingVertical: spacing[3],
-    paddingHorizontal: spacing[4],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.card,
-  },
-  movementGroups: {
-    gap: spacing[4],
-  },
-  movementGroup: {
-    gap: spacing[2],
-  },
-  movementListCard: {
-    gap: 0,
-  },
-  movementRow: {
-    minHeight: 62,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    paddingVertical: spacing[2],
-  },
-  movementCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing[1],
-  },
-  movementAmount: {
-    maxWidth: '42%',
-    textAlign: 'right',
-  },
-});
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
+    content: {
+      gap: spacing[4],
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[3],
+    },
+    backButton: {
+      width: touchTargets.normal,
+      height: touchTargets.normal,
+      borderRadius: radius.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surface.soft,
+      borderWidth: 1,
+      borderColor: colors.border.subtle,
+    },
+    overflowButton: {
+      width: touchTargets.normal,
+      height: touchTargets.normal,
+      borderRadius: radius.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surface.soft,
+      borderWidth: 1,
+      borderColor: colors.border.subtle,
+    },
+    overflowContent: {
+      paddingHorizontal: spacing[4],
+      paddingTop: spacing[2],
+      paddingBottom: spacing[4],
+      gap: spacing[2],
+    },
+    overflowItem: {
+      minHeight: 48,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[3],
+      paddingHorizontal: spacing[2],
+      paddingVertical: spacing[2],
+    },
+    overflowHint: {
+      marginTop: spacing[1],
+      marginHorizontal: spacing[1],
+    },
+    headerText: {
+      flex: 1,
+      gap: spacing[1],
+    },
+    selectorArea: {
+      gap: spacing[2],
+    },
+    contextCard: {
+      minHeight: 64,
+      borderRadius: radius.xl,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      backgroundColor: colors.surface.card,
+      overflow: 'hidden',
+    },
+    contextHeader: {
+      minHeight: 64,
+      paddingHorizontal: spacing[4],
+      paddingVertical: spacing[3],
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[3],
+    },
+    contextIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.lg,
+      backgroundColor: colors.terracotta[50],
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    contextCopy: {
+      flex: 1,
+      minWidth: 0,
+    },
+    expandedArea: {
+      overflow: 'hidden',
+    },
+    contextDivider: {
+      height: 1,
+      marginHorizontal: spacing[4],
+      backgroundColor: colors.border.subtle,
+    },
+    contextOptions: {
+      paddingHorizontal: spacing[4],
+      paddingTop: spacing[2],
+      paddingBottom: spacing[3],
+      gap: spacing[1],
+    },
+    contextOption: {
+      minHeight: 44,
+      borderRadius: radius.lg,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[3],
+    },
+    contextOptionLabel: {
+      flex: 1,
+    },
+    loadingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[2],
+      paddingHorizontal: spacing[2],
+    },
+    movementsHeader: {
+      minHeight: 52,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[3],
+    },
+    movementsHeaderCopy: {
+      flex: 1,
+      minWidth: 0,
+    },
+    tabs: {
+      minHeight: 48,
+      borderRadius: radius.xl,
+      backgroundColor: colors.surface.muted,
+      padding: spacing[1],
+      flexDirection: 'row',
+      gap: spacing[1],
+    },
+    tab: {
+      flex: 1,
+      minWidth: 0,
+      minHeight: 40,
+      borderRadius: radius.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing[2],
+    },
+    tabSelected: {
+      backgroundColor: colors.terracotta[600],
+    },
+    loadingBlock: {
+      gap: spacing[3],
+    },
+    periodControl: {
+      minHeight: 44,
+      borderRadius: radius.xl,
+      backgroundColor: colors.surface.soft,
+      borderWidth: 1,
+      borderColor: colors.border.subtle,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing[2],
+    },
+    periodButton: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    periodLabel: {
+      flex: 1,
+      textAlign: 'center',
+      minWidth: 0,
+    },
+    surfaceStack: {
+      gap: spacing[4],
+    },
+    surfaceTitleRow: {
+      minHeight: 18,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing[3],
+    },
+    summaryStack: {
+      gap: spacing[3],
+    },
+    currencySelector: {
+      alignSelf: 'flex-start',
+      minHeight: 36,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface.muted,
+      flexDirection: 'row',
+      padding: spacing[1],
+      gap: spacing[1],
+    },
+    currencyOption: {
+      minHeight: 28,
+      minWidth: 56,
+      borderRadius: radius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing[3],
+    },
+    currencyOptionSelected: {
+      backgroundColor: colors.terracotta[600],
+    },
+    summaryRows: {
+      gap: spacing[2],
+    },
+    summaryMetric: {
+      minHeight: 58,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border.subtle,
+      backgroundColor: colors.surface.card,
+      paddingHorizontal: spacing[4],
+      paddingVertical: spacing[3],
+      gap: spacing[1],
+    },
+    analysisEntryButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing[2],
+      paddingVertical: spacing[3],
+      paddingHorizontal: spacing[4],
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border.subtle,
+      backgroundColor: colors.surface.card,
+    },
+    movementGroups: {
+      gap: spacing[4],
+    },
+    movementGroup: {
+      gap: spacing[2],
+    },
+    movementListCard: {
+      gap: 0,
+    },
+    movementRow: {
+      minHeight: 62,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[3],
+      paddingVertical: spacing[2],
+    },
+    movementCopy: {
+      flex: 1,
+      minWidth: 0,
+      gap: spacing[1],
+    },
+    movementAmount: {
+      maxWidth: '42%',
+      textAlign: 'right',
+    },
+  });
+}

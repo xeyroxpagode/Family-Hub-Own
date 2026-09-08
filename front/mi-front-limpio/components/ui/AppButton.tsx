@@ -8,7 +8,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { colors, componentSizes, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { type ColorTokens } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { AppText } from './AppText';
 import { InteractivePressable, type InteractionHaptic } from './InteractivePressable';
 
@@ -28,19 +29,19 @@ export type AppButtonProps = Omit<PressableProps, 'children' | 'style'> & {
   haptic?: InteractionHaptic;
 };
 
-const sizeStyles: Record<
+const getSizeStyles = (theme: ReturnType<typeof useAppTheme>): Record<
   AppButtonSize,
   { minHeight: number; paddingHorizontal: number; textVariant: 'bodySmall' | 'body' | 'bodyLarge' }
-> = {
-  sm: { minHeight: componentSizes.smallButtonHeight, paddingHorizontal: spacing[4], textVariant: 'bodySmall' },
-  md: { minHeight: componentSizes.primaryButtonHeight, paddingHorizontal: spacing[5], textVariant: 'body' },
-  lg: { minHeight: componentSizes.primaryButtonHeight, paddingHorizontal: spacing[6], textVariant: 'bodyLarge' },
-};
+> => ({
+  sm: { minHeight: theme.componentSizes.smallButtonHeight, paddingHorizontal: theme.spacing[4], textVariant: 'bodySmall' },
+  md: { minHeight: theme.componentSizes.primaryButtonHeight, paddingHorizontal: theme.spacing[5], textVariant: 'body' },
+  lg: { minHeight: theme.componentSizes.primaryButtonHeight, paddingHorizontal: theme.spacing[6], textVariant: 'bodyLarge' },
+});
 
-const variantStyles: Record<
+const getVariantStyles = (colors: ColorTokens): Record<
   AppButtonVariant,
   { container: ViewStyle; textTone: 'primary' | 'inverse' | 'danger' }
-> = {
+> => ({
   primary: {
     container: { backgroundColor: colors.brand, borderColor: colors.brand },
     textTone: 'inverse',
@@ -65,7 +66,7 @@ const variantStyles: Record<
     container: { backgroundColor: colors.surface.soft, borderColor: colors.border.subtle },
     textTone: 'primary',
   },
-};
+});
 
 export function AppButton({
   title,
@@ -82,9 +83,11 @@ export function AppButton({
   haptic,
   ...props
 }: AppButtonProps) {
+  const theme = useAppTheme();
+  const { colors, motion, radius, spacing, touchTargets } = theme;
   const isDisabled = disabled || loading;
-  const buttonSize = sizeStyles[size];
-  const buttonVariant = variantStyles[variant];
+  const buttonSize = getSizeStyles(theme)[size];
+  const buttonVariant = getVariantStyles(colors)[variant];
   const isIcon = variant === 'icon';
   const buttonContent = (
     <>

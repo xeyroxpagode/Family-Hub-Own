@@ -205,6 +205,12 @@ async function correctTransaction(financeContext, body = {}) {
       if (msg.includes('finance_refund_date_before_expense_date')) {
         throw createHttpError(409, 'La fecha corregida del gasto no puede quedar despues de una devolucion registrada.', 'finance_refund_date_before_expense_date');
       }
+      if (msg.includes('finance_installment_structural_correction_forbidden')) {
+        throw createHttpError(409, 'Para corregir monto, fecha, tarjeta o cuotas, mové la compra a papelera y registrala nuevamente.', 'finance_installment_structural_correction_forbidden');
+      }
+      if (msg.includes('finance_payment_due_settled_immutable')) {
+        throw createHttpError(409, 'Esta compra ya impacta un resumen de tarjeta con pagos registrados. No se puede cambiar monto, fecha, tarjeta ni cuotas.', 'finance_payment_due_settled_immutable');
+      }
     }
 
     if (['23502', '23503', '22P02', '22007'].includes(error?.code)) {

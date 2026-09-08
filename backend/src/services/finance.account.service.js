@@ -206,6 +206,19 @@ function normalizeDecimalText(value, code = 'invalid_finance_account_balance_amo
   return value.trim();
 }
 
+function isNegativeDecimalText(text) {
+  const trimmed = String(text ?? '').trim();
+  if (!trimmed.startsWith('-')) return false;
+  const unsigned = trimmed.slice(1).replace('.', '');
+  return /[1-9]/.test(unsigned);
+}
+
+function assertAccountBalanceFloor(accountType, amountText) {
+  if (accountType === FINANCE_ACCOUNT_TYPES.ACCOUNT && isNegativeDecimalText(amountText)) {
+    throw createHttpError(400, 'El saldo no puede ser menor que 0.', 'finance_account_negative_balance_not_allowed');
+  }
+}
+
 function normalizeDecimalForDto(value) {
   if (value === undefined || value === null) return null;
   let text = String(value);
@@ -231,6 +244,25 @@ function normalizeEffectiveDate(value) {
     throw createHttpError(400, 'effectiveDate debe ser YYYY-MM-DD.', 'invalid_finance_account_anchor_effective_date');
   }
   return value;
+}
+
+function normalizeCardTimingDay(value, label, code) {
+  if (value === undefined || value === null || value === '') {
+    throw createHttpError(400, `El día de ${label} es obligatorio.`, `${code}_required`);
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 31) {
+    throw createHttpError(400, `Ingresá un día de ${label} entre 1 y 31.`, `${code}_out_of_range`);
+  }
+  return parsed;
+}
+
+function normalizeClosingDay(value) {
+  return normalizeCardTimingDay(value, 'cierre', 'finance_credit_card_closing_day');
+}
+
+function normalizeDueDay(value) {
+  return normalizeCardTimingDay(value, 'vencimiento', 'finance_credit_card_due_day');
 }
 
 function normalizeInitialBalance(body = {}) {
@@ -266,6 +298,8 @@ async function toDto(client, row) {
     accountType: row.account_type,
     balanceState: row.balance_state,
     currentBalance,
+    closingDay: row.closing_day ?? null,
+    dueDay: row.due_day ?? null,
     status: row.status,
     archivedAt: row.archived_at ?? null,
     createdAt: row.created_at,
@@ -348,6 +382,21 @@ async function createFinanceAccount(financeContext, body = {}) {
 
   const accountType = normalizeAccountType(body.accountType ?? body.account_type);
   const initialBalance = normalizeInitialBalance(body);
+  if (initialBalance) {
+    assertAccountBalanceFloor(accountType, initialBalance.amount);
+  }
+
+  let closingDay = null;
+  let dueDay = null;
+  if (accountType === FINANCE_ACCOUNT_TYPES.CREDIT_CARD) {
+    closingDay = normalizeClosingDay(body.closingDay ?? body.closing_day);
+    dueDay = normalizeDueDay(body.dueDay ?? body.due_day);
+  } else if (
+    (body.closingDay ?? body.closing_day ?? null) !== null ||
+    (body.dueDay ?? body.due_day ?? null) !== null
+  ) {
+    throw createHttpError(400, 'Una cuenta no usa día de cierre ni de vencimiento.', 'finance_account_timing_not_supported');
+  }
 
   const { data, error } = await financeContext.client.rpc('finance_create_account_v1', {
     p_financial_context_type: financeContext.contextType,
@@ -363,6 +412,8 @@ async function createFinanceAccount(financeContext, body = {}) {
     p_created_by_person_id: financeContext.personId,
     p_initial_anchor_amount: initialBalance?.amount ?? null,
     p_initial_anchor_effective_date: initialBalance?.effectiveDate ?? null,
+    p_closing_day: closingDay,
+    p_due_day: dueDay,
   });
 
   if (error) throwSupabaseError(error);
@@ -374,16 +425,38 @@ async function updateFinanceAccount(financeContext, accountId, body = {}) {
   assertNoForbiddenFields(body, PROTECTED_UPDATE_FIELDS, 'protected_finance_account_field');
 
   const current = await getAccountForMutation(financeContext, accountId);
-  if (!hasOwn(body, 'name')) {
+  const isCreditCard = current.account_type === FINANCE_ACCOUNT_TYPES.CREDIT_CARD;
+
+  const patch = { updated_by_person_id: financeContext.personId };
+
+  if (hasOwn(body, 'name')) {
+    patch.name = normalizeName(body.name);
+  }
+
+  if (hasOwn(body, 'closingDay') || hasOwn(body, 'closing_day')) {
+    if (!isCreditCard) {
+      throw createHttpError(400, 'Una cuenta no usa día de cierre.', 'finance_account_timing_not_supported');
+    }
+    patch.closing_day = normalizeClosingDay(body.closingDay ?? body.closing_day);
+  }
+
+  if (hasOwn(body, 'dueDay') || hasOwn(body, 'due_day')) {
+    if (!isCreditCard) {
+      throw createHttpError(400, 'Una cuenta no usa día de vencimiento.', 'finance_account_timing_not_supported');
+    }
+    patch.due_day = normalizeDueDay(body.dueDay ?? body.due_day);
+  }
+
+  const hasEditableChange =
+    hasOwn(patch, 'name') || hasOwn(patch, 'closing_day') || hasOwn(patch, 'due_day');
+
+  if (!hasEditableChange) {
     return { account: await toDto(financeContext.client, current), outcome: 'noop' };
   }
 
   const { data, error } = await financeContext.client
     .from('finance_accounts')
-    .update({
-      name: normalizeName(body.name),
-      updated_by_person_id: financeContext.personId,
-    })
+    .update(patch)
     .eq('id', current.id)
     .select('*')
     .maybeSingle();
@@ -455,6 +528,7 @@ async function createInitialBalanceAnchor(financeContext, accountId, body = {}) 
   const effectiveDate = normalizeEffectiveDate(body.effectiveDate ?? body.effective_date);
 
   const current = await getAccountForMutation(financeContext, accountId);
+  assertAccountBalanceFloor(current.account_type, amount);
   if (current.status !== FINANCE_ACCOUNT_STATUSES.ACTIVE) {
     throw createHttpError(409, 'No se puede establecer saldo inicial en una cuenta archivada.', 'finance_account_archived');
   }
@@ -561,6 +635,7 @@ module.exports = {
   toDto,
   assertResolvedFinanceContext,
   assertNoAuthorityInjection,
+  assertAccountBalanceFloor,
   updateFinanceAccount,
   archiveFinanceAccount,
   unarchiveFinanceAccount,

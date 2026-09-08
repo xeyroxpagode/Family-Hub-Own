@@ -57,6 +57,8 @@
     "../scripts/finance_2e_expense_income_final_ui_tests.ts",
     "../scripts/finance_2f_frontend_consumption_tests.ts",
     "../scripts/finance_3h_account_transfer_final_ui_tests.ts",
+    "../scripts/finance_8d1_credit_card_account_foundation_tests.ts",
+    "../scripts/finance_8c8d1_accounts_cards_polish_tests.ts",
     "../scripts/finance_4j_transaction_correction_ui_tests.ts",
 "../scripts/finance_5e_payments_frontend_tests.ts",
     "../scripts/finance_5f_payment_attention_frontend_tests.ts",

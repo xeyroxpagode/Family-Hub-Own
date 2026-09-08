@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { formatFinanceAmount } from '../../services/finance/financeDisplay';
 import { formatFinanceDateGroupLabel } from '../../services/finance/financePeriod';
 import type { FinanceTransferDetailDto } from '../../services/finance/financeMovements';
@@ -31,6 +31,9 @@ export function TransferDetailSheet({
   transferId,
   onRequestClose,
 }: TransferDetailSheetProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<FinanceTransferDetailDto | null>(null);
@@ -223,93 +226,97 @@ export function TransferDetailSheet({
   );
 }
 
-const styles = StyleSheet.create({
-  loading: {
-    padding: spacing[6],
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  error: {
-    padding: spacing[4],
-    alignItems: 'center',
-    gap: spacing[3],
-  },
-  retryButton: {
-    marginTop: spacing[2],
-    minHeight: 44,
-    paddingHorizontal: spacing[4],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.terracotta[700],
-    backgroundColor: colors.terracotta[50],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  content: {
-    gap: spacing[3],
-    paddingBottom: spacing[2],
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing[3],
-    paddingVertical: spacing[2],
-  },
-  label: {
-    flex: 1,
-    minWidth: 0,
-  },
-  value: {
-    flex: 1,
-    textAlign: 'right',
-    minWidth: 0,
-  },
-  sectionDivider: {
-    height: 1,
-    backgroundColor: colors.border.subtle,
-    marginVertical: spacing[1],
-  },
-  sectionLabel: {
-    marginBottom: spacing[2],
-  },
-  accountSection: {
-    gap: spacing[2],
-  },
-  accountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing[3],
-  },
-  accountInfo: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  amountValue: {
-    textAlign: 'right',
-    minWidth: 0,
-  },
-  arrowRow: {
-    alignItems: 'center',
-    paddingVertical: spacing[1],
-  },
-  commissionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing[3],
-    paddingVertical: spacing[2],
-    paddingHorizontal: spacing[3],
-    borderRadius: radius.lg,
-    backgroundColor: colors.warning.soft,
-    borderWidth: 1,
-    borderColor: colors.warning.base,
-  },
-  commissionInfo: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-});
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
+    loading: {
+      padding: spacing[6],
+      alignItems: 'center',
+      gap: spacing[2],
+    },
+    error: {
+      padding: spacing[4],
+      alignItems: 'center',
+      gap: spacing[3],
+    },
+    retryButton: {
+      marginTop: spacing[2],
+      minHeight: 44,
+      paddingHorizontal: spacing[4],
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.terracotta[700],
+      backgroundColor: colors.terracotta[50],
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    content: {
+      gap: spacing[3],
+      paddingBottom: spacing[2],
+    },
+    detailRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing[3],
+      paddingVertical: spacing[2],
+    },
+    label: {
+      flex: 1,
+      minWidth: 0,
+    },
+    value: {
+      flex: 1,
+      textAlign: 'right',
+      minWidth: 0,
+    },
+    sectionDivider: {
+      height: 1,
+      backgroundColor: colors.border.subtle,
+      marginVertical: spacing[1],
+    },
+    sectionLabel: {
+      marginBottom: spacing[2],
+    },
+    accountSection: {
+      gap: spacing[2],
+    },
+    accountRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing[3],
+    },
+    accountInfo: {
+      flex: 1,
+      minWidth: 0,
+      gap: 2,
+    },
+    amountValue: {
+      textAlign: 'right',
+      minWidth: 0,
+    },
+    arrowRow: {
+      alignItems: 'center',
+      paddingVertical: spacing[1],
+    },
+    commissionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing[3],
+      paddingVertical: spacing[2],
+      paddingHorizontal: spacing[3],
+      borderRadius: radius.lg,
+      backgroundColor: colors.warning.soft,
+      borderWidth: 1,
+      borderColor: colors.warning.base,
+    },
+    commissionInfo: {
+      flex: 1,
+      minWidth: 0,
+      gap: 2,
+    },
+  });
+}

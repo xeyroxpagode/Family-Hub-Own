@@ -3,10 +3,11 @@ import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError } from '../../services/api';
 import type { FinanceContextType, FinanceContextViewState, FinanceActiveHousehold } from '../../services/finance/financeContext';
 import {
+  createFinanceInstallmentExpense,
   createFinanceExpense,
   createFinanceIncome,
   listFinanceExpenseCategories,
@@ -66,6 +67,7 @@ type NewMovementSheetProps = {
   householdId: string | null;
   onRequestClose: () => void;
   onSuccess: (operation: FinanceOperationKind) => void;
+  presetTransferDestination?: FinanceAccountDto | null;
 };
 
 type ActivePicker =
@@ -88,9 +90,29 @@ const isIncome = (operation: FinanceOperationKind) => operation === 'income';
 const isTransfer = (operation: FinanceOperationKind) => operation === 'transfer';
 
 const NONE_AMOUNT = '';
+const INSTALLMENT_PRESETS = [3, 6, 12] as const;
 
 function formatDecimalWithSeparator(value: string): string {
   return formatCanonicalAmountForDisplay(value);
+}
+
+function parseInstallmentCount(text: string): number | null {
+  const parsed = Number(text.trim());
+  if (!Number.isInteger(parsed) || parsed < 2 || parsed > 60) return null;
+  return parsed;
+}
+
+function exactInstallmentAmount(total: string, count: number): string | null {
+  const trimmed = total.trim();
+  if (!/^\d+(\.\d{1,4})?$/.test(trimmed)) return null;
+  const [integerPart, fractionPart = ''] = trimmed.split('.');
+  const scaled = BigInt(integerPart) * 10000n + BigInt(fractionPart.padEnd(4, '0'));
+  const divisor = BigInt(count);
+  if (scaled % divisor !== 0n) return null;
+  const each = scaled / divisor;
+  const whole = each / 10000n;
+  const fraction = String(each % 10000n).padStart(4, '0').replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : String(whole);
 }
 
 type TransferPreview = {
@@ -211,7 +233,11 @@ export function NewMovementSheet({
   householdId,
   onRequestClose,
   onSuccess,
+  presetTransferDestination,
 }: NewMovementSheetProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const [operation, setOperation] = useState<FinanceOperationKind>('expense');
   const [amountText, setAmountText] = useState('');
   const [amount, setAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
@@ -231,6 +257,8 @@ export function NewMovementSheet({
   const contextKeyRef = useRef(`${contextType}:${contextLabel}`);
 
   const [expenseAccountId, setExpenseAccountId] = useState<string | null>(null);
+  const [cardPaymentMode, setCardPaymentMode] = useState<'single' | 'installments'>('single');
+  const [installmentCountText, setInstallmentCountText] = useState('3');
   const [incomeAccountId, setIncomeAccountId] = useState<string | null>(null);
   const [expensePoolId, setExpensePoolId] = useState<string | null>(null);
 
@@ -269,6 +297,22 @@ export function NewMovementSheet({
     if (!visible) return;
     setDate(todayDateOnly());
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible || !presetTransferDestination) return;
+    setOperation('transfer');
+    setTransferSource(null);
+    setTransferDestination(presetTransferDestination);
+    setTransferAmountText('');
+    setTransferAmount(parseMoneyInputText('', presetTransferDestination.currency));
+    setDestinationAmountText('');
+    setDestinationAmount(parseMoneyInputText('', presetTransferDestination.currency));
+    setCommissionMode('none');
+    setCommissionText('');
+    setCommission(parseMoneyInputText('', 'ARS'));
+    setActivePicker(null);
+    setSubmitError(null);
+  }, [visible, presetTransferDestination]);
 
   useEffect(() => {
     if (!visible) return;
@@ -368,6 +412,11 @@ export function NewMovementSheet({
     () => expenseAccountsState.accounts.find((account) => account.id === expenseAccountId) ?? null,
     [expenseAccountId, expenseAccountsState.accounts],
   );
+  const selectedExpenseAccountIsCard = selectedExpenseAccount?.accountType === 'CREDIT_CARD';
+  const installmentCount = parseInstallmentCount(installmentCountText);
+  const installmentPreview = selectedExpenseAccountIsCard && cardPaymentMode === 'installments' && amount.technicalValue && installmentCount
+    ? exactInstallmentAmount(amount.technicalValue.amount, installmentCount)
+    : null;
 
   const expensePoolsState = useEligiblePools({
     accessToken,
@@ -478,7 +527,8 @@ export function NewMovementSheet({
       transferAmount.isValid &&
       (!transferCrossCurrency || destinationAmount.isValid) &&
       (commissionMode === 'none' || (commissionMode === 'custom' && commission.isValid))
-    : Boolean(accessToken) && !contextUnavailable && amount.isValid && !submitting && !expenseCreatedAfterPoolFailure;
+    : Boolean(accessToken) && !contextUnavailable && amount.isValid && !submitting && !expenseCreatedAfterPoolFailure &&
+      (!isExpense(operation) || cardPaymentMode === 'single' || (selectedExpenseAccountIsCard && installmentCount !== null));
 
 const resetDraft = () => {
     setOperation('expense');
@@ -497,6 +547,8 @@ const resetDraft = () => {
     setSubmitting(false);
     setExpenseCreatedAfterPoolFailure(false);
     setExpenseAccountId(null);
+    setCardPaymentMode('single');
+    setInstallmentCountText('3');
     setIncomeAccountId(null);
     setExpensePoolId(null);
     setCategoryPoolDefault(null);
@@ -530,6 +582,9 @@ const resetDraft = () => {
     setCurrency(nextCurrency);
     setAmount(parseMoneyInputText(amountText, nextCurrency));
     setSubmitError(null);
+    setExpenseAccountId(null);
+    setCardPaymentMode('single');
+    setInstallmentCountText('3');
     setExpensePoolId(null);
     setCategoryPoolDefault(null);
     setUserTouchedPool(false);
@@ -557,6 +612,8 @@ const resetDraft = () => {
       setSelectedCategoryId(null);
       setNotesExpanded(false);
       setNotes('');
+      setCardPaymentMode('single');
+      setInstallmentCountText('3');
     }
     if (nextOperation !== 'transfer') {
       resetTransferDependentState();
@@ -639,6 +696,16 @@ const resetDraft = () => {
       setSubmitError('Ingresa un monto mayor que cero.');
       return;
     }
+    if (isExpense(operation) && cardPaymentMode === 'installments') {
+      if (!selectedExpenseAccount || selectedExpenseAccount.accountType !== 'CREDIT_CARD') {
+        setSubmitError('Elegí una tarjeta de crédito para usar cuotas.');
+        return;
+      }
+      if (installmentCount === null) {
+        setSubmitError('Ingresá entre 2 y 60 cuotas.');
+        return;
+      }
+    }
 
     // Validate income pool allocations
     if (isIncome(operation) && incomePoolAllocations.length > 0) {
@@ -683,7 +750,7 @@ const resetDraft = () => {
       ...(description.trim() ? { description: description.trim() } : {}),
       ...(isExpense(operation) && selectedCategoryId ? { category: selectedCategoryId } : {}),
       ...(isExpense(operation) && notes.trim() ? { notes: notes.trim() } : {}),
-      ...(isExpense(operation) && expenseAccountId ? { account: expenseAccountId } : {}),
+      ...(isExpense(operation) && selectedExpenseAccount ? { account: selectedExpenseAccount.id } : {}),
       ...(isIncome(operation) && incomeAccountId ? { account: incomeAccountId } : {}),
     };
 
@@ -692,9 +759,17 @@ const resetDraft = () => {
     setSubmitting(true);
     try {
       if (isExpense(submittedOperation)) {
-        const expenseResponse = await createFinanceExpense(accessToken, payload);
+        const expenseResponse = cardPaymentMode === 'installments' && selectedExpenseAccountIsCard && installmentCount !== null
+          ? await createFinanceInstallmentExpense(accessToken, {
+              ...payload,
+              account: selectedExpenseAccount!.id,
+              installmentCount,
+            })
+          : await createFinanceExpense(accessToken, payload);
         // For a new expense, the transaction ID is the root transaction ID
-        const expenseRootId = expenseResponse.transaction.id;
+        const expenseRootId = 'transaction' in expenseResponse
+          ? expenseResponse.transaction.id
+          : expenseResponse.rootTransactionId;
 
         if (expensePoolId && expenseAccountId && personId) {
           try {
@@ -1157,6 +1232,96 @@ if (commissionMode === 'custom' && !commission.isValid) {
             </View>
           ) : null}
 
+          {isExpense(operation) && selectedExpenseAccountIsCard ? (
+            <View style={styles.fieldGroup}>
+              <AppText variant="caption" tone="secondary" weight="700">Forma de pago</AppText>
+              <View style={styles.cardPaymentMode} accessibilityRole="radiogroup">
+                <InteractivePressable
+                  onPress={() => { setCardPaymentMode('single'); setSubmitError(null); }}
+                  disabled={submitting}
+                  haptic="light"
+                  pressScale={motion.scale.tab}
+                  style={[styles.cardPaymentModeOption, cardPaymentMode === 'single' && styles.cardPaymentModeOptionSelected]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: cardPaymentMode === 'single' }}
+                  accessibilityLabel="Un pago"
+                >
+                  <HomePlusIcon
+                    name={cardPaymentMode === 'single' ? 'radio-button-on' : 'radio-button-off'}
+                    size={18}
+                    color={cardPaymentMode === 'single' ? colors.terracotta[700] : colors.text.tertiary}
+                  />
+                  <AppText variant="bodySmall" weight="800">1 pago</AppText>
+                </InteractivePressable>
+                <InteractivePressable
+                  onPress={() => { setCardPaymentMode('installments'); setSubmitError(null); }}
+                  disabled={submitting}
+                  haptic="light"
+                  pressScale={motion.scale.tab}
+                  style={[styles.cardPaymentModeOption, cardPaymentMode === 'installments' && styles.cardPaymentModeOptionSelected]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: cardPaymentMode === 'installments' }}
+                  accessibilityLabel="Cuotas"
+                >
+                  <HomePlusIcon
+                    name={cardPaymentMode === 'installments' ? 'radio-button-on' : 'radio-button-off'}
+                    size={18}
+                    color={cardPaymentMode === 'installments' ? colors.terracotta[700] : colors.text.tertiary}
+                  />
+                  <AppText variant="bodySmall" weight="800">Cuotas</AppText>
+                </InteractivePressable>
+              </View>
+
+              {cardPaymentMode === 'installments' ? (
+                <View style={styles.installmentsBox}>
+                  <View style={styles.installmentPresets}>
+                    {INSTALLMENT_PRESETS.map((preset) => {
+                      const selected = installmentCountText === String(preset);
+                      return (
+                        <InteractivePressable
+                          key={preset}
+                          onPress={() => { setInstallmentCountText(String(preset)); setSubmitError(null); }}
+                          disabled={submitting}
+                          haptic="light"
+                          pressScale={motion.scale.tab}
+                          style={[styles.installmentPreset, selected && styles.installmentPresetSelected]}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${preset} cuotas`}
+                        >
+                          <AppText variant="bodySmall" weight="800" tone={selected ? 'inverse' : 'secondary'}>
+                            {preset}
+                          </AppText>
+                        </InteractivePressable>
+                      );
+                    })}
+                  </View>
+                  <AppInput
+                    label="Cantidad de cuotas"
+                    value={installmentCountText}
+                    onChangeText={(text) => { setInstallmentCountText(text); setSubmitError(null); }}
+                    placeholder="2 a 60"
+                    editable={!submitting}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                    returnKeyType="done"
+                    errorText={installmentCountText.trim() && installmentCount === null ? 'Ingresá entre 2 y 60 cuotas.' : undefined}
+                    accessibilityLabel="Cantidad de cuotas"
+                  />
+                  {installmentCount && amount.technicalValue ? (
+                    <View style={styles.installmentPreview}>
+                      <HomePlusIcon name="calendar-outline" size={18} color={colors.sage[700]} />
+                      <AppText variant="bodySmall" weight="800" style={styles.errorInline}>
+                        {installmentPreview
+                          ? `${installmentCount} cuotas de ${formatDecimalWithSeparator(installmentPreview)} ${currency}`
+                          : `${installmentCount} cuotas. El backend distribuirá el total exactamente.`}
+                      </AppText>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
           {isExpense(operation) ? (
             <View style={styles.fieldGroup}>
               {selectedExpenseAccount === null ? (
@@ -1513,6 +1678,10 @@ if (commissionMode === 'custom' && !commission.isValid) {
           onRequestClose={() => setActivePicker(null)}
           onSelect={(account) => {
             setExpenseAccountId(account?.id ?? null);
+            if (account?.accountType !== 'CREDIT_CARD') {
+              setCardPaymentMode('single');
+              setInstallmentCountText('3');
+            }
             const accountCanUsePool =
               account !== null
               && (account.balanceState === 'KNOWN' || account.accountType === 'CREDIT_CARD');
@@ -1603,7 +1772,10 @@ if (commissionMode === 'custom' && !commission.isValid) {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
   sheetBody: {
     flex: 1,
     position: 'relative',
@@ -1633,6 +1805,62 @@ const styles = StyleSheet.create({
     backgroundColor: colors.terracotta[600],
   },
   fieldGroup: {
+    gap: spacing[2],
+  },
+  cardPaymentMode: {
+    flexDirection: 'row',
+    gap: spacing[2],
+  },
+  cardPaymentModeOption: {
+    flex: 1,
+    minHeight: touchTargets.normal,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.soft,
+    paddingHorizontal: spacing[3],
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+  },
+  cardPaymentModeOptionSelected: {
+    backgroundColor: colors.terracotta[50],
+    borderColor: colors.terracotta[300],
+  },
+  installmentsBox: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.card,
+    padding: spacing[3],
+    gap: spacing[3],
+  },
+  installmentPresets: {
+    flexDirection: 'row',
+    gap: spacing[2],
+  },
+  installmentPreset: {
+    minWidth: 54,
+    minHeight: 40,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.soft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing[3],
+  },
+  installmentPresetSelected: {
+    backgroundColor: colors.terracotta[600],
+    borderColor: colors.terracotta[600],
+  },
+  installmentPreview: {
+    borderRadius: radius.lg,
+    backgroundColor: colors.sage[50],
+    padding: spacing[3],
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing[2],
   },
   categoryPicker: {
@@ -1829,4 +2057,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing[3],
   },
-});
+  });
+}

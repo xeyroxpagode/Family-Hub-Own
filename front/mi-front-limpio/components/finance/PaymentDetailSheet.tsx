@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError } from '../../services/api';
 import type { FinanceContextType } from '../../services/finance/financeContext';
 import {
@@ -28,6 +28,7 @@ import {
   InteractivePressable,
   formatHumanDate,
 } from '../ui';
+import { compareDecimalStrings } from '../../services/finance/accountDisplay';
 
 type PaymentDetailSheetProps = {
   visible: boolean;
@@ -56,6 +57,9 @@ export function PaymentDetailSheet({
   onEditPayment,
   onRefresh,
 }: PaymentDetailSheetProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [payment, setPayment] = useState<PaymentDueDto | null>(null);
@@ -172,9 +176,13 @@ export function PaymentDetailSheet({
 
   const showRegisterNormal = pending && payment?.kind === PAYMENT_KINDS.NORMAL;
   const showRegisterCreditCard = pending && payment?.kind === PAYMENT_KINDS.CREDIT_CARD;
+  const creditCardRemaining = payment?.remaining ?? (payment?.expectedAmountKnown ? payment.expectedAmount ?? null : null);
+  const creditCardPaidSoFar = payment?.paidSoFar ?? '0';
+  const creditCardHasSettlementProgress = payment?.kind === PAYMENT_KINDS.CREDIT_CARD && compareDecimalStrings(creditCardPaidSoFar, '0') > 0;
+  const showCreditCardProgress = payment?.kind === PAYMENT_KINDS.CREDIT_CARD && creditCardRemaining !== null;
   const isActiveRecurring = Boolean(series && series.status === PAYMENT_SERIES_STATUSES.ACTIVE);
-  const showEdit = pending;
-  const showCancel = pending;
+  const showEdit = pending && !creditCardHasSettlementProgress;
+  const showCancel = pending && !creditCardHasSettlementProgress;
   const amountLine = expectedAmountDisplay;
 
   if (!visible) return null;
@@ -270,6 +278,32 @@ export function PaymentDetailSheet({
               </View>
             )}
 
+            {showCreditCardProgress ? (
+              <View style={styles.progressBox}>
+                <View style={styles.progressRow}>
+                  <AppText variant="caption" tone="secondary" weight="700">Total</AppText>
+                  <AppText variant="bodySmall" weight="800">{amountLine}</AppText>
+                </View>
+                <View style={styles.progressRow}>
+                  <AppText variant="caption" tone="secondary" weight="700">Pagado</AppText>
+                  <AppText variant="bodySmall" weight="800" tone={compareDecimalStrings(creditCardPaidSoFar, '0') > 0 ? 'success' : 'secondary'}>
+                    {formatExpectedAmount(true, creditCardPaidSoFar, payment.currency)}
+                  </AppText>
+                </View>
+                <View style={styles.progressRow}>
+                  <AppText variant="caption" tone="secondary" weight="700">Resta</AppText>
+                  <AppText variant="bodySmall" weight="800" tone={compareDecimalStrings(creditCardRemaining, '0') > 0 ? 'primary' : 'success'}>
+                    {formatExpectedAmount(true, creditCardRemaining, payment.currency)}
+                  </AppText>
+                </View>
+                {creditCardHasSettlementProgress ? (
+                  <AppText variant="caption" tone="tertiary">
+                    Este PaymentDue ya tiene pagos registrados. Podés pagar lo restante, pero no editarlo ni cancelarlo.
+                  </AppText>
+                ) : null}
+              </View>
+            ) : null}
+
             {paid && (
               <View>
                 <View style={styles.divider} />
@@ -336,7 +370,7 @@ export function PaymentDetailSheet({
                 )}
                 {showRegisterCreditCard && (
                   <AppButton
-                    title="Pagar tarjeta"
+                    title={payment.isPartiallyPaid ? 'Pagar restante' : 'Pagar tarjeta'}
                     variant="primary"
                     onPress={handleRegister}
                     style={styles.primaryAction}
@@ -432,6 +466,10 @@ function ScopeOption({
   onPress: () => void;
   disabled?: boolean;
 }) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
+
   return (
     <InteractivePressable
       onPress={onPress}
@@ -455,7 +493,10 @@ function ScopeOption({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
   loading: {
     padding: spacing[6],
     alignItems: 'center',
@@ -515,6 +556,20 @@ const styles = StyleSheet.create({
   sectionLabel: {
     marginBottom: spacing[2],
   },
+  progressBox: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.soft,
+    padding: spacing[3],
+    gap: spacing[1],
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing[3],
+  },
   actions: {
     gap: spacing[2],
     marginTop: spacing[2],
@@ -551,4 +606,5 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-});
+  });
+}

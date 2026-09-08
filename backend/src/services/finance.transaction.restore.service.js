@@ -59,10 +59,6 @@ async function restoreFinanceTransaction(financeContext, body = {}) {
       throw createHttpError(409, 'La operacion ya se esta procesando. Reintentá en unos segundos.', 'idempotency_in_flight');
     }
 
-    if (['23514', '23502', '23503', '22P02', '22007'].includes(error?.code)) {
-      throw createHttpError(400, 'Transaccion invalida para restaurar.', 'validation_error');
-    }
-
     if (error?.message?.includes('finance_transaction_not_found')) {
       throw createHttpError(404, 'Transaccion no encontrada.', 'finance_transaction_not_found');
     }
@@ -77,6 +73,14 @@ async function restoreFinanceTransaction(financeContext, body = {}) {
 
     if (error?.code === '23514' && error?.message?.includes('invalid_transaction_state_for_restore')) {
       throw createHttpError(409, 'La transaccion no esta en estado TRASHED.', 'invalid_transaction_state_for_restore');
+    }
+
+    if (error?.code === '23514' && error?.message?.includes('finance_payment_due_settled_immutable')) {
+      throw createHttpError(409, 'Esta compra ya impacta un resumen de tarjeta con pagos registrados. No se puede restaurar.', 'finance_payment_due_settled_immutable');
+    }
+
+    if (['23514', '23502', '23503', '22P02', '22007'].includes(error?.code)) {
+      throw createHttpError(400, 'Transaccion invalida para restaurar.', 'validation_error');
     }
 
     const httpError = createHttpError(500, error?.message ?? 'Error interno.', error?.code ?? 'internal_error');

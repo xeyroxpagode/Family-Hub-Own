@@ -13,6 +13,7 @@ const {
   normalizeDecimalText,
   assertResolvedFinanceContext,
   assertNoAuthorityInjection,
+  assertAccountBalanceFloor,
 } = require('./finance.account.service');
 
 const PROTECTED_PAYLOAD_FIELDS = Object.freeze([
@@ -68,6 +69,8 @@ async function correctAccountBalance(financeContext, accountId, body = {}) {
   if (current.status !== FINANCE_ACCOUNT_STATUSES.ACTIVE) {
     throw createHttpError(409, 'No se puede corregir saldo de una cuenta archivada.', 'finance_account_archived');
   }
+
+  assertAccountBalanceFloor(current.account_type, correctedBalance);
 
   if (current.balance_state !== FINANCE_ACCOUNT_BALANCE_STATES.KNOWN) {
     throw createHttpError(409, 'Solo cuentas con saldo conocido (KNOWN) pueden corregirse. Cuentas UNKNOWN usan initial Anchor.', 'finance_account_balance_state_unknown');

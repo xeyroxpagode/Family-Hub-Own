@@ -34,6 +34,7 @@ const {
   assertResolvedFinanceContext,
   assertNoAuthorityInjection,
 } = require('./finance.account.service');
+const { ensureClosedCreditCardPaymentDues } = require('./finance.payment.service');
 
 const FORBIDDEN_ACTIVITY_SELECTOR_FIELDS = Object.freeze([
   'personId',
@@ -116,22 +117,26 @@ const EFFECT_SELECT = [
   'created_at',
 ].join(', ');
 
-function activityTitleFromEffect(effect, enriched) {
+function activityTitleFromEffect(effect, enriched, isCreditCard) {
   if (effect.effect_type === 'transfer') {
-    return effect.effect_role === 'TRANSFER_SOURCE'
-      ? 'Transferencia'
-      : 'Transferencia recibida';
+    if (effect.effect_role === 'TRANSFER_SOURCE') {
+      return 'Transferencia';
+    }
+    return isCreditCard ? 'Pago de tarjeta' : 'Transferencia recibida';
   }
   if (effect.effect_type === 'refund') {
     return enriched?.description?.trim()
-      ? `Devolucion - ${enriched.description.trim()}`
-      : 'Devolucion';
+      ? `Devolución - ${enriched.description.trim()}`
+      : 'Devolución';
   }
-  return enriched?.description?.trim() || (effect.effect_type === 'expense' ? 'Gasto' : 'Ingreso');
+  if (effect.effect_type === 'expense') {
+    return enriched?.description?.trim() || (isCreditCard ? 'Compra' : 'Gasto');
+  }
+  return enriched?.description?.trim() || 'Ingreso';
 }
 
-function toActivityDto(effect, enriched) {
-  const baseTitle = activityTitleFromEffect(effect, enriched);
+function toActivityDto(effect, enriched, isCreditCard) {
+  const baseTitle = activityTitleFromEffect(effect, enriched, isCreditCard);
   const tag = effect.effect_type === 'refund' ? 'refund' : (effect.effect_type === 'transfer' ? 'transfer' : effect.effect_type);
   return {
     id: effect.id,
@@ -163,6 +168,12 @@ async function listFinanceAccountActivity(financeContext, accountId, query = {})
   // by the current user (RLS via getAccountForMutation -> scopeFilters +
   // finance_accounts RLS).
   const account = await getAccountForMutation(financeContext, accountId);
+  const isCreditCard = account.account_type === 'CREDIT_CARD';
+
+  // 8D.5 catch-up: materialize missed closed-cycle dues when the card is opened.
+  if (isCreditCard && account.closing_day != null && account.due_day != null) {
+    await ensureClosedCreditCardPaymentDues(financeContext).catch(() => {});
+  }
 
   let request = financeContext.client
     .from('finance_account_effects')
@@ -243,7 +254,7 @@ async function listFinanceAccountActivity(financeContext, accountId, query = {})
       const enriched = effect.transaction_id
         ? enrichedTxn.get(effect.transaction_id)
         : (effect.transfer_id ? enrichedTransfer.get(effect.transfer_id) : null);
-      return toActivityDto(effect, enriched);
+      return toActivityDto(effect, enriched, isCreditCard);
     });
 
   return {

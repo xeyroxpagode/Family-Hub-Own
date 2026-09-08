@@ -3,7 +3,7 @@ import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError } from '../../services/api';
 import type { FinanceContextType } from '../../services/finance/financeContext';
 import {
@@ -27,6 +27,7 @@ import {
   formatHumanDate,
 } from '../ui';
 import { MoneyInput } from './MoneyInput';
+import { compareDecimalStrings } from '../../services/finance/accountDisplay';
 
 type EditScope = 'single' | 'series';
 
@@ -65,6 +66,9 @@ export function EditPaymentDueSheet({
   onRequestClose,
   onSuccess,
 }: EditPaymentDueSheetProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const [editScope, setEditScope] = useState<EditScope>('single');
   const [title, setTitle] = useState('');
   const [amountText, setAmountText] = useState('');
@@ -85,6 +89,7 @@ export function EditPaymentDueSheet({
 
   const activeSeries = payment?.paymentSeries?.status === PAYMENT_SERIES_STATUSES.ACTIVE ? payment.paymentSeries : null;
   const isRecurring = Boolean(activeSeries);
+  const editLockedBySettlement = payment?.kind === 'CREDIT_CARD' && compareDecimalStrings(payment.paidSoFar ?? '0', '0') > 0;
   const currency = (editScope === 'series'
     ? activeSeries?.currency ?? payment?.currency ?? 'ARS'
     : payment?.currency ?? 'ARS') as MoneyInputCurrencyCode;
@@ -189,6 +194,7 @@ export function EditPaymentDueSheet({
   const recurrenceCount = preset?.value?.count ?? customRecurrenceCount;
   const canSubmit = Boolean(accessToken) &&
     Boolean(payment) &&
+    !editLockedBySettlement &&
     !submitting &&
     title.trim().length > 0 &&
     (expectedAmountKnown ? amount.isValid : true) &&
@@ -271,13 +277,13 @@ export function EditPaymentDueSheet({
                   selected={editScope === 'single'}
                   label="Solo este pago"
                   onPress={() => { setEditScope('single'); setSubmitError(null); setActivePicker(null); }}
-                  disabled={submitting}
+                  disabled={submitting || editLockedBySettlement}
                 />
                 <ScopeOption
                   selected={editScope === 'series'}
                   label="Este y los siguientes"
                   onPress={() => { setEditScope('series'); setSubmitError(null); setActivePicker(null); }}
-                  disabled={submitting}
+                  disabled={submitting || editLockedBySettlement}
                 />
               </View>
             </View>
@@ -288,10 +294,19 @@ export function EditPaymentDueSheet({
             value={title}
             onChangeText={(text) => { setTitle(text); setSubmitError(null); }}
             placeholder="Internet, Alquiler, Luz..."
-            editable={!submitting}
+            editable={!submitting && !editLockedBySettlement}
             returnKeyType="next"
             autoCapitalize="words"
           />
+
+          {editLockedBySettlement ? (
+            <View style={styles.lockBox}>
+              <HomePlusIcon name="lock-closed-outline" size={18} color={colors.text.tertiary} />
+              <AppText variant="bodySmall" tone="secondary" style={styles.errorText}>
+                Este pago de tarjeta ya tiene pagos registrados. Podés pagar lo restante, pero no editarlo ni cancelarlo.
+              </AppText>
+            </View>
+          ) : null}
 
           <MoneyInput
             value={amountText}
@@ -301,13 +316,13 @@ export function EditPaymentDueSheet({
             availableCurrencies={[currency]}
             label="Monto esperado"
             helperText={expectedAmountKnown ? 'Magnitud positiva.' : 'El monto se confirmará al registrar el pago.'}
-            disabled={submitting || !expectedAmountKnown}
+            disabled={submitting || editLockedBySettlement || !expectedAmountKnown}
             errorText={expectedAmountKnown && amount.status === 'invalid' ? 'Revisá el monto.' : undefined}
           />
 
           <InteractivePressable
             onPress={toggleKnown}
-            disabled={submitting}
+            disabled={submitting || editLockedBySettlement}
             haptic="light"
             pressScale={motion.scale.card}
             style={[styles.knownToggle, !expectedAmountKnown && styles.knownToggleActive]}
@@ -330,7 +345,7 @@ export function EditPaymentDueSheet({
               label="Categoría"
               value={selectedCategory?.label ?? 'Sin categoría'}
               onPress={() => setActivePicker((current) => current === 'category' ? null : 'category')}
-              disabled={submitting || categoriesLoading}
+              disabled={submitting || editLockedBySettlement || categoriesLoading}
               accessibilityLabel="Elegir categoría de gasto"
             />
             {categoriesError ? <AppText variant="caption" tone="warning">{categoriesError}</AppText> : null}
@@ -358,7 +373,7 @@ export function EditPaymentDueSheet({
               label="Vencimiento"
               value={formatHumanDate(date)}
               onPress={() => setActivePicker('date')}
-              disabled={submitting}
+              disabled={submitting || editLockedBySettlement}
               accessibilityLabel={`Fecha de vencimiento ${formatHumanDate(date)}`}
             />
           ) : (
@@ -371,7 +386,7 @@ export function EditPaymentDueSheet({
                     <InteractivePressable
                       key={recurrencePreset.label}
                       onPress={() => { setRecurrencePresetIndex(index); setActivePicker(null); setSubmitError(null); }}
-                      disabled={submitting}
+                      disabled={submitting || editLockedBySettlement}
                       haptic="light"
                       pressScale={motion.scale.card}
                       style={[styles.recurrencePreset, selected && styles.recurrencePresetSelected]}
@@ -399,7 +414,7 @@ export function EditPaymentDueSheet({
                           <InteractivePressable
                             key={unit}
                             onPress={() => { setCustomRecurrenceUnit(unit); setSubmitError(null); }}
-                            disabled={submitting}
+                            disabled={submitting || editLockedBySettlement}
                             haptic="light"
                             pressScale={motion.scale.tab}
                             style={[styles.customUnitOption, selected && styles.customUnitOptionSelected]}
@@ -426,7 +441,7 @@ export function EditPaymentDueSheet({
                         setSubmitError(null);
                       }}
                       placeholder="1"
-                      editable={!submitting}
+                      editable={!submitting && !editLockedBySettlement}
                       keyboardType="number-pad"
                       returnKeyType="done"
                       inputStyle={styles.customCountInputField}
@@ -442,7 +457,7 @@ export function EditPaymentDueSheet({
                 label="Fecha base"
                 value={formatHumanDate(recurrenceAnchorDate)}
                 onPress={() => setActivePicker('anchor')}
-                disabled={submitting}
+                disabled={submitting || editLockedBySettlement}
                 accessibilityLabel={`Fecha base ${formatHumanDate(recurrenceAnchorDate)}`}
               />
             </View>
@@ -474,6 +489,10 @@ export function EditPaymentDueSheet({
 }
 
 function ScopeOption({ selected, label, onPress, disabled }: { selected: boolean; label: string; onPress: () => void; disabled?: boolean }) {
+  const theme = useAppTheme();
+  const { motion } = theme;
+  const styles = createStyles(theme);
+
   return (
     <InteractivePressable
       onPress={onPress}
@@ -493,6 +512,10 @@ function ScopeOption({ selected, label, onPress, disabled }: { selected: boolean
 }
 
 function CategoryOption({ selected, label, onPress }: { selected: boolean; label: string; onPress: () => void }) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
+
   return (
     <InteractivePressable
       onPress={onPress}
@@ -513,156 +536,169 @@ function CategoryOption({ selected, label, onPress }: { selected: boolean; label
   );
 }
 
-const styles = StyleSheet.create({
-  sheetBody: {
-    flex: 1,
-    position: 'relative',
-  },
-  form: {
-    gap: spacing[4],
-    paddingBottom: spacing[4],
-  },
-  fieldGroup: {
-    gap: spacing[2],
-  },
-  scopeSelector: {
-    minHeight: 40,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.muted,
-    flexDirection: 'row',
-    padding: spacing[1],
-    gap: spacing[1],
-  },
-  scopeOption: {
-    flex: 1,
-    minHeight: 32,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing[2],
-  },
-  scopeOptionSelected: {
-    backgroundColor: colors.terracotta[600],
-  },
-  knownToggle: {
-    minHeight: touchTargets.normal,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    backgroundColor: colors.surface.soft,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing[3],
-    gap: spacing[3],
-  },
-  knownToggleActive: {
-    backgroundColor: colors.terracotta[50],
-    borderColor: colors.terracotta[300],
-  },
-  knownToggleLabel: {
-    flex: 1,
-  },
-  categoryPicker: {
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface.card,
-    padding: spacing[2],
-    gap: spacing[1],
-  },
-  categoryOption: {
-    minHeight: 44,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  categoryOptionSelected: {
-    backgroundColor: colors.terracotta[50],
-  },
-  categoryLabel: {
-    flex: 1,
-    minWidth: 0,
-  },
-  recurrencePresets: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing[2],
-  },
-  recurrencePreset: {
-    minHeight: 36,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    backgroundColor: colors.surface.soft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing[3],
-  },
-  recurrencePresetSelected: {
-    backgroundColor: colors.terracotta[600],
-    borderColor: colors.terracotta[600],
-  },
-  customRecurrence: {
-    gap: spacing[3],
-    marginTop: spacing[2],
-    paddingTop: spacing[3],
-    borderTopWidth: 1,
-    borderTopColor: colors.border.subtle,
-  },
-  customUnitSelector: {
-    gap: spacing[2],
-  },
-  customUnitOptions: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  customUnitOption: {
-    flex: 1,
-    minHeight: 36,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    backgroundColor: colors.surface.soft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  customUnitOptionSelected: {
-    backgroundColor: colors.terracotta[600],
-    borderColor: colors.terracotta[600],
-  },
-  customCountInput: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  customCountInputField: {
-    width: 80,
-    minHeight: touchTargets.normal,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    backgroundColor: colors.surface.card,
-    paddingHorizontal: spacing[3],
-    textAlign: 'center',
-  },
-  errorBox: {
-    borderRadius: radius.lg,
-    backgroundColor: colors.danger.soft,
-    padding: spacing[3],
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  errorText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  footer: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  footerButton: {
-    flex: 1,
-  },
-});
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
+    sheetBody: {
+      flex: 1,
+      position: 'relative',
+    },
+    form: {
+      gap: spacing[4],
+      paddingBottom: spacing[4],
+    },
+    fieldGroup: {
+      gap: spacing[2],
+    },
+    scopeSelector: {
+      minHeight: 40,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface.muted,
+      flexDirection: 'row',
+      padding: spacing[1],
+      gap: spacing[1],
+    },
+    scopeOption: {
+      flex: 1,
+      minHeight: 32,
+      borderRadius: radius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing[2],
+    },
+    scopeOptionSelected: {
+      backgroundColor: colors.terracotta[600],
+    },
+    knownToggle: {
+      minHeight: touchTargets.normal,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      backgroundColor: colors.surface.soft,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing[3],
+      gap: spacing[3],
+    },
+    knownToggleActive: {
+      backgroundColor: colors.terracotta[50],
+      borderColor: colors.terracotta[300],
+    },
+    knownToggleLabel: {
+      flex: 1,
+    },
+    categoryPicker: {
+      borderWidth: 1,
+      borderColor: colors.border.subtle,
+      borderRadius: radius.xl,
+      backgroundColor: colors.surface.card,
+      padding: spacing[2],
+      gap: spacing[1],
+    },
+    categoryOption: {
+      minHeight: 44,
+      borderRadius: radius.lg,
+      paddingHorizontal: spacing[3],
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[2],
+    },
+    categoryOptionSelected: {
+      backgroundColor: colors.terracotta[50],
+    },
+    categoryLabel: {
+      flex: 1,
+      minWidth: 0,
+    },
+    recurrencePresets: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing[2],
+    },
+    recurrencePreset: {
+      minHeight: 36,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      backgroundColor: colors.surface.soft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing[3],
+    },
+    recurrencePresetSelected: {
+      backgroundColor: colors.terracotta[600],
+      borderColor: colors.terracotta[600],
+    },
+    customRecurrence: {
+      gap: spacing[3],
+      marginTop: spacing[2],
+      paddingTop: spacing[3],
+      borderTopWidth: 1,
+      borderTopColor: colors.border.subtle,
+    },
+    customUnitSelector: {
+      gap: spacing[2],
+    },
+    customUnitOptions: {
+      flexDirection: 'row',
+      gap: spacing[2],
+    },
+    customUnitOption: {
+      flex: 1,
+      minHeight: 36,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      backgroundColor: colors.surface.soft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    customUnitOptionSelected: {
+      backgroundColor: colors.terracotta[600],
+      borderColor: colors.terracotta[600],
+    },
+    customCountInput: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[2],
+    },
+    customCountInputField: {
+      width: 80,
+      minHeight: touchTargets.normal,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      backgroundColor: colors.surface.card,
+      paddingHorizontal: spacing[3],
+      textAlign: 'center',
+    },
+    errorBox: {
+      borderRadius: radius.lg,
+      backgroundColor: colors.danger.soft,
+      padding: spacing[3],
+      flexDirection: 'row',
+      gap: spacing[2],
+    },
+    errorText: {
+      flex: 1,
+      minWidth: 0,
+    },
+    lockBox: {
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface.soft,
+      borderWidth: 1,
+      borderColor: colors.border.subtle,
+      padding: spacing[3],
+      flexDirection: 'row',
+      gap: spacing[2],
+    },
+    footer: {
+      flexDirection: 'row',
+      gap: spacing[2],
+    },
+    footerButton: {
+      flex: 1,
+    },
+  });
+}

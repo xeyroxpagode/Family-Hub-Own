@@ -16,6 +16,10 @@ export type MoneyInputParseResult = {
   technicalValue: { amount: string; currency: MoneyInputCurrencyCode } | null;
 };
 
+export type MoneyInputParseOptions = {
+  allowNegative?: boolean;
+};
+
 const MAX_DECIMAL_PLACES = 4;
 const CURRENCY_CODE_RE = /^[A-Z]{3}$/;
 
@@ -78,12 +82,21 @@ function isZeroCanonical(canonicalAmount: string): boolean {
   return canonicalAmount.replace('.', '').split('').every((char) => char === '0');
 }
 
-export function parseMoneyInputText(inputText: string, currency: MoneyInputCurrencyCode): MoneyInputParseResult {
+export function parseMoneyInputText(inputText: string, currency: MoneyInputCurrencyCode, options?: MoneyInputParseOptions): MoneyInputParseResult {
   const trimmed = inputText.trim();
-  if (!trimmed) {
+  const allowNegative = options?.allowNegative === true;
+
+  let negative = false;
+  let unsigned = trimmed;
+  if (allowNegative && (unsigned.startsWith('-') || unsigned.startsWith('+'))) {
+    negative = unsigned.startsWith('-');
+    unsigned = unsigned.slice(1).trim();
+  }
+
+  if (!unsigned) {
     return {
       inputText,
-      displayText: '',
+      displayText: negative ? '-' : '',
       canonicalAmount: null,
       currency,
       status: 'empty',
@@ -93,7 +106,7 @@ export function parseMoneyInputText(inputText: string, currency: MoneyInputCurre
     };
   }
 
-  const split = splitAmountText(trimmed);
+  const split = splitAmountText(unsigned);
   if (!split || (split.fractionPart !== null && split.fractionPart.length > MAX_DECIMAL_PLACES)) {
     return {
       inputText,
@@ -107,8 +120,10 @@ export function parseMoneyInputText(inputText: string, currency: MoneyInputCurre
     };
   }
 
-  const canonicalAmount = normalizeDecimalValue(split.integerPart, split.fractionPart);
-  const status: MoneyInputStatus = isZeroCanonical(canonicalAmount) ? 'zero' : 'valid';
+  const magnitude = normalizeDecimalValue(split.integerPart, split.fractionPart);
+  const isZero = isZeroCanonical(magnitude);
+  const canonicalAmount = negative && !isZero ? `-${magnitude}` : magnitude;
+  const status: MoneyInputStatus = isZero ? 'zero' : 'valid';
   const isValid = status === 'valid';
 
   return {
@@ -125,7 +140,10 @@ export function parseMoneyInputText(inputText: string, currency: MoneyInputCurre
 
 export function formatMoneyInputDisplay(canonicalAmount: string | null): string {
   if (!canonicalAmount) return '';
-  const [integerPart, fractionPart] = canonicalAmount.split('.');
+  const negative = canonicalAmount.startsWith('-');
+  const unsigned = negative ? canonicalAmount.slice(1) : canonicalAmount;
+  const [integerPart, fractionPart] = unsigned.split('.');
   const groupedInteger = stripLeadingZeros(integerPart || '0').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return fractionPart ? `${groupedInteger},${fractionPart}` : groupedInteger;
+  const body = fractionPart ? `${groupedInteger},${fractionPart}` : groupedInteger;
+  return negative ? `-${body}` : body;
 }

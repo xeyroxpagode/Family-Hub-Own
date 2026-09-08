@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import {
   AppButton,
   AppCard,
@@ -45,6 +45,9 @@ export function PaymentsList({
   onPaymentPress,
   onRefresh,
 }: PaymentsListProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [paymentDues, setPaymentDues] = useState<PaymentDueDto[]>([]);
@@ -197,7 +200,10 @@ export function PaymentsList({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { spacing } = theme;
+
+  return StyleSheet.create({
   container: {
     gap: spacing[4],
   },
@@ -219,4 +225,5 @@ const styles = StyleSheet.create({
   sectionCard: {
     gap: 0,
   },
-});
+  });
+}

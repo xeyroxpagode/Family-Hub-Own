@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Pressable } from 'react-native';
 
-import { colors, componentSizes, motion, radius } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { lightHaptic } from '../../utils/haptics';
 
 export type ToggleProps = {
@@ -12,6 +12,7 @@ export type ToggleProps = {
 };
 
 export function Toggle({ value, onValueChange, accessibilityLabel, disabled = false }: ToggleProps) {
+  const { colors, componentSizes, motion, radius } = useAppTheme();
   const progress = useRef(new Animated.Value(value ? 1 : 0)).current;
   const [reduceMotion, setReduceMotion] = useState(false);
 

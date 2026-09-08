@@ -59,10 +59,6 @@ async function trashFinanceTransaction(financeContext, body = {}) {
       throw createHttpError(409, 'La operacion ya se esta procesando. Reintentá en unos segundos.', 'idempotency_in_flight');
     }
 
-    if (['23514', '23502', '23503', '22P02', '22007'].includes(error?.code)) {
-      throw createHttpError(400, 'Transaccion invalida para papelera.', 'validation_error');
-    }
-
     if (error?.message?.includes('finance_transaction_not_found')) {
       throw createHttpError(404, 'Transaccion no encontrada.', 'finance_transaction_not_found');
     }
@@ -73,6 +69,14 @@ async function trashFinanceTransaction(financeContext, body = {}) {
 
     if (error?.code === '23514' && error?.message?.includes('finance_transaction_dependent_on_transfer')) {
       throw createHttpError(409, 'No se puede mover a papelera una comision generada por Transferencia. La comision pertenece a su Transferencia propietaria.', 'finance_transaction_dependent_on_transfer');
+    }
+
+    if (error?.code === '23514' && error?.message?.includes('finance_payment_due_settled_immutable')) {
+      throw createHttpError(409, 'Esta compra ya impacta un resumen de tarjeta con pagos registrados. No se puede mover a papelera.', 'finance_payment_due_settled_immutable');
+    }
+
+    if (['23514', '23502', '23503', '22P02', '22007'].includes(error?.code)) {
+      throw createHttpError(400, 'Transaccion invalida para papelera.', 'validation_error');
     }
 
     const httpError = createHttpError(500, error?.message ?? 'Error interno.', error?.code ?? 'internal_error');

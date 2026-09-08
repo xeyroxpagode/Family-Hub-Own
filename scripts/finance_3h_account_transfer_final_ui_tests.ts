@@ -75,6 +75,7 @@ runTest('H01-H16 Account and Transfer UI wiring', () => {
   const accountsScreen = read('front/mi-front-limpio/screens/finance/FinanceAccountsScreen.tsx');
   const accountForm = read('front/mi-front-limpio/components/finance/AccountFormSheet.tsx');
   const accountDetail = read('front/mi-front-limpio/components/finance/AccountDetailSheet.tsx');
+  const accountEdit = read('front/mi-front-limpio/components/finance/AccountEditSheet.tsx');
 
   assert(newMovement.includes("['expense', 'income', 'transfer']") && !newMovement.includes('<TransferFormSheet'), 'H01 New Movement exposes Transfer mode in the inline switch, no stacked transfer sub-modal');
   assert(newMovement.includes('chooseOperation') && newMovement.includes('operationSelector') && !newMovement.includes("setActivePicker('transfer')") && !newMovement.includes('closeTransferForm'), 'H01 Transfer tab keeps the operation switch visible and renders the transfer form inline, same modal as expense/income');
@@ -87,9 +88,11 @@ runTest('H01-H16 Account and Transfer UI wiring', () => {
   assert(newMovement.includes('transferCrossCurrency') && newMovement.includes('destinationAmount'), 'H08 cross-currency Transfer uses explicit destination amount');
   assert(newMovement.includes('accountType !== \'ACCOUNT\'') && newMovement.includes('CREDIT_CARD'), 'H09 credit card destination is supported but credit card source is denied');
   assert(accountsScreen.includes('<AccountFormSheet') && accountForm.includes('ACCOUNT') && accountForm.includes('CREDIT_CARD'), 'H10 Accounts surface can create ACCOUNT and CREDIT_CARD');
-  assert(accountForm.includes("balanceMode === 'unknown'") && accountForm.includes("balanceMode === 'known'") && accountForm.includes('initialBalance'), 'H11 Account create supports unknown and known starting balance');
+  assert(!accountForm.includes('No lo sé') && !accountForm.includes('balanceMode') && accountForm.includes("parseMoneyInputText('0'") && accountForm.includes('initialBalance'), 'H11 Account create defaults to known zero balance with no "No lo sé" path');
+  assert(accountForm.includes('onPress={() => chooseCurrency(candidate)}') && accountForm.includes("setAmountText('')"), 'H11 changing currency clears the balance amount instead of reinterpreting it');
+  assert(accountForm.includes('const chooseAccountType') && accountForm.includes("parseMoneyInputText('0', currency)"), 'H11 switching account type resets the balance amount to zero');
   assert(accountsScreen.includes('<AccountDetailSheet') && accountsScreen.includes('formatAccountRowAccessibility') && accountsScreen.includes('Deuda ${amount}') && accountsScreen.includes('Saldo a favor ${amount}'), 'H12 Accounts surface renders compact balance/debt rows while preserving full accessibility language');
-  assert(accountsScreen.includes('<BalanceAnchorSheet') && accountsScreen.includes('<BalanceCorrectionSheet'), 'H13 Account Detail can establish UNKNOWN balance and correct KNOWN balance');
+  assert(accountEdit.includes('createFinanceAccountBalanceAnchor') && accountEdit.includes('correctFinanceAccountBalance'), 'H13 Account edit consolidates balance establishment (UNKNOWN) and correction (KNOWN) into one cohesive edit');
   assert(accountDetail.includes('archiveFinanceAccount') && accountDetail.includes('unarchiveFinanceAccount'), 'H14 Account Detail supports archive/unarchive');
   assert(accountsScreen.includes('status: showArchived ? FINANCE_ACCOUNT_STATUSES.ARCHIVED : undefined'), 'H15 archived view asks for archived accounts explicitly');
   assert(!/Budget|Expected Payments|FX engine|bank sync|statement/i.test(`${newMovement}\n${accountsScreen}`), 'H16 3H UI does not expand into later product areas');

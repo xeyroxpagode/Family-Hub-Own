@@ -8,7 +8,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { colors, componentSizes, radius, spacing, typography } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { AppText } from './AppText';
 
 export type AppInputVariant = 'default' | 'large' | 'multiline' | 'search';
@@ -20,13 +20,6 @@ export type AppInputProps = Omit<TextInputProps, 'style'> & {
   variant?: AppInputVariant;
   containerStyle?: StyleProp<ViewStyle>;
   inputStyle?: StyleProp<TextStyle>;
-};
-
-const variantHeights: Record<AppInputVariant, number> = {
-  default: componentSizes.textFieldHeight,
-  large: componentSizes.searchFieldHeight,
-  multiline: 104,
-  search: componentSizes.searchFieldHeight,
 };
 
 export function AppInput({
@@ -43,10 +36,18 @@ export function AppInput({
   onBlur,
   ...props
 }: AppInputProps) {
+  const theme = useAppTheme();
+  const { colors, componentSizes, radius, spacing, typography } = theme;
   const [focused, setFocused] = useState(false);
   const isMultiline = variant === 'multiline' || multiline;
   const hasError = Boolean(errorText);
   const isDisabled = editable === false;
+  const variantHeights: Record<AppInputVariant, number> = {
+    default: componentSizes.textFieldHeight,
+    large: componentSizes.searchFieldHeight,
+    multiline: 104,
+    search: componentSizes.searchFieldHeight,
+  };
 
   return (
     <View style={[{ gap: spacing[2] }, containerStyle]}>

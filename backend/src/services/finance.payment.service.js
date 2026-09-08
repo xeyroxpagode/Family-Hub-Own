@@ -30,6 +30,18 @@ const PAYMENT_SERIES_STATUSES = Object.freeze({
   CANCELLED: 'CANCELLED',
 });
 
+const SAFE_PAYMENT_DOMAIN_MESSAGES = Object.freeze({
+  finance_payment_settlement_exceeds_remaining: 'El monto no puede superar lo que resta pagar.',
+  finance_payment_due_settled_cannot_cancel: 'Este pago ya tiene pagos registrados y no se puede cancelar.',
+  finance_payment_due_settled_immutable: 'Este pago ya tiene pagos registrados y no se puede editar.',
+  finance_payment_due_amount_unknown_for_settlement: 'El monto del pago debe estar definido para registrar pagos parciales.',
+  finance_payment_destination_amount_mismatch: 'En la misma moneda, el monto de origen y destino debe coincidir.',
+  finance_payment_invalid_source_account: 'La cuenta de origen no es valida para pagar esta tarjeta.',
+  finance_payment_invalid_target_credit_card: 'La tarjeta destino no es valida.',
+  invalid_finance_transfer_destination_amount: 'Revisa el monto destino.',
+  invalid_finance_payment_actual_amount: 'Revisa el monto a pagar.',
+});
+
 const RECURRENCE_UNITS = Object.freeze({
   DAY: 'DAY',
   WEEK: 'WEEK',
@@ -110,6 +122,11 @@ function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object ?? {}, key);
 }
 
+function extractFinanceErrorCode(error) {
+  const message = String(error?.message ?? '');
+  return Object.keys(SAFE_PAYMENT_DOMAIN_MESSAGES).find((code) => message.includes(code)) ?? null;
+}
+
 function throwSupabaseError(error) {
   const isRlsViolation =
     error?.code === '42501' ||
@@ -118,6 +135,16 @@ function throwSupabaseError(error) {
 
   if (isRlsViolation) {
     throw createHttpError(403, 'No tenes permiso para acceder a este recurso Payment.', 'finance_payment_forbidden');
+  }
+
+  if (typeof error?.message === 'string' && error.message.includes('finance_account_insufficient_funds')) {
+    throw createHttpError(409, 'No tenés saldo suficiente en la cuenta.', 'finance_account_insufficient_funds');
+  }
+
+  const domainCode = extractFinanceErrorCode(error);
+  if (domainCode) {
+    const status = domainCode.includes('settled') || domainCode.includes('exceeds') ? 409 : 400;
+    throw createHttpError(status, SAFE_PAYMENT_DOMAIN_MESSAGES[domainCode], domainCode);
   }
 
   if (['23514', '23502', '23503', '22P02', '22007', 'P0008', 'P0009'].includes(error?.code)) {
@@ -420,6 +447,7 @@ function dueToDto(row) {
     dueDate: row.due_date,
     categoryId: row.category_id ?? null,
     targetCreditCardAccountId: row.target_credit_card_account_id ?? null,
+    cycleCloseDate: row.cycle_close_date ?? null,
     status: row.status,
     overdue: row.status === 'PENDING' && new Date(row.due_date) < new Date(new Date().toISOString().split('T')[0]),
     paymentSeriesId: row.payment_series_id ?? null,
@@ -428,6 +456,28 @@ function dueToDto(row) {
     updatedAt: row.updated_at,
     createdByPersonId: row.created_by_person_id,
   };
+}
+
+function applyDueProgress(dto, progress) {
+  if (!progress) return dto;
+  return {
+    ...dto,
+    paidSoFar: String(progress.paid_so_far ?? '0'),
+    remaining: String(progress.remaining ?? '0'),
+    isPartiallyPaid: progress.is_partially_paid === true,
+  };
+}
+
+async function loadDueProgress(financeContext, dueId) {
+  const { data, error } = await financeContext.client.rpc('finance_payment_due_progress_v1', { p_due_id: dueId });
+  if (error) throwSupabaseError(error);
+  return Array.isArray(data) ? data[0] ?? null : data;
+}
+
+async function dueToDtoWithProgress(financeContext, row) {
+  const dto = row.status === PAYMENT_DUE_STATUSES.PAID ? paidDueToDto(row) : dueToDto(row);
+  if (row.kind !== PAYMENT_KINDS.CREDIT_CARD) return dto;
+  return applyDueProgress(dto, await loadDueProgress(financeContext, row.id));
 }
 
 function seriesToDto(row) {
@@ -608,6 +658,9 @@ async function createPaymentSeries(financeContext, body = {}) {
 async function listPaymentDues(financeContext, query = {}) {
   assertResolvedFinanceContext(financeContext);
 
+  // 8D.5 catch-up: materialize any missed closed card-cycle dues before reading.
+  await ensureClosedCreditCardPaymentDues(financeContext).catch(() => {});
+
   let request = financeContext.client
     .from('finance_payment_dues')
     .select('*');
@@ -669,7 +722,7 @@ async function listPaymentDues(financeContext, query = {}) {
   const { data, error } = await request;
   if (error) throwSupabaseError(error);
 
-  return { paymentDues: (data ?? []).map(dueToDto) };
+  return { paymentDues: await Promise.all((data ?? []).map((row) => dueToDtoWithProgress(financeContext, row))) };
 }
 
 // =============================================================================
@@ -706,7 +759,7 @@ async function getPaymentDueDetail(financeContext, dueId) {
     throwSupabaseError(error);
   }
 
-  const dto = data.status === 'PAID' ? paidDueToDto(data) : dueToDto(data);
+  const dto = await dueToDtoWithProgress(financeContext, data);
   dto.category = data.finance_categories ? {
     id: data.finance_categories.id,
     label: data.finance_categories.label,
@@ -1143,6 +1196,61 @@ async function registerCreditCardPayment(financeContext, dueId, body = {}) {
   return { paymentDue: dueToDto(data) };
 }
 
+async function settleCreditCardPaymentDue(financeContext, dueId, body = {}) {
+  assertResolvedFinanceContext(financeContext);
+  assertNoAuthorityInjection(body);
+  assertNoForbiddenFields(body, ['id', 'status', 'paymentSeriesId', 'payment_series_id'], 'protected_finance_payment_due_field');
+
+  if (!dueId || !UUID_RE.test(dueId)) {
+    throw createHttpError(400, 'dueId invalido.', 'invalid_finance_payment_due_id');
+  }
+
+  const sourceAmount = normalizeActualAmount(body.sourceAmount ?? body.source_amount ?? body.actualAmount ?? body.actual_amount);
+  const destinationRaw = body.destinationAmount ?? body.destination_amount;
+  const destinationAmount = destinationRaw !== undefined && destinationRaw !== null && destinationRaw !== ''
+    ? normalizePositiveDecimalText(destinationRaw, 'finance_payment_destination_amount_positive')
+    : null;
+  const actualDate = normalizeActualDate(body.actualDate ?? body.actual_date ?? body.date);
+  const sourceAccountId = normalizeOptionalAccountId(body.sourceAccountId ?? body.source_account_id, 'sourceAccountId');
+
+  if (!sourceAccountId) {
+    throw createHttpError(400, 'CREDIT_CARD payment requiere sourceAccountId.', 'finance_payment_credit_card_source_required');
+  }
+
+  const mutationId = normalizeMutationId(body.mutationId ?? body.mutation_id);
+  const idempotencyKey = normalizeIdempotencyKey(body.idempotencyKey ?? body.idempotency_key);
+  const payloadHash = normalizePayloadHash(body.payloadHash ?? body.payload_hash);
+
+  const { data, error } = await financeContext.client.rpc('finance_payment_settle_credit_card_due_v1', {
+    p_due_id: dueId,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_payload_hash: payloadHash,
+    p_created_by_person_id: financeContext.personId,
+    p_source_account_id: sourceAccountId,
+    p_source_amount: sourceAmount,
+    p_destination_amount: destinationAmount,
+    p_actual_date: actualDate,
+  });
+
+  if (error) throwSupabaseError(error);
+  return {
+    settlement: {
+      id: data.settlement_id,
+      paymentDueId: data.due_id,
+      transferId: data.transfer_id,
+      sourceAmount: data.source_amount,
+      destinationAmount: data.destination_amount,
+      sourceCurrency: data.source_currency,
+      destinationCurrency: data.destination_currency,
+    },
+    paidSoFar: data.paid_so_far,
+    remaining: data.remaining,
+    isPartiallyPaid: data.is_partially_paid === true,
+    status: data.due_status,
+  };
+}
+
 async function registerPayment(financeContext, dueId, body = {}) {
   // First get the due to determine kind, then dispatch
   const { data: due, error } = await financeContext.client
@@ -1184,6 +1292,24 @@ function paidDueToDto(row) {
   };
 }
 
+// =============================================================================
+// AUTOMATIC CYCLE PAYMENTDUE CATCH-UP (8D.5)
+// =============================================================================
+async function ensureClosedCreditCardPaymentDuesRaw(client, asOfDate) {
+  const date = asOfDate ?? new Date().toISOString().split('T')[0];
+  const { data, error } = await client.rpc(
+    'finance_ensure_closed_credit_card_payment_dues_v1',
+    { p_as_of_date: date },
+  );
+  if (error) throwSupabaseError(error);
+  return data;
+}
+
+async function ensureClosedCreditCardPaymentDues(financeContext, asOfDate) {
+  assertResolvedFinanceContext(financeContext);
+  return ensureClosedCreditCardPaymentDuesRaw(financeContext.client, asOfDate);
+}
+
 module.exports = {
   PAYMENT_KINDS,
   PAYMENT_KIND_VALUES,
@@ -1203,7 +1329,10 @@ module.exports = {
   editPaymentSeries,
   registerNormalPayment,
   registerCreditCardPayment,
+  settleCreditCardPaymentDue,
   registerPayment,
+  ensureClosedCreditCardPaymentDues,
+  ensureClosedCreditCardPaymentDuesRaw,
   assertResolvedFinanceContext,
   assertNoAuthorityInjection,
   assertNoForbiddenFields,

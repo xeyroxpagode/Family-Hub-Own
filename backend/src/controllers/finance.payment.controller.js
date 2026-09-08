@@ -130,6 +130,17 @@ const registerPayment = async (req, res) => {
   }
 };
 
+const settleCreditCardPaymentDue = async (req, res) => {
+  try {
+    const financeContext = await resolveFinanceContext(req, contextTypeFrom(req));
+    const dueId = req.params?.dueId ?? req.query?.dueId;
+    const payload = await paymentService.settleCreditCardPaymentDue(financeContext, dueId, req.body ?? {});
+    return res.status(201).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
 module.exports = {
   createOneOffPaymentDue,
   createPaymentSeries,
@@ -142,4 +153,5 @@ module.exports = {
   editPaymentDue,
   editPaymentSeries,
   registerPayment,
+  settleCreditCardPaymentDue,
 };

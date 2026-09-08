@@ -1,5 +1,6 @@
-import { OPERATION_KINDS, requestJson } from '../api';
+import { OPERATION_KINDS, createIdempotencyKey, generateMutationId, requestJson } from '../api';
 import type { FinanceContextType } from './financeContext';
+import type { FinanceTransferDto } from './financeTransfers';
 import { normalizeFinanceTransactionDetailPayload } from './financeTransactionDetail';
 import type { FinanceRefundEventDto, FinanceTransactionDetailDto } from './financeTransactionDetail';
 import * as Crypto from 'expo-crypto';
@@ -102,6 +103,20 @@ export type CreateFinanceTransactionPayload = {
 
 export type CreateFinanceTransactionResponse = {
   transaction: FinanceTransactionDto;
+};
+
+export type CreateFinanceInstallmentExpensePayload = CreateFinanceTransactionPayload & {
+  account: string;
+  installmentCount: number;
+};
+
+export type CreateFinanceInstallmentExpenseResponse = {
+  transactionId: string;
+  rootTransactionId: string;
+  installmentCount: number;
+  totalAmount: string;
+  currency: string;
+  outcome: 'created' | 'replay';
 };
 
 export type FinanceMovementDto = {
@@ -305,6 +320,17 @@ export const createFinanceIncome = (
   accessToken: string,
   payload: CreateFinanceTransactionPayload,
 ) => createFinanceTransaction('/api/finance/incomes', accessToken, payload);
+
+export const createFinanceInstallmentExpense = (
+  accessToken: string,
+  payload: CreateFinanceInstallmentExpensePayload,
+) =>
+  requestJson<CreateFinanceInstallmentExpenseResponse>('/api/finance/expenses/installment', {
+    method: 'POST',
+    accessToken,
+    operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
+    body: payload,
+  });
 
 type FinanceReadOptions = {
   accessToken: string;
@@ -729,6 +755,80 @@ export const getFinanceTransferDetail = ({
       operationKind: OPERATION_KINDS.READ_ONLY,
     },
   );
+
+export type TransferLifecycleResponse = {
+  transfer: FinanceTransferDto;
+  outcome: 'replay' | 'trashed' | 'restored';
+};
+
+type TransferLifecycleOptions = {
+  accessToken: string;
+  contextType: FinanceContextType;
+  personId: string;
+  householdId: string | null;
+  transferId: string;
+  signal?: AbortSignal | null;
+  contextScope?: string | null;
+};
+
+async function transferLifecyclePayloadHash(
+  operation: 'finance.transfer.trash' | 'finance.transfer.restore',
+  contextType: FinanceContextType,
+  personId: string,
+  householdId: string | null,
+  transferId: string,
+  mutationId: string,
+): Promise<string> {
+  return hashIdempotencyRequestV2({
+    operation,
+    scopeType: contextType,
+    scopeId: contextType === 'personal' ? personId : householdId,
+    targetId: transferId,
+    payload: { transferId },
+    expectedVersion: null,
+    mutationId,
+  });
+}
+
+async function mutateTransferLifecycle(
+  operation: 'finance.transfer.trash' | 'finance.transfer.restore',
+  pathAction: 'trash' | 'restore',
+  options: TransferLifecycleOptions,
+): Promise<TransferLifecycleResponse> {
+  const mutationId = generateMutationId();
+  const idempotencyKey = createIdempotencyKey(operation);
+  const payloadHash = await transferLifecyclePayloadHash(
+    operation,
+    options.contextType,
+    options.personId,
+    options.householdId,
+    options.transferId,
+    mutationId,
+  );
+
+  return requestJson<TransferLifecycleResponse>(
+    `/api/finance/transfers/${options.transferId}/${pathAction}`,
+    {
+      method: 'POST',
+      accessToken: options.accessToken,
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
+      mutationId,
+      idempotencyKey,
+      body: {
+        contextType: options.contextType,
+        payloadHash,
+      },
+      signal: options.signal,
+      contextScope: options.contextScope,
+    },
+  );
+}
+
+export const trashFinanceTransfer = (options: TransferLifecycleOptions) =>
+  mutateTransferLifecycle('finance.transfer.trash', 'trash', options);
+
+export const restoreFinanceTransfer = (options: TransferLifecycleOptions) =>
+  mutateTransferLifecycle('finance.transfer.restore', 'restore', options);
 
 type CreateFinanceRefundOptions = {
   accessToken: string;

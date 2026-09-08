@@ -116,6 +116,6 @@ app.use((err, req, res, next) => {
 
 // 9. Encender servidor
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor listo en http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor listo en http://0.0.0.0:${PORT}`);
 });

@@ -549,6 +549,57 @@ const commands = {
       { env },
     );
   },
+  'finance-8d1-backend': () => runCommand(
+    'Finance 8D.1 credit card account foundation backend tests',
+    'node',
+    ['scripts/finance_8d1_credit_card_account_foundation_tests.js'],
+  ),
+  'finance-8d2-backend': () => runCommand(
+    'Finance 8D.2 credit card installment foundation backend tests',
+    'node',
+    ['scripts/finance_8d2_credit_card_installment_foundation_tests.js'],
+  ),
+  'finance-8d6-backend': () => runCommand(
+    'Finance 8D.6 partial credit card settlement backend tests',
+    'node',
+    ['scripts/finance_8d6_credit_card_partial_settlement_tests.js'],
+  ),
+  'finance-8d7-backend': () => runCommand(
+    'Finance 8D.7 credit card lifecycle interactions backend tests',
+    'node',
+    ['scripts/finance_8d7_credit_card_lifecycle_interactions_tests.js'],
+  ),
+  'finance-8c8d1-backend': () => runCommand(
+    'Finance 8C/8D.1 accounts-cards closure backend tests',
+    'node',
+    ['scripts/finance_8c8d1_accounts_cards_polish_tests.js'],
+  ),
+  'finance-8c8d1-frontend': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3001',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Finance 8C/8D.1 accounts-cards closure frontend tests',
+      'node',
+      ['scripts/compiled/scripts/finance_8c8d1_accounts_cards_polish_tests.js'],
+      { env },
+    );
+  },
+  'finance-8d1-frontend': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3001',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Finance 8D.1 credit card account foundation frontend tests',
+      'node',
+      ['scripts/compiled/scripts/finance_8d1_credit_card_account_foundation_tests.js'],
+      { env },
+    );
+  },
   'runtime-smoke': () => runCommand(
     'Frontend runtime smoke',
     'node',
@@ -641,6 +692,13 @@ const suites = {
   'finance-6f': ['compile-frontend-tests', 'finance-6f-spending-limits-frontend'],
   'finance-7d': ['compile-frontend-tests', 'finance-7d-unified-movements-frontend'],
   finance: ['compile-frontend-tests', 'finance-1b-contract', 'finance-1b-database', 'finance-1c-ownership-privacy', 'finance-1d-source-context-boundary', 'finance-1e-frontend', 'finance-1f-integration', 'finance-2a-transaction-contract', 'finance-2b-category-authority', 'finance-2c-expense-income', 'finance-2d-money-input', 'finance-2e-expense-income-ui', 'finance-2f-read-authority', 'finance-2f-ui', 'finance-3a-account-authority', 'finance-3b-balance-anchor', 'finance-3c-balance-correction', 'finance-3d-credit-card-semantics', 'finance-3e-canonical-transfer', 'finance-3f-cross-currency-transfer', 'finance-3g-transfer-commission-composition', 'finance-3h-account-transfer-ui', 'finance-4b-effect-status', 'finance-4c-lifecycle', 'finance-4d-trash', 'finance-4g-restore', 'finance-4i-b', 'finance-4j', 'finance-5e-frontend', 'finance-5f', 'finance-5g', 'finance-6d', 'finance-6e1', 'finance-6f'],
+  'finance-8d1-backend': ['finance-8d1-backend'],
+  'finance-8d1-frontend': ['compile-frontend-tests', 'finance-8d1-frontend'],
+  'finance-8d2-backend': ['finance-8d2-backend'],
+  'finance-8d6-backend': ['finance-8d6-backend'],
+  'finance-8d7-backend': ['finance-8d7-backend'],
+  'finance-8c8d1-backend': ['finance-8c8d1-backend'],
+  'finance-8c8d1-frontend': ['compile-frontend-tests', 'finance-8c8d1-frontend'],
   'planner-presets-drafts': ['compile-frontend-tests', 'planner-v1-presets-drafts'],
   'planner-presets-drafts-integration': ['compile-frontend-tests', 'planner-v1-presets-drafts-integration'],
   'planner-shared-s2-runtime': ['compile-frontend-tests', 'planner-v1-s2-runtime-owner'],

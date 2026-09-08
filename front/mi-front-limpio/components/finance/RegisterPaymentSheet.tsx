@@ -3,14 +3,12 @@ import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets, typography } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError } from '../../services/api';
 import type { FinanceContextType, FinanceContextViewState, FinanceActiveHousehold } from '../../services/finance/financeContext';
 import {
-  registerNormalPayment,
   registerPayment,
   type PaymentDueDto,
-  type PaymentKind,
   formatExpectedAmount,
   PAYMENT_KINDS,
 } from '../../services/finance/financePayments';
@@ -29,7 +27,6 @@ import {
 import {
   ActionSheet,
   AppButton,
-  AppInput,
   AppText,
   DatePickerSheet,
   FormActionRow,
@@ -63,6 +60,9 @@ export function RegisterPaymentSheet({
   onRequestClose,
   onSuccess,
 }: RegisterPaymentSheetProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const [amountText, setAmountText] = useState('');
   const [amount, setAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
   const [currency, setCurrency] = useState<MoneyInputCurrencyCode>('ARS');
@@ -385,10 +385,10 @@ export function RegisterPaymentSheet({
           {!isNormal && (
             <View style={styles.fieldGroup}>
               <AppText variant="caption" tone="warning" weight="700">
-                ⚠ Pago de tarjeta de crédito (se liquida como transferencia)
+                Pago de tarjeta de crédito
               </AppText>
               <AppText variant="caption" tone="tertiary">
-                La UX completa de liquidación de tarjeta llega en Stage 5G. Por ahora no se puede registrar.
+                Se liquida desde Pagar tarjeta para registrar transferencias y pagos parciales correctamente.
               </AppText>
             </View>
           )}
@@ -431,68 +431,72 @@ export function RegisterPaymentSheet({
   );
 }
 
-const styles = StyleSheet.create({
-  sheetBody: {
-    flex: 1,
-    position: 'relative',
-  },
-  form: {
-    gap: spacing[4],
-    paddingBottom: spacing[4],
-  },
-  fieldGroup: {
-    gap: spacing[2],
-  },
-  paymentTitle: {
-    marginBottom: spacing[1],
-  },
-  expectedAmountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  recurrenceHint: {
-    marginTop: spacing[1],
-  },
-  categoryPicker: {
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface.card,
-    padding: spacing[2],
-    gap: spacing[1],
-  },
-  categoryOption: {
-    minHeight: 44,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  categoryOptionSelected: {
-    backgroundColor: colors.terracotta[50],
-  },
-  categoryLabel: {
-    flex: 1,
-    minWidth: 0,
-  },
-  errorBox: {
-    borderRadius: radius.lg,
-    backgroundColor: colors.danger.soft,
-    padding: spacing[3],
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  errorText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  footer: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  footerButton: {
-    flex: 1,
-  },
-});
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
+    sheetBody: {
+      flex: 1,
+      position: 'relative',
+    },
+    form: {
+      gap: spacing[4],
+      paddingBottom: spacing[4],
+    },
+    fieldGroup: {
+      gap: spacing[2],
+    },
+    paymentTitle: {
+      marginBottom: spacing[1],
+    },
+    expectedAmountRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[2],
+    },
+    recurrenceHint: {
+      marginTop: spacing[1],
+    },
+    categoryPicker: {
+      borderWidth: 1,
+      borderColor: colors.border.subtle,
+      borderRadius: radius.xl,
+      backgroundColor: colors.surface.card,
+      padding: spacing[2],
+      gap: spacing[1],
+    },
+    categoryOption: {
+      minHeight: 44,
+      borderRadius: radius.lg,
+      paddingHorizontal: spacing[3],
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[2],
+    },
+    categoryOptionSelected: {
+      backgroundColor: colors.terracotta[50],
+    },
+    categoryLabel: {
+      flex: 1,
+      minWidth: 0,
+    },
+    errorBox: {
+      borderRadius: radius.lg,
+      backgroundColor: colors.danger.soft,
+      padding: spacing[3],
+      flexDirection: 'row',
+      gap: spacing[2],
+    },
+    errorText: {
+      flex: 1,
+      minWidth: 0,
+    },
+    footer: {
+      flexDirection: 'row',
+      gap: spacing[2],
+    },
+    footerButton: {
+      flex: 1,
+    },
+  });
+}

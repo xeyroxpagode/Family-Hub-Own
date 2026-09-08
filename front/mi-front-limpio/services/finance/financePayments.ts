@@ -79,6 +79,10 @@ export type PaymentDueDto = {
   expenseRootTransactionId?: string | null;
   transferId?: string | null;
   consequenceType?: 'EXPENSE' | 'TRANSFER';
+  cycleCloseDate?: string | null;
+  paidSoFar?: string;
+  remaining?: string;
+  isPartiallyPaid?: boolean;
 };
 
 export type PaymentSeriesDto = {
@@ -216,6 +220,29 @@ export type RegisterCreditCardPaymentPayload = {
 
 export type RegisterPaymentResponse = {
   paymentDue: PaymentDueDto;
+};
+
+export type SettleCreditCardPaymentDuePayload = {
+  sourceAmount: string;
+  actualDate: string;
+  sourceAccountId: string;
+  destinationAmount?: string | null;
+};
+
+export type SettleCreditCardPaymentDueResponse = {
+  settlement: {
+    id: string;
+    paymentDueId: string;
+    transferId: string;
+    sourceAmount: string;
+    destinationAmount: string;
+    sourceCurrency: string;
+    destinationCurrency: string;
+  };
+  paidSoFar: string;
+  remaining: string;
+  isPartiallyPaid: boolean;
+  status: PaymentDueStatus;
 };
 
 const encodeQuery = (params: Record<string, string | undefined>) => {
@@ -591,6 +618,38 @@ export const registerCreditCardPayment = async (
       payloadHash,
     },
     contextScope: `finance:payment-register-cc:${contextType}:${dueId}:${mutationId}`,
+  });
+};
+
+export const settleCreditCardPaymentDue = async (
+  accessToken: string,
+  contextType: FinanceContextType,
+  dueId: string,
+  payload: SettleCreditCardPaymentDuePayload,
+): Promise<SettleCreditCardPaymentDueResponse> => {
+  const mutationId = generateMutationId();
+  const scopeId = contextType === 'personal' ? 'personal' : 'household';
+  const { idempotencyKey, payloadHash } = await buildIdempotencyPayload(
+    'settle_credit_card_due',
+    scopeId,
+    scopeId,
+    dueId,
+    payload,
+    mutationId,
+  );
+
+  return requestJson<SettleCreditCardPaymentDueResponse>(`/api/finance/payments/dues/${dueId}/settlements`, {
+    method: 'POST',
+    accessToken,
+    operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION,
+    body: {
+      ...payload,
+      contextType,
+      mutationId,
+      idempotencyKey,
+      payloadHash,
+    },
+    contextScope: `finance:payment-settle-cc:${contextType}:${dueId}:${mutationId}`,
   });
 };
 

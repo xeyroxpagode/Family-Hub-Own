@@ -18,6 +18,7 @@ import type { RootStackParamList } from './navigation/types';
 import { registerLifecycleHandlers } from './services/registerLifecycleHandlers';
 import { FeatureFlagsProvider } from './context/FeatureFlagsContext';
 import { AuthLoadingScreen } from './screens/AuthLoading';
+import { AppThemeProvider } from './context/AppThemeContext';
 
 registerLifecycleHandlers();
 
@@ -65,21 +66,25 @@ export default function App() {
     DMSerifDisplay_400Regular,
   });
 
-  if (!fontsLoaded) return <AuthLoadingScreen />;
-
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <HouseholdProvider>
-          <FeatureFlagsProvider>
-            <AppRefreshProvider>
-              <NavigationContainer linking={linking}>
-                <AppNavigator />
-              </NavigationContainer>
-            </AppRefreshProvider>
-          </FeatureFlagsProvider>
-        </HouseholdProvider>
-      </AuthProvider>
+      <AppThemeProvider>
+        {!fontsLoaded ? (
+          <AuthLoadingScreen />
+        ) : (
+          <AuthProvider>
+            <HouseholdProvider>
+              <FeatureFlagsProvider>
+                <AppRefreshProvider>
+                  <NavigationContainer linking={linking}>
+                    <AppNavigator />
+                  </NavigationContainer>
+                </AppRefreshProvider>
+              </FeatureFlagsProvider>
+            </HouseholdProvider>
+          </AuthProvider>
+        )}
+      </AppThemeProvider>
     </SafeAreaProvider>
   );
 }

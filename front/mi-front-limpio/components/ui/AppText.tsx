@@ -1,7 +1,8 @@
 import React from 'react';
 import { Text, type TextProps, type TextStyle } from 'react-native';
 
-import { colors, typography, type TypographyVariant } from '../../constants/theme';
+import { type ColorTokens, type TypographyVariant } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 
 export type AppTextTone =
   | 'primary'
@@ -22,7 +23,7 @@ export type AppTextProps = TextProps & {
   weight?: TextStyle['fontWeight'];
 };
 
-const toneColors: Record<AppTextTone, string> = {
+const getToneColors = (colors: ColorTokens): Record<AppTextTone, string> => ({
   primary: colors.text.primary,
   secondary: colors.text.secondary,
   tertiary: colors.text.tertiary,
@@ -33,7 +34,7 @@ const toneColors: Record<AppTextTone, string> = {
   warning: colors.warning.text,
   success: colors.success.text,
   info: colors.info.text,
-};
+});
 
 function fontFamilyForWeight(weight?: TextStyle['fontWeight']) {
   if (!weight) return null;
@@ -53,11 +54,14 @@ export function AppText({
   children,
   ...props
 }: AppTextProps) {
+  const theme = useAppTheme();
+  const toneColors = getToneColors(theme.colors);
+
   return (
     <Text
       {...props}
       style={[
-        typography[variant],
+        theme.typography[variant],
         { color: toneColors[tone], textAlign: align },
         fontFamilyForWeight(weight),
         weight ? { fontWeight: weight } : null,

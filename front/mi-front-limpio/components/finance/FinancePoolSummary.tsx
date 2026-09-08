@@ -1,8 +1,8 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, radius, spacing, typography } from '../../constants/theme';
-import { AppButton, AppCard, AppText, Skeleton } from '../../components/ui';
+import { colors, motion, radius, spacing, typography } from '../../constants/theme';
+import { AppButton, AppCard, AppText, InteractivePressable, Skeleton } from '../../components/ui';
 import { formatFinanceAmount, isZeroDecimalString } from '../../services/finance/financeDisplay';
 import type { FinancePoolSummaryResponse } from '../../services/finance/financePools';
 
@@ -70,12 +70,14 @@ export function FinancePoolSummary({
   error,
   onRetry,
   onOrganize,
+  onOpenAccounts,
 }: {
   summary: FinancePoolSummaryResponse | null;
   loading: boolean;
   error: string | null;
   onRetry?: () => void;
   onOrganize?: () => void;
+  onOpenAccounts?: () => void;
 }) {
   if (loading && !summary) {
     return (
@@ -178,6 +180,21 @@ export function FinancePoolSummary({
           )}
         </View>
       )}
+
+      {onOpenAccounts && (
+        <InteractivePressable
+          onPress={onOpenAccounts}
+          haptic="light"
+          pressScale={motion.scale.tab}
+          style={styles.accountsEntry}
+          accessibilityRole="button"
+          accessibilityLabel="Abrir Cuentas"
+        >
+          <HomePlusIcon name="wallet-outline" size={18} color={colors.terracotta[600]} />
+          <AppText variant="body" weight="800">Cuentas</AppText>
+          <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
+        </InteractivePressable>
+      )}
     </AppCard>
   );
 }
@@ -251,6 +268,16 @@ const styles = StyleSheet.create({
   },
   emptyCta: {
     marginTop: spacing[2],
+  },
+  accountsEntry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    minHeight: 44,
+    marginTop: spacing[4],
+    borderTopWidth: 1,
+    borderTopColor: colors.border.subtle,
+    paddingTop: spacing[3],
   },
   errorText: {
     marginTop: spacing[2],

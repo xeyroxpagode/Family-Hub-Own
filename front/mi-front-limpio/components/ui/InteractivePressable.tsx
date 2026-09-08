@@ -8,7 +8,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { motion } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { lightHaptic, mediumHaptic } from '../../utils/haptics';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -27,13 +27,15 @@ export function InteractivePressable({
   children,
   disabled,
   style,
-  pressScale = motion.scale.button,
+  pressScale,
   pressedOpacity = 0.9,
   haptic = 'none',
   onPressIn,
   onPressOut,
   ...props
 }: InteractivePressableProps) {
+  const { motion } = useAppTheme();
+  const resolvedPressScale = pressScale ?? motion.scale.button;
   const scale = useRef(new Animated.Value(1)).current;
   const [pressed, setPressed] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -57,7 +59,7 @@ export function InteractivePressable({
       if (haptic === 'medium') void mediumHaptic();
       if (!reduceMotion) {
         Animated.spring(scale, {
-          toValue: pressScale,
+          toValue: resolvedPressScale,
           ...motion.spring.press,
           useNativeDriver: true,
         }).start();

@@ -3,8 +3,8 @@ import { FlatList, Keyboard, Modal, Pressable, StyleSheet, View, useWindowDimens
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, motion, radius, shadows, spacing, touchTargets } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { lightHaptic } from '../../utils/haptics';
 import { AppButton } from './AppButton';
 import { AppText } from './AppText';
@@ -37,6 +37,10 @@ export const formatHumanDate = (value: string) => {
 type InlinePickerProps = { title: string; onClose: () => void; onConfirm: () => void; children: React.ReactNode };
 
 function InlinePicker({ title, onClose, onConfirm, children }: InlinePickerProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createActionSheetStyles(theme);
+
   return (
     <View style={styles.inlineOverlay} accessibilityViewIsModal>
       <View style={styles.inlinePanel}>
@@ -64,6 +68,9 @@ export type ActionSheetProps = {
 };
 
 export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer, size = 'full' }: ActionSheetProps) {
+  const theme = useAppTheme();
+  const { colors, spacing } = theme;
+  const styles = createActionSheetStyles(theme);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const fullSheetHeight = Math.max(360, height - insets.top - spacing[3]);
@@ -98,6 +105,10 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
 }
 
 export function FormActionRow({ label, value, onPress, accessibilityLabel, disabled }: { label: string; value: string; onPress: () => void; accessibilityLabel?: string; disabled?: boolean }) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createActionSheetStyles(theme);
+
   return (
     <InteractivePressable style={styles.actionRow} onPress={() => { Keyboard.dismiss(); onPress(); }} disabled={disabled} haptic="light" pressScale={motion.scale.card} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? `${label}: ${value}`}>
       <AppText variant="bodySmall" weight="700" style={{ flex: 1 }}>{label}</AppText>
@@ -108,6 +119,9 @@ export function FormActionRow({ label, value, onPress, accessibilityLabel, disab
 }
 
 export function DatePickerSheet({ visible, value, onClose, onConfirm }: { visible: boolean; value: string; onClose: () => void; onConfirm: (value: string) => void }) {
+  const theme = useAppTheme();
+  const { colors, spacing } = theme;
+  const styles = createActionSheetStyles(theme);
   const [draft, setDraft] = useState(value);
   useEffect(() => {
     if (visible) setDraft(value);
@@ -124,6 +138,8 @@ export function DatePickerSheet({ visible, value, onClose, onConfirm }: { visibl
 }
 
 function WheelColumn({ values, selected, onSelect, accessibilityLabel }: { values: number[]; selected: number; onSelect: (value: number) => void; accessibilityLabel: string }) {
+  const theme = useAppTheme();
+  const styles = createActionSheetStyles(theme);
   const initialIndex = Math.max(0, values.indexOf(selected));
   const selectOffset = (offset: number) => {
     const index = Math.round(offset / WHEEL_ITEM_HEIGHT);
@@ -134,6 +150,9 @@ function WheelColumn({ values, selected, onSelect, accessibilityLabel }: { value
 }
 
 export function TimePickerSheet({ visible, value, onClose, onConfirm }: { visible: boolean; value: string; onClose: () => void; onConfirm: (value: string) => void }) {
+  const theme = useAppTheme();
+  const { spacing } = theme;
+  const styles = createActionSheetStyles(theme);
   const [hours, minutes] = value.split(':').map(Number);
   const [draftHour, setDraftHour] = useState(Number.isInteger(hours) ? hours : 9);
   const [draftMinute, setDraftMinute] = useState(Number.isInteger(minutes) ? Math.round(minutes / 5) * 5 % 60 : 0);
@@ -148,7 +167,10 @@ export function TimePickerSheet({ visible, value, onClose, onConfirm }: { visibl
   return <InlinePicker title="Seleccionar hora" onClose={onClose} onConfirm={() => onConfirm(`${String(draftHour).padStart(2, '0')}:${String(draftMinute).padStart(2, '0')}`)}><View style={styles.wheelRow}><View style={styles.wheelFrame} pointerEvents="none" /><WheelColumn values={hourValues} selected={draftHour} onSelect={setDraftHour} accessibilityLabel="Hora" /><AppText variant="title2" weight="800">:</AppText><WheelColumn values={minuteValues} selected={draftMinute} onSelect={setDraftMinute} accessibilityLabel="Minutos" /></View><AppText variant="bodySmall" tone="secondary" align="center" style={{ marginTop: spacing[4] }}>{`${String(draftHour).padStart(2, '0')}:${String(draftMinute).padStart(2, '0')}`}</AppText></InlinePicker>;
 }
 
-const styles = StyleSheet.create({
+function createActionSheetStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, shadows, spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: colors.surface.overlay },
   backdropDismiss: { ...StyleSheet.absoluteFillObject, zIndex: 0 },
   modalSheet: { zIndex: 1, backgroundColor: colors.background.base, borderTopLeftRadius: radius.xxl, borderTopRightRadius: radius.xxl, paddingHorizontal: spacing[5], paddingTop: spacing[3], ...shadows.sheet },
@@ -160,4 +182,5 @@ const styles = StyleSheet.create({
   inlineHeader: { minHeight: touchTargets.normal, flexDirection: 'row', alignItems: 'center', gap: spacing[2], marginBottom: spacing[5] }, inlineTitle: { flex: 1, textAlign: 'center' }, inlineContent: { flex: 1, position: 'relative' },
   actionRow: { minHeight: 56, paddingHorizontal: spacing[4], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.soft, flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, actionRowValue: { maxWidth: '58%', textAlign: 'right' },
   wheelRow: { height: WHEEL_ITEM_HEIGHT * 5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing[3] }, wheelFrame: { position: 'absolute', top: WHEEL_ITEM_HEIGHT * 2, left: 0, right: 0, height: WHEEL_ITEM_HEIGHT, zIndex: 1, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.terracotta[300], backgroundColor: colors.terracotta[50] }, wheelColumn: { width: 92, height: WHEEL_ITEM_HEIGHT * 5 }, wheelContent: { paddingVertical: WHEEL_ITEM_HEIGHT * 2 }, wheelItem: { height: WHEEL_ITEM_HEIGHT, alignItems: 'center', justifyContent: 'center' },
-});
+  });
+}

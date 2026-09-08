@@ -3,17 +3,18 @@ import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError } from '../../services/api';
 import type { FinanceContextType, FinanceContextViewState, FinanceActiveHousehold } from '../../services/finance/financeContext';
 import {
-  registerCreditCardPayment,
+  settleCreditCardPaymentDue,
   type PaymentDueDto,
-  PAYMENT_KINDS,
   formatExpectedAmount,
 } from '../../services/finance/financePayments';
 import { type FinanceAccountDto } from '../../services/finance/financeAccounts';
 import { useEligibleAccounts } from '../../services/finance/financeAccountEligibility';
+import { compareDecimalStrings } from '../../services/finance/accountDisplay';
+import { formatFinanceAmount } from '../../services/finance/financeDisplay';
 import {
   DEFAULT_MONEY_INPUT_CURRENCY_OPTIONS,
   parseMoneyInputText,
@@ -57,6 +58,9 @@ export function PayCreditCardSheet({
   onRequestClose,
   onSuccess,
 }: PayCreditCardSheetProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const [amountText, setAmountText] = useState('');
   const [amount, setAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
   const [currency, setCurrency] = useState<MoneyInputCurrencyCode>('ARS');
@@ -79,6 +83,13 @@ export function PayCreditCardSheet({
     () => formatExpectedAmount(payment?.expectedAmountKnown ?? true, payment?.expectedAmount ?? null, destinationCurrencyCode),
     [payment?.expectedAmountKnown, payment?.expectedAmount, destinationCurrencyCode],
   );
+  const paidSoFar = payment?.paidSoFar ?? '0';
+  const remainingAmount = payment?.remaining ?? (payment?.expectedAmountKnown ? payment.expectedAmount ?? '0' : null);
+  const remainingAmountText = remainingAmount
+    ? formatFinanceAmount(remainingAmount, destinationCurrencyCode, { sign: 'none' })
+    : 'A confirmar';
+  const paidSoFarText = formatFinanceAmount(paidSoFar, destinationCurrencyCode, { sign: 'none' });
+  const hasProgress = payment?.kind === 'CREDIT_CARD' && (payment.isPartiallyPaid || compareDecimalStrings(paidSoFar, '0') > 0);
 
   const contextUnavailable = contextState === 'loading' || contextState === 'household_unavailable';
 
@@ -100,7 +111,7 @@ export function PayCreditCardSheet({
     if (!visible || !payment) return;
     const paymentCurrency = payment.currency;
     const cardCurrency = payment.targetCreditCard?.currency ?? paymentCurrency;
-    const knownAmount = payment.expectedAmountKnown && payment.expectedAmount ? payment.expectedAmount : '';
+    const knownAmount = payment.remaining ?? (payment.expectedAmountKnown && payment.expectedAmount ? payment.expectedAmount : '');
     setAmountText(knownAmount);
     setAmount(parseMoneyInputText(knownAmount, paymentCurrency as MoneyInputCurrencyCode));
     setCurrency(paymentCurrency as MoneyInputCurrencyCode);
@@ -160,7 +171,13 @@ export function PayCreditCardSheet({
     setAccountSelectorVisible(false);
   };
 
-  const canSubmit = Boolean(accessToken) && !contextUnavailable && !submitting && amount.isValid && (!isCrossCurrency || destinationAmount.isValid) && Boolean(selectedAccountId);
+  const settlementAmount = isCrossCurrency ? destinationAmount.technicalValue?.amount ?? null : amount.technicalValue?.amount ?? null;
+  const exceedsRemaining = Boolean(
+    remainingAmount &&
+    settlementAmount &&
+    compareDecimalStrings(settlementAmount, remainingAmount) > 0,
+  );
+  const canSubmit = Boolean(accessToken) && !contextUnavailable && !submitting && amount.isValid && (!isCrossCurrency || destinationAmount.isValid) && Boolean(selectedAccountId) && !exceedsRemaining;
 
   const submit = async () => {
     if (!canSubmit || !payment) return;
@@ -187,9 +204,13 @@ export function PayCreditCardSheet({
       setSubmitError('Seleccioná la cuenta de origen para pagar la tarjeta.');
       return;
     }
+    if (exceedsRemaining) {
+      setSubmitError('El monto no puede superar lo que resta pagar.');
+      return;
+    }
 
     const payload = {
-      actualAmount: amount.technicalValue.amount,
+      sourceAmount: amount.technicalValue.amount,
       actualDate: date,
       sourceAccountId: selectedAccountId,
       ...(isCrossCurrency && destinationAmount.technicalValue ? { destinationAmount: destinationAmount.technicalValue.amount } : {}),
@@ -197,7 +218,7 @@ export function PayCreditCardSheet({
 
     setSubmitting(true);
     try {
-      await registerCreditCardPayment(accessToken, contextType, payment.id, payload);
+      await settleCreditCardPaymentDue(accessToken, contextType, payment.id, payload);
       resetDraft();
       onRequestClose();
       onSuccess();
@@ -223,7 +244,7 @@ export function PayCreditCardSheet({
   return (
     <ActionSheet
       visible={visible}
-      title="Pagar tarjeta"
+      title={payment.isPartiallyPaid ? 'Pagar restante' : 'Pagar tarjeta'}
       subtitle={payment.title}
       onRequestClose={close}
       closeDisabled={submitting}
@@ -244,12 +265,24 @@ export function PayCreditCardSheet({
             </AppText>
             <View style={styles.expectedAmountRow}>
               <AppText variant="caption" tone="secondary">
-                Esperado:
+                Total:
               </AppText>
               <AppText variant="body" weight="800" tone={payment.expectedAmountKnown ? 'primary' : 'secondary'}>
                 {expectedAmountText}
               </AppText>
             </View>
+            {hasProgress ? (
+              <View style={styles.progressBox}>
+                <View style={styles.progressRow}>
+                  <AppText variant="caption" tone="secondary" weight="700">Ya pagaste</AppText>
+                  <AppText variant="bodySmall" weight="800" tone="success">{paidSoFarText}</AppText>
+                </View>
+                <View style={styles.progressRow}>
+                  <AppText variant="caption" tone="secondary" weight="700">Resta</AppText>
+                  <AppText variant="bodySmall" weight="800">{remainingAmountText}</AppText>
+                </View>
+              </View>
+            ) : null}
             {payment.paymentSeriesId && (
               <AppText variant="caption" tone="secondary" style={styles.recurrenceHint}>
                 Parte de una serie recurrente
@@ -278,7 +311,7 @@ export function PayCreditCardSheet({
               label={isCrossCurrency ? `Monto en ${destinationCurrencyCode}` : 'Monto'}
               helperText={isCrossCurrency ? 'Monto que recibirá la tarjeta en su moneda' : 'Magnitud positiva.'}
               disabled={submitting}
-              errorText={destinationAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
+              errorText={destinationAmount.status === 'invalid' ? 'Revisá el monto.' : exceedsRemaining ? 'El monto no puede superar lo que resta pagar.' : undefined}
             />
           </View>
 
@@ -312,7 +345,7 @@ export function PayCreditCardSheet({
                 label="Monto a pagar"
                 helperText='Magnitud positiva. Podés ajustar respecto al esperado.'
                 disabled={submitting}
-                errorText={amount.status === 'invalid' ? 'Revisá el monto.' : undefined}
+                errorText={amount.status === 'invalid' ? 'Revisá el monto.' : exceedsRemaining ? 'El monto no puede superar lo que resta pagar.' : undefined}
               />
             </View>
           )}
@@ -383,7 +416,10 @@ export function PayCreditCardSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
   sheetBody: {
     flex: 1,
     position: 'relative',
@@ -436,4 +472,20 @@ const styles = StyleSheet.create({
   footerButton: {
     flex: 1,
   },
-});
+  progressBox: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.soft,
+    padding: spacing[3],
+    gap: spacing[1],
+    marginTop: spacing[2],
+  },
+  progressRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing[3],
+  },
+  });
+}

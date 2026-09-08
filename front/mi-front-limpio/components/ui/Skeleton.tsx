@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 
 export type SkeletonVariant =
   | 'line'
@@ -20,8 +20,6 @@ export type SkeletonProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-const baseColor = colors.background.alt;
-
 export function Skeleton({
   variant = 'line',
   width,
@@ -29,6 +27,10 @@ export function Skeleton({
   lines = 3,
   style,
 }: SkeletonProps) {
+  const theme = useAppTheme();
+  const { colors, radius, spacing } = theme;
+  const baseColor = colors.background.alt;
+
   if (variant === 'paragraph') {
     return (
       <View style={[{ gap: spacing[2], width: width ?? '100%' }, style]}>

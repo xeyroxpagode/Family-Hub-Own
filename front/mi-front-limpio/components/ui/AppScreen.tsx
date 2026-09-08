@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, type Edges } from 'react-native-safe-area-context';
 
-import { colors, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 
 export type AppScreenProps = {
   children: React.ReactNode;
@@ -26,13 +26,6 @@ export type AppScreenProps = {
   safeAreaEdges?: Edges;
 };
 
-const bottomInsets: Record<NonNullable<AppScreenProps['bottomInset']>, number> = {
-  none: spacing[5],
-  tab: 96,
-  fab: 112,
-  sheet: spacing[8],
-};
-
 export function AppScreen({
   children,
   scroll = false,
@@ -46,6 +39,14 @@ export function AppScreen({
   scrollProps,
   safeAreaEdges,
 }: AppScreenProps) {
+  const theme = useAppTheme();
+  const { colors, spacing } = theme;
+  const bottomInsets: Record<NonNullable<AppScreenProps['bottomInset']>, number> = {
+    none: spacing[5],
+    tab: 96,
+    fab: 112,
+    sheet: spacing[8],
+  };
   const screenBackground = colors.background[background];
   const contentStyle: StyleProp<ViewStyle> = [
     {

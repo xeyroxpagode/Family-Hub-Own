@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { AppButton } from './AppButton';
 import { AppText } from './AppText';
 
@@ -26,6 +26,8 @@ export function EmptyState({
   onSecondaryAction,
   style,
 }: EmptyStateProps) {
+  const { colors, radius, spacing } = useAppTheme();
+
   return (
     <View
       style={[

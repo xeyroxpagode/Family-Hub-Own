@@ -2,10 +2,11 @@ import React, { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets, typography } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { AppText, InteractivePressable } from '../ui';
 import type { PaymentDueDto } from '../../services/finance/financePayments';
 import { formatExpectedAmount, formatDueDateHuman, formatRecurrenceSummary, PAYMENT_KINDS } from '../../services/finance/financePayments';
+import { compareDecimalStrings } from '../../services/finance/accountDisplay';
 
 type PaymentRowProps = {
   payment: PaymentDueDto;
@@ -18,10 +19,15 @@ export const PaymentRow = memo(function PaymentRow({
   onPress,
   disabled = false,
 }: PaymentRowProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const overdue = payment.overdue && payment.status === 'PENDING';
   const isRecurring = Boolean(payment.paymentSeriesId);
   const isCreditCard = payment.kind === PAYMENT_KINDS.CREDIT_CARD;
   const amountLine = formatExpectedAmount(payment.expectedAmountKnown, payment.expectedAmount, payment.currency);
+  const remaining = payment.remaining ?? (payment.expectedAmountKnown ? payment.expectedAmount ?? null : null);
+  const showProgress = isCreditCard && remaining !== null && compareDecimalStrings(payment.paidSoFar ?? '0', '0') > 0;
   const dueDateText = formatDueDateHuman(payment.dueDate, overdue);
 
   return (
@@ -60,6 +66,11 @@ export const PaymentRow = memo(function PaymentRow({
               {dueDateText}
             </AppText>
           </View>
+          {showProgress ? (
+            <AppText variant="caption" tone="secondary" numberOfLines={1}>
+              Pagaste {formatExpectedAmount(true, payment.paidSoFar ?? '0', payment.currency)} · Restan {formatExpectedAmount(true, remaining, payment.currency)}
+            </AppText>
+          ) : null}
         </View>
 
         <View style={styles.badgesRow}>
@@ -112,7 +123,10 @@ function buildAccessibilityLabel(payment: PaymentDueDto): string {
   return parts.join(', ');
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
   row: {
     minHeight: 72,
     borderRadius: radius.xl,
@@ -194,4 +208,5 @@ const styles = StyleSheet.create({
   chevron: {
     flexShrink: 0,
   },
-});
+  });
+}

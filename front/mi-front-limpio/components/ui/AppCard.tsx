@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, motion, radius, shadows, spacing } from '../../constants/theme';
+import { type ColorTokens, type ShadowTokens } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { InteractivePressable } from './InteractivePressable';
 
 export type AppCardVariant =
@@ -24,13 +25,7 @@ export type AppCardProps = {
   accessibilityLabel?: string;
 };
 
-const paddingValues = {
-  compact: spacing[3],
-  default: spacing[4],
-  generous: spacing[5],
-} as const;
-
-const variantStyles: Record<AppCardVariant, ViewStyle> = {
+const getVariantStyles = (colors: ColorTokens, shadows: ShadowTokens): Record<AppCardVariant, ViewStyle> => ({
   default: {
     backgroundColor: colors.surface.card,
     borderColor: colors.border.subtle,
@@ -66,7 +61,7 @@ const variantStyles: Record<AppCardVariant, ViewStyle> = {
     borderColor: colors.warning.base,
     ...shadows.shadow1,
   },
-};
+});
 
 export function AppCard({
   children,
@@ -78,6 +73,14 @@ export function AppCard({
   onPress,
   accessibilityLabel,
 }: AppCardProps) {
+  const theme = useAppTheme();
+  const { colors, motion, radius, shadows, spacing } = theme;
+  const paddingValues = {
+    compact: spacing[3],
+    default: spacing[4],
+    generous: spacing[5],
+  } as const;
+  const variantStyles = getVariantStyles(colors, shadows);
   const cardStyle: StyleProp<ViewStyle> = [
     {
       borderRadius: radius.lg,

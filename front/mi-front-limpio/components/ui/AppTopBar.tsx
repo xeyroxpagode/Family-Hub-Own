@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { AppText } from './AppText';
 import { AppAvatar } from './AppAvatar';
 import { HomePlusIcon } from '../../constants/icons';
@@ -46,6 +46,9 @@ export function AppTopBar({
   showChevron = true,
   rightSlot,
 }: AppTopBarProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const roleInfo = getRoleDisplay(householdRole);
   const insets = useSafeAreaInsets();
 
@@ -95,7 +98,10 @@ export function AppTopBar({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, spacing } = theme;
+
+  return StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -144,4 +150,5 @@ const styles = StyleSheet.create({
   rightPlaceholder: {
     width: 44,
   },
-});
+  });
+}

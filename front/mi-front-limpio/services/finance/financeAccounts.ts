@@ -29,6 +29,8 @@ export type FinanceAccountDto = {
   accountType: FinanceAccountType;
   balanceState: FinanceAccountBalanceState;
   currentBalance: string | null;
+  closingDay: number | null;
+  dueDay: number | null;
   status: FinanceAccountStatus;
   archivedAt: string | null;
   createdAt: string;
@@ -46,6 +48,8 @@ export type GetFinanceAccountResponse = {
 export type UpdateFinanceAccountPayload = {
   name: string;
   contextType: FinanceContextType;
+  closingDay?: number | null;
+  dueDay?: number | null;
 };
 
 export type UpdateFinanceAccountResponse = {
@@ -64,6 +68,8 @@ export type CreateFinanceAccountPayload = {
   accountType: FinanceAccountType;
   contextType: FinanceContextType;
   initialBalance?: InitialBalancePayload;
+  closingDay?: number | null;
+  dueDay?: number | null;
 };
 
 export type CreateFinanceAccountResponse = {
@@ -119,6 +125,35 @@ export type FinanceAccountActivityDto = {
 export type GetFinanceAccountActivityResponse = {
   account: FinanceAccountDto;
   activity: FinanceAccountActivityDto[];
+};
+
+export type CreditCardInstallmentDto = {
+  ordinal: number;
+  amount: string;
+  cycleCloseDate: string | null;
+  cycleDueDate: string | null;
+};
+
+export type CreditCardInstallmentPlanDto = {
+  id: string;
+  expenseRootTransactionId: string;
+  installmentCount: number;
+  totalAmount: string;
+  currency: string;
+  closingDaySnapshot: number | null;
+  dueDaySnapshot: number | null;
+  purchaseTitle: string | null;
+  purchaseDate: string | null;
+  futureInstallmentCount: number;
+  futureAmount: string;
+  installments: CreditCardInstallmentDto[];
+  futureInstallments: CreditCardInstallmentDto[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ListCreditCardInstallmentPlansResponse = {
+  plans: CreditCardInstallmentPlanDto[];
 };
 
 const encodeQuery = (params: Record<string, string | undefined>) => {
@@ -264,6 +299,25 @@ export const getFinanceAccountActivity = (
 ) =>
   requestJson<GetFinanceAccountActivityResponse>(
     `/api/finance/accounts/${accountId}/activity?${encodeQuery({
+      contextType,
+      limit: options.limit ? String(options.limit) : undefined,
+    })}`,
+    {
+      accessToken,
+      signal: options.signal ?? null,
+      contextScope: options.contextScope ?? null,
+      operationKind: OPERATION_KINDS.READ_ONLY,
+    },
+  );
+
+export const listCreditCardInstallmentPlans = (
+  accessToken: string,
+  accountId: string,
+  contextType: FinanceContextType,
+  options: { limit?: number; signal?: AbortSignal | null; contextScope?: string | null } = {},
+) =>
+  requestJson<ListCreditCardInstallmentPlansResponse>(
+    `/api/finance/accounts/${accountId}/installments?${encodeQuery({
       contextType,
       limit: options.limit ? String(options.limit) : undefined,
     })}`,

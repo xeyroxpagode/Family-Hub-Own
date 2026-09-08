@@ -2,7 +2,7 @@ import React, { Fragment, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import {
   ActionSheet,
   AppButton,
@@ -70,6 +70,9 @@ export function AccountSelector({
   createAccountLabel = 'Agregar cuenta',
   operationHint,
 }: AccountSelectorProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const groups: AccountSelectorGroup[] = useMemo(
     () => groupAccountsByContext(accounts, activeHousehold),
     [accounts, activeHousehold],
@@ -196,6 +199,8 @@ function AccountRow({
   disabled: boolean;
   onPress: () => void;
 }) {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   const presentation = getAccountBalancePresentation(account);
   const subtitle = presentation.isUnknown
     ? presentation.unknownLabel
@@ -232,6 +237,10 @@ function SelectorRow({
   disabled: boolean;
   onPress: () => void;
 }) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
+
   return (
     <InteractivePressable
       onPress={onPress}
@@ -266,7 +275,10 @@ function SelectorRow({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
   body: {
     flex: 1,
   },
@@ -335,4 +347,5 @@ const styles = StyleSheet.create({
   footerButton: {
     flex: 1,
   },
-});
+  });
+}

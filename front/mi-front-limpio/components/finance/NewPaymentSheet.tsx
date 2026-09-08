@@ -3,7 +3,7 @@ import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets, typography } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError } from '../../services/api';
 import type { FinanceContextType, FinanceContextViewState, FinanceActiveHousehold } from '../../services/finance/financeContext';
 import {
@@ -85,6 +85,9 @@ export function NewPaymentSheet({
   onRequestClose,
   onSuccess,
 }: NewPaymentSheetProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const [kind, setKind] = useState<PaymentKind>(PAYMENT_KINDS.NORMAL);
   const [title, setTitle] = useState('');
   const [amountText, setAmountText] = useState('');
@@ -760,7 +763,10 @@ export function NewPaymentSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
   sheetBody: {
     flex: 1,
     position: 'relative',
@@ -955,4 +961,5 @@ const styles = StyleSheet.create({
   footerButton: {
     flex: 1,
   },
-});
+  });
+}

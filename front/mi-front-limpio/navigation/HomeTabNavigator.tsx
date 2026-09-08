@@ -52,14 +52,14 @@ import {
   HouseholdSwitcherSheet,
   IconButton,
   InteractivePressable,
-  bottomNavigationStyle,
+  useBottomNavigationStyle,
 } from '../components/ui';
+import { useAppTheme } from '../context/AppThemeContext';
 import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
 import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
 import { PlannerDeepLinkProvider } from '../services/planner/plannerDeepLinkProvider';
 import { fetchPlannerAttentionRequest } from '../services/planner/plannerAttentionClient';
 import { GLOBAL_SURFACE_GATES_OFF } from '../services/planner/globalSurfaceTypes';
-import { colors, componentSizes, motion, spacing } from '../constants/theme';
 
 const Tab = createBottomTabNavigator<HomeTabParamList>();
 const PlannerStack = createNativeStackNavigator<PlannerStackParamList>();
@@ -70,6 +70,8 @@ function AttentionTopBarButton({ accessToken, householdId, navigation }: {
   householdId: string | null;
   navigation: any;
 }) {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   const [count, setCount] = useState(0);
   const requestSeq = useRef(0);
 
@@ -139,12 +141,14 @@ const TabIcon = ({
 };
 
 function HomeScreen() {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   const { currentRole, loading, reloading } = useHousehold();
 
   if (loading || reloading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.brand} />
+        <ActivityIndicator size="large" color={theme.colors.brand} />
       </View>
     );
   }
@@ -201,12 +205,15 @@ function MoreStackScreen() {
 }
 
 function TabBarButton({ children, style, ...props }: any) {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
+
   return (
     <InteractivePressable
       {...props}
       style={[styles.tabBarButton, style]}
       haptic="light"
-      pressScale={motion.scale.tab}
+      pressScale={theme.motion.scale.tab}
       pressedOpacity={0.92}
     >
       {children}
@@ -219,6 +226,8 @@ function QuickActionPlaceholder() {
 }
 
 function QuickActionTabButton({ children, style, ...props }: any) {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   const { openActions } = usePlannerSheet();
 
   return (
@@ -227,7 +236,7 @@ function QuickActionTabButton({ children, style, ...props }: any) {
       onPress={openActions}
       style={[styles.tabBarButton, style]}
       haptic="medium"
-      pressScale={motion.scale.icon}
+      pressScale={theme.motion.scale.icon}
       pressedOpacity={0.94}
       accessibilityRole="button"
       accessibilityLabel="Acciones rapidas"
@@ -238,6 +247,9 @@ function QuickActionTabButton({ children, style, ...props }: any) {
 }
 
 function QuickActionTabIcon() {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
+
   return (
     <View style={styles.quickActionSlot}>
       <FloatingActionButton />
@@ -246,10 +258,13 @@ function QuickActionTabIcon() {
 }
 
 export function HomeTabNavigator() {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   const { session, authMe } = useAuth();
   const { currentRole, currentHousehold } = useHousehold();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const bottomNavStyle = useBottomNavigationStyle(insets.bottom);
   
   const [showHouseholdSwitcher, setShowHouseholdSwitcher] = useState(false);
 
@@ -267,7 +282,7 @@ export function HomeTabNavigator() {
   }, []);
 
   const isAdultoMayor = currentRole === 'adulto_mayor';
-  const tabBarContentHeight = isAdultoMayor ? 76 : componentSizes.bottomNavHeight;
+  const tabBarContentHeight = isAdultoMayor ? 76 : theme.componentSizes.bottomNavHeight;
 
   // S2: The Reliability runtime Owner is mounted ONCE in `PrivateNavigator`
   // (AppNavigator) above this `HomeTabNavigator`, so it covers HomeTabs,
@@ -301,12 +316,12 @@ export function HomeTabNavigator() {
             headerShown: false,
             tabBarShowLabel: false,
             tabBarStyle: {
-              ...bottomNavigationStyle(insets.bottom),
+              ...bottomNavStyle,
               height: tabBarContentHeight,
             },
             tabBarItemStyle: {
               height: tabBarContentHeight,
-              paddingVertical: spacing[1],
+              paddingVertical: theme.spacing[1],
             },
             tabBarButton: (props) => <TabBarButton {...props} />,
           }}
@@ -400,7 +415,10 @@ export function HomeTabNavigator() {
 
 
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors } = theme;
+
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background.base,
@@ -437,4 +455,5 @@ const styles = StyleSheet.create({
   attentionBadgeText: {
     fontSize: 10,
   },
-});
+  });
+}

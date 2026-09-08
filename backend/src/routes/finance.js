@@ -12,6 +12,7 @@ const transfersController = require('../controllers/finance.transfers.controller
 const refundsController = require('../controllers/finance.refunds.controller');
 const readController = require('../controllers/finance.read.controller');
 const paymentController = require('../controllers/finance.payment.controller');
+const installmentsController = require('../controllers/finance.installments.controller');
 const poolController = require('../controllers/finance.pool.controller');
 const categoryPoolDefaultController = require('../controllers/finance.category-pool-default.controller');
 const spendingLimitController = require('../controllers/finance.spending-limit.controller');
@@ -30,13 +31,17 @@ router.post('/accounts/:account_id/balance-anchor', accountsController.createBal
 router.post('/accounts/:account_id/archive', accountsController.archiveAccount);
 router.post('/accounts/:account_id/unarchive', accountsController.unarchiveAccount);
 router.get('/accounts/:account_id/activity', accountsController.listAccountActivity);
+router.get('/accounts/:account_id/installments', installmentsController.listAccountInstallmentPlans);
 router.get('/categories', categoriesController.listCategories);
 router.post('/categories', categoriesController.createCategory);
 router.patch('/categories/:category_id', categoriesController.updateCategory);
 router.delete('/categories/:category_id', categoriesController.deleteCategory);
 router.post('/expenses', transactionsController.createExpense);
+router.post('/expenses/installment', transactionsController.createInstallmentExpense);
 router.post('/incomes', transactionsController.createIncome);
 router.post('/transfers', transfersController.createTransfer);
+router.post('/transfers/:transferId/trash', transfersController.trashTransfer);
+router.post('/transfers/:transferId/restore', transfersController.restoreTransfer);
 router.post('/transactions/trash', transactionsTrashController.trashTransaction);
 router.post('/transactions/restore', transactionsRestoreController.restoreTransaction);
 router.post('/transactions/correct', transactionsCorrectionController.correctTransaction);
@@ -63,6 +68,9 @@ router.patch('/payments/series/:seriesId', paymentController.editPaymentSeries);
 
 // Payment Register (Stage 5D)
 router.post('/payments/dues/:dueId/register', paymentController.registerPayment);
+
+// Partial CREDIT_CARD Due settlement (Stage 8D.6)
+router.post('/payments/dues/:dueId/settlements', paymentController.settleCreditCardPaymentDue);
 
 // Pools (Stage 6C.1)
 router.get('/pools', poolController.listPools);

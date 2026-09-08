@@ -4,11 +4,18 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view
 
 import { ApiError } from '../../services/api';
 import {
+  correctFinanceAccountBalance,
+  createFinanceAccountBalanceAnchor,
   updateFinanceAccount,
   type FinanceAccountDto,
 } from '../../services/finance/financeAccounts';
 import type { FinanceContextType } from '../../services/finance/financeContext';
-import { colors, radius, spacing } from '../../constants/theme';
+import {
+  getAccountBalancePresentation,
+  toCanonicalSignedAccountBalance,
+} from '../../services/finance/accountDisplay';
+import { parseMoneyInputText, type MoneyInputParseResult } from '../../services/finance/moneyInputValue';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { HomePlusIcon } from '../../constants/icons';
 import {
   ActionSheet,
@@ -16,6 +23,22 @@ import {
   AppInput,
   AppText,
 } from '../ui';
+import { MoneyInput } from './MoneyInput';
+
+const DAY_TEXT_RE = /^\d{1,2}$/;
+
+function parseDayText(text: string): number | null {
+  const trimmed = text.trim();
+  if (!DAY_TEXT_RE.test(trimmed)) return null;
+  const value = Number(trimmed);
+  if (!Number.isInteger(value) || value < 1 || value > 31) return null;
+  return value;
+}
+
+const todayLocalDateOnly = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
 
 export type AccountEditSheetProps = {
   visible: boolean;
@@ -34,13 +57,35 @@ export function AccountEditSheet({
   onRequestClose,
   onSuccess,
 }: AccountEditSheetProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const [name, setName] = useState('');
+  const [balanceText, setBalanceText] = useState('');
+  const [balance, setBalance] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
+  const [closingDayText, setClosingDayText] = useState('');
+  const [dueDayText, setDueDayText] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const isCreditCard = account?.accountType === 'CREDIT_CARD';
+  const presentation = account ? getAccountBalancePresentation(account) : null;
+  const isUnknown = presentation?.isUnknown === true;
+  const balanceLabel = isCreditCard ? 'Deuda actual' : 'Saldo actual';
+  const currency = account?.currency ?? 'ARS';
+  const closingDay = parseDayText(closingDayText);
+  const dueDay = parseDayText(dueDayText);
+
   useEffect(() => {
-    if (visible && account?.name) {
-      setName(account.name);
+    if (visible && account) {
+      setName(account.name ?? '');
+      const prefill = presentation && !presentation.isUnknown && presentation.displayAmount !== null && !presentation.displayAmount.startsWith('-')
+        ? presentation.displayAmount
+        : '';
+      setBalanceText(prefill);
+      setBalance(parseMoneyInputText(prefill, account.currency));
+      setClosingDayText(isCreditCard && account.closingDay != null ? String(account.closingDay) : '');
+      setDueDayText(isCreditCard && account.dueDay != null ? String(account.dueDay) : '');
       setSubmitError(null);
       setSubmitting(false);
     }
@@ -48,9 +93,27 @@ export function AccountEditSheet({
       setSubmitError(null);
       setSubmitting(false);
     }
-  }, [visible, account?.id, account?.name]);
+  }, [visible, account, isCreditCard, presentation]);
 
-  const canSubmit = Boolean(accessToken) && Boolean(account) && name.trim().length > 0 && name.trim() !== account?.name && !submitting;
+  const closingDayError = isCreditCard && closingDay === null ? 'Ingresá un día de cierre entre 1 y 31.' : undefined;
+  const dueDayError = isCreditCard && dueDay === null ? 'Ingresá un día de vencimiento entre 1 y 31.' : undefined;
+  const cardTimingValid = !isCreditCard || (closingDay !== null && dueDay !== null);
+
+  const enteredMagnitude = balance.technicalValue?.amount ?? (balance.status === 'zero' && balance.canonicalAmount !== null ? balance.canonicalAmount : null);
+  const enteredCanonical = enteredMagnitude !== null && account
+    ? toCanonicalSignedAccountBalance(enteredMagnitude, account.accountType)
+    : null;
+
+  const nameChanged = name.trim() !== (account?.name ?? '');
+  const closingChanged = isCreditCard && closingDay !== (account?.closingDay ?? null);
+  const dueChanged = isCreditCard && dueDay !== (account?.dueDay ?? null);
+  const timingChanged = closingChanged || dueChanged;
+  const balanceChanged = account
+    ? (isUnknown ? enteredCanonical !== null : enteredCanonical !== null && enteredCanonical !== account.currentBalance)
+    : false;
+
+  const hasChange = nameChanged || timingChanged || balanceChanged;
+  const canSubmit = Boolean(accessToken) && Boolean(account) && name.trim().length > 0 && cardTimingValid && hasChange && !submitting;
 
   const close = () => {
     if (submitting) return;
@@ -63,10 +126,40 @@ export function AccountEditSheet({
     Keyboard.dismiss();
     setSubmitError(null);
     setSubmitting(true);
+
+    const metadataChanged = nameChanged || timingChanged;
+    let resolvedAccount = account;
     try {
-      const response = await updateFinanceAccount(accessToken, account.id, { name: name.trim(), contextType });
+      if (metadataChanged) {
+        const payload = {
+          name: name.trim(),
+          contextType,
+          ...(isCreditCard ? { closingDay, dueDay } : {}),
+        };
+        const updated = await updateFinanceAccount(accessToken, account.id, payload);
+        resolvedAccount = updated.account;
+      }
+
+      if (balanceChanged && enteredCanonical !== null) {
+        if (isUnknown) {
+          const anchored = await createFinanceAccountBalanceAnchor(accessToken, account.id, {
+            amount: enteredCanonical,
+            effectiveDate: todayLocalDateOnly(),
+            contextType,
+          });
+          resolvedAccount = anchored.account;
+        } else {
+          const corrected = await correctFinanceAccountBalance(accessToken, account.id, {
+            correctedBalance: enteredCanonical,
+            effectiveDate: todayLocalDateOnly(),
+            contextType,
+          });
+          resolvedAccount = corrected.account;
+        }
+      }
+
       onRequestClose();
-      onSuccess(response.account);
+      onSuccess(resolvedAccount);
     } catch (error) {
       setSubmitError(error instanceof ApiError ? error.message : 'No pudimos editar la cuenta.');
     } finally {
@@ -74,10 +167,14 @@ export function AccountEditSheet({
     }
   };
 
+  const balanceHelperText = isCreditCard
+    ? 'Usá este ajuste sólo si HomePlus no coincide con tu tarjeta real. Para registrar un pago, usá Pagar tarjeta.'
+    : 'Usá este valor si HomePlus no coincide con el saldo real.';
+
   return (
     <ActionSheet
       visible={visible}
-      title="Editar cuenta"
+      title={isCreditCard ? 'Editar tarjeta' : 'Editar cuenta'}
       subtitle={account?.name}
       onRequestClose={close}
       closeDisabled={submitting}
@@ -105,10 +202,59 @@ export function AccountEditSheet({
           returnKeyType="done"
         />
 
+        <View style={styles.fieldGroup}>
+          <MoneyInput
+            value={balanceText}
+            currency={currency}
+            onValueChange={(next) => { setBalanceText(next.inputText); setBalance(next); setSubmitError(null); }}
+            onCurrencyChange={() => undefined}
+            availableCurrencies={[currency]}
+            label={isUnknown ? `Establecer ${balanceLabel.toLowerCase()}` : balanceLabel}
+            helperText={balanceHelperText}
+            disabled={submitting}
+            allowZero
+            allowNegative={false}
+            errorText={balance.status === 'invalid' ? 'Revisa el monto.' : undefined}
+          />
+        </View>
+
+        {isCreditCard ? (
+          <View style={styles.dayFieldsRow}>
+            <View style={styles.dayField}>
+              <AppInput
+                label="Día de cierre"
+                value={closingDayText}
+                onChangeText={(text) => { setClosingDayText(text); setSubmitError(null); }}
+                placeholder="28"
+                editable={!submitting}
+                keyboardType="number-pad"
+                maxLength={2}
+                returnKeyType="done"
+                errorText={closingDayError}
+                accessibilityLabel="Día de cierre"
+              />
+            </View>
+            <View style={styles.dayField}>
+              <AppInput
+                label="Día de vencimiento"
+                value={dueDayText}
+                onChangeText={(text) => { setDueDayText(text); setSubmitError(null); }}
+                placeholder="8"
+                editable={!submitting}
+                keyboardType="number-pad"
+                maxLength={2}
+                returnKeyType="done"
+                errorText={dueDayError}
+                accessibilityLabel="Día de vencimiento"
+              />
+            </View>
+          </View>
+        ) : null}
+
         <View style={styles.readonlyInfo}>
           <HomePlusIcon name="lock-closed-outline" size={16} color={colors.text.tertiary} />
           <AppText variant="caption" tone="tertiary">
-            Por ahora solo podés editar el nombre. Tipo, moneda y contexto no se pueden cambiar después de crear la cuenta.
+            Tipo, moneda y contexto no se pueden cambiar después de crear la cuenta.
           </AppText>
         </View>
 
@@ -123,10 +269,24 @@ export function AccountEditSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
   form: {
     gap: spacing[4],
     paddingBottom: spacing[4],
+  },
+  fieldGroup: {
+    gap: spacing[2],
+  },
+  dayFieldsRow: {
+    flexDirection: 'row',
+    gap: spacing[3],
+  },
+  dayField: {
+    flex: 1,
+    minWidth: 0,
   },
   readonlyInfo: {
     flexDirection: 'row',
@@ -151,4 +311,5 @@ const styles = StyleSheet.create({
   footerButton: {
     flex: 1,
   },
-});
+  });
+}

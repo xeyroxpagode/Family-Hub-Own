@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { AppInput, type AppInputProps } from './AppInput';
 
 export type SearchFieldProps = Omit<AppInputProps, 'label' | 'variant'> & {
@@ -26,5 +26,6 @@ export function SearchField({ label = 'Buscar', placeholder = 'Buscar', inputSty
 }
 
 export function SearchIconOverlay() {
+  const { colors } = useAppTheme();
   return <HomePlusIcon name="search-outline" size={18} color={colors.text.tertiary} />;
 }

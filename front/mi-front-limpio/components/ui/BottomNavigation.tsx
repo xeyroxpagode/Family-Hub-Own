@@ -3,6 +3,7 @@ import { Animated, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { HomePlusIcon, type HomePlusIconName } from '../../constants/icons';
 import { colors, componentSizes, iconSizes, motion, radius, shadows, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 
 export type BottomNavigationIconProps = {
   icon: HomePlusIconName;
@@ -10,6 +11,8 @@ export type BottomNavigationIconProps = {
 };
 
 export function BottomNavigationIcon({ icon, focused }: BottomNavigationIconProps) {
+  const theme = useAppTheme();
+  const { colors, componentSizes, iconSizes, motion, radius } = theme;
   const scale = React.useRef(new Animated.Value(1)).current;
 
   React.useEffect(() => {
@@ -50,6 +53,9 @@ export function FloatingActionButton({
   icon?: HomePlusIconName;
   style?: StyleProp<ViewStyle>;
 }) {
+  const theme = useAppTheme();
+  const { colors, componentSizes, radius, shadows } = theme;
+
   return (
     <View
       style={[
@@ -88,3 +94,23 @@ export const bottomNavigationStyle = (bottomInset: number): ViewStyle => ({
   backgroundColor: colors.surface.card,
   ...shadows.shadow3,
 });
+
+export const useBottomNavigationStyle = (bottomInset: number): ViewStyle => {
+  const theme = useAppTheme();
+  return {
+    position: 'absolute',
+    left: theme.spacing[4],
+    right: theme.spacing[4],
+    bottom: Math.max(bottomInset, theme.spacing[3]),
+    height: theme.componentSizes.bottomNavHeight,
+    paddingHorizontal: theme.spacing[2],
+    paddingTop: 0,
+    paddingBottom: 0,
+    borderRadius: theme.radius.xxl,
+    borderTopWidth: 0,
+    borderWidth: 1,
+    borderColor: theme.colors.border.default,
+    backgroundColor: theme.colors.surface.card,
+    ...theme.shadows.shadow3,
+  };
+};

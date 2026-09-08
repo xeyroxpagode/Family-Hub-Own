@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "seed:demo": "node scripts/seed-demo-familia-1-test.js"
+    "seed:demo": "node scripts/seed-demo-familia-1-test.js",
+    "seed:qa": "node scripts/seed-homeplus-qa.js",
+    "seed:qa:cleanup": "node scripts/seed-homeplus-qa.js --cleanup-only"
   },
   "keywords": [],
   "author": "",
