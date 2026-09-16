@@ -1,0 +1,22 @@
+# Local/generated files
+front/mi-front-limpio/.env
+.codex-*.log
+supabase/_pulled_backups/
+.idea/
+supabase/snippets/
+/node_modules/
+/scripts/compiled/
+/scripts/compiled-reliability/
+/scripts/compiled-reliability-frontend/
+/scripts/compiled-reliability-integration/
+/scripts/compiled-reliability-repro/
+/scripts/scripts/
+/.env
+/.env.local
+/.env.test.local
+/backend/.env.local
+/backend/.env.test.local
+/test-results/
+/coverage/
+/supabase/_pulled_backups/
+/db-backup/

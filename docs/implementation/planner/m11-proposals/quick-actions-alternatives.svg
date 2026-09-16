@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="680" viewBox="0 0 1440 680" role="img" aria-labelledby="title desc">
+  <title id="title">M11 Quick Actions — tres alternativas</title>
+  <desc id="desc">Comparación visual entre iconos circulares, celdas compactas y una banda sin contenedores.</desc>
+  <defs>
+    <style>
+      .bg{fill:#FBFAF8}.panel{fill:#fff;stroke:#E8E1DC;stroke-width:2}.recommended{fill:#fff;stroke:#C17F59;stroke-width:4}
+      .h{font:700 25px system-ui,sans-serif;fill:#2C2623}.body{font:500 18px system-ui,sans-serif;fill:#5F5752}.small{font:500 15px system-ui,sans-serif;fill:#746A64}
+      .label{font:700 18px system-ui,sans-serif;fill:#342E2A}.accent{fill:#C17F59}.soft{fill:#F5E9E1}.tile{fill:#F8F4F1;stroke:#E5D9D2;stroke-width:2}.line{stroke:#D9CEC7;stroke-width:2}
+    </style>
+  </defs>
+  <rect class="bg" width="1440" height="680"/>
+  <text class="h" x="50" y="54">Quick Actions · comparación a escala conceptual</text>
+
+  <g transform="translate(50 92)">
+    <rect class="panel" width="420" height="520" rx="28"/>
+    <text class="h" x="28" y="48">A · iconos circulares</text>
+    <text class="small" x="28" y="78">Toda la celda es táctil; el círculo es visual.</text>
+    <g transform="translate(26 118)">
+      <g transform="translate(0 0)"><rect fill="transparent" width="112" height="112" rx="20"/><circle class="soft" cx="56" cy="44" r="28"/><path class="accent" d="M43 43h26v4H43zm11-13h4v30h-4z"/><text class="label" x="56" y="94" text-anchor="middle">Tarea</text></g>
+      <g transform="translate(128 0)"><rect fill="transparent" width="112" height="112" rx="20"/><circle class="soft" cx="56" cy="44" r="28"/><rect x="43" y="32" width="26" height="24" rx="4" fill="none" stroke="#C17F59" stroke-width="4"/><text class="label" x="56" y="94" text-anchor="middle">Evento</text></g>
+      <g transform="translate(256 0)"><rect fill="transparent" width="112" height="112" rx="20"/><circle class="soft" cx="56" cy="44" r="28"/><path d="M43 55L56 32l13 23z" fill="none" stroke="#C17F59" stroke-width="4"/><text class="label" x="56" y="94" text-anchor="middle">Meta</text></g>
+    </g>
+    <text class="body" x="28" y="280">+ familiar y ligero</text>
+    <text class="body" x="28" y="316">+ separación clara icono/label</text>
+    <text class="body" x="28" y="352">− el círculo puede parecer el único target</text>
+    <text class="body" x="28" y="388">− menos robusto con texto grande</text>
+    <text class="small" x="28" y="468">Decisión: ADAPT · segunda opción</text>
+  </g>
+
+  <g transform="translate(510 92)">
+    <rect class="recommended" width="420" height="520" rx="28"/>
+    <rect class="accent" x="264" y="22" width="128" height="32" rx="16"/>
+    <text x="328" y="44" text-anchor="middle" style="font:700 14px system-ui,sans-serif;fill:#fff">RECOMENDADA</text>
+    <text class="h" x="28" y="48">B · celdas compactas</text>
+    <text class="small" x="28" y="78">Superficie completa, icono y label.</text>
+    <g transform="translate(26 118)">
+      <g><rect class="tile" width="112" height="112" rx="22"/><path class="accent" d="M43 39h26v4H43zm11-13h4v30h-4z"/><text class="label" x="56" y="86" text-anchor="middle">Tarea</text></g>
+      <g transform="translate(128)"><rect class="tile" width="112" height="112" rx="22"/><rect x="43" y="28" width="26" height="24" rx="4" fill="none" stroke="#C17F59" stroke-width="4"/><text class="label" x="56" y="86" text-anchor="middle">Evento</text></g>
+      <g transform="translate(256)"><rect class="tile" width="112" height="112" rx="22"/><path d="M43 52L56 29l13 23z" fill="none" stroke="#C17F59" stroke-width="4"/><text class="label" x="56" y="86" text-anchor="middle">Meta</text></g>
+    </g>
+    <text class="body" x="28" y="280">+ target inequívoco y ≥ 96 × 88 dp</text>
+    <text class="body" x="28" y="316">+ pressed/disabled legibles sin color solo</text>
+    <text class="body" x="28" y="352">+ refluye 3→2+1 con texto grande</text>
+    <text class="body" x="28" y="388">− requiere controlar el peso de la superficie</text>
+    <text class="small" x="28" y="468">Decisión: ADOPT · balance más sólido</text>
+  </g>
+
+  <g transform="translate(970 92)">
+    <rect class="panel" width="420" height="520" rx="28"/>
+    <text class="h" x="28" y="48">C · banda abierta</text>
+    <text class="small" x="28" y="78">Tres zonas táctiles, sin cards individuales.</text>
+    <g transform="translate(26 118)">
+      <rect x="0" y="0" width="368" height="112" rx="22" fill="#fff" stroke="#E8E1DC" stroke-width="2"/>
+      <path class="accent" d="M43 39h26v4H43zm11-13h4v30h-4z"/><text class="label" x="56" y="86" text-anchor="middle">Tarea</text>
+      <line class="line" x1="122" y1="22" x2="122" y2="90"/>
+      <rect x="171" y="28" width="26" height="24" rx="4" fill="none" stroke="#C17F59" stroke-width="4"/><text class="label" x="184" y="86" text-anchor="middle">Evento</text>
+      <line class="line" x1="246" y1="22" x2="246" y2="90"/>
+      <path d="M299 52l13-23 13 23z" fill="none" stroke="#C17F59" stroke-width="4"/><text class="label" x="312" y="86" text-anchor="middle">Meta</text>
+    </g>
+    <text class="body" x="28" y="280">+ mínima contención visual</text>
+    <text class="body" x="28" y="316">+ rápida para tres acciones estables</text>
+    <text class="body" x="28" y="352">− límites táctiles menos evidentes</text>
+    <text class="body" x="28" y="388">− reflujo complejo con 1–2 capacidades</text>
+    <text class="small" x="28" y="468">Decisión: RESERVE · no elegir para V1</text>
+  </g>
+</svg>

@@ -1,0 +1,618 @@
+OUTPUT 1 — ENTITIES
+*.json
+JSON
+[
+  {"entity":"People","domain":"Navegación","type":"Module","description":"Dominio de coordinación humana: Feed, Presence y Personas como sub-secciones internas"},
+  {"entity":"Planner","domain":"Navegación","type":"Module","description":"Núcleo operativo: Tasks, Calendar, Goals. Responsabilidades como eje organizador interno"},
+  {"entity":"Finance","domain":"Navegación","type":"Module","description":"Administración financiera: Cuentas, Gastos, Ingresos, Fondos, Presupuestos, Deudas. Vive en More"},
+  {"entity":"Presence","domain":"Navegación","type":"Module","description":"Ubicación, disponibilidad, check-ins, lugares, geocercas. Sub-sección de People"},
+  {"entity":"Inventory","domain":"Navegación","type":"Module","description":"Consumibles, productos del hogar, medicamentos. Vive en More"},
+  {"entity":"Assets","domain":"Navegación","type":"Module","description":"Activos importantes: Vehículos, Mascotas, Dispositivos, Propiedades. Vive en More"},
+  {"entity":"FamilyCloud","domain":"Navegación","type":"Module","description":"Memoria documental y emocional: Álbumes, Recuerdos, Documentos. Vive en More"},
+  {"entity":"SOS","domain":"Navegación","type":"Module","description":"Sistema de emergencias. Acceso vía swipe ↑ global. No vive en Bottom Nav ni Quick Actions"},
+  {"entity":"Geni","domain":"Navegación","type":"AIComponent","description":"Capa de inteligencia transversal. Sin tab propio. Acceso principal vía Quick Actions. Opera en todo el ecosistema"},
+  {"entity":"Automatizaciones","domain":"Navegación","type":"Module","description":"Automatización basada en eventos: SI ocurre X → ENTONCES hacer Y"},
+  {"entity":"Feed","domain":"People","type":"Module","description":"Espacio social del hogar. Posts, comentarios, reacciones. Sub-sección dentro de People"},
+  {"entity":"Personas","domain":"People","type":"Module","description":"Lista de miembros y perfiles individuales. Sub-sección dentro de People"},
+  {"entity":"Tasks","domain":"Planner","type":"Module","description":"Gestión de tareas con dependencias, recurrencias, subtareas, verificación"},
+  {"entity":"Calendar","domain":"Planner","type":"Module","description":"Gestión de eventos familiares y personales"},
+  {"entity":"Goals","domain":"Planner","type":"Module","description":"Metas personales y familiares con hitos y progreso"},
+  {"entity":"Responsabilidades","domain":"Planner","type":"Feature","description":"Agrupación de áreas operativas: Compras, Mascotas, Limpieza, Vehículos. Eje organizador de Tasks"},
+  {"entity":"Home","domain":"Navegación","type":"Screen","description":"Centro operativo. Punto de entrada inamovible. Briefing + Atención Requerida + widgets"},
+  {"entity":"Briefing","domain":"Home","type":"Feature","description":"Resumen inteligente del hogar generado por Geni. Primer widget de Home"},
+  {"entity":"Atención Requerida","domain":"Home","type":"Feature","description":"Centralización de elementos urgentes: SOS, tareas vencidas, pagos vencidos, aprobaciones"},
+  {"entity":"Carga Familiar","domain":"Home","type":"Feature","description":"Métrica de distribución de tareas. Visible solo para Coordinador"},
+  {"entity":"QuickActions","domain":"Navegación","type":"Feature","description":"Panel flotante accesible desde botón + central. Geni fijo + acciones dinámicas"},
+  {"entity":"SearchGlobal","domain":"Navegación","type":"Feature","description":"Navegador interno de la app. Busca en todos los dominios. Accesible desde cualquier pantalla"},
+  {"entity":"Settings","domain":"Navegación","type":"Screen","description":"Configuración: Hogar, Cuenta, Sistema, Auditoría. Vive exclusivamente en More"},
+  {"entity":"More","domain":"Navegación","type":"Screen","description":"Sección de herramientas especializadas Tier 3. Finance, Inventory, FamilyCloud, Settings"},
+  {"entity":"Cuentas","domain":"Finance","type":"DatabaseEntity","description":"Dinero disponible: Efectivo, Mercado Pago, Banco, Tarjeta"},
+  {"entity":"Gastos","domain":"Finance","type":"DatabaseEntity","description":"Movimientos de egreso personales o familiares. No se eliminan, se anulan"},
+  {"entity":"Ingresos","domain":"Finance","type":"DatabaseEntity","description":"Entradas de dinero: Sueldo, Regalo, Venta, Reembolso"},
+  {"entity":"Fondos","domain":"Finance","type":"DatabaseEntity","description":"Reserva de dinero con propósito específico. Estados: Activo, Completado, Cerrado"},
+  {"entity":"Presupuestos","domain":"Finance","type":"DatabaseEntity","description":"Límites de gasto con alertas de aproximación"},
+  {"entity":"Deudas","domain":"Finance","type":"DatabaseEntity","description":"Obligaciones financieras: Persona↔Persona, Persona↔Familia, Familia↔Externo"},
+  {"entity":"Consumibles","domain":"Inventory","type":"DatabaseEntity","description":"Alimentos y productos de consumo diario: Leche, Arroz, Fideos"},
+  {"entity":"Productos del Hogar","domain":"Inventory","type":"DatabaseEntity","description":"Artículos no alimenticios: Shampoo, Jabón, Detergente"},
+  {"entity":"Medicamentos","domain":"Inventory","type":"DatabaseEntity","description":"Medicación con tracking de vencimiento y recordatorios"},
+  {"entity":"Lugares","domain":"Presence","type":"DatabaseEntity","description":"Ubicaciones relevantes: Casa, Escuela, Trabajo, Club"},
+  {"entity":"Geocercas","domain":"Presence","type":"Feature","description":"Perímetros virtuales alrededor de Lugares que disparan eventos Llegó/Salió"},
+  {"entity":"Check-ins","domain":"Presence","type":"Feature","description":"Confirmaciones manuales de ubicación. Complementan GPS, no lo reemplazan"},
+  {"entity":"Recuerdos","domain":"FamilyCloud","type":"DatabaseEntity","description":"Momentos familiares preservados: Fotos, Videos, Texto"},
+  {"entity":"Álbumes","domain":"FamilyCloud","type":"DatabaseEntity","description":"Agrupación de Recuerdos. Organización por eventos, no carpetas técnicas"},
+  {"entity":"Documentos","domain":"FamilyCloud","type":"DatabaseEntity","description":"Documentación importante con versionado, OCR futuro, y relación con Assets, Gastos, Eventos"},
+  {"entity":"Papelera","domain":"FamilyCloud","type":"Feature","description":"Elementos eliminados con retención de 30 días"},
+  {"entity":"Coordinador","domain":"Roles","type":"Role","description":"Responsable administrativo principal del hogar. Visión completa, gestión de miembros"},
+  {"entity":"Adulto","domain":"Roles","type":"Role","description":"Miembro operativo con amplios permisos. Puede invitar, crear tareas, reasignar"},
+  {"entity":"Adolescente","domain":"Roles","type":"Role","description":"Autonomía progresiva. Crea tareas propias, eventos, gastos. Permisos ampliables"},
+  {"entity":"Niño","domain":"Roles","type":"Role","description":"Experiencia simplificada. Solo completa tareas. Rachas visuales sin presión"},
+  {"entity":"Adulto Mayor","domain":"Roles","type":"Role","description":"Experiencia adaptada: fuente grande, alto contraste, sin gestos complejos, medicación priorizada"},
+  {"entity":"Invitado","domain":"Roles","type":"Role","description":"Acceso mínimo y participación limitada"},
+  {"entity":"Empleado Familiar","domain":"Roles","type":"Role","description":"Colaborador operativo: Niñera, Jardinero, Chofer. Acceso restringido a responsabilidades asignadas"},
+  {"entity":"Membresía","domain":"People","type":"DatabaseEntity","description":"Relación entre Persona y Hogar. Estados: Pendiente, Activa, Suspendida, Finalizada"},
+  {"entity":"Hogar","domain":"Arquitectura","type":"DatabaseEntity","description":"Unidad organizativa principal. Todo ocurre dentro de un hogar. Multi-hogar independiente"},
+  {"entity":"Cuenta","domain":"Arquitectura","type":"DatabaseEntity","description":"Pertenece al usuario, no al hogar. Perfil, preferencias, idioma, memoria personal de Geni"},
+  {"entity":"Memoria Personal","domain":"Geni","type":"DatabaseEntity","description":"Memoria de Geni perteneciente al usuario. Nunca se comparte automáticamente"},
+  {"entity":"Memoria Familiar","domain":"Geni","type":"DatabaseEntity","description":"Memoria de Geni perteneciente al hogar"},
+  {"entity":"Auditoría","domain":"Arquitectura","type":"Service","description":"Registro permanente de cambios importantes: autor, fecha, acción, entidad afectada"},
+  {"entity":"Notificaciones","domain":"Arquitectura","type":"Service","description":"Sistema de notificaciones con categorías, prioridades y canales Push/Email/In-App"},
+  {"entity":"Offline","domain":"Arquitectura","type":"Service","description":"Modo sin conexión con cola de sincronización. Last Write Wins para resolución de conflictos"},
+  {"entity":"BottomNav","domain":"Navegación","type":"Feature","description":"Barra de navegación congelada: Home | People | + | Planner | More"},
+  {"entity":"MultiHogar","domain":"Arquitectura","type":"Feature","description":"Selector global de hogar en header. Visible solo si 2+ hogares"},
+  {"entity":"Onboarding","domain":"UX","type":"Feature","description":"Flujo de ingreso adaptado por rol. 60 segundos hasta primer valor visible. Sin tutoriales ni tooltips"},
+  {"entity":"DesignSystem","domain":"UX","type":"Other","description":"Sistema de diseño con paleta tierra-cálida, modos normal/senior, tokens CSS y React Native"},
+  {"entity":"SkeletonLoading","domain":"UX","type":"Feature","description":"Estados de carga con animación pulse. Aparecen si datos tardan >300ms"},
+  {"entity":"EmptyState","domain":"UX","type":"Feature","description":"Primera experiencia por dominio. Tutorial implícito. Sin tooltips ni carruseles"},
+  {"entity":"CheckboxTarea","domain":"UX","type":"Feature","description":"Acción 1-tap para completar tareas. Touch target 44px. Animación fill + háptico"},
+  {"entity":"Toast","domain":"UX","type":"Feature","description":"Notificación no intrusiva en zona superior. Máximo 1 simultáneo. Variante Deshacer 5s"},
+  {"entity":"ModalConfirmación","domain":"UX","type":"Feature","description":"Modal centrado solo para confirmaciones con consecuencia. Nunca para formularios ni navegación"},
+  {"entity":"BottomSheet","domain":"UX","type":"Feature","description":"Panel deslizable para creación/edición. 4 alturas. Mantiene contexto"},
+  {"entity":"FabButton","domain":"UX","type":"Feature","description":"Botón flotante + en esquina inferior derecha. Visible según dominio"},
+  {"entity":"ProgressiveDisclosure","domain":"UX","type":"Feature","description":"4 niveles de profundidad: Home → Dominio → Detalle → Configuración avanzada"},
+  {"entity":"SOSPanel","domain":"SOS","type":"Feature","description":"Panel de emergencia con 3 niveles: 🔴Emergencia grave, 🟠Necesito ayuda, 🟡Coordinación urgente"},
+  {"entity":"Dependencias","domain":"Planner","type":"Feature","description":"Tareas que bloquean otras tareas. Si previa no se completa, dependiente queda bloqueada"},
+  {"entity":"Recurrencias","domain":"Planner","type":"Feature","description":"Generan nuevas instancias de tareas. No reutilizan la misma. Preserva historial"},
+  {"entity":"Subtareas","domain":"Planner","type":"Feature","description":"Único nivel de anidamiento. Progreso calculado automáticamente"},
+  {"entity":"Verificación","domain":"Planner","type":"Feature","description":"Aprobación opcional post-completado. No crea estado separado"},
+  {"entity":"Plantillas","domain":"Planner","type":"Feature","description":"Plantillas de tareas reutilizables. Inicialmente solo para Tasks"},
+  {"entity":"Hitos","domain":"Goals","type":"Feature","description":"Grandes avances dentro de una meta. Goal → Hitos → Tasks"},
+  {"entity":"Mantenimiento","domain":"Assets","type":"Feature","description":"Seguimiento de mantenimiento periódico de activos. Genera tareas automáticamente"},
+  {"entity":"Vencimientos","domain":"Assets","type":"Feature","description":"Seguimiento de vencimientos de documentos de activos: seguro, VTV, patente"},
+  {"entity":"OCR","domain":"FamilyCloud","type":"Feature","description":"Reconocimiento óptico de caracteres futuro. Extraerá datos, clasificará documentos, sugerirá relaciones"},
+  {"entity":"ReconocimientoFacial","domain":"FamilyCloud","type":"Feature","description":"V2 futura. Sugerirá personas en fotos. Confirmación siempre del usuario"},
+  {"entity":"RecapAnual","domain":"FamilyCloud","type":"Feature","description":"Resumen emocional tipo Spotify Wrapped con datos reales del sistema. Feature futura confirmada"},
+  {"entity":"LíneaTemporal","domain":"FamilyCloud","type":"Feature","description":"Historia cronológica del hogar. Feature futura confirmada"},
+  {"entity":"ComprasCerca","domain":"Presence","type":"Feature","description":"Sugerencia contextual cuando el usuario está cerca de un supermercado con items pendientes. Pendiente de spec técnico"},
+  {"entity":"EstadoManual","domain":"Presence","type":"Feature","description":"Estados definidos por el usuario: No molestar, Descansando, Estudiando. Prioridad sobre automáticos"},
+  {"entity":"EstadoAutomático","domain":"Presence","type":"Feature","description":"Estados inferidos por ubicación y horario: En casa, En trabajo, En tránsito"},
+  {"entity":"EscaladoSOS","domain":"SOS","type":"Feature","description":"Escalamiento automático: Coordinador → Adultos → Personas relevantes"},
+  {"entity":"SOSSilencioso","domain":"SOS","type":"Feature","description":"Alerta sin señales visibles en el dispositivo emisor. Misma información para destinatarios"},
+  {"entity":"Regla1Tap","domain":"UX","type":"Other","description":"Principio: la acción principal de cada pantalla se ejecuta con un solo toque"},
+  {"entity":"FeedbackInmediato","domain":"UX","type":"Other","description":"Principio: respuesta visual/háptica en <100ms. Spinner solo si operación >300ms"},
+  {"entity":"Previsibilidad","domain":"UX","type":"Other","description":"Principio: mismo patrón de interacción produce mismo resultado en toda la app"},
+  {"entity":"Perdón","domain":"UX","type":"Other","description":"Principio: acciones con consecuencia significativa son reversibles o requieren confirmación"},
+  {"entity":"JerarquíaVisual","domain":"UX","type":"Other","description":"4 capas: Atención → Acción → Contexto → Exploración. Orden fijo en toda pantalla"},
+  {"entity":"ZonasPantalla","domain":"UX","type":"Other","description":"Zona superior (lectura), zona media (contenido), zona de pulgar (acción principal)"},
+  {"entity":"NavegaciónContextual","domain":"UX","type":"Other","description":"Enlaces cruzados entre dominios sin volver atrás. Stack push lateral"},
+  {"entity":"AdaptaciónPorRol","domain":"UX","type":"Other","description":"Jerarquía de información distinta por rol, no solo filtro de contenido"},
+  {"entity":"ModoAdultoMayor","domain":"UX","type":"Other","description":"No es zoom. Re-arquitectura: fuente ≥18px, touch ≥56px, AA+, solo tap, sin gestos complejos"},
+  {"entity":"GamificaciónInfantil","domain":"UX","type":"Other","description":"Rachas visuales y logros sin rankings ni comparación entre hermanos. Sin presión"},
+  {"entity":"BibiotecaAutomatizaciones","domain":"Automatizaciones","type":"Feature","description":"Plantillas prearmadas: Llegó a casa, Stock bajo, Pago próximo, Mantenimiento pendiente, Cumpleaños próximo"},
+  {"entity":"PaletaTierraCálida","domain":"DesignSystem","type":"Other","description":"Paleta cromática: Arcilla/Terracota, Salvia/Musgo, Miel/Ámbar. No colores de productividad corporativa"},
+  {"entity":"TokensDiseño","domain":"DesignSystem","type":"Other","description":"3 niveles: Globales (crudos) → Semánticos (significado) → Componentes (aplicación). CSS + React Native"},
+  {"entity":"ThemeProvider","domain":"DesignSystem","type":"Service","description":"Contexto de tema con 4 combinaciones: light/dark × normal/senior"},
+  {"entity":"CoordinaciónJardinero","domain":"Ejemplos","type":"Other","description":"Ejemplo de empleado familiar: Jardinero con acceso restringido a responsabilidades asignadas"},
+  {"entity":"Compras","domain":"Responsabilidades","type":"Other","description":"Responsabilidad tipo: agrupa tareas de adquisición de consumibles y productos del hogar"},
+  {"entity":"Mascotas","domain":"Responsabilidades","type":"Other","description":"Responsabilidad tipo: agrupa tareas de cuidado animal"},
+  {"entity":"Limpieza","domain":"Responsabilidades","type":"Other","description":"Responsabilidad tipo: agrupa tareas de mantenimiento del hogar"},
+  {"entity":"Vehículos","domain":"Responsabilidades","type":"Other","description":"Responsabilidad tipo: agrupa tareas de mantenimiento vehicular. También es categoría de Asset"},
+  {"entity":"Post","domain":"Feed","type":"DatabaseEntity","description":"Unidad de contenido del Feed. Puede contener texto, imagen, video, archivos, enlaces internos"},
+  {"entity":"Comentarios","domain":"Feed","type":"Feature","description":"Comentarios en Posts y Documentos"},
+  {"entity":"Reacciones","domain":"Feed","type":"Feature","description":"Reacciones en Posts"},
+  {"entity":"Timeline","domain":"Planner","type":"Feature","description":"Línea temporal de actividad automática y comentarios en cada tarea"},
+  {"entity":"Adjuntos","domain":"Planner","type":"Feature","description":"Archivos adjuntos a tareas: imágenes, PDFs, audio"},
+  {"entity":"HorarioLaboral","domain":"People","type":"Feature","description":"Agenda laboral de Empleado Familiar con días y horarios"},
+  {"entity":"Exportación","domain":"FamilyCloud","type":"Feature","description":"Exportación de recuerdos, álbumes y documentos. Datos pertenecen al usuario"},
+  {"entity":"Comprobantes","domain":"Finance","type":"Feature","description":"Adjuntos a gastos: foto, PDF, imagen. Opcionales"},
+  {"entity":"AjusteManual","domain":"Finance","type":"Feature","description":"Corrección manual de saldo de cuenta. Queda auditado"}
+]
+OUTPUT 2 — RELATIONSHIPS
+*.json
+JSON
+[
+  {"source":"Home","relationship":"contains","target":"Briefing","confidence":"high","type":"explicit"},
+  {"source":"Home","relationship":"contains","target":"Atención Requerida","confidence":"high","type":"explicit"},
+  {"source":"Home","relationship":"contains","target":"Carga Familiar","confidence":"high","type":"explicit"},
+  {"source":"Home","relationship":"displays_conditional","target":"Finance","confidence":"high","type":"explicit"},
+  {"source":"Home","relationship":"displays_conditional","target":"Presence","confidence":"high","type":"explicit"},
+  {"source":"Home","relationship":"displays_conditional","target":"Inventory","confidence":"high","type":"explicit"},
+  {"source":"Home","relationship":"displays_conditional","target":"Assets","confidence":"high","type":"explicit"},
+  {"source":"Home","relationship":"links_to","target":"Planner","confidence":"high","type":"explicit"},
+  {"source":"Home","relationship":"links_to","target":"Calendar","confidence":"high","type":"explicit"},
+  {"source":"Home","relationship":"links_to","target":"Goals","confidence":"high","type":"explicit"},
+  {"source":"Home","relationship":"links_to","target":"Finance","confidence":"high","type":"explicit"},
+  {"source":"Home","relationship":"links_to","target":"Presence","confidence":"high","type":"explicit"},
+  {"source":"People","relationship":"contains","target":"Feed","confidence":"high","type":"explicit"},
+  {"source":"People","relationship":"contains","target":"Presence","confidence":"high","type":"explicit"},
+  {"source":"People","relationship":"contains","target":"Personas","confidence":"high","type":"explicit"},
+  {"source":"Planner","relationship":"contains","target":"Tasks","confidence":"high","type":"explicit"},
+  {"source":"Planner","relationship":"contains","target":"Calendar","confidence":"high","type":"explicit"},
+  {"source":"Planner","relationship":"contains","target":"Goals","confidence":"high","type":"explicit"},
+  {"source":"More","relationship":"contains","target":"Finance","confidence":"high","type":"explicit"},
+  {"source":"More","relationship":"contains","target":"Inventory","confidence":"high","type":"explicit"},
+  {"source":"More","relationship":"contains","target":"FamilyCloud","confidence":"high","type":"explicit"},
+  {"source":"More","relationship":"contains","target":"Settings","confidence":"high","type":"explicit"},
+  {"source":"BottomNav","relationship":"contains","target":"Home","confidence":"high","type":"explicit"},
+  {"source":"BottomNav","relationship":"contains","target":"People","confidence":"high","type":"explicit"},
+  {"source":"BottomNav","relationship":"contains","target":"QuickActions","confidence":"high","type":"explicit"},
+  {"source":"BottomNav","relationship":"contains","target":"Planner","confidence":"high","type":"explicit"},
+  {"source":"BottomNav","relationship":"contains","target":"More","confidence":"high","type":"explicit"},
+  {"source":"QuickActions","relationship":"contains","target":"Geni","confidence":"high","type":"explicit"},
+  {"source":"Tasks","relationship":"belongs_to","target":"Responsabilidades","confidence":"high","type":"explicit"},
+  {"source":"Tasks","relationship":"can_have","target":"Dependencias","confidence":"high","type":"explicit"},
+  {"source":"Tasks","relationship":"can_have","target":"Recurrencias","confidence":"high","type":"explicit"},
+  {"source":"Tasks","relationship":"can_have","target":"Subtareas","confidence":"high","type":"explicit"},
+  {"source":"Tasks","relationship":"can_have","target":"Verificación","confidence":"high","type":"explicit"},
+  {"source":"Tasks","relationship":"can_have","target":"Adjuntos","confidence":"high","type":"explicit"},
+  {"source":"Tasks","relationship":"can_have","target":"Comentarios","confidence":"high","type":"explicit"},
+  {"source":"Tasks","relationship":"generates","target":"Timeline","confidence":"high","type":"explicit"},
+  {"source":"Goals","relationship":"contains","target":"Hitos","confidence":"high","type":"explicit"},
+  {"source":"Hitos","relationship":"contains","target":"Tasks","confidence":"high","type":"explicit"},
+  {"source":"Goals","relationship":"links_to","target":"Fondos","confidence":"high","type":"explicit"},
+  {"source":"Goals","relationship":"links_to","target":"Finance","confidence":"high","type":"explicit"},
+  {"source":"Finance","relationship":"contains","target":"Cuentas","confidence":"high","type":"explicit"},
+  {"source":"Finance","relationship":"contains","target":"Gastos","confidence":"high","type":"explicit"},
+  {"source":"Finance","relationship":"contains","target":"Ingresos","confidence":"high","type":"explicit"},
+  {"source":"Finance","relationship":"contains","target":"Fondos","confidence":"high","type":"explicit"},
+  {"source":"Finance","relationship":"contains","target":"Presupuestos","confidence":"high","type":"explicit"},
+  {"source":"Finance","relationship":"contains","target":"Deudas","confidence":"high","type":"explicit"},
+  {"source":"Gastos","relationship":"references","target":"Cuentas","confidence":"high","type":"explicit"},
+  {"source":"Gastos","relationship":"can_have","target":"Comprobantes","confidence":"high","type":"explicit"},
+  {"source":"Presence","relationship":"contains","target":"Lugares","confidence":"high","type":"explicit"},
+  {"source":"Presence","relationship":"contains","target":"Geocercas","confidence":"high","type":"explicit"},
+  {"source":"Presence","relationship":"contains","target":"Check-ins","confidence":"high","type":"explicit"},
+  {"source":"Lugares","relationship":"can_have","target":"Geocercas","confidence":"high","type":"explicit"},
+  {"source":"Geocercas","relationship":"triggers","target":"EstadoAutomático","confidence":"high","type":"explicit"},
+  {"source":"Inventory","relationship":"contains","target":"Consumibles","confidence":"high","type":"explicit"},
+  {"source":"Inventory","relationship":"contains","target":"Productos del Hogar","confidence":"high","type":"explicit"},
+  {"source":"Inventory","relationship":"contains","target":"Medicamentos","confidence":"high","type":"explicit"},
+  {"source":"Assets","relationship":"contains","target":"Vehículos","confidence":"high","type":"explicit"},
+  {"source":"Assets","relationship":"contains","target":"Mascotas","confidence":"high","type":"explicit"},
+  {"source":"FamilyCloud","relationship":"contains","target":"Álbumes","confidence":"high","type":"explicit"},
+  {"source":"FamilyCloud","relationship":"contains","target":"Recuerdos","confidence":"high","type":"explicit"},
+  {"source":"FamilyCloud","relationship":"contains","target":"Documentos","confidence":"high","type":"explicit"},
+  {"source":"FamilyCloud","relationship":"contains","target":"Papelera","confidence":"high","type":"explicit"},
+  {"source":"Álbumes","relationship":"contains","target":"Recuerdos","confidence":"high","type":"explicit"},
+  {"source":"SOS","relationship":"contains","target":"SOSPanel","confidence":"high","type":"explicit"},
+  {"source":"SOS","relationship":"contains","target":"SOSSilencioso","confidence":"high","type":"explicit"},
+  {"source":"SOS","relationship":"implements","target":"EscaladoSOS","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"generates","target":"Briefing","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"uses","target":"Memoria Personal","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"uses","target":"Memoria Familiar","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"integrates_with","target":"Planner","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"integrates_with","target":"Finance","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"integrates_with","target":"Presence","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"integrates_with","target":"FamilyCloud","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"integrates_with","target":"Automatizaciones","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"integrates_with","target":"SearchGlobal","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"powers","target":"Home","confidence":"high","type":"explicit"},
+  {"source":"Automatizaciones","relationship":"uses","target":"Geni","confidence":"high","type":"explicit"},
+  {"source":"Automatizaciones","relationship":"triggers","target":"Tasks","confidence":"high","type":"explicit"},
+  {"source":"Automatizaciones","relationship":"triggers","target":"Notificaciones","confidence":"high","type":"explicit"},
+  {"source":"Automatizaciones","relationship":"monitors","target":"Presence","confidence":"high","type":"explicit"},
+  {"source":"Automatizaciones","relationship":"monitors","target":"Inventory","confidence":"high","type":"explicit"},
+  {"source":"Automatizaciones","relationship":"monitors","target":"Assets","confidence":"high","type":"explicit"},
+  {"source":"Automatizaciones","relationship":"monitors","target":"Finance","confidence":"high","type":"explicit"},
+  {"source":"Automatizaciones","relationship":"contains","target":"BibiotecaAutomatizaciones","confidence":"high","type":"explicit"},
+  {"source":"SearchGlobal","relationship":"indexes","target":"Settings","confidence":"high","type":"explicit"},
+  {"source":"Settings","relationship":"contains","target":"Auditoría","confidence":"high","type":"explicit"},
+  {"source":"Auditoría","relationship":"tracks","target":"Planner","confidence":"high","type":"explicit"},
+  {"source":"Auditoría","relationship":"tracks","target":"Finance","confidence":"high","type":"explicit"},
+  {"source":"Auditoría","relationship":"tracks","target":"Presence","confidence":"high","type":"explicit"},
+  {"source":"Auditoría","relationship":"tracks","target":"FamilyCloud","confidence":"high","type":"explicit"},
+  {"source":"Auditoría","relationship":"tracks","target":"Roles","confidence":"high","type":"explicit"},
+  {"source":"Notificaciones","relationship":"notifies","target":"Coordinador","confidence":"high","type":"explicit"},
+  {"source":"Notificaciones","relationship":"notifies","target":"Adulto","confidence":"high","type":"explicit"},
+  {"source":"Notificaciones","relationship":"notifies","target":"Adolescente","confidence":"high","type":"explicit"},
+  {"source":"Notificaciones","relationship":"notifies","target":"Niño","confidence":"high","type":"explicit"},
+  {"source":"Notificaciones","relationship":"notifies","target":"Adulto Mayor","confidence":"high","type":"explicit"},
+  {"source":"Offline","relationship":"queues","target":"Planner","confidence":"high","type":"explicit"},
+  {"source":"Offline","relationship":"queues","target":"Calendar","confidence":"high","type":"explicit"},
+  {"source":"Offline","relationship":"queues","target":"Inventory","confidence":"high","type":"explicit"},
+  {"source":"Offline","relationship":"queues","target":"FamilyCloud","confidence":"high","type":"explicit"},
+  {"source":"CheckboxTarea","relationship":"updates","target":"Tasks","confidence":"high","type":"explicit"},
+  {"source":"FabButton","relationship":"creates","target":"Tasks","confidence":"high","type":"explicit"},
+  {"source":"FabButton","relationship":"creates","target":"Gastos","confidence":"high","type":"explicit"},
+  {"source":"BottomSheet","relationship":"hosts","target":"FabButton","confidence":"medium","type":"implicit"},
+  {"source":"DesignSystem","relationship":"defines","target":"PaletaTierraCálida","confidence":"high","type":"explicit"},
+  {"source":"DesignSystem","relationship":"defines","target":"TokensDiseño","confidence":"high","type":"explicit"},
+  {"source":"DesignSystem","relationship":"implements","target":"ThemeProvider","confidence":"high","type":"explicit"},
+  {"source":"ThemeProvider","relationship":"supports","target":"ModoAdultoMayor","confidence":"high","type":"explicit"},
+  {"source":"ModoAdultoMayor","relationship":"adapts","target":"Adulto Mayor","confidence":"high","type":"explicit"},
+  {"source":"GamificaciónInfantil","relationship":"adapts","target":"Niño","confidence":"high","type":"explicit"},
+  {"source":"AdaptaciónPorRol","relationship":"customizes","target":"Home","confidence":"high","type":"explicit"},
+  {"source":"ProgressiveDisclosure","relationship":"structures","target":"Planner","confidence":"high","type":"explicit"},
+  {"source":"ProgressiveDisclosure","relationship":"structures","target":"Finance","confidence":"high","type":"explicit"},
+  {"source":"ProgressiveDisclosure","relationship":"structures","target":"Inventory","confidence":"high","type":"explicit"},
+  {"source":"Coordinador","relationship":"manages","target":"Hogar","confidence":"high","type":"explicit"},
+  {"source":"Coordinador","relationship":"views","target":"Carga Familiar","confidence":"high","type":"explicit"},
+  {"source":"Membresía","relationship":"links","target":"Hogar","confidence":"high","type":"explicit"},
+  {"source":"Membresía","relationship":"assigns","target":"Roles","confidence":"high","type":"explicit"},
+  {"source":"Cuenta","relationship":"owns","target":"Memoria Personal","confidence":"high","type":"explicit"},
+  {"source":"Hogar","relationship":"owns","target":"Memoria Familiar","confidence":"high","type":"explicit"},
+  {"source":"MultiHogar","relationship":"switches","target":"Hogar","confidence":"high","type":"explicit"},
+  {"source":"Empleado Familiar","relationship":"has","target":"HorarioLaboral","confidence":"high","type":"explicit"},
+  {"source":"Recuerdos","relationship":"can_generate","target":"Post","confidence":"high","type":"explicit"},
+  {"source":"Calendar","relationship":"generates","target":"Recuerdos","confidence":"high","type":"explicit"},
+  {"source":"Documentos","relationship":"references","target":"Assets","confidence":"high","type":"explicit"},
+  {"source":"Documentos","relationship":"references","target":"Gastos","confidence":"high","type":"explicit"},
+  {"source":"Documentos","relationship":"references","target":"Goals","confidence":"high","type":"explicit"},
+  {"source":"Assets","relationship":"generates","target":"Tasks","confidence":"high","type":"explicit"},
+  {"source":"Assets","relationship":"tracks","target":"Mantenimiento","confidence":"high","type":"explicit"},
+  {"source":"Assets","relationship":"tracks","target":"Vencimientos","confidence":"high","type":"explicit"},
+  {"source":"Inventory","relationship":"generates","target":"Tasks","confidence":"high","type":"explicit"},
+  {"source":"Medicamentos","relationship":"generates","target":"Notificaciones","confidence":"high","type":"explicit"},
+  {"source":"ComprasCerca","relationship":"uses","target":"Presence","confidence":"medium","type":"explicit"},
+  {"source":"ComprasCerca","relationship":"references","target":"Inventory","confidence":"medium","type":"explicit"},
+  {"source":"RecapAnual","relationship":"aggregates","target":"FamilyCloud","confidence":"medium","type":"explicit"},
+  {"source":"LíneaTemporal","relationship":"aggregates","target":"FamilyCloud","confidence":"medium","type":"explicit"},
+  {"source":"Regla1Tap","relationship":"governs","target":"CheckboxTarea","confidence":"high","type":"explicit"},
+  {"source":"FeedbackInmediato","relationship":"governs","target":"SkeletonLoading","confidence":"high","type":"explicit"},
+  {"source":"Perdón","relationship":"governs","target":"ModalConfirmación","confidence":"high","type":"explicit"},
+  {"source":"NavegaciónContextual","relationship":"connects","target":"Tasks","confidence":"high","type":"explicit"},
+  {"source":"NavegaciónContextual","relationship":"connects","target":"Calendar","confidence":"high","type":"explicit"},
+  {"source":"NavegaciónContextual","relationship":"connects","target":"FamilyCloud","confidence":"high","type":"explicit"},
+  {"source":"NavegaciónContextual","relationship":"connects","target":"Finance","confidence":"high","type":"explicit"},
+  {"source":"Presupuestos","relationship":"generates","target":"Notificaciones","confidence":"high","type":"explicit"},
+  {"source":"Presupuestos","relationship":"triggers","target":"Atención Requerida","confidence":"high","type":"explicit"},
+  {"source":"Deudas","relationship":"generates","target":"Notificaciones","confidence":"high","type":"explicit"}
+]
+OUTPUT 3 — CROSS DOMAIN RELATIONSHIPS
+*.json
+JSON
+[
+  {"source_domain":"Geni","source_entity":"Geni","relationship":"powers","target_entity":"Briefing","target_domain":"Home","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"Geni","relationship":"powers","target_entity":"Home","target_domain":"Home","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"Geni","relationship":"integrates_with","target_entity":"Tasks","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"Geni","relationship":"integrates_with","target_entity":"Finance","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"Geni","relationship":"integrates_with","target_entity":"Presence","target_domain":"Presence","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"Geni","relationship":"integrates_with","target_entity":"FamilyCloud","target_domain":"FamilyCloud","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"Geni","relationship":"integrates_with","target_entity":"Automatizaciones","target_domain":"Automatizaciones","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"Geni","relationship":"integrates_with","target_entity":"SearchGlobal","target_domain":"Navegación","confidence":"high"},
+  {"source_domain":"Planner","source_entity":"Tasks","relationship":"references","target_entity":"Goals","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Planner","source_entity":"Goals","relationship":"links_to","target_entity":"Fondos","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Planner","source_entity":"Goals","relationship":"links_to","target_entity":"Finance","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Planner","source_entity":"Tasks","relationship":"generates_from","target_entity":"Assets","target_domain":"Assets","confidence":"high"},
+  {"source_domain":"Planner","source_entity":"Tasks","relationship":"generates_from","target_entity":"Inventory","target_domain":"Inventory","confidence":"high"},
+  {"source_domain":"Planner","source_entity":"Calendar","relationship":"generates","target_entity":"Recuerdos","target_domain":"FamilyCloud","confidence":"high"},
+  {"source_domain":"Finance","source_entity":"Gastos","relationship":"references","target_entity":"Documentos","target_domain":"FamilyCloud","confidence":"high"},
+  {"source_domain":"Finance","source_entity":"Gastos","relationship":"references","target_entity":"Responsabilidades","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Finance","source_entity":"Gastos","relationship":"references","target_entity":"Assets","target_domain":"Assets","confidence":"high"},
+  {"source_domain":"Finance","source_entity":"Presupuestos","relationship":"triggers","target_entity":"Atención Requerida","target_domain":"Home","confidence":"high"},
+  {"source_domain":"Presence","source_entity":"Presence","relationship":"feeds","target_entity":"SOS","target_domain":"SOS","confidence":"high"},
+  {"source_domain":"Presence","source_entity":"Presence","relationship":"triggers","target_entity":"Automatizaciones","target_domain":"Automatizaciones","confidence":"high"},
+  {"source_domain":"Inventory","source_entity":"Inventory","relationship":"triggers","target_entity":"Atención Requerida","target_domain":"Home","confidence":"high"},
+  {"source_domain":"Inventory","source_entity":"Medicamentos","relationship":"appears_in","target_entity":"Home","target_domain":"Home","confidence":"high"},
+  {"source_domain":"Assets","source_entity":"Assets","relationship":"triggers","target_entity":"Atención Requerida","target_domain":"Home","confidence":"high"},
+  {"source_domain":"Assets","source_entity":"Assets","relationship":"references","target_entity":"Documentos","target_domain":"FamilyCloud","confidence":"high"},
+  {"source_domain":"FamilyCloud","source_entity":"Documentos","relationship":"references","target_entity":"Assets","target_domain":"Assets","confidence":"high"},
+  {"source_domain":"FamilyCloud","source_entity":"Documentos","relationship":"references","target_entity":"Gastos","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"FamilyCloud","source_entity":"Documentos","relationship":"references","target_entity":"Personas","target_domain":"People","confidence":"high"},
+  {"source_domain":"FamilyCloud","source_entity":"Recuerdos","relationship":"can_generate","target_entity":"Post","target_domain":"Feed","confidence":"high"},
+  {"source_domain":"SOS","source_entity":"SOS","relationship":"uses","target_entity":"Presence","target_domain":"Presence","confidence":"high"},
+  {"source_domain":"SOS","source_entity":"SOS","relationship":"displaces","target_entity":"Home","target_domain":"Home","confidence":"high"},
+  {"source_domain":"Automatizaciones","source_entity":"Automatizaciones","relationship":"creates","target_entity":"Tasks","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Automatizaciones","source_entity":"Automatizaciones","relationship":"creates","target_entity":"Notificaciones","target_domain":"Arquitectura","confidence":"high"},
+  {"source_domain":"Automatizaciones","source_entity":"Automatizaciones","relationship":"monitors","target_entity":"Presence","target_domain":"Presence","confidence":"high"},
+  {"source_domain":"Automatizaciones","source_entity":"Automatizaciones","relationship":"monitors","target_entity":"Inventory","target_domain":"Inventory","confidence":"high"},
+  {"source_domain":"Automatizaciones","source_entity":"Automatizaciones","relationship":"monitors","target_entity":"Assets","target_domain":"Assets","confidence":"high"},
+  {"source_domain":"Automatizaciones","source_entity":"Automatizaciones","relationship":"monitors","target_entity":"Finance","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"People","source_entity":"Feed","relationship":"publishes","target_entity":"Goals","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"People","source_entity":"Feed","relationship":"publishes","target_entity":"Recuerdos","target_domain":"FamilyCloud","confidence":"high"},
+  {"source_domain":"People","source_entity":"Presence","relationship":"feeds","target_entity":"SOS","target_domain":"SOS","confidence":"high"},
+  {"source_domain":"Navegación","source_entity":"Home","relationship":"links_to","target_entity":"Planner","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Navegación","source_entity":"Home","relationship":"links_to","target_entity":"Finance","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Navegación","source_entity":"Home","relationship":"links_to","target_entity":"Presence","target_domain":"Presence","confidence":"high"},
+  {"source_domain":"Navegación","source_entity":"Home","relationship":"links_to","target_entity":"Inventory","target_domain":"Inventory","confidence":"high"},
+  {"source_domain":"Navegación","source_entity":"SearchGlobal","relationship":"searches","target_entity":"Tasks","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Navegación","source_entity":"SearchGlobal","relationship":"searches","target_entity":"Finance","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Navegación","source_entity":"SearchGlobal","relationship":"searches","target_entity":"Settings","target_domain":"Navegación","confidence":"high"},
+  {"source_domain":"Navegación","source_entity":"ComprasCerca","relationship":"uses","target_entity":"Presence","target_domain":"Presence","confidence":"medium"},
+  {"source_domain":"Navegación","source_entity":"ComprasCerca","relationship":"references","target_entity":"Inventory","target_domain":"Inventory","confidence":"medium"}
+]
+OUTPUT 4 — DATA FLOWS
+*.json
+JSON
+[
+  {"origin":"Geni","data":"Briefing diario (tareas, eventos, finanzas, presencia, metas, alertas)","destination":"Home > Briefing","purpose":"Resumir lo importante del hogar al abrir la app"},
+  {"origin":"Tareas pendientes/vencidas","data":"Lista de tareas con prioridad, responsable y fecha","destination":"Home > Atención Requerida","purpose":"Centralizar elementos urgentes que requieren acción inmediata"},
+  {"origin":"Finance > Presupuestos","data":"Porcentaje de presupuesto consumido con alerta si >90%","destination":"Home > Atención Requerida","purpose":"Alertar sobre riesgo financiero inminente"},
+  {"origin":"Inventory > Stock","data":"Ítems por debajo del stock mínimo","destination":"Home > Atención Requerida","purpose":"Notificar faltantes que requieren reposición"},
+  {"origin":"Assets > Vencimientos","data":"Documentos o mantenimientos próximos a vencer","destination":"Home > Atención Requerida","purpose":"Alertar sobre vencimientos de seguros, VTV, patentes"},
+  {"origin":"Tareas por responsable","data":"Distribución de carga semanal","destination":"Home > Carga Familiar","purpose":"Mostrar al Coordinador el balance de tareas entre miembros"},
+  {"origin":"Evento de Calendar finalizado","data":"Detección de fotos tomadas durante el evento","destination":"FamilyCloud > Recuerdos","purpose":"Sugerir creación de recuerdo con fotos del evento"},
+  {"origin":"Presence > Geocercas","data":"Evento Llegó/Salió de un lugar","destination":"Automatizaciones","purpose":"Disparar automatizaciones basadas en ubicación"},
+  {"origin":"Inventory > Stock bajo","data":"Ítem por debajo del mínimo","destination":"Automatizaciones > Tasks","purpose":"Crear tarea de reposición automáticamente"},
+  {"origin":"Usuario completa tarea","data":"Checkbox 1-tap + timestamp","destination":"Planner > Tasks","purpose":"Actualizar estado de tarea y disparar dependencias"},
+  {"origin":"Gasto registrado","data":"Monto, cuenta, categoría, responsable, comprobante","destination":"Finance > Cuentas","purpose":"Actualizar saldo de cuenta afectada"},
+  {"origin":"SOS activado","data":"Persona, ubicación, hora, contexto, nivel (🔴🟠🟡)","destination":"Notificaciones > Coordinador > Adultos","purpose":"Escalar alerta de emergencia según nivel y rol"},
+  {"origin":"Medicamento próximo a vencer","data":"Nombre, fecha de vencimiento, stock","destination":"Notificaciones > Adulto Mayor","purpose":"Alertar sobre medicación por vencer en Home del Adulto Mayor"},
+  {"origin":"SearchGlobal","data":"Query de búsqueda del usuario","destination":"Todos los dominios indexados","purpose":"Buscar en People, Planner, Finance, Presence, Inventory, Assets, FamilyCloud, Feed"},
+  {"origin":"Offline > Cola de sincronización","data":"Acciones realizadas sin conexión (completar tareas, comentarios)","destination":"Planner > Tasks","purpose":"Sincronizar cambios locales cuando vuelve internet. Last Write Wins"},
+  {"origin":"Auditoría","data":"Autor, fecha, acción, entidad afectada","destination":"Settings > Auditoría","purpose":"Registrar trazabilidad de cambios importantes en el sistema"},
+  {"origin":"MultiHogar > Selector","data":"Cambio de hogar activo","destination":"Todos los dominios","purpose":"Recargar contexto completo del nuevo hogar seleccionado"},
+  {"origin":"Onboarding por rol","data":"Preferencias de usuario: nombre, rol, horario, medicación, contacto emergencia","destination":"Cuenta","purpose":"Configurar experiencia inicial adaptada al rol"},
+  {"origin":"ComprasCerca","data":"Ubicación actual + items pendientes de Inventory","destination":"Notificaciones","purpose":"Sugerir compra si el usuario está cerca de un supermercado con items pendientes"},
+  {"origin":"Calendar","data":"Evento con fecha, participantes, ubicación","destination":"FamilyCloud > Álbumes","purpose":"Crear álbum automático asociado al evento"},
+  {"origin":"Recuerdo creado","data":"Fotos, videos, texto, personas asociadas","destination":"Feed > Post","purpose":"Publicar automáticamente recuerdo en el Feed familiar"}
+]
+OUTPUT 5 — BUSINESS RULES
+*.json
+JSON
+[
+  {"rule":"Bottom Navigation congelada en V1: [Home] [People] [+] [Planner] [More]. No se modifica sin enmienda a la especificación canónica","affected_entities":["BottomNav","Home","People","QuickActions","Planner","More"]},
+  {"rule":"Más de 4 niveles de navegación es fallo. Objetivo: 95% de acciones ≤ 3 niveles","affected_entities":["ProgressiveDisclosure","Home","Planner","Finance","Inventory"]},
+  {"rule":"La acción principal de cada pantalla se ejecuta con 1 solo toque. Si requiere más, el diseño debe rehacerse","affected_entities":["Regla1Tap","CheckboxTarea","FabButton","Home","Tasks","Calendar","Finance","Inventory","FamilyCloud","Feed","Presence","SOS"]},
+  {"rule":"Toda acción del usuario recibe feedback en <100ms. Spinner solo si operación >300ms","affected_entities":["FeedbackInmediato","Button","CheckboxTarea","SkeletonLoading"]},
+  {"rule":"El mismo patrón de interacción produce el mismo resultado en toda la aplicación","affected_entities":["Previsibilidad","BottomNav","FabButton","SOSPanel","ModalConfirmación"]},
+  {"rule":"Toda eliminación requiere confirmación. Las acciones cotidianas (completar tarea) tienen deshacer por 5 segundos","affected_entities":["Perdón","ModalConfirmación","Toast","Tasks","Calendar","FamilyCloud","Finance"]},
+  {"rule":"La complejidad se revela solo cuando el usuario la necesita. Nivel 3 (Configuración avanzada) nunca visible por defecto","affected_entities":["ProgressiveDisclosure","Tasks","Calendar","Goals","Finance","Inventory"]},
+  {"rule":"Home resume información, no la administra. Todo conduce al módulo correspondiente","affected_entities":["Home","Briefing","Atención Requerida","Carga Familiar"]},
+  {"rule":"Home es siempre la pantalla inicial. El usuario no puede cambiarlo","affected_entities":["Home"]},
+  {"rule":"Finance, Inventory, FamilyCloud y Settings viven en More (Tier 3, uso ocasional). No en Bottom Nav","affected_entities":["More","Finance","Inventory","FamilyCloud","Settings","BottomNav"]},
+  {"rule":"People agrupa Feed, Presence y Personas como sub-secciones internas. Feed no es tab independiente","affected_entities":["People","Feed","Presence","Personas"]},
+  {"rule":"Planner agrupa Tasks, Calendar y Goals. Responsabilidades no es dominio independiente; es eje organizador de Tasks","affected_entities":["Planner","Tasks","Calendar","Goals","Responsabilidades"]},
+  {"rule":"Geni no tiene tab dedicado. Es transversal. Acceso principal vía Quick Actions (slot fijo)","affected_entities":["Geni","QuickActions","BottomNav"]},
+  {"rule":"SOS no está en Bottom Nav ni Quick Actions. Acceso vía swipe ↑ global desde cualquier pantalla","affected_entities":["SOS","SOSPanel","BottomNav","QuickActions"]},
+  {"rule":"SOS siempre abre un panel con 3 niveles (🔴🟠🟡). Nunca dispara alerta sin interacción del usuario","affected_entities":["SOSPanel","SOS"]},
+  {"rule":"Niños y Empleados Familiares no pueden emitir 🔴 Emergencia grave","affected_entities":["Niño","Empleado Familiar","SOSPanel","SOS"]},
+  {"rule":"Carga Familiar (distribución de tareas) visible SOLO para Coordinador","affected_entities":["Carga Familiar","Coordinador","Home"]},
+  {"rule":"Badge en Bottom Nav solo usa success (verde) o alert (ámbar). Nunca error (rojo)","affected_entities":["Badge","BottomNav"]},
+  {"rule":"Toast en zona superior, no inferior (compite con Bottom Nav y botones de acción)","affected_entities":["Toast"]},
+  {"rule":"Máximo 1 toast visible a la vez. Si llega otro, el actual se descarta","affected_entities":["Toast"]},
+  {"rule":"Nunca toast para tareas completadas por otros miembros. Eso va en Feed, no como push","affected_entities":["Toast","Feed","Notificaciones"]},
+  {"rule":"Las animaciones nunca transmiten urgencia falsa. Nada parpadea. Nada rebota repetidamente. Duración máxima 500ms","affected_entities":["SkeletonLoading","Toast","ModalConfirmación","BottomSheet","SOSPanel"]},
+  {"rule":"Modo Adulto Mayor: prefiere-reduced-motion se respeta. Si el SO pide reducción, animaciones se eliminan","affected_entities":["ModoAdultoMayor","ThemeProvider"]},
+  {"rule":"Sin sonidos propios de la app. Solo notificaciones del SO. SOS usa sonido nativo de alerta","affected_entities":["Notificaciones","SOS"]},
+  {"rule":"Los gastos no se eliminan. Se anulan. Queda trazabilidad","affected_entities":["Gastos","Auditoría"]},
+  {"rule":"Las recurrencias generan nuevas instancias. No reutilizan la misma tarea. Preserva historial","affected_entities":["Recurrencias","Tasks"]},
+  {"rule":"Existe un único nivel de subtareas. No hay subtareas anidadas","affected_entities":["Subtareas","Tasks"]},
+  {"rule":"Vencida no es un estado de tarea. Se calcula automáticamente comparando fecha de vencimiento con hoy","affected_entities":["Tasks"]},
+  {"rule":"Postergar un evento equivale a modificar su fecha. No existe estado Postergado","affected_entities":["Calendar"]},
+  {"rule":"Los datos pertenecen al usuario. Siempre deben poder exportarse, descargarse y recuperarse","affected_entities":["FamilyCloud","Exportación","Cuenta"]},
+  {"rule":"Offline: Last Write Wins para resolución de conflictos","affected_entities":["Offline"]},
+  {"rule":"Auditoría nunca se elimina. Las acciones importantes generan trazabilidad permanente","affected_entities":["Auditoría"]},
+  {"rule":"La personalización de Home no debe romper la experiencia. Geni es el motor principal de reorganización contextual","affected_entities":["Home","Geni"]},
+  {"rule":"Paleta tierra-cálida: máximo 3 colores principales en pantalla simultáneamente. El primario aparece en 1-2 elementos máximo","affected_entities":["PaletaTierraCálida","DesignSystem"]},
+  {"rule":"Cada pantalla tiene N variantes (una por rol), no una variante con N flags. La adaptación es estructural","affected_entities":["AdaptaciónPorRol","Home","Planner","Finance"]},
+  {"rule":"Todo componente acepta mode: 'normal' | 'senior'. El ThemeProvider lo inyecta globalmente","affected_entities":["ThemeProvider","ModoAdultoMayor","DesignSystem"]},
+  {"rule":"Los enlaces cruzados entre dominios no crean ciclos infinitos. Si desde B se enlaza a A, se reutiliza instancia existente en el stack","affected_entities":["NavegaciónContextual"]},
+  {"rule":"Sin gamificación con rankings ni comparación entre miembros. Rachas infantiles sin presión ni comparación","affected_entities":["GamificaciónInfantil","Niño"]},
+  {"rule":"Onboarding sin tutoriales ni tooltips. Empty states como guía. 60 segundos hasta primer valor visible","affected_events":["Onboarding","EmptyState"]},
+  {"rule":"Ningún rol obtiene acceso automático a memoria privada de Geni, metas privadas, documentos privados o finanzas personales","affected_entities":["Geni","Memoria Personal","Goals","Documentos","Finance"]}
+]
+OUTPUT 6 — ARCHITECTURAL DECISIONS
+*.json
+JSON
+[
+  {"decision":"Bottom Nav congelada V1: [Home] [People] [+] [Planner] [More]. Cualquier cambio requiere enmienda a Final Spec","reason":"La frecuencia de uso define visibilidad. No todos los dominios merecen navegación primaria. Estructura validada y canónica","affected_domains":["Navegación","Home","People","Planner","More"]},
+  {"decision":"Finance, Inventory, FamilyCloud en More (Tier 3), no en Bottom Nav","reason":"Jerarquía de frecuencia. Tier 3 = uso ocasional. Vive en More como herramientas especializadas","affected_domains":["Navegación","Finance","Inventory","FamilyCloud"]},
+  {"decision":"People agrupa Feed + Presence + Personas como sub-secciones con Tab Bar interna","reason":"Feed no es un tab independiente. Son vistas del mismo objeto mental: coordinación humana","affected_domains":["Navegación","People","Feed","Presence"]},
+  {"decision":"Planner agrupa Tasks + Calendar + Goals. Responsabilidades como eje organizador, no dominio independiente","reason":"Responsabilidades son propiedad de la tarea. Goals vive dentro de Planner, no como dominio separado","affected_domains":["Navegación","Planner","Tasks","Calendar","Goals"]},
+  {"decision":"Geni sin tab propio en Bottom Nav. Acceso principal vía Quick Actions (slot fijo)","reason":"Geni es capa transversal, no módulo aislado. Opera sobre todo el ecosistema. Quick Actions es punto de entrada principal","affected_domains":["Navegación","Geni","QuickActions"]},
+  {"decision":"SOS acceso vía swipe ↑ global, no en Bottom Nav ni Quick Actions","reason":"SOS tiene prioridad máxima. Requiere acceso instantáneo desde cualquier pantalla sin ocupar espacio permanente en UI","affected_domains":["Navegación","SOS"]},
+  {"decision":"Home híbrido: briefing + acciones personales en misma pantalla. No dashboard puro","reason":"Home resume, no administra. El usuario abre la app para actuar, no solo para mirar. Home conduce al módulo correspondiente","affected_domains":["Home","Briefing","Atención Requerida"]},
+  {"decision":"Acción principal siempre en zona de pulgar (30% inferior de pantalla)","reason":"95% mobile. El pulgar manda. Acción principal accesible sin ajustar la mano","affected_domains":["UX","Home","Tasks","Calendar","Finance","Inventory"]},
+  {"decision":"Bottom sheets para crear/editar, no pantallas completas","reason":"Mantiene contexto. El usuario no se va a otro lado para agregar algo rápido","affected_domains":["UX","Tasks","Calendar","Finance","Inventory"]},
+  {"decision":"Adaptación por rol como jerarquía distinta de información, no solo filtro de contenido","reason":"Distintos momentos de vida necesitan distinta arquitectura de información. Home de Coordinador ≠ Home de Niño","affected_domains":["UX","Home","People","Planner","Finance"]},
+  {"decision":"Paleta tierra-cálida (Arcilla, Salvia, Miel). No colores de productividad corporativa","reason":"El hogar no es una oficina. La paleta debe transmitir calma, arraigo, calidez. Decisión UX-16","affected_domains":["DesignSystem"]},
+  {"decision":"Toast en zona superior, no inferior","reason":"Zona inferior tiene Bottom Nav y botones de acción. Toast compite visualmente. Arriba es más visible y no interfiere. Decisión UX-17","affected_domains":["UX"]},
+  {"decision":"Gamificación infantil sin rankings ni comparación","reason":"Prohibida la presión social (§02.03). El logro es personal. Nunca tu hermano ya lo hizo. Decisión UX-13","affected_domains":["UX"]},
+  {"decision":"Confirmación en eliminación, deshacer de 5s en completado","reason":"Graduación por consecuencia. Eliminar es grave. Completar es cotidiano pero a veces accidental. Decisión UX-08","affected_domains":["UX","Tasks","Finance","FamilyCloud"]},
+  {"decision":"Sin sonidos propios. Solo notificaciones del SO. SOS usa sonido nativo de alerta","reason":"El hogar ya tiene suficientes sonidos. La app no debe agregar ruido. Decisión UX-09","affected_domains":["UX","SOS"]},
+  {"decision":"Onboarding sin tutorial. Empty states como guía. 60 segundos hasta primer valor","reason":"Adopción > Perfección. La app se aprende usándose. El empty state es el mejor tutorial. Decisión UX-10, UX-11","affected_domains":["UX","Onboarding"]},
+  {"decision":"4 niveles de profundidad máxima. 95% de acciones en ≤3 niveles. Medir telemetría","reason":"Regla oficial de Final Spec §24.03. Si percentil 95 supera 3 niveles, rediseñar flujo","affected_domains":["Navegación"]},
+  {"decision":"Mobile-first absoluto. Toda pantalla se diseña primero en 375×812px. Desktop es derivado","reason":"El 95% del uso será mobile. Desktop y tablet son adaptaciones, no el origen","affected_domains":["UX","DesignSystem"]},
+  {"decision":"Multi-Hogar como selector global en header, no en More ni en Settings","reason":"Cambio de contexto frecuente merece acceso inmediato. Visible solo si 2+ hogares","affected_domains":["Navegación","MultiHogar"]},
+  {"decision":"Search Global como navegador interno de la app, accesible desde cualquier pantalla","reason":"Search indexa todos los dominios y también ejecuta acciones. No vive en Bottom Nav","affected_domains":["Navegación","SearchGlobal"]},
+  {"decision":"Settings vive exclusivamente en More. Acceso rápido mediante Search","reason":"Configuración es Tier 3 (uso ocasional). Search indexa settings para acceso directo","affected_domains":["Navegación","Settings"]}
+]
+OUTPUT 7 — MISSING OR IMPLIED CONNECTIONS
+*.json
+JSON
+[
+  {"source":"Geni","relationship":"learns_from","target":"Auditoría","reasoning":"Geni necesita datos históricos para generar recomendaciones contextuales. La auditoría es la fuente de verdad sobre qué ocurrió en el hogar","confidence":"medium"},
+  {"source":"Geni","relationship":"personalizes","target":"Onboarding","reasoning":"Geni es el motor de personalización de Home. Puede adaptar el onboarding basado en el contexto del hogar detectado","confidence":"low"},
+  {"source":"Notificaciones","relationship":"aggregates_from","target":"Automatizaciones","reasoning":"Las automatizaciones pueden generar notificaciones (ej: Juan llegó a casa → avisar). Notificaciones es el canal de salida","confidence":"high"},
+  {"source":"Inventory","relationship":"shares_data_with","target":"ComprasCerca","reasoning":"ComprasCerca necesita saber qué items están pendientes. Inventory es la fuente de stock bajo","confidence":"high"},
+  {"source":"ComprasCerca","relationship":"uses","target":"Lugares","reasoning":"Para detectar supermercado cercano necesita geocercas de lugares comerciales o usar APIs externas de puntos de interés","confidence":"medium"},
+  {"source":"RecapAnual","relationship":"aggregates_from","target":"Planner","reasoning":"El Recap anual tipo Spotify Wrapped necesita datos de tareas completadas, eventos y goals cumplidos durante el año","confidence":"medium"},
+  {"source":"RecapAnual","relationship":"aggregates_from","target":"Feed","reasoning":"El Recap incluirá actividad social del hogar: posts, reacciones, momentos destacados del Feed","confidence":"medium"},
+  {"source":"LíneaTemporal","relationship":"aggregates_from","target":"Auditoría","reasoning":"La línea temporal familiar reconstruye la historia del hogar. La auditoría contiene el registro cronológico de eventos importantes","confidence":"medium"},
+  {"source":"OCR","relationship":"populates","target":"Documentos","reasoning":"Cuando OCR esté disponible, extraerá datos de documentos escaneados y los clasificará automáticamente dentro de FamilyCloud","confidence":"medium"},
+  {"source":"OCR","relationship":"suggests","target":"Assets","reasoning":"Documentos escaneados (seguros, títulos) podrán sugerir relaciones con Assets existentes o proponer crear nuevos","confidence":"low"},
+  {"source":"ReconocimientoFacial","relationship":"suggests","target":"Personas","reasoning":"V2 futura detectará rostros en fotos y sugerirá etiquetar personas del hogar. Confirmación siempre del usuario","confidence":"medium"},
+  {"source":"Mantenimiento","relationship":"generates","target":"Notificaciones","reasoning":"Mantenimientos próximos o vencidos deben generar notificaciones al responsable del Asset","confidence":"high"},
+  {"source":"Vencimientos","relationship":"generates","target":"Notificaciones","reasoning":"Documentos por vencer (seguro, VTV) deben notificar con anticipación al responsable","confidence":"high"},
+  {"source":"Timeline","relationship":"feeds","target":"Auditoría","reasoning":"La timeline de cada tarea es una fuente de eventos auditables. Cambios de responsable, fecha, estado","confidence":"medium"},
+  {"source":"ThemeProvider","relationship":"respects","target":"Offline","reasoning":"Los tokens de diseño y modos (normal/senior, light/dark) deben funcionar offline. Son estáticos una vez cargados","confidence":"low"},
+  {"source":"EmptyState","relationship":"suggests","target":"FabButton","reasoning":"El empty state de Tasks/Finance/Inventory sugiere la primera acción. Esa acción frecuentemente se ejecuta con el FAB","confidence":"medium"},
+  {"source":"Coordinador","relationship":"configures","target":"Onboarding","reasoning":"El Coordinador configura el onboarding inicial de Empleados Familiares y puede ajustar el de otros miembros","confidence":"medium"},
+  {"source":"HorarioLaboral","relationship":"feeds","target":"Presence","reasoning":"El horario laboral del Empleado Familiar puede usarse para contextualizar su presencia esperada en el hogar","confidence":"low"},
+  {"source":"Comentarios","relationship":"appears_in","target":"Timeline","reasoning":"Los comentarios en tareas aparecen en la línea temporal junto con la actividad automática","confidence":"high"},
+  {"source":"Adjuntos","relationship":"stored_in","target":"FamilyCloud","reasoning":"Archivos adjuntos a tareas probablemente se almacenan en FamilyCloud como documentos vinculados","confidence":"medium"},
+  {"source":"Comprobantes","relationship":"stored_in","target":"FamilyCloud","reasoning":"Fotos y PDFs de comprobantes de gastos se almacenan como documentos vinculados en FamilyCloud","confidence":"medium"}
+]
+OUTPUT 8 — GRAPH EDGES
+*.csv
+CSV
+source,relationship,target
+Home,contains,Briefing
+Home,contains,Atención Requerida
+Home,contains,Carga Familiar
+Home,links_to,Planner
+Home,links_to,Calendar
+Home,links_to,Goals
+Home,links_to,Finance
+Home,links_to,Presence
+Home,links_to,Inventory
+Home,links_to,FamilyCloud
+Home,displays_conditional,Finance
+Home,displays_conditional,Presence
+Home,displays_conditional,Inventory
+Home,displays_conditional,Assets
+People,contains,Feed
+People,contains,Presence
+People,contains,Personas
+Planner,contains,Tasks
+Planner,contains,Calendar
+Planner,contains,Goals
+More,contains,Finance
+More,contains,Inventory
+More,contains,FamilyCloud
+More,contains,Settings
+BottomNav,contains,Home
+BottomNav,contains,People
+BottomNav,contains,QuickActions
+BottomNav,contains,Planner
+BottomNav,contains,More
+QuickActions,contains,Geni
+Tasks,belongs_to,Responsabilidades
+Tasks,can_have,Dependencias
+Tasks,can_have,Recurrencias
+Tasks,can_have,Subtareas
+Tasks,can_have,Verificación
+Tasks,can_have,Adjuntos
+Tasks,can_have,Comentarios
+Tasks,generates,Timeline
+Goals,contains,Hitos
+Hitos,contains,Tasks
+Goals,links_to,Fondos
+Goals,links_to,Finance
+Finance,contains,Cuentas
+Finance,contains,Gastos
+Finance,contains,Ingresos
+Finance,contains,Fondos
+Finance,contains,Presupuestos
+Finance,contains,Deudas
+Gastos,references,Cuentas
+Gastos,can_have,Comprobantes
+Presence,contains,Lugares
+Presence,contains,Geocercas
+Presence,contains,Check-ins
+Lugares,can_have,Geocercas
+Geocercas,triggers,EstadoAutomático
+Inventory,contains,Consumibles
+Inventory,contains,Productos del Hogar
+Inventory,contains,Medicamentos
+Assets,contains,Vehículos
+Assets,contains,Mascotas
+FamilyCloud,contains,Álbumes
+FamilyCloud,contains,Recuerdos
+FamilyCloud,contains,Documentos
+FamilyCloud,contains,Papelera
+Álbumes,contains,Recuerdos
+SOS,contains,SOSPanel
+SOS,contains,SOSSilencioso
+SOS,implements,EscaladoSOS
+Geni,generates,Briefing
+Geni,uses,Memoria Personal
+Geni,uses,Memoria Familiar
+Geni,integrates_with,Planner
+Geni,integrates_with,Finance
+Geni,integrates_with,Presence
+Geni,integrates_with,FamilyCloud
+Geni,integrates_with,Automatizaciones
+Geni,integrates_with,SearchGlobal
+Geni,powers,Home
+Automatizaciones,uses,Geni
+Automatizaciones,triggers,Tasks
+Automatizaciones,triggers,Notificaciones
+Automatizaciones,monitors,Presence
+Automatizaciones,monitors,Inventory
+Automatizaciones,monitors,Assets
+Automatizaciones,monitors,Finance
+Automatizaciones,contains,BibiotecaAutomatizaciones
+SearchGlobal,indexes,Settings
+Settings,contains,Auditoría
+Auditoría,tracks,Planner
+Auditoría,tracks,Finance
+Auditoría,tracks,Presence
+Auditoría,tracks,FamilyCloud
+Auditoría,tracks,Roles
+Notificaciones,notifies,Coordinador
+Notificaciones,notifies,Adulto
+Notificaciones,notifies,Adolescente
+Notificaciones,notifies,Niño
+Notificaciones,notifies,Adulto Mayor
+Offline,queues,Planner
+Offline,queues,Calendar
+Offline,queues,Inventory
+Offline,queues,FamilyCloud
+CheckboxTarea,updates,Tasks
+FabButton,creates,Tasks
+FabButton,creates,Gastos
+DesignSystem,defines,PaletaTierraCálida
+DesignSystem,defines,TokensDiseño
+DesignSystem,implements,ThemeProvider
+ThemeProvider,supports,ModoAdultoMayor
+ModoAdultoMayor,adapts,Adulto Mayor
+GamificaciónInfantil,adapts,Niño
+AdaptaciónPorRol,customizes,Home
+ProgressiveDisclosure,structures,Planner
+ProgressiveDisclosure,structures,Finance
+ProgressiveDisclosure,structures,Inventory
+Coordinador,manages,Hogar
+Coordinador,views,Carga Familiar
+Membresía,links,Hogar
+Membresía,assigns,Roles
+Cuenta,owns,Memoria Personal
+Hogar,owns,Memoria Familiar
+MultiHogar,switches,Hogar
+Empleado Familiar,has,HorarioLaboral
+Recuerdos,can_generate,Post
+Calendar,generates,Recuerdos
+Documentos,references,Assets
+Documentos,references,Gastos
+Documentos,references,Goals
+Documentos,references,Personas
+Assets,generates,Tasks
+Inventory,generates,Tasks
+Medicamentos,generates,Notificaciones
+Presupuestos,generates,Notificaciones
+Presupuestos,triggers,Atención Requerida
+Deudas,generates,Notificaciones
+Presence,feeds,SOS
+Presence,triggers,Automatizaciones
+Inventory,triggers,Atención Requerida
+Assets,triggers,Atención Requerida
+SOS,uses,Presence
+SOS,displaces,Home
+SearchGlobal,searches,Tasks
+SearchGlobal,searches,Finance
+SearchGlobal,searches,Settings
+ComprasCerca,uses,Presence
+ComprasCerca,references,Inventory
+Regla1Tap,governs,CheckboxTarea
+FeedbackInmediato,governs,SkeletonLoading
+Perdón,governs,ModalConfirmación
+NavegaciónContextual,connects,Tasks
+NavegaciónContextual,connects,Calendar
+NavegaciónContextual,connects,FamilyCloud
+NavegaciónContextual,connects,Finance
+RecapAnual,aggregates,FamilyCloud
+RecapAnual,aggregates,Planner
+RecapAnual,aggregates,Feed
+LíneaTemporal,aggregates,FamilyCloud
+LíneaTemporal,aggregates,Auditoría
+OCR,populates,Documentos
+OCR,suggests,Assets
+ReconocimientoFacial,suggests,Personas
+Mantenimiento,generates,Notificaciones
+Vencimientos,generates,Notificaciones
+Timeline,feeds,Auditoría
+EmptyState,suggests,FabButton
+HorarioLaboral,feeds,Presence
+Comentarios,appears_in,Timeline
+Adjuntos,stored_in,FamilyCloud
+Comprobantes,stored_in,FamilyCloud

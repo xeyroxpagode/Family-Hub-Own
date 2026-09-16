@@ -1,0 +1,711 @@
+Knowledge Graph Extraction — FamilyHub
+OUTPUT 1 — ENTITIES
+*.json
+JSON
+[
+  /* ========== CORE / AUTH ========== */
+  {"entity":"Household","domain":"People","type":"DatabaseTable","description":"Unidad máxima de aislamiento de datos. Tabla: households."},
+  {"entity":"HouseholdMember","domain":"People","type":"DatabaseTable","description":"Modelo Persona ≠ Usuario. Tabla: household_members. user_id nullable para miembros sin cuenta."},
+  {"entity":"Invitation","domain":"People","type":"DatabaseTable","description":"Invitaciones pendientes a un hogar. Tabla: invitations."},
+  {"entity":"AuditLog","domain":"People","type":"DatabaseTable","description":"Registro inmutable append-only de acciones. Tabla: audit_logs."},
+  {"entity":"Membership","domain":"People","type":"DatabaseEntity","description":"Relación entre Persona y Hogar. Estados: pending, active, suspended, finalized."},
+  {"entity":"FamilyRelationship","domain":"People","type":"DatabaseEntity","description":"Relaciones familiares informativas entre miembros. Madre, Padre, Hijo, etc."},
+  {"entity":"PersonProfile","domain":"People","type":"Screen","description":"Perfil individual: Resumen, Tareas, Eventos, Goals, Presence, Actividad, Responsabilidades."},
+  {"entity":"PeopleList","domain":"People","type":"Screen","description":"Lista de miembros del hogar."},
+  {"entity":"UserAccount","domain":"People","type":"DatabaseEntity","description":"Cuenta del usuario. Pertenece al usuario, no al hogar. Preferencias, idioma, memoria personal de Geni."},
+  /* ========== PLANNER ========== */
+  {"entity":"Task","domain":"Planner","type":"DatabaseTable","description":"Tareas del hogar o personales. Tabla: tasks. Estados: pending, in_progress, completed, cancelled."},
+  {"entity":"TaskComment","domain":"Planner","type":"DatabaseTable","description":"Comentarios en tareas. Tabla: task_comments."},
+  {"entity":"TaskAttachment","domain":"Planner","type":"DatabaseTable","description":"Adjuntos de tareas. Tabla: task_attachments."},
+  {"entity":"TaskTemplate","domain":"Planner","type":"DatabaseTable","description":"Plantillas de tareas recurrentes. Tabla: task_templates."},
+  {"entity":"TaskDependency","domain":"Planner","type":"DatabaseTable","description":"Dependencias bloqueantes entre tareas. Tabla: task_dependencies."},
+  {"entity":"Subtask","domain":"Planner","type":"DatabaseEntity","description":"Un solo nivel de sub-tareas bajo Task (parent_task_id)."},
+  {"entity":"TaskTimeline","domain":"Planner","type":"Feature","description":"Línea temporal automática por tarea: creada, responsable cambiado, completada, comentarios."},
+  {"entity":"TaskVerification","domain":"Planner","type":"Feature","description":"Verificación opcional de completitud de tareas. requires_verification, verified_by, verified_at."},
+  {"entity":"Event","domain":"Planner","type":"DatabaseTable","description":"Eventos del hogar o personales. Tabla: events. Estados: scheduled, completed, cancelled."},
+  {"entity":"EventParticipant","domain":"Planner","type":"DatabaseTable","description":"Participantes de eventos con respuesta. Tabla: event_participants."},
+  {"entity":"Goal","domain":"Planner","type":"DatabaseTable","description":"Metas personales o familiares. Tabla: goals. Estados: active, completed, failed."},
+  {"entity":"Milestone","domain":"Planner","type":"DatabaseTable","description":"Hitos de una meta. Tabla: milestones."},
+  {"entity":"Responsibility","domain":"Planner","type":"DatabaseTable","description":"Áreas operativas del hogar. Tabla: responsibilities. Ej: Compras, Limpieza, Mascotas."},
+  {"entity":"ResponsibilityMember","domain":"Planner","type":"DatabaseTable","description":"Asignación de miembros a responsabilidades. Tabla: responsibility_members."},
+  {"entity":"Streak","domain":"Planner","type":"DatabaseTable","description":"Rachas de miembros derivadas de tareas. Tabla: streaks. Permanentes, recalculables."},
+  {"entity":"RecurrenceRule","domain":"Planner","type":"DatabaseEntity","description":"Reglas RFC 5545 RRULE para tareas y eventos recurrentes."},
+  {"entity":"PlannerDashboard","domain":"Planner","type":"Screen","description":"Vista principal de Planner con Tasks, Calendar y Goals."},
+  {"entity":"CalendarView","domain":"Planner","type":"Screen","description":"Vista de calendario de eventos."},
+  {"entity":"GoalsView","domain":"Planner","type":"Screen","description":"Vista de metas con hitos y progreso."},
+  /* ========== FINANCE ========== */
+  {"entity":"Account","domain":"Finance","type":"DatabaseTable","description":"Cuentas financieras. Tabla: accounts. Tipos: bank, cash, digital, credit, savings, investment."},
+  {"entity":"Expense","domain":"Finance","type":"DatabaseTable","description":"Gastos. Tabla: expenses. No se eliminan, se anulan. Estados: pending, paid, annulled."},
+  {"entity":"ExpenseSplit","domain":"Finance","type":"DatabaseTable","description":"División de gastos entre miembros. Tabla: expense_splits."},
+  {"entity":"Income","domain":"Finance","type":"DatabaseTable","description":"Ingresos del hogar. Tabla: incomes."},
+  {"entity":"Budget","domain":"Finance","type":"DatabaseTable","description":"Presupuestos por categoría. Tabla: budgets. Alerta al 85% por defecto."},
+  {"entity":"Fund","domain":"Finance","type":"DatabaseTable","description":"Fondos de ahorro. Tabla: funds. Estados: active, completed, closed."},
+  {"entity":"Debt","domain":"Finance","type":"DatabaseTable","description":"Deudas entre miembros. Tabla: debts. Estados: active, paid, overdue."},
+  {"entity":"FinanceDashboard","domain":"Finance","type":"Screen","description":"Vista principal de finanzas. No tiene widget permanente en Home."},
+  {"entity":"ExpenseReceipt","domain":"Finance","type":"Feature","description":"Comprobantes de gastos: foto, PDF, imagen."},
+  /* ========== PRESENCE ========== */
+  {"entity":"Location","domain":"Presence","type":"DatabaseTable","description":"Ubicación en tiempo real efímera. Tabla: locations. Una fila por miembro (UPSERT)."},
+  {"entity":"LocationSettings","domain":"Presence","type":"DatabaseTable","description":"Configuración de compartición de ubicación. Tabla: location_settings."},
+  {"entity":"LocationHistory","domain":"Presence","type":"DatabaseTable","description":"Historial de ubicación 30 días rolling. Tabla: location_history."},
+  {"entity":"LocationAlert","domain":"Presence","type":"DatabaseTable","description":"Alertas de llegada/salida de geocercas. Tabla: location_alerts."},
+  {"entity":"CheckIn","domain":"Presence","type":"DatabaseTable","description":"Check-ins manuales o automáticos en lugares. Tabla: check_ins."},
+  {"entity":"Place","domain":"Presence","type":"DatabaseTable","description":"Lugares guardados. Tabla: places. Un solo modelo para todos los lugares."},
+  {"entity":"Geofence","domain":"Presence","type":"DatabaseTable","description":"Geocercas para alertas de presencia. Tabla: geofences."},
+  {"entity":"PresenceState","domain":"Presence","type":"Feature","description":"Estados automáticos (En casa, En trabajo) y manuales (No molestar). Manual > Automático."},
+  {"entity":"VisibilityLevel","domain":"Presence","type":"Feature","description":"Niveles 1-3 de visibilidad de ubicación. Default: Level 3 para Coordinador/Adulto/Senior, Level 2 para Teen/Child/Guest."},
+  {"entity":"PresenceDashboard","domain":"Presence","type":"Screen","description":"Vista de presencia con estado, ubicación, check-ins, lugares y coordinación."},
+  /* ========== INVENTORY ========== */
+  {"entity":"InventoryCategory","domain":"Inventory","type":"DatabaseTable","description":"Categorías de items. Tabla: inventory_categories."},
+  {"entity":"InventoryItem","domain":"Inventory","type":"DatabaseTable","description":"Items del inventario. Tabla: inventory_items. Estados: active, archived. Bajo/agotado se calcula."},
+  {"entity":"ShoppingList","domain":"Inventory","type":"DatabaseTable","description":"Lista de compras. Tabla: shopping_list."},
+  {"entity":"ExpiryRecord","domain":"Inventory","type":"DatabaseTable","description":"Registro de vencimientos. Tabla: expiry_records."},
+  {"entity":"Medication","domain":"Inventory","type":"InventoryItem","description":"Medicamentos en inventario con alertas de vencimiento y reposición."},
+  {"entity":"InventoryDashboard","domain":"Inventory","type":"Screen","description":"Vista de inventario. Sin widget permanente en Home."},
+  /* ========== ASSETS ========== */
+  {"entity":"Asset","domain":"Assets","type":"DatabaseTable","description":"Bienes del hogar. Tabla: assets. Estados: active, inactive, archived."},
+  {"entity":"AssetDocument","domain":"Assets","type":"DatabaseTable","description":"Documentos vinculados a assets. Tabla: asset_documents."},
+  {"entity":"AssetMaintenance","domain":"Assets","type":"DatabaseTable","description":"Mantenimiento de assets. Tabla: asset_maintenance."},
+  {"entity":"Pet","domain":"Assets","type":"DatabaseTable","description":"Mascotas. Tabla: pets. Estados: active, deceased, archived."},
+  {"entity":"Vehicle","domain":"Assets","type":"DatabaseTable","description":"Vehículos. Tabla: vehicles."},
+  {"entity":"Property","domain":"Assets","type":"DatabaseTable","description":"Propiedades. Tabla: properties."},
+  {"entity":"Device","domain":"Assets","type":"DatabaseTable","description":"Dispositivos. Tabla: devices."},
+  {"entity":"AssetsDashboard","domain":"Assets","type":"Screen","description":"Vista de assets. Sin widget permanente en Home."},
+  /* ========== FAMILYCLOUD ========== */
+  {"entity":"MediaItem","domain":"FamilyCloud","type":"DatabaseTable","description":"Fotos y videos. Tabla: media_items. Reconocimiento facial solo en V2."},
+  {"entity":"Album","domain":"FamilyCloud","type":"DatabaseTable","description":"Álbumes de fotos/videos. Tabla: albums."},
+  {"entity":"AlbumItem","domain":"FamilyCloud","type":"DatabaseTable","description":"Relación muchos-a-muchos álbum-media. Tabla: album_items."},
+  {"entity":"Document","domain":"FamilyCloud","type":"DatabaseTable","description":"Documentos del hogar. Tabla: documents. Cifrado por documento para datos críticos."},
+  {"entity":"DocumentVersion","domain":"FamilyCloud","type":"DatabaseTable","description":"Versiones de documentos. Tabla: document_versions. Todas las versiones se preservan."},
+  {"entity":"DocumentComment","domain":"FamilyCloud","type":"DatabaseTable","description":"Comentarios en documentos. Tabla: document_comments."},
+  {"entity":"DocumentAccess","domain":"FamilyCloud","type":"DatabaseTable","description":"Control de acceso granular para documentos restricted. Tabla: document_access."},
+  {"entity":"FamilyCloudDashboard","domain":"FamilyCloud","type":"Screen","description":"Vista principal con álbumes y recuerdos. Organización por momentos, no carpetas."},
+  {"entity":"FamilyRecap","domain":"FamilyCloud","type":"Feature","description":"Resumen emocional anual tipo Spotify Wrapped. Feature futura confirmada."},
+  {"entity":"FamilyTimeline","domain":"FamilyCloud","type":"Feature","description":"Línea temporal familiar. Feature futura confirmada."},
+  /* ========== FEED ========== */
+  {"entity":"Post","domain":"Feed","type":"DatabaseTable","description":"Publicaciones en el feed. Tabla: posts. Todo es un Post, sin tipos especiales."},
+  {"entity":"PostReaction","domain":"Feed","type":"DatabaseTable","description":"Reacciones a posts. Tabla: post_reactions."},
+  {"entity":"PostComment","domain":"Feed","type":"DatabaseTable","description":"Comentarios en posts. Tabla: post_comments."},
+  {"entity":"FeedDashboard","domain":"Feed","type":"Screen","description":"Feed del hogar. Orden cronológico. Vive dentro de People."},
+  /* ========== SOS ========== */
+  {"entity":"SOSAlert","domain":"SOS","type":"DatabaseTable","description":"Alertas de emergencia. Tabla: sos_alerts. Niveles: red, orange, yellow. Estados: active, cancelled, closed."},
+  {"entity":"SOSRecipient","domain":"SOS","type":"DatabaseTable","description":"Destinatarios de alertas SOS. Tabla: sos_recipients."},
+  {"entity":"SOSPanel","domain":"SOS","type":"Screen","description":"Panel SOS. Swipe ↑ global. Niveles: 🔴🟠🟡. Niños/Empleados no pueden 🔴."},
+  {"entity":"SOSOffline","domain":"SOS","type":"Feature","description":"Modo offline SOS: guarda local, reintenta, WhatsApp fallback, SMS, llamada directa."},
+  /* ========== AUTOMATIONS ========== */
+  {"entity":"Automation","domain":"Automatizaciones","type":"DatabaseTable","description":"Automatizaciones SI X → ENTONCES Y. Tabla: automations. Estados: active, paused, archived."},
+  {"entity":"AutomationLog","domain":"Automatizaciones","type":"DatabaseTable","description":"Log de ejecución de automatizaciones. Tabla: automation_logs. Append-only."},
+  {"entity":"AutomationLibrary","domain":"Automatizaciones","type":"Feature","description":"Biblioteca de automatizaciones prearmadas. Personalizables."},
+  /* ========== GENI ========== */
+  {"entity":"GeniMemoryPersonal","domain":"Geni","type":"DatabaseTable","description":"Memorias personales privadas. Tabla: geni_memory_personal."},
+  {"entity":"GeniMemoryFamily","domain":"Geni","type":"DatabaseTable","description":"Memorias familiares visibles para todos. Tabla: geni_memory_family."},
+  {"entity":"GeniConversation","domain":"Geni","type":"DatabaseTable","description":"Conversaciones con Geni. 90 días rolling. Tabla: geni_conversations."},
+  {"entity":"GeniPatternsLog","domain":"Geni","type":"DatabaseTable","description":"Log privado de patrones. Solo service_role. Tabla: geni_patterns_log."},
+  {"entity":"GeniBriefing","domain":"Geni","type":"Feature","description":"Briefing diario: primer widget de Home. Card única con versión resumida/ampliada."},
+  {"entity":"GeniSearch","domain":"Geni","type":"Feature","description":"Búsqueda global transversal con contexto cruzado del ecosistema."},
+  {"entity":"GeniChat","domain":"Geni","type":"Screen","description":"Pantalla completa de Geni: Chat, Acciones sugeridas, Insights, Historial, Configuración IA."},
+  {"entity":"GeniQuickActions","domain":"Geni","type":"Feature","description":"Slot fijo de Geni en Quick Actions (+). Punto de entrada principal a Geni."},
+  /* ========== NOTIFICATIONS ========== */
+  {"entity":"NotificationPreference","domain":"Notifications","type":"DatabaseTable","description":"Preferencias de notificación por miembro. Tabla: notification_preferences. SOS siempre true."},
+  {"entity":"Notification","domain":"Notifications","type":"DatabaseTable","description":"Notificaciones in-app 30 días rolling. Tabla: notifications. Push no se almacena."},
+  {"entity":"NotificationChannel","domain":"Notifications","type":"DatabaseTable","description":"Canales externos: push, email, sms. Tabla: notification_channels."},
+  /* ========== METRICS ========== */
+  {"entity":"LoadMetric","domain":"Metrics","type":"DatabaseTable","description":"Métricas de carga por miembro. 90 días detalle, agregados permanentes. Tabla: load_metrics."},
+  /* ========== ROLES ========== */
+  {"entity":"CoordinatorRole","domain":"People","type":"Role","description":"Responsable administrativo. Aprueba ingresos, cambia roles, expulsa miembros. No puede eliminar hogares."},
+  {"entity":"AdultRole","domain":"People","type":"Role","description":"Miembro operativo. Invita, crea/reasigna tareas, crea eventos. No aprueba ingresos."},
+  {"entity":"TeenRole","domain":"People","type":"Role","description":"Autonomía progresiva. Crea eventos familiares, gastos, administra tareas propias."},
+  {"entity":"ChildRole","domain":"People","type":"Role","description":"Experiencia simplificada. No administra información crítica. Sin ubicación. Sin SOS 🔴."},
+  {"entity":"SeniorRole","domain":"People","type":"Role","description":"Experiencia adaptada. Mismos permisos que Adulto salvo configuraciones específicas."},
+  {"entity":"GuestRole","domain":"People","type":"Role","description":"Acceso mínimo. Participación limitada."},
+  {"entity":"FamilyEmployeeRole","domain":"People","type":"Role","description":"Colaborador operativo. Acceso restringido a responsabilidades asignadas. No crea tareas. Sin SOS 🔴."},
+  /* ========== NAVIGATION ========== */
+  {"entity":"BottomNavigation","domain":"Navigation","type":"Screen","description":"[Home] [People] [+] [Planner] [More]. Congelado V1."},
+  {"entity":"QuickActions","domain":"Navigation","type":"Screen","description":"Panel flotante desde +. Geni slot fijo primero. Acciones dinámicas por frecuencia."},
+  {"entity":"MoreMenu","domain":"Navigation","type":"Screen","description":"Finance, Inventory, FamilyCloud, Settings."},
+  {"entity":"HomeDashboard","domain":"Navigation","type":"Screen","description":"Briefing → Atención Requerida → Carga Familiar → Eventos → Tareas → Finanzas → Presence → Actividad."},
+  {"entity":"GlobalSearch","domain":"Navigation","type":"Screen","description":"Búsqueda en todo el ecosistema. Indexa configuraciones. Ejecuta acciones."},
+  {"entity":"MultiHomeSelector","domain":"Navigation","type":"Screen","description":"Selector global en header. Visible solo con 2+ hogares."},
+  /* ========== OFFLINE ========== */
+  {"entity":"OfflineQueue","domain":"System","type":"Feature","description":"Cola de sincronización. Last Write Wins. Acciones offline conservan autor y fecha original."},
+  {"entity":"OfflineModule","domain":"System","type":"Feature","description":"Modo offline: ver/completar tareas, ver eventos, ver personas, ver assets, ver stock."},
+  /* ========== SECURITY ========== */
+  {"entity":"RowLevelSecurity","domain":"System","type":"Service","description":"RLS en todas las tablas. Última línea de defensa. Filtra por household_id y member_id."},
+  {"entity":"DocumentEncryption","domain":"System","type":"Service","description":"Cifrado AES-256 con clave por documento + clave por hogar para datos sensibles."},
+  {"entity":"DataExport","domain":"System","type":"Feature","description":"Exportación en CSV, JSON, iCalendar, GeoJSON, PDF. Sin límites de frecuencia."},
+  {"entity":"AccountClosure","domain":"System","type":"Workflow","description":"Cierre de cuenta: gracia 30 días, exportación completa, eliminación total."},
+  {"entity":"DataInventory","domain":"System","type":"Feature","description":"Inventario visible de datos. El usuario sabe qué se guarda y por qué."}
+]
+OUTPUT 2 — RELATIONSHIPS
+*.json
+JSON
+[
+  /* ========== CORE STRUCTURE ========== */
+  {"source":"Household","relationship":"contains","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"belongs_to","target":"Household","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"links_to","target":"UserAccount","confidence":"high","type":"explicit"},
+  {"source":"CoordinatorRole","relationship":"approves","target":"Invitation","confidence":"high","type":"explicit"},
+  {"source":"CoordinatorRole","relationship":"manages","target":"Household","confidence":"high","type":"explicit"},
+  {"source":"CoordinatorRole","relationship":"changes_role_of","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"CoordinatorRole","relationship":"expels","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"has_role","target":"CoordinatorRole","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"has_role","target":"AdultRole","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"has_role","target":"TeenRole","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"has_role","target":"ChildRole","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"has_role","target":"SeniorRole","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"has_role","target":"GuestRole","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"has_role","target":"FamilyEmployeeRole","confidence":"high","type":"explicit"},
+  /* ========== PLANNER ========== */
+  {"source":"HouseholdMember","relationship":"creates","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"is_assigned_to","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"completes","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"verifies","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"Task","relationship":"depends_on","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"Task","relationship":"has_subtask","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"Task","relationship":"belongs_to","target":"Responsibility","confidence":"high","type":"explicit"},
+  {"source":"Task","relationship":"advances","target":"Goal","confidence":"high","type":"explicit"},
+  {"source":"Task","relationship":"links_to","target":"Event","confidence":"medium","type":"explicit"},
+  {"source":"Task","relationship":"has","target":"TaskComment","confidence":"high","type":"explicit"},
+  {"source":"Task","relationship":"has","target":"TaskAttachment","confidence":"high","type":"explicit"},
+  {"source":"TaskTemplate","relationship":"generates","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"Task","relationship":"triggers","target":"Streak","confidence":"high","type":"implicit"},
+  {"source":"Responsibility","relationship":"has_member","target":"ResponsibilityMember","confidence":"high","type":"explicit"},
+  {"source":"ResponsibilityMember","relationship":"references","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"creates","target":"Event","confidence":"high","type":"explicit"},
+  {"source":"Event","relationship":"has_participant","target":"EventParticipant","confidence":"high","type":"explicit"},
+  {"source":"EventParticipant","relationship":"references","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"Goal","relationship":"has_milestone","target":"Milestone","confidence":"high","type":"explicit"},
+  {"source":"Goal","relationship":"tracks_progress_via","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"creates","target":"Goal","confidence":"high","type":"explicit"},
+  {"source":"Milestone","relationship":"belongs_to","target":"Goal","confidence":"high","type":"explicit"},
+  /* ========== FINANCE ========== */
+  {"source":"Household","relationship":"owns","target":"Account","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"pays","target":"Expense","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"creates","target":"Expense","confidence":"high","type":"explicit"},
+  {"source":"Expense","relationship":"deducts_from","target":"Account","confidence":"high","type":"explicit"},
+  {"source":"Expense","relationship":"has_split","target":"ExpenseSplit","confidence":"high","type":"explicit"},
+  {"source":"ExpenseSplit","relationship":"references","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"Expense","relationship":"attaches","target":"Document","confidence":"medium","type":"explicit"},
+  {"source":"Income","relationship":"credits_to","target":"Account","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"receives","target":"Income","confidence":"high","type":"explicit"},
+  {"source":"Budget","relationship":"monitors","target":"Expense","confidence":"high","type":"explicit"},
+  {"source":"Fund","relationship":"tracks_progress_via","target":"Goal","confidence":"high","type":"explicit"},
+  {"source":"Fund","relationship":"stores_value_in","target":"Account","confidence":"high","type":"explicit"},
+  {"source":"Debt","relationship":"involves_debtor","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"Debt","relationship":"involves_creditor","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"Debt","relationship":"originates_from","target":"Expense","confidence":"medium","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"owes","target":"Debt","confidence":"high","type":"explicit"},
+  /* ========== PRESENCE ========== */
+  {"source":"HouseholdMember","relationship":"has","target":"Location","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"configures","target":"LocationSettings","confidence":"high","type":"explicit"},
+  {"source":"Location","relationship":"feeds","target":"LocationHistory","confidence":"high","type":"explicit"},
+  {"source":"Geofence","relationship":"triggers","target":"LocationAlert","confidence":"high","type":"explicit"},
+  {"source":"LocationAlert","relationship":"notifies_about","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"Geofence","relationship":"references","target":"Place","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"performs","target":"CheckIn","confidence":"high","type":"explicit"},
+  {"source":"CheckIn","relationship":"references","target":"Place","confidence":"high","type":"explicit"},
+  {"source":"Place","relationship":"belongs_to","target":"Household","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"shares_location_with","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"LocationSettings","relationship":"controls","target":"VisibilityLevel","confidence":"high","type":"explicit"},
+  /* ========== INVENTORY ========== */
+  {"source":"InventoryItem","relationship":"belongs_to","target":"InventoryCategory","confidence":"high","type":"explicit"},
+  {"source":"InventoryItem","relationship":"generates","target":"ShoppingList","confidence":"high","type":"explicit"},
+  {"source":"InventoryItem","relationship":"has","target":"ExpiryRecord","confidence":"high","type":"explicit"},
+  {"source":"ShoppingList","relationship":"converts_to","target":"Expense","confidence":"medium","type":"explicit"},
+  {"source":"ShoppingList","relationship":"generates","target":"Task","confidence":"medium","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"updates","target":"InventoryItem","confidence":"high","type":"explicit"},
+  /* ========== ASSETS ========== */
+  {"source":"Asset","relationship":"has","target":"AssetDocument","confidence":"high","type":"explicit"},
+  {"source":"Asset","relationship":"has","target":"AssetMaintenance","confidence":"high","type":"explicit"},
+  {"source":"AssetMaintenance","relationship":"generates","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"Asset","relationship":"links_to","target":"Expense","confidence":"high","type":"explicit"},
+  {"source":"Pet","relationship":"extends","target":"Asset","confidence":"high","type":"explicit"},
+  {"source":"Vehicle","relationship":"extends","target":"Asset","confidence":"high","type":"explicit"},
+  {"source":"Property","relationship":"extends","target":"Asset","confidence":"high","type":"explicit"},
+  {"source":"Device","relationship":"extends","target":"Asset","confidence":"high","type":"explicit"},
+  {"source":"Asset","relationship":"has_responsible","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  /* ========== FAMILYCLOUD ========== */
+  {"source":"Album","relationship":"contains","target":"AlbumItem","confidence":"high","type":"explicit"},
+  {"source":"AlbumItem","relationship":"references","target":"MediaItem","confidence":"high","type":"explicit"},
+  {"source":"MediaItem","relationship":"links_to","target":"Event","confidence":"high","type":"explicit"},
+  {"source":"Event","relationship":"generates","target":"MediaItem","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"uploads","target":"MediaItem","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"creates","target":"Album","confidence":"high","type":"explicit"},
+  {"source":"Document","relationship":"has_version","target":"DocumentVersion","confidence":"high","type":"explicit"},
+  {"source":"Document","relationship":"has","target":"DocumentComment","confidence":"high","type":"explicit"},
+  {"source":"Document","relationship":"has_access_control","target":"DocumentAccess","confidence":"high","type":"explicit"},
+  {"source":"DocumentAccess","relationship":"grants_access_to","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"Document","relationship":"links_to","target":"Asset","confidence":"high","type":"explicit"},
+  {"source":"Document","relationship":"links_to","target":"Expense","confidence":"medium","type":"explicit"},
+  {"source":"Document","relationship":"links_to","target":"Event","confidence":"medium","type":"explicit"},
+  {"source":"Document","relationship":"links_to","target":"Goal","confidence":"medium","type":"explicit"},
+  {"source":"Document","relationship":"links_to","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"owns","target":"Document","confidence":"high","type":"explicit"},
+  /* ========== FEED ========== */
+  {"source":"HouseholdMember","relationship":"creates","target":"Post","confidence":"high","type":"explicit"},
+  {"source":"Post","relationship":"has","target":"PostReaction","confidence":"high","type":"explicit"},
+  {"source":"Post","relationship":"has","target":"PostComment","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"reacts_to","target":"Post","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"comments_on","target":"Post","confidence":"high","type":"explicit"},
+  {"source":"Post","relationship":"references","target":"MediaItem","confidence":"high","type":"explicit"},
+  {"source":"Goal","relationship":"announces_in","target":"Post","confidence":"medium","type":"explicit"},
+  /* ========== SOS ========== */
+  {"source":"HouseholdMember","relationship":"triggers","target":"SOSAlert","confidence":"high","type":"explicit"},
+  {"source":"SOSAlert","relationship":"notifies","target":"SOSRecipient","confidence":"high","type":"explicit"},
+  {"source":"SOSRecipient","relationship":"references","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"SOSAlert","relationship":"uses","target":"Location","confidence":"high","type":"explicit"},
+  {"source":"SOSAlert","relationship":"uses","target":"LocationHistory","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"resolves","target":"SOSAlert","confidence":"high","type":"explicit"},
+  /* ========== AUTOMATIONS ========== */
+  {"source":"Automation","relationship":"triggers_on","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"triggers_on","target":"Event","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"triggers_on","target":"Expense","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"triggers_on","target":"Location","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"triggers_on","target":"CheckIn","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"triggers_on","target":"SOSAlert","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"triggers_on","target":"InventoryItem","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"triggers_on","target":"Asset","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"creates","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"creates","target":"Event","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"sends","target":"Notification","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"posts_to","target":"Post","confidence":"high","type":"explicit"},
+  {"source":"Automation","relationship":"generates","target":"AutomationLog","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"creates","target":"Automation","confidence":"high","type":"explicit"},
+  /* ========== GENI ========== */
+  {"source":"GeniConversation","relationship":"generates","target":"GeniMemoryPersonal","confidence":"high","type":"explicit"},
+  {"source":"GeniConversation","relationship":"generates","target":"GeniMemoryFamily","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"owns","target":"GeniMemoryPersonal","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"creates","target":"GeniMemoryFamily","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"has_conversation","target":"GeniConversation","confidence":"high","type":"explicit"},
+  {"source":"GeniPatternsLog","relationship":"monitors","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"GeniPatternsLog","relationship":"monitors","target":"Household","confidence":"high","type":"explicit"},
+  {"source":"GeniBriefing","relationship":"summarizes","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"GeniBriefing","relationship":"summarizes","target":"Event","confidence":"high","type":"explicit"},
+  {"source":"GeniBriefing","relationship":"summarizes","target":"Expense","confidence":"high","type":"explicit"},
+  {"source":"GeniBriefing","relationship":"summarizes","target":"Goal","confidence":"high","type":"explicit"},
+  {"source":"GeniSearch","relationship":"indexes","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"GeniSearch","relationship":"indexes","target":"Event","confidence":"high","type":"explicit"},
+  {"source":"GeniSearch","relationship":"indexes","target":"Expense","confidence":"high","type":"explicit"},
+  {"source":"GeniSearch","relationship":"indexes","target":"Document","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"suggests","target":"Automation","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"detects_patterns_for","target":"GeniPatternsLog","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"analyzes","target":"LoadMetric","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"coordinates","target":"PresenceState","confidence":"high","type":"implicit"},
+  {"source":"Geni","relationship":"recommends_from","target":"Expense","confidence":"high","type":"explicit"},
+  {"source":"Geni","relationship":"estimates_progress_of","target":"Goal","confidence":"high","type":"explicit"},
+  /* ========== NOTIFICATIONS ========== */
+  {"source":"Notification","relationship":"delivered_to","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"configures","target":"NotificationPreference","confidence":"high","type":"explicit"},
+  {"source":"HouseholdMember","relationship":"has_channel","target":"NotificationChannel","confidence":"high","type":"explicit"},
+  {"source":"Notification","relationship":"sent_via","target":"NotificationChannel","confidence":"high","type":"explicit"},
+  /* ========== METRICS ========== */
+  {"source":"LoadMetric","relationship":"tracks","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"LoadMetric","relationship":"belongs_to","target":"Household","confidence":"high","type":"explicit"},
+  /* ========== AUDIT ========== */
+  {"source":"AuditLog","relationship":"tracks_action_on","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"AuditLog","relationship":"tracks_action_on","target":"Event","confidence":"high","type":"explicit"},
+  {"source":"AuditLog","relationship":"tracks_action_on","target":"Expense","confidence":"high","type":"explicit"},
+  {"source":"AuditLog","relationship":"tracks_action_on","target":"Debt","confidence":"high","type":"explicit"},
+  {"source":"AuditLog","relationship":"tracks_action_on","target":"Document","confidence":"high","type":"explicit"},
+  {"source":"AuditLog","relationship":"tracks_action_on","target":"SOSAlert","confidence":"high","type":"explicit"},
+  {"source":"AuditLog","relationship":"tracks_action_on","target":"Household","confidence":"high","type":"explicit"},
+  {"source":"AuditLog","relationship":"references","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  /* ========== EXPORT ========== */
+  {"source":"DataExport","relationship":"exports","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"DataExport","relationship":"exports","target":"Event","confidence":"high","type":"explicit"},
+  {"source":"DataExport","relationship":"exports","target":"Expense","confidence":"high","type":"explicit"},
+  {"source":"DataExport","relationship":"exports","target":"LocationHistory","confidence":"high","type":"explicit"},
+  {"source":"DataExport","relationship":"exports","target":"Document","confidence":"high","type":"explicit"},
+  {"source":"DataExport","relationship":"exports","target":"MediaItem","confidence":"high","type":"explicit"},
+  {"source":"DataExport","relationship":"exports","target":"GeniConversation","confidence":"high","type":"explicit"},
+  {"source":"DataExport","relationship":"exports","target":"GeniMemoryPersonal","confidence":"high","type":"explicit"},
+  {"source":"DataExport","relationship":"exports","target":"Streak","confidence":"high","type":"explicit"},
+  /* ========== OFFLINE ========== */
+  {"source":"OfflineQueue","relationship":"synchronizes","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"OfflineQueue","relationship":"synchronizes","target":"TaskComment","confidence":"high","type":"explicit"},
+  {"source":"OfflineModule","relationship":"caches","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"OfflineModule","relationship":"caches","target":"Event","confidence":"high","type":"explicit"},
+  {"source":"OfflineModule","relationship":"caches","target":"HouseholdMember","confidence":"high","type":"explicit"},
+  {"source":"OfflineModule","relationship":"caches","target":"Asset","confidence":"high","type":"explicit"},
+  {"source":"OfflineModule","relationship":"caches","target":"InventoryItem","confidence":"high","type":"explicit"},
+  /* ========== SECURITY ========== */
+  {"source":"RowLevelSecurity","relationship":"protects","target":"Task","confidence":"high","type":"explicit"},
+  {"source":"RowLevelSecurity","relationship":"protects","target":"Expense","confidence":"high","type":"explicit"},
+  {"source":"RowLevelSecurity","relationship":"protects","target":"GeniMemoryPersonal","confidence":"high","type":"explicit"},
+  {"source":"RowLevelSecurity","relationship":"protects","target":"GeniConversation","confidence":"high","type":"explicit"},
+  {"source":"DocumentEncryption","relationship":"protects","target":"Document","confidence":"high","type":"explicit"}
+]
+OUTPUT 3 — CROSS DOMAIN RELATIONSHIPS
+*.json
+JSON
+[
+  {"source_domain":"Planner","source_entity":"Task","relationship":"belongs_to","target_entity":"Responsibility","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Planner","source_entity":"Task","relationship":"advances","target_entity":"Goal","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Planner","source_entity":"Task","relationship":"links_to","target_entity":"Event","target_domain":"Planner","confidence":"medium"},
+  {"source_domain":"Planner","source_entity":"Goal","relationship":"tracks_progress_via","target_entity":"Fund","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Planner","source_entity":"Goal","relationship":"links_to","target_entity":"Expense","target_domain":"Finance","confidence":"medium"},
+  {"source_domain":"Planner","source_entity":"Event","relationship":"generates","target_entity":"MediaItem","target_domain":"FamilyCloud","confidence":"high"},
+  {"source_domain":"Planner","source_entity":"Event","relationship":"generates","target_entity":"Post","target_domain":"Feed","confidence":"medium"},
+  {"source_domain":"Planner","source_entity":"Task","relationship":"generates","target_entity":"LoadMetric","target_domain":"Metrics","confidence":"high"},
+  {"source_domain":"Planner","source_entity":"Task","relationship":"generates","target_entity":"Streak","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Finance","source_entity":"Expense","relationship":"attaches","target_entity":"Document","target_domain":"FamilyCloud","confidence":"high"},
+  {"source_domain":"Finance","source_entity":"Expense","relationship":"links_to","target_entity":"Asset","target_domain":"Assets","confidence":"high"},
+  {"source_domain":"Finance","source_entity":"Budget","relationship":"references","target_entity":"Expense","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Finance","source_entity":"Fund","relationship":"links_to","target_entity":"Goal","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Finance","source_entity":"Debt","relationship":"originates_from","target_entity":"Expense","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Presence","source_entity":"SOSAlert","relationship":"uses","target_entity":"Location","target_domain":"Presence","confidence":"high"},
+  {"source_domain":"Presence","source_entity":"SOSAlert","relationship":"uses","target_entity":"LocationHistory","target_domain":"Presence","confidence":"high"},
+  {"source_domain":"Presence","source_entity":"Location","relationship":"triggers","target_entity":"Automation","target_domain":"Automatizaciones","confidence":"high"},
+  {"source_domain":"Presence","source_entity":"CheckIn","relationship":"triggers","target_entity":"Automation","target_domain":"Automatizaciones","confidence":"high"},
+  {"source_domain":"Inventory","source_entity":"InventoryItem","relationship":"generates","target_entity":"Task","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Inventory","source_entity":"ShoppingList","relationship":"converts_to","target_entity":"Expense","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Inventory","source_entity":"InventoryItem","relationship":"triggers","target_entity":"Automation","target_domain":"Automatizaciones","confidence":"high"},
+  {"source_domain":"Assets","source_entity":"AssetMaintenance","relationship":"generates","target_entity":"Task","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Assets","source_entity":"Asset","relationship":"links_to","target_entity":"Expense","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Assets","source_entity":"Asset","relationship":"links_to","target_entity":"Document","target_domain":"FamilyCloud","confidence":"high"},
+  {"source_domain":"Assets","source_entity":"Asset","relationship":"triggers","target_entity":"Automation","target_domain":"Automatizaciones","confidence":"high"},
+  {"source_domain":"FamilyCloud","source_entity":"Document","relationship":"links_to","target_entity":"Asset","target_domain":"Assets","confidence":"high"},
+  {"source_domain":"FamilyCloud","source_entity":"Document","relationship":"links_to","target_entity":"Expense","target_domain":"Finance","confidence":"medium"},
+  {"source_domain":"FamilyCloud","source_entity":"Document","relationship":"links_to","target_entity":"Event","target_domain":"Planner","confidence":"medium"},
+  {"source_domain":"FamilyCloud","source_entity":"Document","relationship":"links_to","target_entity":"Goal","target_domain":"Planner","confidence":"medium"},
+  {"source_domain":"FamilyCloud","source_entity":"MediaItem","relationship":"appears_in","target_entity":"Post","target_domain":"Feed","confidence":"high"},
+  {"source_domain":"FamilyCloud","source_entity":"Album","relationship":"auto_created_from","target_entity":"Event","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Feed","source_entity":"Post","relationship":"references","target_entity":"Goal","target_domain":"Planner","confidence":"medium"},
+  {"source_domain":"Feed","source_entity":"Post","relationship":"references","target_entity":"MediaItem","target_domain":"FamilyCloud","confidence":"high"},
+  {"source_domain":"SOS","source_entity":"SOSAlert","relationship":"notifies_via","target_entity":"Notification","target_domain":"Notifications","confidence":"high"},
+  {"source_domain":"SOS","source_entity":"SOSAlert","relationship":"triggers","target_entity":"Automation","target_domain":"Automatizaciones","confidence":"high"},
+  {"source_domain":"Automatizaciones","source_entity":"Automation","relationship":"creates","target_entity":"Task","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Automatizaciones","source_entity":"Automation","relationship":"creates","target_entity":"Event","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Automatizaciones","source_entity":"Automation","relationship":"posts_to","target_entity":"Post","target_domain":"Feed","confidence":"high"},
+  {"source_domain":"Automatizaciones","source_entity":"Automation","relationship":"sends","target_entity":"Notification","target_domain":"Notifications","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"GeniConversation","relationship":"references","target_entity":"Task","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"GeniConversation","relationship":"references","target_entity":"Expense","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"GeniBriefing","relationship":"aggregates","target_entity":"Event","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"GeniBriefing","relationship":"aggregates","target_entity":"Expense","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"GeniBriefing","relationship":"aggregates","target_entity":"LoadMetric","target_domain":"Metrics","confidence":"high"},
+  {"source_domain":"Geni","source_entity":"Geni","relationship":"suggests","target_entity":"Automation","target_domain":"Automatizaciones","confidence":"high"},
+  {"source_domain":"People","source_entity":"AuditLog","relationship":"tracks","target_entity":"Task","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"People","source_entity":"AuditLog","relationship":"tracks","target_entity":"Expense","target_domain":"Finance","confidence":"high"},
+  {"source_domain":"People","source_entity":"AuditLog","relationship":"tracks","target_entity":"Document","target_domain":"FamilyCloud","confidence":"high"},
+  {"source_domain":"People","source_entity":"AuditLog","relationship":"tracks","target_entity":"SOSAlert","target_domain":"SOS","confidence":"high"},
+  {"source_domain":"Metrics","source_entity":"LoadMetric","relationship":"derives_from","target_entity":"Task","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Notifications","source_entity":"Notification","relationship":"references","target_entity":"Task","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Notifications","source_entity":"Notification","relationship":"references","target_entity":"Event","target_domain":"Planner","confidence":"high"},
+  {"source_domain":"Notifications","source_entity":"Notification","relationship":"references","target_entity":"Expense","target_domain":"Finance","confidence":"high"}
+]
+OUTPUT 4 — DATA FLOWS
+*.json
+JSON
+[
+  {"origin":"User Device (GPS)","data":"Coordenadas lat/lng en tiempo real","destination":"FamilyHub Backend → locations table","purpose":"Presencia en tiempo real y coordinación familiar"},
+  {"origin":"locations table","data":"Actualización de ubicación","destination":"location_history table (particionada 30d)","purpose":"Historial de movilidad para patrones y SOS"},
+  {"origin":"locations table","data":"Evento de entrada/salida de geocerca","destination":"location_alerts table → notificaciones push","purpose":"Alertar a miembros designados sobre llegadas/salidas"},
+  {"origin":"User Device (GPS)","data":"Coordenadas check-in manual","destination":"check_ins table","purpose":"Confirmación manual de presencia en lugares"},
+  {"origin":"check_ins table","data":"Evento check-in","destination":"Automation triggers","purpose":"Disparar automatizaciones (ej: Juan llegó a casa → avisar)"},
+  {"origin":"tasks table","data":"Tarea completada","destination":"streaks table (recalculate)","purpose":"Actualizar rachas de miembros"},
+  {"origin":"tasks table","data":"Tareas asignadas/completadas/vencidas","destination":"load_metrics table","purpose":"Métricas de carga para Geni y Home"},
+  {"origin":"tasks table","data":"Tarea vencida","destination":"notifications table → push al miembro","purpose":"Alertar sobre tareas pendientes urgentes"},
+  {"origin":"tasks table","data":"Cambio de estado/ responsable/fecha","destination":"audit_logs table","purpose":"Trazabilidad de acciones sobre tareas"},
+  {"origin":"events table","data":"Evento finalizado","destination":"FamilyCloud: sugerencia de álbum automático","purpose":"Detectar fotos tomadas durante el evento y ofrecer crear recuerdo"},
+  {"origin":"expenses table","data":"Gasto registrado","destination":"accounts table (recalcular balance)","purpose":"Actualizar saldo de cuenta afectada"},
+  {"origin":"expenses table","data":"Gasto cercano al 85% del presupuesto","destination":"notifications table → Geni Briefing","purpose":"Alerta de presupuesto y recomendaciones de Geni"},
+  {"origin":"expenses table","data":"Gasto anulado","destination":"audit_logs table","purpose":"Registro de anulación para trazabilidad contable"},
+  {"origin":"expenses table","data":"Gasto dividido","destination":"expense_splits table → debts table","purpose":"Registrar deudas entre miembros por división de gastos"},
+  {"origin":"inventory_items table","data":"Stock por debajo de min_quantity","destination":"shopping_list table + notifications","purpose":"Sugerir compra y alertar sobre stock bajo"},
+  {"origin":"inventory_items table","data":"Medicamento próximo a vencer","destination":"notifications table","purpose":"Alerta de vencimiento de medicamentos"},
+  {"origin":"assets table","data":"Mantenimiento próximo o vencido","destination":"tasks table (auto-creación) + notifications","purpose":"Generar tarea de mantenimiento y alertar"},
+  {"origin":"assets table","data":"Documento de asset (seguro, garantía) próximo a vencer","destination":"notifications table","purpose":"Alertar sobre vencimientos de documentación"},
+  {"origin":"documents table","data":"Nueva versión de documento","destination":"document_versions table","purpose":"Preservar historial completo de versiones"},
+  {"origin":"SOS Panel","data":"Alerta de emergencia (nivel, ubicación, categoría)","destination":"sos_alerts table → sos_recipients → notifications críticas","purpose":"Notificar a destinatarios designados con escalamiento automático"},
+  {"origin":"Geni Chat","data":"Mensaje del usuario","destination":"geni_conversations table","purpose":"Almacenar conversación (90 días) para contexto y extracción de temas"},
+  {"origin":"geni_conversations table","data":"Temas extraídos (no literales)","destination":"geni_memory_personal o geni_memory_family (con confirmación)","purpose":"Crear memorias persistentes a partir de conversaciones"},
+  {"origin":"Geni Edge Function","data":"Patrón detectado (carga asimétrica, obsesión con ubicación, etc.)","destination":"geni_patterns_log table","purpose":"Registro privado de patrones para detección de reincidencia"},
+  {"origin":"load_metrics table","data":"Agregados de carga por miembro","destination":"Geni Briefing → Home Carga Familiar","purpose":"Mostrar distribución de carga y detectar asimetrías"},
+  {"origin":"automations table","data":"Trigger disparado + resultado","destination":"automation_logs table","purpose":"Auditoría de ejecución de automatizaciones"},
+  {"origin":"User Action","data":"Solicitud de exportación","destination":"DataExport service → archivo CSV/JSON/ICS/GeoJSON","purpose":"Portabilidad de datos del usuario"},
+  {"origin":"Offline Device","data":"Cambios locales (tareas completadas, comentarios)","destination":"OfflineQueue → sincronización al reconectar","purpose":"Continuidad operativa sin conexión. Last Write Wins."},
+  {"origin":"auth.users","data":"Registro/Login","destination":"household_members (vinculación user_id)","purpose":"Vincular cuenta de Supabase con membresía del hogar"},
+  {"origin":"notifications table","data":"Notificación leída","destination":"Marcado is_read=true en recipient_id","purpose":"Tracking de lectura de notificaciones in-app"},
+  {"origin":"Notification Preferences","data":"Preferencias de canal y horario","destination":"Notification dispatch logic","purpose":"Determinar si, cuándo y cómo notificar a cada miembro"}
+]
+OUTPUT 5 — BUSINESS RULES
+*.json
+JSON
+[
+  {"rule":"Los datos del hogar son del hogar. FamilyHub administra, no posee.","affected_entities":["Household","DataExport","AccountClosure"]},
+  {"rule":"Ningún dato del hogar se vende, se usa para publicidad, ni se cruza entre hogares.","affected_entities":["Household","AuditLog"]},
+  {"rule":"Una tarea siempre tiene una única responsabilidad asociada (responsibility_id NOT NULL).","affected_entities":["Task","Responsibility"]},
+  {"rule":"Las tareas tienen un solo nivel de sub-tareas. No hay anidamiento profundo.","affected_entities":["Task","Subtask"]},
+  {"rule":"Vencida no es un estado de tarea. Se calcula automáticamente comparando due_date con current_date.","affected_entities":["Task"]},
+  {"rule":"Los gastos no se eliminan. Se anulan (status='annulled').","affected_entities":["Expense"]},
+  {"rule":"Los eventos solo tienen tres estados: scheduled, completed, cancelled. No hay in_progress ni deleted como estado.","affected_entities":["Event"]},
+  {"rule":"Las metas solo tienen estados: active, completed, failed. No existe 'cancelled'.","affected_entities":["Goal"]},
+  {"rule":"Las deudas tienen estados: active, paid, overdue. Vencida se calcula y se persiste.","affected_entities":["Debt"]},
+  {"rule":"Todo es un Post en Feed. No existen tipos especiales de publicación.","affected_entities":["Post"]},
+  {"rule":"Los logros/achievements no son entidad de datos independiente. Se rastrean dentro de Goals.","affected_entities":["Goal"]},
+  {"rule":"Las rachas son permanentes y recalculables. No son eliminables por el usuario.","affected_entities":["Streak"]},
+  {"rule":"El historial de ubicación se elimina automáticamente a los 30 días (rolling).","affected_entities":["LocationHistory"]},
+  {"rule":"Las conversaciones con Geni se eliminan automáticamente a los 90 días (rolling).","affected_entities":["GeniConversation"]},
+  {"rule":"Las notificaciones in-app se eliminan automáticamente a los 30 días. Las push no se almacenan.","affected_entities":["Notification"]},
+  {"rule":"Los items eliminados (soft-delete) van a papelera 30 días. Luego se eliminan definitivamente.","affected_entities":["Task","Event","Document","MediaItem","Expense"]},
+  {"rule":"La auditoría es permanente e inmutable. Append-only.","affected_entities":["AuditLog"]},
+  {"rule":"El log de patrones de Geni solo es accesible por service_role. Ni el Coordinador puede verlo.","affected_entities":["GeniPatternsLog"]},
+  {"rule":"Las memorias personales y conversaciones con Geni son privadas por RLS. El Coordinador no accede.","affected_entities":["GeniMemoryPersonal","GeniConversation"]},
+  {"rule":"Geni no puede marcar tareas como completadas automáticamente.","affected_entities":["Geni","Task"]},
+  {"rule":"Las automatizaciones creadas por Geni requieren aprobación explícita del usuario.","affected_entities":["Automation","Geni"]},
+  {"rule":"Los estados manuales de presencia tienen prioridad sobre los automáticos.","affected_entities":["PresenceState"]},
+  {"rule":"Los datos de ubicación nunca se envían a APIs externas de IA.","affected_entities":["Location","Geni"]},
+  {"rule":"Las conversaciones con Geni no son compartibles entre miembros.","affected_entities":["GeniConversation"]},
+  {"rule":"SOS no se puede silenciar en preferencias de notificación.","affected_entities":["NotificationPreference","SOSAlert"]},
+  {"rule":"Niños y Empleados Familiares no pueden emitir SOS nivel 🔴 (emergencia grave).","affected_entities":["ChildRole","FamilyEmployeeRole","SOSAlert"]},
+  {"rule":"El Coordinador no puede eliminar hogares. Solo el sistema al cerrar cuenta del último miembro.","affected_entities":["Household","CoordinatorRole"]},
+  {"rule":"La membresía de un hogar tiene estados: pending, active, suspended, finalized.","affected_entities":["HouseholdMember","Membership"]},
+  {"rule":"Los Adolescentes pueden crear gastos y eventos familiares. Pueden recibir permisos adicionales.","affected_entities":["TeenRole","Expense","Event"]},
+  {"rule":"El Adulto Mayor tiene permisos equivalentes a Adulto salvo configuraciones específicas de experiencia.","affected_entities":["SeniorRole"]},
+  {"rule":"Los documentos de identidad y salud reciben cifrado especial con clave por documento.","affected_entities":["Document","DocumentEncryption"]},
+  {"rule":"Todas las versiones de documentos se preservan. Sin límite de cantidad ni caducidad.","affected_entities":["DocumentVersion"]},
+  {"rule":"La exportación de datos no tiene límite de frecuencia.","affected_entities":["DataExport"]},
+  {"rule":"Cada hogar es una bóveda aislada. No existe benchmark anónimo entre hogares.","affected_entities":["Household"]},
+  {"rule":"Home no administra información. Solo resume y redirige al módulo correspondiente.","affected_entities":["HomeDashboard"]},
+  {"rule":"Más de 4 niveles de navegación es fallo de diseño. Objetivo: 95% de acciones en ≤3 niveles.","affected_entities":["BottomNavigation"]},
+  {"rule":"Las métricas de carga (detalle diario) se eliminan a los 90 días. Agregados mensuales son permanentes.","affected_entities":["LoadMetric"]}
+]
+OUTPUT 6 — ARCHITECTURAL DECISIONS
+*.json
+JSON
+[
+  {"decision":"Persona ≠ Usuario: user_id nullable en household_members.","reason":"Permite miembros sin cuenta (niños, adultos mayores, empleados). Gestionados por coordinador.","affected_domains":["People"]},
+  {"decision":"household_id en TODAS las tablas de coordinación.","reason":"RLS implementado a nivel de household_id. Cada query se filtra por el hogar del miembro autenticado.","affected_domains":["People","Planner","Finance","Presence","Inventory","Assets","FamilyCloud","Feed","SOS","Automatizaciones"]},
+  {"decision":"RLS como última línea de defensa en todas las tablas.","reason":"Defensa en profundidad. Un bug en la capa de aplicación no expone datos de otro hogar.","affected_domains":["All"]},
+  {"decision":"Soft-delete con deleted_at + papelera 30 días. El status de negocio no incluye 'deleted'.","reason":"Separar el ciclo de vida de negocio del ciclo de eliminación. 30 días margen para recuperar.","affected_domains":["Planner","Finance","FamilyCloud"]},
+  {"decision":"UUID como PK en entidades, BIGINT identity en logs.","reason":"Seguridad no enumerable, portabilidad, generación offline para entidades. Performance para logs inmutables.","affected_domains":["All"]},
+  {"decision":"Particionamiento por fecha en location_history (30d), geni_conversations (90d), notifications (30d), load_metrics (90d).","reason":"Eliminación masiva eficiente alineada con políticas de retención.","affected_domains":["Presence","Geni","Notifications","Metrics"]},
+  {"decision":"GPS en tabla locations con PostGIS point. Nunca a APIs externas de IA.","reason":"Datos geoespaciales nativos para coordinación. Geni recibe datos procesados, no coordenadas crudas.","affected_domains":["Presence","Geni"]},
+  {"decision":"Gastos se anulan, no se eliminan (status='annulled').","reason":"Implicancias contables y de auditoría. Trazabilidad completa del historial financiero.","affected_domains":["Finance"]},
+  {"decision":"Logros/Achievements integrados en Goals, no como dominio separado.","reason":"Data Philosophy §8.2.2: no son entidad de datos independiente. Goals cumplidos = logros.","affected_domains":["Planner"]},
+  {"decision":"Todo es un Post en Feed. Sin tabla milestone_posts separada.","reason":"§12.03: no existen tipos especiales de publicación. Simplicidad del modelo.","affected_domains":["Feed"]},
+  {"decision":"Cifrado a nivel de aplicación con clave por documento para datos sensibles.","reason":"Si una clave se compromete, solo se expone un documento. Overhead mínimo frente a ganancia de seguridad.","affected_domains":["FamilyCloud","Assets"]},
+  {"decision":"geni_patterns_log accesible solo por service_role.","reason":"El log de patrones existe para detectar reincidencia. Si fuera visible, se convertiría en herramienta de vigilancia.","affected_domains":["Geni"]},
+  {"decision":"Una tabla media_items unificada para fotos y videos con media_type.","reason":"Un solo álbum puede contener ambos tipos. Queries más simples. Columnas nullable para atributos específicos.","affected_domains":["FamilyCloud"]},
+  {"decision":"Estados como texto (no enum de PostgreSQL).","reason":"Flexibilidad para evolución del schema sin migraciones de tipo. Validación en capa de aplicación.","affected_domains":["All"]},
+  {"decision":"Visibilidad binaria (household/personal) con document_access para restricted.","reason":"Simplicidad para el 95% de casos. Control granular solo donde es necesario.","affected_domains":["Planner","Finance","FamilyCloud"]},
+  {"decision":"Las conversaciones con Geni no son compartibles entre miembros.","reason":"La privacidad de la relación con el asistente es fundamental. Compartir cambiaría la naturaleza de la interacción.","affected_domains":["Geni"]},
+  {"decision":"Notificaciones push se descartan tras envío. Solo in-app se almacena 30 días.","reason":"Las notificaciones son efímeras por naturaleza. 30 días es suficiente para referencia.","affected_domains":["Notifications"]},
+  {"decision":"Las responsabilidades no son un dominio independiente. Son propiedad de la tarea.","reason":"§24.08: son un eje organizador dentro de Tasks, no un módulo separado.","affected_domains":["Planner"]},
+  {"decision":"Reconocimiento facial solo en V2. V1 hereda participantes del evento de Calendar.","reason":"Complejidad técnica y privacidad. V1 prioriza simplicidad y control del usuario.","affected_domains":["FamilyCloud"]},
+  {"decision":"Las recurrencias generan nuevas instancias, no reutilizan la misma tarea/evento.","reason":"Preserva historial independiente por instancia.","affected_domains":["Planner"]}
+]
+OUTPUT 7 — MISSING OR IMPLIED CONNECTIONS
+*.json
+JSON
+[
+  {"source":"Task","relationship":"generates","target":"Expense","reasoning":"Una tarea de 'Comprar leche' completada debería poder registrar automáticamente un gasto asociado. La spec menciona integración entre Inventory y Finance pero no una relación directa Task→Expense.","confidence":"medium"},
+  {"source":"ExpiryRecord","relationship":"triggers","target":"Task","reasoning":"Medicamentos próximos a vencer deberían generar tareas de reposición, no solo notificaciones. Implícito en la filosofía de Inventory→Planner.","confidence":"medium"},
+  {"source":"GeniMemoryPersonal","relationship":"promotes_to","target":"GeniMemoryFamily","reasoning":"Una memoria personal compartida (is_shared=true) debería poder convertirse en memoria familiar. La spec menciona compartir memorias individualmente.","confidence":"low"},
+  {"source":"Post","relationship":"auto_generated_from","target":"Goal","reasoning":"§12.07: Geni puede sugerir publicaciones cuando se completa una meta. La spec sugiere que Goal→Post es una relación existente.","confidence":"high"},
+  {"source":"Post","relationship":"auto_generated_from","target":"Event","reasoning":"§11.09: Al finalizar un evento se crea un recuerdo. §12.07 sugiere que eventos importantes pueden generar publicaciones automáticas.","confidence":"high"},
+  {"source":"ShoppingList","relationship":"auto_populated_from","target":"InventoryItem","reasoning":"Cuando el stock cae por debajo del mínimo, Geni puede sugerir agregar a la lista de compras. La spec menciona esta conexión implícitamente.","confidence":"high"},
+  {"source":"MediaItem","relationship":"detected_by_geni_for","target":"Event","reasoning":"FamilyHub detecta fotos tomadas durante un evento y sugiere agregarlas al álbum. Esto implica que Geni cruza timestamps de MediaItem con eventos.","confidence":"high"},
+  {"source":"HouseholdMember","relationship":"has_family_relationship_with","target":"HouseholdMember","reasoning":"§05.06 menciona relaciones familiares (Madre, Padre, Hijo, etc.). No existe una tabla explícita en el schema actual pero es una entidad declarada.","confidence":"high"},
+  {"source":"Document","relationship":"ocr_processed_to","target":"Expense","reasoning":"§11.20: OCR permitiría extraer datos de facturas. Un documento escaneado de una factura podría generar un registro de gasto automáticamente. Feature futura.","confidence":"low"},
+  {"source":"Place","relationship":"used_by_geni_for","target":"GeniBriefing","reasoning":"Geni usa lugares para contextualizar presencia en el briefing: 'Juan está en el trabajo'. Los places son datos de contexto para Geni.","confidence":"high"},
+  {"source":"NotificationPreference","relationship":"overridden_by","target":"SOSAlert","reasoning":"SOS no puede silenciarse en preferencias. SOS siempre genera notificación independientemente de quiet_hours o preferencias.","confidence":"high"},
+  {"source":"Automation","relationship":"requires_approval_from","target":"CoordinatorRole","reasoning":"Las automatizaciones con requires_approval=true necesitan que un Coordinador o Adulto las apruebe antes de activarse.","confidence":"high"},
+  {"source":"GeniPatternsLog","relationship":"escalates_to","target":"CoordinatorRole","reasoning":"Cuando el escalation_level alcanza cierto umbral, Geni debería notificar al Coordinador sobre patrones detectados sin revelar el log crudo.","confidence":"medium"},
+  {"source":"HouseholdMember","relationship":"has_work_schedule","target":"FamilyEmployeeRole","reasoning":"§17.08 menciona horario laboral para empleados familiares. No existe una tabla de horarios en el schema actual pero es una entidad requerida.","confidence":"medium"},
+  {"source":"Goal","relationship":"tracks_achievements_for","target":"HouseholdMember","reasoning":"§24.07: el perfil individual muestra 'Goals (metas, progreso y logros)'. Los logros se rastrean dentro de Goals, vinculados al miembro.","confidence":"high"},
+  {"source":"FamilyEmployeeRole","relationship":"has_limited_access_to","target":"Geni","reasoning":"§17.15-17.17: empleado familiar tiene acceso limitado a Geni. Solo recibe información necesaria para trabajar.","confidence":"high"},
+  {"source":"TeenRole","relationship":"sees_own","target":"Expense","reasoning":"§8.2.2 Data Philosophy: 'El Adolescente creador ve los propios' gastos del hogar. Visibilidad selectiva dentro de la categoría household.","confidence":"high"},
+  {"source":"ChildRole","relationship":"streaks_visible_to","target":"AdultRole","reasoning":"§8.4.1 Data Philosophy: 'Niño: automático para padres'. Las rachas de niños son visibles para sus padres.","confidence":"high"},
+  {"source":"DataExport","relationship":"available_for_7_days","target":"UserAccount","reasoning":"§8.6.3: 'La exportación queda disponible para descarga durante 7 días. Luego el archivo se elimina del servidor.'","confidence":"high"},
+  {"source":"AccountClosure","relationship":"has_30_day_grace_period","target":"HouseholdMember","reasoning":"§8.6.4: 30 días de gracia para revertir el cierre de cuenta. Los datos del hogar se transfieren o anonimizan.","confidence":"high"}
+]
+OUTPUT 8 — GRAPH EDGES
+*.csv
+CSV
+source,relationship,target
+Household,contains,HouseholdMember
+HouseholdMember,belongs_to,Household
+HouseholdMember,links_to,UserAccount
+CoordinatorRole,approves,Invitation
+CoordinatorRole,manages,Household
+CoordinatorRole,changes_role_of,HouseholdMember
+CoordinatorRole,expels,HouseholdMember
+HouseholdMember,creates,Task
+HouseholdMember,is_assigned_to,Task
+HouseholdMember,completes,Task
+HouseholdMember,verifies,Task
+Task,depends_on,Task
+Task,has_subtask,Task
+Task,belongs_to,Responsibility
+Task,advances,Goal
+Task,links_to,Event
+Task,has,TaskComment
+Task,has,TaskAttachment
+TaskTemplate,generates,Task
+Task,triggers,Streak
+Responsibility,has_member,ResponsibilityMember
+ResponsibilityMember,references,HouseholdMember
+HouseholdMember,creates,Event
+Event,has_participant,EventParticipant
+EventParticipant,references,HouseholdMember
+Goal,has_milestone,Milestone
+Goal,tracks_progress_via,Task
+HouseholdMember,creates,Goal
+Milestone,belongs_to,Goal
+Household,owns,Account
+HouseholdMember,pays,Expense
+HouseholdMember,creates,Expense
+Expense,deducts_from,Account
+Expense,has_split,ExpenseSplit
+ExpenseSplit,references,HouseholdMember
+Expense,attaches,Document
+Income,credits_to,Account
+HouseholdMember,receives,Income
+Budget,monitors,Expense
+Fund,tracks_progress_via,Goal
+Fund,stores_value_in,Account
+Debt,involves_debtor,HouseholdMember
+Debt,involves_creditor,HouseholdMember
+Debt,originates_from,Expense
+HouseholdMember,has,Location
+HouseholdMember,configures,LocationSettings
+Location,feeds,LocationHistory
+Geofence,triggers,LocationAlert
+LocationAlert,notifies_about,HouseholdMember
+Geofence,references,Place
+HouseholdMember,performs,CheckIn
+CheckIn,references,Place
+Place,belongs_to,Household
+HouseholdMember,shares_location_with,HouseholdMember
+LocationSettings,controls,VisibilityLevel
+InventoryItem,belongs_to,InventoryCategory
+InventoryItem,generates,ShoppingList
+InventoryItem,has,ExpiryRecord
+ShoppingList,converts_to,Expense
+ShoppingList,generates,Task
+HouseholdMember,updates,InventoryItem
+Asset,has,AssetDocument
+Asset,has,AssetMaintenance
+AssetMaintenance,generates,Task
+Asset,links_to,Expense
+Pet,extends,Asset
+Vehicle,extends,Asset
+Property,extends,Asset
+Device,extends,Asset
+Asset,has_responsible,HouseholdMember
+Album,contains,AlbumItem
+AlbumItem,references,MediaItem
+MediaItem,links_to,Event
+Event,generates,MediaItem
+HouseholdMember,uploads,MediaItem
+HouseholdMember,creates,Album
+Document,has_version,DocumentVersion
+Document,has,DocumentComment
+Document,has_access_control,DocumentAccess
+DocumentAccess,grants_access_to,HouseholdMember
+Document,links_to,Asset
+Document,links_to,Expense
+Document,links_to,Event
+Document,links_to,Goal
+Document,links_to,HouseholdMember
+HouseholdMember,owns,Document
+HouseholdMember,creates,Post
+Post,has,PostReaction
+Post,has,PostComment
+HouseholdMember,reacts_to,Post
+HouseholdMember,comments_on,Post
+Post,references,MediaItem
+Goal,announces_in,Post
+HouseholdMember,triggers,SOSAlert
+SOSAlert,notifies,SOSRecipient
+SOSRecipient,references,HouseholdMember
+SOSAlert,uses,Location
+SOSAlert,uses,LocationHistory
+HouseholdMember,resolves,SOSAlert
+Automation,triggers_on,Task
+Automation,triggers_on,Event
+Automation,triggers_on,Expense
+Automation,triggers_on,Location
+Automation,triggers_on,CheckIn
+Automation,triggers_on,SOSAlert
+Automation,triggers_on,InventoryItem
+Automation,triggers_on,Asset
+Automation,creates,Task
+Automation,creates,Event
+Automation,sends,Notification
+Automation,posts_to,Post
+Automation,generates,AutomationLog
+HouseholdMember,creates,Automation
+GeniConversation,generates,GeniMemoryPersonal
+GeniConversation,generates,GeniMemoryFamily
+HouseholdMember,owns,GeniMemoryPersonal
+HouseholdMember,creates,GeniMemoryFamily
+HouseholdMember,has_conversation,GeniConversation
+GeniPatternsLog,monitors,HouseholdMember
+GeniPatternsLog,monitors,Household
+GeniBriefing,summarizes,Task
+GeniBriefing,summarizes,Event
+GeniBriefing,summarizes,Expense
+GeniBriefing,summarizes,Goal
+GeniSearch,indexes,Task
+GeniSearch,indexes,Event
+GeniSearch,indexes,Expense
+GeniSearch,indexes,Document
+Geni,suggests,Automation
+Geni,detects_patterns_for,GeniPatternsLog
+Geni,analyzes,LoadMetric
+Geni,coordinates,PresenceState
+Geni,recommends_from,Expense
+Geni,estimates_progress_of,Goal
+Notification,delivered_to,HouseholdMember
+HouseholdMember,configures,NotificationPreference
+HouseholdMember,has_channel,NotificationChannel
+Notification,sent_via,NotificationChannel
+LoadMetric,tracks,HouseholdMember
+LoadMetric,belongs_to,Household
+AuditLog,tracks_action_on,Task
+AuditLog,tracks_action_on,Event
+AuditLog,tracks_action_on,Expense
+AuditLog,tracks_action_on,Debt
+AuditLog,tracks_action_on,Document
+AuditLog,tracks_action_on,SOSAlert
+AuditLog,tracks_action_on,Household
+AuditLog,references,HouseholdMember
+DataExport,exports,Task
+DataExport,exports,Event
+DataExport,exports,Expense
+DataExport,exports,LocationHistory
+DataExport,exports,Document
+DataExport,exports,MediaItem
+DataExport,exports,GeniConversation
+DataExport,exports,GeniMemoryPersonal
+DataExport,exports,Streak
+OfflineQueue,synchronizes,Task
+OfflineModule,caches,Task
+OfflineModule,caches,Event
+OfflineModule,caches,HouseholdMember
+OfflineModule,caches,Asset
+OfflineModule,caches,InventoryItem
+RowLevelSecurity,protects,Task
+RowLevelSecurity,protects,Expense
+RowLevelSecurity,protects,GeniMemoryPersonal
+RowLevelSecurity,protects,GeniConversation
+DocumentEncryption,protects,Document
+Task,generates,LoadMetric
+Expense,triggers,Budget
+InventoryItem,triggers,Automation
+AssetMaintenance,triggers,Automation
+Event,auto_creates,Album
+GeniBriefing,aggregates,LoadMetric
+GeniMemoryPersonal,promotes_to,GeniMemoryFamily
+Post,auto_generated_from,Goal
+Post,auto_generated_from,Event
+ShoppingList,auto_populated_from,InventoryItem
+MediaItem,detected_for,Event
+SOSAlert,overrides,NotificationPreference
+HouseholdMember,has_family_relationship,HouseholdMember
+Automation,requires_approval,CoordinatorRole
+Goal,tracks_achievements,HouseholdMember
+FamilyEmployeeRole,has_limited_access,Geni
+TeenRole,sees_own,Expense
+ChildRole,streaks_visible_to,AdultRole

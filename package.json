@@ -1,0 +1,59 @@
+{
+  "name": "homeplus",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "node tests/run.js typecheck",
+    "lint": "node tests/run.js lint",
+    "test:backend": "node tests/run.js backend",
+    "test:frontend": "node tests/run.js frontend",
+    "test:contracts": "node tests/run.js contracts",
+    "test:integration": "node tests/integration/run.js",
+    "test:integration:m8": "node tests/integration/run.js --suite=m8",
+    "test:integration:m9": "node tests/integration/run.js --suite=m9",
+    "test:db": "node tests/db/run.js",
+    "test:db:remote": "node tests/db/remote.js",
+    "test:core:frontend": "node tests/run.js core-frontend",
+    "test:core:backend": "node tests/run.js core-backend",
+    "test:core": "node tests/run.js core",
+    "test:planner": "node tests/run.js planner",
+    "test:planner:m1": "node tests/run.js planner-m1",
+    "test:planner:m2": "node tests/run.js planner-m2",
+    "test:planner:m3": "node tests/run.js planner-m3",
+    "test:planner:m4": "node tests/run.js planner-m4",
+    "test:planner:m5": "node tests/run.js planner-m5",
+    "test:planner:m6": "node tests/run.js planner-m6",
+    "test:planner:m7": "node tests/run.js planner-m7",
+    "test:planner:m8": "node tests/run.js planner-m8",
+    "test:planner:m9": "node tests/run.js planner-m9",
+    "test:planner:m10": "node tests/run.js planner-m10",
+    "test:runtime-smoke": "node scripts/runtime_smoke_test.js",
+    "test:home": "node tests/run.js home",
+    "test:g0.2": "node tests/integration/run.js --suite=g0.2",
+    "test:g0.3": "node tests/run.js g0.3",
+    "test:g0.4:runtime": "node tests/integration/run.js --suite=g0.4",
+    "test:g0.4": "node tests/run.js g0.4",
+    "test:g0": "node tests/run.js g0",
+    "test:coverage": "node --experimental-test-coverage --test-coverage-lines=78 --test-coverage-branches=65 --test-coverage-functions=61 --test tests/core/testing-core.test.js scripts/homeplus_core_contract_tests.js",
+    "test:feature-flags": "node tests/run.js feature-flags",
+    "test:telemetry": "node tests/run.js telemetry",
+    "test:audit-outbox": "node tests/run.js audit-outbox",
+    "test:secrets": "node tests/static/secret-scan.js",
+    "quality": "node tests/run.js quality",
+    "outbox:process": "node backend/scripts/process-outbox.js",
+    "outbox:inspect": "node backend/scripts/inspect-outbox.js",
+    "outbox:retry": "node backend/scripts/retry-outbox.js",
+    "seed:finance": "node backend/scripts/seed-finance-comprehensive.js"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "node-fetch": "^3.3.2",
+    "uuid": "^14.0.2"
+  }
+}

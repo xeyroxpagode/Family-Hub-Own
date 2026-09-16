@@ -1,0 +1,15 @@
+﻿{
+    "state":  "FREE",
+    "owner":  null,
+    "branch":  null,
+    "worktree":  null,
+    "target":  "C:\\Users\\thega\\Desktop\\HomePlus-worktrees\\integration",
+    "purpose":  null,
+    "startedAt":  "2026-07-24T18:25:55.8623347Z",
+    "expectedFinalState":  "CLEAN",
+    "releasedBy":  "QA",
+    "releasedAt":  "2026-07-24T18:32:44.9337949Z",
+    "finalState":  "CLEAN",
+    "remote":  "not accessed"
+}
+
