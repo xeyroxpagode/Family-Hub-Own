@@ -3,6 +3,7 @@ import { NavigationContainer, type LinkingOptions } from '@react-navigation/nati
 import * as Linking from 'expo-linking';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './context/AuthContext';
+import { ExperienceProvider } from './context/ExperienceContext';
 import { HouseholdProvider } from './context/HouseholdContext';
 import { AppRefreshProvider } from './context/AppRefreshContext';
 import { AppNavigator } from './navigation/AppNavigator';
@@ -51,15 +52,17 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <HouseholdProvider>
-          <FeatureFlagsProvider>
-            <AppRefreshProvider>
-              <NavigationContainer linking={linking}>
-                <AppNavigator />
-              </NavigationContainer>
-            </AppRefreshProvider>
-          </FeatureFlagsProvider>
-        </HouseholdProvider>
+        <ExperienceProvider>
+          <HouseholdProvider>
+            <FeatureFlagsProvider>
+              <AppRefreshProvider>
+                <NavigationContainer linking={linking}>
+                  <AppNavigator />
+                </NavigationContainer>
+              </AppRefreshProvider>
+            </FeatureFlagsProvider>
+          </HouseholdProvider>
+        </ExperienceProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

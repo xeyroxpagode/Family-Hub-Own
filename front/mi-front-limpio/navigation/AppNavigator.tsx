@@ -12,10 +12,13 @@ import { JoinHouseholdScreen } from '../screens/JoinHousehold';
 import { LoginScreen } from '../screens/Login';
 import { ForgotPasswordScreen } from '../screens/ForgotPassword';
 import { UpdatePasswordScreen } from '../screens/UpdatePassword';
-import { HomeTabNavigator } from './HomeTabNavigator';
+import { StandardShell } from './StandardShell';
 import { PlannerReliabilityRuntimeOwner } from '../components/planner/PlannerReliabilityRuntimeOwner';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { FeedFamiliarScreen } from '../screens/feed/FeedFamiliarScreen';
+import { ExperienceSelectorScreen } from '../screens/ExperienceSelectorScreen';
+import { ExperienceResolver } from './ExperienceResolver';
+import { useExperience } from '../context/ExperienceContext';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const PrivateStack = createNativeStackNavigator<PrivateStackParamList>();
@@ -140,7 +143,7 @@ const getInitialPrivateRoute = (
   const next = authMe?.navigation?.next;
 
   if (authMe?.active_household && (next === 'home' || next === 'household_onboarding')) {
-    return 'HomeTabs';
+    return 'ExperienceShell';
   }
 
   if (next === 'pending_approval') {
@@ -164,6 +167,7 @@ const getInitialPrivateRoute = (
 
 const PrivateNavigator = () => {
   const { authMe, authMeLoading, authMeError, pendingJoinToken } = useAuth();
+  const { ready: experienceReady, setupCompleted } = useExperience();
   const initialPrivateRoute = getInitialPrivateRoute(authMe);
 
   if (authMeLoading || (!authMe && !authMeError)) return <AuthLoadingScreen />;
@@ -172,6 +176,10 @@ const PrivateNavigator = () => {
   if (authMeError) {
     return <AuthMeErrorScreen />;
   }
+
+  // The account-scoped preference is hydrated before the shell mounts, so a
+  // saved Simple experience never flashes the Standard navigation first.
+  if (!experienceReady) return <AuthLoadingScreen />;
 
   // Pending join token takes priority: process the invitation before anything else
   if (pendingJoinToken) {
@@ -183,11 +191,20 @@ const PrivateNavigator = () => {
           component={JoinHouseholdScreen}
           initialParams={{ token: pendingJoinToken }}
         />
-        <PrivateStack.Screen name="HomeTabs" component={HomeTabNavigator} />
+        <PrivateStack.Screen name="ExperienceShell" component={ExperienceResolver} />
+        <PrivateStack.Screen name="HomeTabs" component={StandardShell} />
         <PrivateStack.Screen name="PendingApprovalFallback" component={WaitingApprovalScreen} />
         <PrivateStack.Screen name="HouseholdSelectionFallback" component={HouseholdSelectionFallbackScreen} />
         <PrivateStack.Screen name="AccessSuspendedFallback" component={AccessSuspendedFallbackScreen} />
       </PrivateStack.Navigator>
+      </PlannerReliabilityRuntimeOwner>
+    );
+  }
+
+  if (initialPrivateRoute === 'ExperienceShell' && !setupCompleted) {
+    return (
+      <PlannerReliabilityRuntimeOwner ownerSurface="AppShellPrivate-ExperienceSelector">
+        <ExperienceSelectorScreen />
       </PlannerReliabilityRuntimeOwner>
     );
   }
@@ -210,7 +227,8 @@ const PrivateNavigator = () => {
       screenOptions={{ headerShown: false }}
       initialRouteName={initialPrivateRoute}
     >
-      <PrivateStack.Screen name="HomeTabs" component={HomeTabNavigator} />
+      <PrivateStack.Screen name="ExperienceShell" component={ExperienceResolver} />
+      <PrivateStack.Screen name="HomeTabs" component={StandardShell} />
       <PrivateStack.Screen name="P02CrearGrupo" component={P02CrearGrupo} />
       <PrivateStack.Screen name="P03InvitarPersonas" component={P03InvitarPersonas} />
       <PrivateStack.Screen name="JoinHousehold" component={JoinHouseholdScreen} />

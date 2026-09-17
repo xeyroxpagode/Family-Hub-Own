@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
+import { ExperienceModeSetting } from '../components/experience/ExperienceModeSetting';
 import { updatePeopleMe, type UpdatePeoplePayload, getUserHouseholds } from '../services/api';
 import { normalizeUserHouseholds } from '../utils/householdUtils';
 import { AppScreen } from '../components/ui/AppScreen';
@@ -326,6 +327,10 @@ export const ProfileScreen = () => {
           style={{ marginTop: spacing[3], alignSelf: 'flex-start' }}
         />
       </AppCard>
+
+      <View style={{ marginBottom: spacing[4] }}>
+        <ExperienceModeSetting />
+      </View>
 
       {/* ── Hogares ─────────────────────────────────────────────────────── */}
       <AppCard variant="default" padding="default" style={{ marginBottom: spacing[4] }}>

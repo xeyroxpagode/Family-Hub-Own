@@ -9,6 +9,7 @@ export type AuthStackParamList = {
 export type PrivateStackParamList = {
   P02CrearGrupo: undefined;
   P03InvitarPersonas: { householdId: string };
+  ExperienceShell: undefined;
   HomeTabs: undefined;
   JoinHousehold: { token: string };
   PendingApprovalFallback: undefined;
