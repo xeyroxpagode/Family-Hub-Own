@@ -1,0 +1,125 @@
+import React from 'react';
+import { View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
+
+import { colors, motion, radius, shadows, spacing } from '../../constants/theme';
+import { InteractivePressable } from './InteractivePressable';
+
+export type AppCardVariant =
+  | 'default'
+  | 'elevated'
+  | 'glass'
+  | 'quiet'
+  | 'danger'
+  | 'success'
+  | 'warning';
+
+export type AppCardProps = {
+  children: React.ReactNode;
+  variant?: AppCardVariant;
+  padding?: 'compact' | 'default' | 'generous';
+  highlighted?: boolean;
+  style?: StyleProp<ViewStyle>;
+  contentStyle?: StyleProp<ViewStyle>;
+  onPress?: PressableProps['onPress'];
+  accessibilityLabel?: string;
+};
+
+const paddingValues = {
+  compact: spacing[3],
+  default: spacing[4],
+  generous: spacing[5],
+} as const;
+
+const variantStyles: Record<AppCardVariant, ViewStyle> = {
+  default: {
+    backgroundColor: colors.surface.card,
+    borderColor: colors.border.default,
+    ...shadows.none,
+  },
+  elevated: {
+    backgroundColor: colors.surface.elevated,
+    borderColor: colors.border.default,
+    ...shadows.none,
+  },
+  glass: {
+    backgroundColor: colors.surface.glass,
+    borderColor: colors.border.subtle,
+    ...shadows.shadow1,
+  },
+  quiet: {
+    backgroundColor: colors.surface.soft,
+    borderColor: 'transparent',
+    ...shadows.none,
+  },
+  danger: {
+    backgroundColor: colors.danger.soft,
+    borderColor: colors.border.default,
+    ...shadows.none,
+  },
+  success: {
+    backgroundColor: colors.success.soft,
+    borderColor: colors.border.default,
+    ...shadows.none,
+  },
+  warning: {
+    backgroundColor: colors.warning.soft,
+    borderColor: colors.border.default,
+    ...shadows.none,
+  },
+};
+
+export function AppCard({
+  children,
+  variant = 'default',
+  padding = 'default',
+  highlighted = false,
+  style,
+  contentStyle,
+  onPress,
+  accessibilityLabel,
+}: AppCardProps) {
+  const cardStyle: StyleProp<ViewStyle> = [
+    {
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      overflow: 'hidden',
+    },
+    variantStyles[variant],
+    style,
+  ];
+
+  const inner = (
+    <View
+      style={[
+        {
+          padding: paddingValues[padding],
+          borderLeftWidth: highlighted ? 4 : 0,
+          borderLeftColor: highlighted ? colors.terracotta[500] : 'transparent',
+        },
+        contentStyle,
+      ]}
+    >
+      {children}
+    </View>
+  );
+
+  if (!onPress) {
+    return <View style={cardStyle}>{inner}</View>;
+  }
+
+  return (
+    <InteractivePressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      haptic="light"
+      pressScale={motion.scale.card}
+      pressedOpacity={0.94}
+      style={[
+        cardStyle,
+      ]}
+    >
+      {inner}
+    </InteractivePressable>
+  );
+}

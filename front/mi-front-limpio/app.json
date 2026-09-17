@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "homeplus",
+    "owner": "neoooo",
+    "slug": "homeplus",
+    "scheme": "homeplus",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icons/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.homeplus",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "HomePlus usa tu ubicación precisa solo cuando activás compartir con tu hogar.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "HomePlus puede actualizar tu ubicación cuando está en segundo plano únicamente si elegís compartir en segundo plano. Podés pausarlo cuando quieras."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icons/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.homeplus"
+    },
+    "web": {
+      "favicon": "./assets/icons/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-web-browser",
+      "expo-apple-authentication",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icons/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FBFAF8"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "HomePlus usa tu ubicación precisa solo cuando activás compartir con tu hogar.",
+          "locationAlwaysAndWhenInUsePermission": "HomePlus puede actualizar tu ubicación cuando está en segundo plano únicamente si elegís compartir en segundo plano.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      "expo-task-manager"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2c0acf60-d0d8-4dc8-b406-20600560d633"
+      }
+    }
+  }
+}

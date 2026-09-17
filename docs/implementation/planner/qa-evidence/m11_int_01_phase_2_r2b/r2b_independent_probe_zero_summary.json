@@ -1,0 +1,21 @@
+{
+  "findings": [],
+  "static": {},
+  "f02": {},
+  "f01": {},
+  "r1n1": {},
+  "f04": {},
+  "f05": {},
+  "f06": {},
+  "cleanup": {
+    "final zero": {
+      "idempotency_fixtures": 0,
+      "leases": 0,
+      "qa_tables": 0,
+      "qa_functions": 0,
+      "temp_relations": 0,
+      "idle_transactions": 0
+    }
+  },
+  "assertions": 6
+}

@@ -1,0 +1,839 @@
+# OUTPUT 1 — ENTITIES
+[
+  {"entity": "FamilyHub", "domain": "Core", "type": "Module", "description": "Plataforma integral de coordinación familiar. Sistema operativo del hogar."},
+  {"entity": "Hogar", "domain": "Core", "type": "Other", "description": "Unidad organizativa principal. Todo ocurre dentro de un hogar."},
+  {"entity": "Cuenta", "domain": "Core", "type": "Other", "description": "Pertenece al usuario, no al hogar. Incluye perfil, preferencias, idioma, configuración personal y memoria personal de Geni."},
+  {"entity": "Membresía", "domain": "People", "type": "DatabaseEntity", "description": "Relación entre una persona y un hogar. Estados: Pendiente, Activa, Suspendida, Finalizada."},
+  {"entity": "Persona", "domain": "People", "type": "DatabaseEntity", "description": "Entidad transversal. Pertenece a una cuenta. Participa en uno o más hogares. Contiene nombre, apellido, foto, fecha de nacimiento, género, contacto, rol."},
+  {"entity": "RelacionesFamiliares", "domain": "People", "type": "DatabaseEntity", "description": "Relaciones informativas entre personas (madre, padre, hijo, etc.). No modifican permisos."},
+  {"entity": "Invitación", "domain": "People", "type": "Workflow", "description": "Flujo: Invitación → Aceptación → Aprobación → Ingreso al hogar."},
+  {"entity": "Coordinador", "domain": "People", "type": "Role", "description": "Responsable administrativo principal del hogar. Aprueba ingresos, cambia roles, expulsa miembros, transfiere coordinación."},
+  {"entity": "Adulto", "domain": "People", "type": "Role", "description": "Miembro operativo con amplios permisos. Invita personas, crea/reasigna tareas, crea eventos."},
+  {"entity": "Adolescente", "domain": "People", "type": "Role", "description": "Miembro con autonomía progresiva. Crea eventos familiares, crea gastos, administra tareas propias. Puede recibir permisos adicionales."},
+  {"entity": "Niño", "domain": "People", "type": "Role", "description": "Miembro con experiencia simplificada. No administra información familiar crítica."},
+  {"entity": "AdultoMayor", "domain": "People", "type": "Role", "description": "Miembro con experiencia adaptada. Home prioriza personas, eventos, recordatorios, medicación, coordinación."},
+  {"entity": "Invitado", "domain": "People", "type": "Role", "description": "Acceso mínimo. Participación limitada."},
+  {"entity": "EmpleadoFamiliar", "domain": "People", "type": "Role", "description": "Colaborador operativo del hogar. No forma parte del núcleo familiar. Acceso restringido a responsabilidades asignadas."},
+  {"entity": "Feed", "domain": "People", "type": "Feature", "description": "Espacio social del hogar. Posts con texto, imagen, video, archivos, enlaces internos. Comentarios y reacciones."},
+  {"entity": "Post", "domain": "People", "type": "DatabaseEntity", "description": "Unidad del Feed. Sin tipos especiales. Orden cronológico."},
+  {"entity": "Task", "domain": "Planner", "type": "DatabaseEntity", "description": "Trabajo pendiente o realizado. Estados: Pendiente, En progreso, Completada, Cancelada. Vencida es calculada."},
+  {"entity": "Subtarea", "domain": "Planner", "type": "DatabaseEntity", "description": "Único nivel de anidamiento bajo Task. No existen subtareas anidadas."},
+  {"entity": "Dependencia", "domain": "Planner", "type": "DatabaseEntity", "description": "Relación entre tareas. Si la previa no se completa, la dependiente queda bloqueada."},
+  {"entity": "Recurrencia", "domain": "Planner", "type": "Feature", "description": "Genera nuevas instancias de tareas. No reutiliza la misma. Preserva historial."},
+  {"entity": "Verificación", "domain": "Planner", "type": "Feature", "description": "Opcional. Cuando se verifica, Completada → Estado final. No existe estado separado."},
+  {"entity": "PlantillaTarea", "domain": "Planner", "type": "Feature", "description": "Plantillas de tareas. Inicialmente solo para Tasks."},
+  {"entity": "Responsabilidad", "domain": "Planner", "type": "DatabaseEntity", "description": "Agrupa áreas operativas del hogar (Compras, Mascotas, Limpieza, Vehículos). Eje organizador dentro de Tasks."},
+  {"entity": "Calendar", "domain": "Planner", "type": "Feature", "description": "Administra eventos familiares y personales."},
+  {"entity": "Event", "domain": "Planner", "type": "DatabaseEntity", "description": "Estados: Programado, Completado, Cancelado. No existe Postergado."},
+  {"entity": "Goal", "domain": "Planner", "type": "DatabaseEntity", "description": "Objetivo personal o familiar. Estructura: Goal → Hitos → Tasks. Estados: Activa, Completada, Fallida."},
+  {"entity": "Hito", "domain": "Planner", "type": "DatabaseEntity", "description": "Gran avance dentro de una meta."},
+  {"entity": "CuentaFinanciera", "domain": "Finance", "type": "DatabaseEntity", "description": "Dinero disponible. Tipos: Efectivo, Mercado Pago, Banco, Tarjeta. Saldo calculado: inicial + ingresos - gastos."},
+  {"entity": "Gasto", "domain": "Finance", "type": "DatabaseEntity", "description": "Tipos: Personal, Familiar. Los gastos no se eliminan, se anulan."},
+  {"entity": "Ingreso", "domain": "Finance", "type": "DatabaseEntity", "description": "Tipos: Sueldo, Regalo, Venta, Reembolso."},
+  {"entity": "Fondo", "domain": "Finance", "type": "DatabaseEntity", "description": "Dinero reservado para un propósito. Estados: Activo, Completado, Cerrado."},
+  {"entity": "Presupuesto", "domain": "Finance", "type": "DatabaseEntity", "description": "Control de límites de gasto. Alertas y recomendaciones de Geni al aproximarse."},
+  {"entity": "Deuda", "domain": "Finance", "type": "DatabaseEntity", "description": "Tipos: Persona↔Persona, Persona↔Familia, Familia↔Externo. Estados: Activa, Pagada, Vencida."},
+  {"entity": "Comprobante", "domain": "Finance", "type": "Feature", "description": "Opcional. Soportan foto, PDF, imagen."},
+  {"entity": "AjusteManual", "domain": "Finance", "type": "Feature", "description": "Ajustes manuales de saldo permitidos. Quedan auditados."},
+  {"entity": "Ubicacion", "domain": "Presence", "type": "DatabaseEntity", "description": "Compartición continua con niveles de visibilidad: Nivel 1 (mínima), Nivel 2 (resumida), Nivel 3 (completa)."},
+  {"entity": "HistorialUbicacion", "domain": "Presence", "type": "DatabaseEntity", "description": "Retención oficial: 30 días. Eliminación automática progresiva."},
+  {"entity": "EstadoPresence", "domain": "Presence", "type": "DatabaseEntity", "description": "Automáticos (En casa, En trabajo, En escuela, En tránsito) o manuales (No molestar, Descansando). Manuales tienen prioridad."},
+  {"entity": "Lugar", "domain": "Presence", "type": "DatabaseEntity", "description": "Ubicaciones relevantes. Único tipo de lugar. Ejemplos: Casa, Escuela, Trabajo, Club, Hospital, Gimnasio."},
+  {"entity": "Geocerca", "domain": "Presence", "type": "Feature", "description": "Todos los lugares pueden poseer geocerca. Genera eventos Llegó/Salió. Habilitadas por defecto."},
+  {"entity": "CheckIn", "domain": "Presence", "type": "Feature", "description": "Confirmaciones manuales. Complementan al GPS, no lo reemplazan."},
+  {"entity": "Consumible", "domain": "Inventory", "type": "DatabaseEntity", "description": "Ítems de stock. Campos: nombre, categoría, cantidad, unidad, stock mínimo. Estados: Activo, Archivado."},
+  {"entity": "ProductoHogar", "domain": "Inventory", "type": "DatabaseEntity", "description": "Shampoo, jabón, papel higiénico, detergente, lavandina. Mismo modelo que consumibles."},
+  {"entity": "Medicamento", "domain": "Inventory", "type": "DatabaseEntity", "description": "Pertenece a Inventory, no a Assets. Campos: nombre, stock, vencimiento, observaciones."},
+  {"entity": "Vehiculo", "domain": "Assets", "type": "DatabaseEntity", "description": "Categoría de Asset. Campos: marca, modelo, año, patente. Documentación: seguro, cédula, título, VTV. Mantenimiento programable."},
+  {"entity": "Mascota", "domain": "Assets", "type": "DatabaseEntity", "description": "Categoría de Asset. Campos: nombre, especie, raza, fecha de nacimiento. Info médica: veterinario, vacunas. Estados: Activa, Fallecida, Archivada."},
+  {"entity": "Dispositivo", "domain": "Assets", "type": "DatabaseEntity", "description": "Categoría de Asset. Notebook, PC, tablet, celular, consola. Seguimiento de garantías, mantenimiento."},
+  {"entity": "Propiedad", "domain": "Assets", "type": "DatabaseEntity", "description": "Categoría de Asset. Casa, departamento, terreno. Campos: dirección, documentación, observaciones."},
+  {"entity": "Mantenimiento", "domain": "Assets", "type": "Feature", "description": "Assets pueden requerir mantenimiento periódico. Genera tareas automáticamente vía Planner."},
+  {"entity": "Recuerdo", "domain": "FamilyCloud", "type": "DatabaseEntity", "description": "Preserva momentos familiares. Contenido: fotos, videos, texto. Se relaciona con personas."},
+  {"entity": "Album", "domain": "FamilyCloud", "type": "DatabaseEntity", "description": "Agrupa recuerdos. Sin tipos especiales. Organización por eventos, no carpetas técnicas."},
+  {"entity": "Documento", "domain": "FamilyCloud", "type": "DatabaseEntity", "description": "Entidad transversal. Tipos: PDF, imagen, documento escaneado. Soporta versionado, comentarios, OCR. Familiar o Privado. Papelera 30 días."},
+  {"entity": "Papelera", "domain": "FamilyCloud", "type": "Feature", "description": "Elementos eliminados. Retención 30 días."},
+  {"entity": "VersionDocumento", "domain": "FamilyCloud", "type": "DatabaseEntity", "description": "Todas las versiones se guardan. Sin límite. Sin caducidad."},
+  {"entity": "AlbumAutomaticoCalendar", "domain": "FamilyCloud", "type": "Automation", "description": "Evento finalizado → Recuerdo creado → Detección de fotos → Sugerencia al usuario."},
+  {"entity": "ReconocimientoFacial", "domain": "FamilyCloud", "type": "Feature", "description": "V2 futuro. Participantes heredados de Calendar en V1. Sin asignación manual."},
+  {"entity": "FamilyHubRecap", "domain": "FamilyCloud", "type": "Feature", "description": "Feature futura. Resumen anual tipo Spotify Wrapped con datos reales del sistema."},
+  {"entity": "LineaTemporalFamiliar", "domain": "FamilyCloud", "type": "Feature", "description": "Feature futura. Historia cronológica del hogar."},
+  {"entity": "SOS", "domain": "SOS", "type": "Module", "description": "Sistema de emergencias. Swipe ↑ global. Panel con 3 niveles: 🔴 Emergencia grave, 🟠 Necesito ayuda, 🟡 Coordinación urgente."},
+  {"entity": "SOSSilencioso", "domain": "SOS", "type": "Feature", "description": "Alerta sin señales visibles para quien la emite. Misma información a destinatarios."},
+  {"entity": "EscaladoSOS", "domain": "SOS", "type": "Workflow", "description": "Coordinador → Adultos → Personas relevantes. Automático."},
+  {"entity": "Geni", "domain": "Geni", "type": "AIComponent", "description": "Capa de inteligencia transversal. No es módulo aislado. Consulta, analiza, recomienda, coordina, automatiza. Respeta permisos."},
+  {"entity": "Briefing", "domain": "Geni", "type": "Feature", "description": "Primer widget de Home. Resumen de eventos, tareas, finanzas, presence, goals, alertas. Única card. Versión resumida y ampliada."},
+  {"entity": "MemoriaPersonal", "domain": "Geni", "type": "DatabaseEntity", "description": "Pertenece al usuario. Creada por usuarios o Geni. Visibilidad respeta permisos."},
+  {"entity": "MemoriaFamiliar", "domain": "Geni", "type": "DatabaseEntity", "description": "Pertenece al hogar. Creada por usuarios o Geni. Visibilidad respeta permisos."},
+  {"entity": "GeniSearch", "domain": "Geni", "type": "Feature", "description": "Búsqueda global en People, Planner, Finance, Presence, Inventory, Assets, FamilyCloud, Feed. Ejecuta acciones. Indexa Settings."},
+  {"entity": "Automatizacion", "domain": "Automatizaciones", "type": "DatabaseEntity", "description": "Trigger → Condiciones → Acciones. Estados: Activa, Pausada, Archivada. Alcance hogar. Auditoría de ejecución."},
+  {"entity": "Trigger", "domain": "Automatizaciones", "type": "DatabaseEntity", "description": "Eventos que disparan automatizaciones: Presence, Planner, Finance, Inventory, Assets, SOS."},
+  {"entity": "AccionAutomatizacion", "domain": "Automatizaciones", "type": "DatabaseEntity", "description": "Crear tarea, crear recordatorio, enviar notificación, crear evento, actualizar meta, publicar en Feed."},
+  {"entity": "BibliotecaAutomatizaciones", "domain": "Automatizaciones", "type": "Feature", "description": "Automatizaciones prearmadas: Llegó a casa, Stock bajo, Pago próximo a vencer, Mantenimiento pendiente, Cumpleaños próximo."},
+  {"entity": "Home", "domain": "Core", "type": "Screen", "description": "Centro operativo. Resume, no administra. Estructura: Briefing, Atención Requerida, Carga Familiar, Próximos Eventos, Tareas, Finanzas Relevantes, Presence Resumido, Actividad Familiar."},
+  {"entity": "AtencionRequerida", "domain": "Core", "type": "Feature", "description": "Bloque de Home. Centraliza urgentes: SOS, tareas vencidas, pagos vencidos, aprobaciones pendientes, vencimientos."},
+  {"entity": "CargaFamiliar", "domain": "Core", "type": "Feature", "description": "Bloque de Home. Métricas de distribución de tareas entre miembros."},
+  {"entity": "QuickActions", "domain": "Core", "type": "Feature", "description": "Botón + en Bottom Nav. Panel flotante. Geni fijo siempre primero. Acciones dinámicas. Aprendizaje por frecuencia."},
+  {"entity": "BottomNav", "domain": "Core", "type": "Feature", "description": "[Home] [People] [+] [Planner] [More]. Congelado V1."},
+  {"entity": "More", "domain": "Core", "type": "Screen", "description": "Herramientas especializadas: Finance, Inventory, FamilyCloud, Settings. Cards con indicadores de estado."},
+  {"entity": "Settings", "domain": "Core", "type": "Screen", "description": "Hogar (Miembros, Roles, Responsabilidades, Permisos, Integraciones), Cuenta (Perfil, Seguridad, Privacidad), Sistema (Notificaciones, Offline, Multi-Hogar), Auditoría."},
+  {"entity": "Notificacion", "domain": "Core", "type": "Notification", "description": "Categorías: Planner, Calendar, Finance, Presence, Assets, Inventory, FamilyCloud, Feed, SOS. Prioridades: Crítica, Alta, Media, Baja. Canales: Push, Email, In-App."},
+  {"entity": "SelectorMultiHogar", "domain": "Core", "type": "Feature", "description": "Header: Avatar + nombre de hogar activo con dropdown. Aparece si usuario pertenece a 2+ hogares."},
+  {"entity": "Offline", "domain": "Core", "type": "Feature", "description": "Uso básico sin conexión. Last Write Wins. Cola de sincronización. Auditoría conserva fecha original."},
+  {"entity": "Auditoria", "domain": "Core", "type": "DatabaseTable", "description": "Registro inmutable. Campos: autor, fecha, hora, acción, entidad afectada, valor anterior, valor nuevo, origen. Permanente. Acceso protegido."},
+  {"entity": "Exportacion", "domain": "Core", "type": "Feature", "description": "Formatos: CSV, JSON, iCalendar, GeoJSON, PDF+original. Sin límite de frecuencia. Archivo disponible 7 días."},
+  {"entity": "Racha", "domain": "Planner", "type": "DatabaseEntity", "description": "Derivado de datos de tareas. Permanentes. Memoria emocional. Niño: visible para padres automáticamente."},
+  {"entity": "DatosCoordinacion", "domain": "Core", "type": "Other", "description": "Categoría de datos: tareas, eventos, gastos compartidos, listas de compras, recordatorios. Visibles para quien necesita coordinar."},
+  {"entity": "DatosPersonales", "domain": "Core", "type": "Other", "description": "Categoría de datos: tareas propias no compartidas, memorias personales, metas individuales, rachas, preferencias. Privados por defecto."},
+  {"entity": "DatosSensibles", "domain": "Core", "type": "Other", "description": "Categoría de datos: documentos de identidad, salud, ubicación en tiempo real, info financiera de tarjetas. Cifrado especial. Acceso mínimo."},
+  {"entity": "DatosAuditoria", "domain": "Core", "type": "Other", "description": "Categoría de datos: registro inmutable de acciones. Inmutables. Permanentes. No visibles por miembros."},
+  {"entity": "LogPatronesGeni", "domain": "Geni", "type": "DatabaseEntity", "description": "Visible solo para Geni. No accesible por el Coordinador. Cifrado especial."},
+  {"entity": "CifradoDocumentos", "domain": "Core", "type": "Other", "description": "AES-256 + clave por documento. Clave del documento cifrada con clave del hogar. Cada documento tiene clave independiente."},
+  {"entity": "RLS", "domain": "Core", "type": "Other", "description": "Row Level Security. Filtro a nivel de base de datos, no capa de aplicación. Geni hereda permisos del miembro."},
+  {"entity": "SugerenciaComprasCerca", "domain": "Presence", "type": "Feature", "description": "Pendiente de spec técnico. Detecta proximidad a supermercado y sugiere comprar ítems pendientes de Inventory."},
+  {"entity": "PerfilPersona", "domain": "People", "type": "Screen", "description": "Pestaña dentro de People. Resumen, Tareas, Eventos, Goals, Presence, Actividad, Responsabilidades."},
+  {"entity": "ConfiguracionIA", "domain": "Geni", "type": "Screen", "description": "Pantalla de Geni: Chat, Acciones sugeridas, Insights familiares, Historial, Configuración IA."}
+]
+# OUTPUT 2 — RELATIONSHIPS
+[
+  {"source": "Hogar", "relationship": "contains", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Hogar", "relationship": "contains", "target": "Planner", "confidence": "high", "type": "explicit"},
+  {"source": "Hogar", "relationship": "contains", "target": "Finance", "confidence": "high", "type": "explicit"},
+  {"source": "Hogar", "relationship": "contains", "target": "Presence", "confidence": "high", "type": "explicit"},
+  {"source": "Hogar", "relationship": "contains", "target": "Inventory", "confidence": "high", "type": "explicit"},
+  {"source": "Hogar", "relationship": "contains", "target": "Assets", "confidence": "high", "type": "explicit"},
+  {"source": "Hogar", "relationship": "contains", "target": "FamilyCloud", "confidence": "high", "type": "explicit"},
+  {"source": "Hogar", "relationship": "contains", "target": "Feed", "confidence": "high", "type": "explicit"},
+  {"source": "Hogar", "relationship": "contains", "target": "Automatizacion", "confidence": "high", "type": "explicit"},
+  {"source": "Hogar", "relationship": "contains", "target": "Membresía", "confidence": "high", "type": "explicit"},
+  {"source": "Cuenta", "relationship": "owns", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Persona", "relationship": "belongs_to", "target": "Hogar", "confidence": "high", "type": "explicit"},
+  {"source": "Membresía", "relationship": "links", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Membresía", "relationship": "links", "target": "Hogar", "confidence": "high", "type": "explicit"},
+  {"source": "Persona", "relationship": "has", "target": "Coordinador", "confidence": "high", "type": "explicit"},
+  {"source": "Persona", "relationship": "has", "target": "Adulto", "confidence": "high", "type": "explicit"},
+  {"source": "Persona", "relationship": "has", "target": "Adolescente", "confidence": "high", "type": "explicit"},
+  {"source": "Persona", "relationship": "has", "target": "Niño", "confidence": "high", "type": "explicit"},
+  {"source": "Persona", "relationship": "has", "target": "AdultoMayor", "confidence": "high", "type": "explicit"},
+  {"source": "Persona", "relationship": "has", "target": "Invitado", "confidence": "high", "type": "explicit"},
+  {"source": "Persona", "relationship": "has", "target": "EmpleadoFamiliar", "confidence": "high", "type": "explicit"},
+  {"source": "Task", "relationship": "belongs_to", "target": "Planner", "confidence": "high", "type": "explicit"},
+  {"source": "Task", "relationship": "has", "target": "Subtarea", "confidence": "high", "type": "explicit"},
+  {"source": "Task", "relationship": "depends_on", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Task", "relationship": "requires", "target": "Verificación", "confidence": "medium", "type": "explicit"},
+  {"source": "Task", "relationship": "references", "target": "Responsabilidad", "confidence": "high", "type": "explicit"},
+  {"source": "Task", "relationship": "references", "target": "Goal", "confidence": "high", "type": "explicit"},
+  {"source": "Task", "relationship": "references", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Task", "relationship": "references", "target": "Documento", "confidence": "medium", "type": "explicit"},
+  {"source": "Recurrencia", "relationship": "generates", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Responsabilidad", "relationship": "has", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Event", "relationship": "belongs_to", "target": "Calendar", "confidence": "high", "type": "explicit"},
+  {"source": "Event", "relationship": "references", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Goal", "relationship": "contains", "target": "Hito", "confidence": "high", "type": "explicit"},
+  {"source": "Hito", "relationship": "contains", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Goal", "relationship": "references", "target": "Fondo", "confidence": "high", "type": "explicit"},
+  {"source": "Goal", "relationship": "references", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "CuentaFinanciera", "relationship": "contains", "target": "Gasto", "confidence": "high", "type": "explicit"},
+  {"source": "CuentaFinanciera", "relationship": "contains", "target": "Ingreso", "confidence": "high", "type": "explicit"},
+  {"source": "Gasto", "relationship": "references", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Gasto", "relationship": "references", "target": "Responsabilidad", "confidence": "medium", "type": "explicit"},
+  {"source": "Gasto", "relationship": "references", "target": "Goal", "confidence": "medium", "type": "explicit"},
+  {"source": "Gasto", "relationship": "references", "target": "Asset", "confidence": "medium", "type": "explicit"},
+  {"source": "Gasto", "relationship": "references", "target": "Fondo", "confidence": "medium", "type": "explicit"},
+  {"source": "Gasto", "relationship": "has", "target": "Comprobante", "confidence": "high", "type": "explicit"},
+  {"source": "Fondo", "relationship": "references", "target": "Goal", "confidence": "high", "type": "explicit"},
+  {"source": "Fondo", "relationship": "references", "target": "CuentaFinanciera", "confidence": "high", "type": "explicit"},
+  {"source": "Deuda", "relationship": "references", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Presupuesto", "relationship": "monitors", "target": "Gasto", "confidence": "high", "type": "explicit"},
+  {"source": "Ubicacion", "relationship": "belongs_to", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "HistorialUbicacion", "relationship": "tracks", "target": "Ubicacion", "confidence": "high", "type": "explicit"},
+  {"source": "Geocerca", "relationship": "triggers", "target": "Lugar", "confidence": "high", "type": "explicit"},
+  {"source": "Lugar", "relationship": "references", "target": "Geocerca", "confidence": "high", "type": "explicit"},
+  {"source": "CheckIn", "relationship": "references", "target": "Lugar", "confidence": "high", "type": "explicit"},
+  {"source": "CheckIn", "relationship": "references", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Consumible", "relationship": "belongs_to", "target": "Inventory", "confidence": "high", "type": "explicit"},
+  {"source": "ProductoHogar", "relationship": "belongs_to", "target": "Inventory", "confidence": "high", "type": "explicit"},
+  {"source": "Medicamento", "relationship": "belongs_to", "target": "Inventory", "confidence": "high", "type": "explicit"},
+  {"source": "Vehiculo", "relationship": "belongs_to", "target": "Assets", "confidence": "high", "type": "explicit"},
+  {"source": "Mascota", "relationship": "belongs_to", "target": "Assets", "confidence": "high", "type": "explicit"},
+  {"source": "Dispositivo", "relationship": "belongs_to", "target": "Assets", "confidence": "high", "type": "explicit"},
+  {"source": "Propiedad", "relationship": "belongs_to", "target": "Assets", "confidence": "high", "type": "explicit"},
+  {"source": "Asset", "relationship": "references", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Asset", "relationship": "references", "target": "Documento", "confidence": "high", "type": "explicit"},
+  {"source": "Asset", "relationship": "has", "target": "Mantenimiento", "confidence": "high", "type": "explicit"},
+  {"source": "Mantenimiento", "relationship": "generates", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Recuerdo", "relationship": "belongs_to", "target": "FamilyCloud", "confidence": "high", "type": "explicit"},
+  {"source": "Recuerdo", "relationship": "references", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Album", "relationship": "contains", "target": "Recuerdo", "confidence": "high", "type": "explicit"},
+  {"source": "Documento", "relationship": "belongs_to", "target": "FamilyCloud", "confidence": "high", "type": "explicit"},
+  {"source": "Documento", "relationship": "has", "target": "VersionDocumento", "confidence": "high", "type": "explicit"},
+  {"source": "Documento", "relationship": "references", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Documento", "relationship": "references", "target": "Asset", "confidence": "high", "type": "explicit"},
+  {"source": "Documento", "relationship": "references", "target": "Goal", "confidence": "medium", "type": "explicit"},
+  {"source": "Documento", "relationship": "references", "target": "Event", "confidence": "medium", "type": "explicit"},
+  {"source": "Documento", "relationship": "references", "target": "Gasto", "confidence": "medium", "type": "explicit"},
+  {"source": "Papelera", "relationship": "contains", "target": "Documento", "confidence": "high", "type": "explicit"},
+  {"source": "Papelera", "relationship": "contains", "target": "Recuerdo", "confidence": "high", "type": "explicit"},
+  {"source": "AlbumAutomaticoCalendar", "relationship": "triggers", "target": "Event", "confidence": "high", "type": "explicit"},
+  {"source": "AlbumAutomaticoCalendar", "relationship": "generates", "target": "Recuerdo", "confidence": "high", "type": "explicit"},
+  {"source": "SOS", "relationship": "uses", "target": "Ubicacion", "confidence": "high", "type": "explicit"},
+  {"source": "SOS", "relationship": "uses", "target": "HistorialUbicacion", "confidence": "high", "type": "explicit"},
+  {"source": "SOS", "relationship": "notifies", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "EscaladoSOS", "relationship": "triggers", "target": "SOS", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "consults", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "consults", "target": "Event", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "consults", "target": "Gasto", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "consults", "target": "Presupuesto", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "consults", "target": "Ubicacion", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "consults", "target": "HistorialUbicacion", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "consults", "target": "Consumible", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "consults", "target": "Asset", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "consults", "target": "Documento", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "consults", "target": "MemoriaPersonal", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "consults", "target": "MemoriaFamiliar", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "generates", "target": "Briefing", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "creates", "target": "MemoriaPersonal", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "creates", "target": "MemoriaFamiliar", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "suggests", "target": "Automatizacion", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "creates", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "suggests", "target": "Post", "confidence": "high", "type": "explicit"},
+  {"source": "Briefing", "relationship": "references", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Briefing", "relationship": "references", "target": "Event", "confidence": "high", "type": "explicit"},
+  {"source": "Briefing", "relationship": "references", "target": "Gasto", "confidence": "high", "type": "explicit"},
+  {"source": "Briefing", "relationship": "references", "target": "Ubicacion", "confidence": "high", "type": "explicit"},
+  {"source": "Briefing", "relationship": "references", "target": "Goal", "confidence": "high", "type": "explicit"},
+  {"source": "Automatizacion", "relationship": "uses", "target": "Trigger", "confidence": "high", "type": "explicit"},
+  {"source": "Automatizacion", "relationship": "executes", "target": "AccionAutomatizacion", "confidence": "high", "type": "explicit"},
+  {"source": "Automatizacion", "relationship": "belongs_to", "target": "Hogar", "confidence": "high", "type": "explicit"},
+  {"source": "Trigger", "relationship": "monitors", "target": "Ubicacion", "confidence": "high", "type": "explicit"},
+  {"source": "Trigger", "relationship": "monitors", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Trigger", "relationship": "monitors", "target": "Event", "confidence": "high", "type": "explicit"},
+  {"source": "Trigger", "relationship": "monitors", "target": "Gasto", "confidence": "high", "type": "explicit"},
+  {"source": "Trigger", "relationship": "monitors", "target": "Presupuesto", "confidence": "high", "type": "explicit"},
+  {"source": "Trigger", "relationship": "monitors", "target": "Fondo", "confidence": "high", "type": "explicit"},
+  {"source": "Trigger", "relationship": "monitors", "target": "Consumible", "confidence": "high", "type": "explicit"},
+  {"source": "Trigger", "relationship": "monitors", "target": "Asset", "confidence": "high", "type": "explicit"},
+  {"source": "Trigger", "relationship": "monitors", "target": "SOS", "confidence": "high", "type": "explicit"},
+  {"source": "AccionAutomatizacion", "relationship": "creates", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "AccionAutomatizacion", "relationship": "creates", "target": "Event", "confidence": "high", "type": "explicit"},
+  {"source": "AccionAutomatizacion", "relationship": "creates", "target": "Notificacion", "confidence": "high", "type": "explicit"},
+  {"source": "AccionAutomatizacion", "relationship": "updates", "target": "Goal", "confidence": "high", "type": "explicit"},
+  {"source": "AccionAutomatizacion", "relationship": "publishes", "target": "Post", "confidence": "high", "type": "explicit"},
+  {"source": "Home", "relationship": "contains", "target": "Briefing", "confidence": "high", "type": "explicit"},
+  {"source": "Home", "relationship": "contains", "target": "AtencionRequerida", "confidence": "high", "type": "explicit"},
+  {"source": "Home", "relationship": "contains", "target": "CargaFamiliar", "confidence": "high", "type": "explicit"},
+  {"source": "AtencionRequerida", "relationship": "references", "target": "SOS", "confidence": "high", "type": "explicit"},
+  {"source": "AtencionRequerida", "relationship": "references", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "AtencionRequerida", "relationship": "references", "target": "Gasto", "confidence": "high", "type": "explicit"},
+  {"source": "QuickActions", "relationship": "contains", "target": "Geni", "confidence": "high", "type": "explicit"},
+  {"source": "GeniSearch", "relationship": "searches", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "GeniSearch", "relationship": "searches", "target": "Event", "confidence": "high", "type": "explicit"},
+  {"source": "GeniSearch", "relationship": "searches", "target": "Goal", "confidence": "high", "type": "explicit"},
+  {"source": "GeniSearch", "relationship": "searches", "target": "Gasto", "confidence": "high", "type": "explicit"},
+  {"source": "GeniSearch", "relationship": "searches", "target": "Documento", "confidence": "high", "type": "explicit"},
+  {"source": "GeniSearch", "relationship": "searches", "target": "Settings", "confidence": "high", "type": "explicit"},
+  {"source": "Notificacion", "relationship": "references", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Notificacion", "relationship": "references", "target": "Event", "confidence": "high", "type": "explicit"},
+  {"source": "Notificacion", "relationship": "references", "target": "Gasto", "confidence": "high", "type": "explicit"},
+  {"source": "Notificacion", "relationship": "references", "target": "SOS", "confidence": "high", "type": "explicit"},
+  {"source": "Offline", "relationship": "synchronizes_with", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Offline", "relationship": "synchronizes_with", "target": "Event", "confidence": "high", "type": "explicit"},
+  {"source": "Offline", "relationship": "synchronizes_with", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Offline", "relationship": "synchronizes_with", "target": "Asset", "confidence": "high", "type": "explicit"},
+  {"source": "Offline", "relationship": "synchronizes_with", "target": "Consumible", "confidence": "high", "type": "explicit"},
+  {"source": "Auditoria", "relationship": "tracks", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Auditoria", "relationship": "tracks", "target": "Event", "confidence": "high", "type": "explicit"},
+  {"source": "Auditoria", "relationship": "tracks", "target": "Gasto", "confidence": "high", "type": "explicit"},
+  {"source": "Auditoria", "relationship": "tracks", "target": "Ingreso", "confidence": "high", "type": "explicit"},
+  {"source": "Auditoria", "relationship": "tracks", "target": "Fondo", "confidence": "high", "type": "explicit"},
+  {"source": "Auditoria", "relationship": "tracks", "target": "Deuda", "confidence": "high", "type": "explicit"},
+  {"source": "Auditoria", "relationship": "tracks", "target": "Documento", "confidence": "high", "type": "explicit"},
+  {"source": "Auditoria", "relationship": "tracks", "target": "Membresía", "confidence": "high", "type": "explicit"},
+  {"source": "Auditoria", "relationship": "tracks", "target": "Automatizacion", "confidence": "high", "type": "explicit"},
+  {"source": "Auditoria", "relationship": "tracks", "target": "SOS", "confidence": "high", "type": "explicit"},
+  {"source": "Exportacion", "relationship": "exports_to", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Exportacion", "relationship": "exports_to", "target": "Event", "confidence": "high", "type": "explicit"},
+  {"source": "Exportacion", "relationship": "exports_to", "target": "Gasto", "confidence": "high", "type": "explicit"},
+  {"source": "Exportacion", "relationship": "exports_to", "target": "HistorialUbicacion", "confidence": "high", "type": "explicit"},
+  {"source": "Exportacion", "relationship": "exports_to", "target": "Documento", "confidence": "high", "type": "explicit"},
+  {"source": "Exportacion", "relationship": "exports_to", "target": "Racha", "confidence": "high", "type": "explicit"},
+  {"source": "Exportacion", "relationship": "exports_to", "target": "MemoriaPersonal", "confidence": "high", "type": "explicit"},
+  {"source": "Racha", "relationship": "derives_from", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Racha", "relationship": "belongs_to", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "DatosSensibles", "relationship": "requires", "target": "CifradoDocumentos", "confidence": "high", "type": "explicit"},
+  {"source": "DatosSensibles", "relationship": "requires", "target": "RLS", "confidence": "high", "type": "explicit"},
+  {"source": "CifradoDocumentos", "relationship": "protects", "target": "Documento", "confidence": "high", "type": "explicit"},
+  {"source": "RLS", "relationship": "protects", "target": "DatosPersonales", "confidence": "high", "type": "explicit"},
+  {"source": "RLS", "relationship": "protects", "target": "DatosSensibles", "confidence": "high", "type": "explicit"},
+  {"source": "LogPatronesGeni", "relationship": "belongs_to", "target": "Geni", "confidence": "high", "type": "explicit"},
+  {"source": "LogPatronesGeni", "relationship": "requires", "target": "CifradoDocumentos", "confidence": "high", "type": "explicit"},
+  {"source": "Post", "relationship": "references", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "Post", "relationship": "references", "target": "Recuerdo", "confidence": "medium", "type": "explicit"},
+  {"source": "Post", "relationship": "references", "target": "Goal", "confidence": "medium", "type": "explicit"},
+  {"source": "Post", "relationship": "has", "target": "Notificacion", "confidence": "medium", "type": "implicit"},
+  {"source": "Event", "relationship": "generates", "target": "AlbumAutomaticoCalendar", "confidence": "high", "type": "explicit"},
+  {"source": "SugerenciaComprasCerca", "relationship": "uses", "target": "Ubicacion", "confidence": "high", "type": "explicit"},
+  {"source": "SugerenciaComprasCerca", "relationship": "consults", "target": "Consumible", "confidence": "high", "type": "explicit"},
+  {"source": "SugerenciaComprasCerca", "relationship": "references", "target": "Responsabilidad", "confidence": "high", "type": "explicit"},
+  {"source": "Medicamento", "relationship": "generates", "target": "Notificacion", "confidence": "high", "type": "explicit"},
+  {"source": "Consumible", "relationship": "generates", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Asset", "relationship": "references", "target": "Gasto", "confidence": "medium", "type": "explicit"},
+  {"source": "Asset", "relationship": "references", "target": "Presupuesto", "confidence": "medium", "type": "explicit"},
+  {"source": "Asset", "relationship": "references", "target": "Goal", "confidence": "medium", "type": "explicit"},
+  {"source": "Persona", "relationship": "has", "target": "RelacionesFamiliares", "confidence": "high", "type": "explicit"},
+  {"source": "Invitación", "relationship": "creates", "target": "Membresía", "confidence": "high", "type": "explicit"},
+  {"source": "Coordinador", "relationship": "approves", "target": "Invitación", "confidence": "high", "type": "explicit"},
+  {"source": "Coordinador", "relationship": "changes", "target": "Membresía", "confidence": "high", "type": "explicit"},
+  {"source": "EmpleadoFamiliar", "relationship": "completes", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "EmpleadoFamiliar", "relationship": "cannot_create", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Niño", "relationship": "cannot_create", "target": "Recuerdo", "confidence": "high", "type": "explicit"},
+  {"source": "Niño", "relationship": "cannot_emit", "target": "Emergencia grave", "confidence": "high", "type": "explicit"},
+  {"source": "EmpleadoFamiliar", "relationship": "cannot_emit", "target": "Emergencia grave", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "cannot_complete", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "cannot_access", "target": "Conversacion privada de otro usuario", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "analyzes", "target": "Gasto", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "analyzes", "target": "CargaFamiliar", "confidence": "high", "type": "explicit"},
+  {"source": "Geni", "relationship": "personalizes", "target": "Home", "confidence": "high", "type": "explicit"},
+  {"source": "SelectorMultiHogar", "relationship": "switches", "target": "Hogar", "confidence": "high", "type": "explicit"},
+  {"source": "Persona", "relationship": "belongs_to_multiple", "target": "Hogar", "confidence": "high", "type": "explicit"},
+  {"source": "BottomNav", "relationship": "navigates_to", "target": "Home", "confidence": "high", "type": "explicit"},
+  {"source": "BottomNav", "relationship": "navigates_to", "target": "People", "confidence": "high", "type": "explicit"},
+  {"source": "BottomNav", "relationship": "navigates_to", "target": "QuickActions", "confidence": "high", "type": "explicit"},
+  {"source": "BottomNav", "relationship": "navigates_to", "target": "Planner", "confidence": "high", "type": "explicit"},
+  {"source": "BottomNav", "relationship": "navigates_to", "target": "More", "confidence": "high", "type": "explicit"},
+  {"source": "People", "relationship": "contains", "target": "Feed", "confidence": "high", "type": "explicit"},
+  {"source": "People", "relationship": "contains", "target": "Presence", "confidence": "high", "type": "explicit"},
+  {"source": "People", "relationship": "contains", "target": "Persona", "confidence": "high", "type": "explicit"},
+  {"source": "More", "relationship": "contains", "target": "Finance", "confidence": "high", "type": "explicit"},
+  {"source": "More", "relationship": "contains", "target": "Inventory", "confidence": "high", "type": "explicit"},
+  {"source": "More", "relationship": "contains", "target": "FamilyCloud", "confidence": "high", "type": "explicit"},
+  {"source": "More", "relationship": "contains", "target": "Settings", "confidence": "high", "type": "explicit"},
+  {"source": "Planner", "relationship": "contains", "target": "Task", "confidence": "high", "type": "explicit"},
+  {"source": "Planner", "relationship": "contains", "target": "Calendar", "confidence": "high", "type": "explicit"},
+  {"source": "Planner", "relationship": "contains", "target": "Goal", "confidence": "high", "type": "explicit"},
+  {"source": "Planner", "relationship": "contains", "target": "Responsabilidad", "confidence": "high", "type": "explicit"},
+  {"source": "Finance", "relationship": "contains", "target": "CuentaFinanciera", "confidence": "high", "type": "explicit"},
+  {"source": "Finance", "relationship": "contains", "target": "Presupuesto", "confidence": "high", "type": "explicit"},
+  {"source": "Finance", "relationship": "contains", "target": "Fondo", "confidence": "high", "type": "explicit"},
+  {"source": "Finance", "relationship": "contains", "target": "Deuda", "confidence": "high", "type": "explicit"},
+  {"source": "Presence", "relationship": "contains", "target": "Ubicacion", "confidence": "high", "type": "explicit"},
+  {"source": "Presence", "relationship": "contains", "target": "HistorialUbicacion", "confidence": "high", "type": "explicit"},
+  {"source": "Presence", "relationship": "contains", "target": "EstadoPresence", "confidence": "high", "type": "explicit"},
+  {"source": "Presence", "relationship": "contains", "target": "Lugar", "confidence": "high", "type": "explicit"},
+  {"source": "Presence", "relationship": "contains", "target": "Geocerca", "confidence": "high", "type": "explicit"},
+  {"source": "Presence", "relationship": "contains", "target": "CheckIn", "confidence": "high", "type": "explicit"}
+]
+# OUTPUT 3 — CROSS DOMAIN RELATIONSHIPS
+[
+  {"source_domain": "People", "source_entity": "Persona", "relationship": "references", "target_entity": "Task", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "People", "source_entity": "Persona", "relationship": "references", "target_entity": "Event", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "People", "source_entity": "Persona", "relationship": "references", "target_entity": "Goal", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "People", "source_entity": "Persona", "relationship": "references", "target_entity": "Gasto", "target_domain": "Finance", "confidence": "high"},
+  {"source_domain": "People", "source_entity": "Persona", "relationship": "references", "target_entity": "Fondo", "target_domain": "Finance", "confidence": "medium"},
+  {"source_domain": "People", "source_entity": "Persona", "relationship": "references", "target_entity": "Ubicacion", "target_domain": "Presence", "confidence": "high"},
+  {"source_domain": "People", "source_entity": "Persona", "relationship": "references", "target_entity": "Asset", "target_domain": "Assets", "confidence": "high"},
+  {"source_domain": "People", "source_entity": "Persona", "relationship": "references", "target_entity": "Consumible", "target_domain": "Inventory", "confidence": "medium"},
+  {"source_domain": "People", "source_entity": "Persona", "relationship": "references", "target_entity": "Documento", "target_domain": "FamilyCloud", "confidence": "high"},
+  {"source_domain": "People", "source_entity": "Persona", "relationship": "references", "target_entity": "Recuerdo", "target_domain": "FamilyCloud", "confidence": "high"},
+  {"source_domain": "People", "source_entity": "Persona", "relationship": "references", "target_entity": "Automatizacion", "target_domain": "Automatizaciones", "confidence": "medium"},
+  {"source_domain": "Planner", "source_entity": "Goal", "relationship": "references", "target_entity": "Fondo", "target_domain": "Finance", "confidence": "high"},
+  {"source_domain": "Planner", "source_entity": "Goal", "relationship": "references", "target_entity": "CuentaFinanciera", "target_domain": "Finance", "confidence": "high"},
+  {"source_domain": "Planner", "source_entity": "Task", "relationship": "references", "target_entity": "Gasto", "target_domain": "Finance", "confidence": "medium"},
+  {"source_domain": "Planner", "source_entity": "Task", "relationship": "references", "target_entity": "Documento", "target_domain": "FamilyCloud", "confidence": "medium"},
+  {"source_domain": "Planner", "source_entity": "Event", "relationship": "references", "target_entity": "Ubicacion", "target_domain": "Presence", "confidence": "medium"},
+  {"source_domain": "Planner", "source_entity": "Event", "relationship": "generates", "target_entity": "Recuerdo", "target_domain": "FamilyCloud", "confidence": "high"},
+  {"source_domain": "Finance", "source_entity": "Gasto", "relationship": "references", "target_entity": "Responsabilidad", "target_domain": "Planner", "confidence": "medium"},
+  {"source_domain": "Finance", "source_entity": "Gasto", "relationship": "references", "target_entity": "Goal", "target_domain": "Planner", "confidence": "medium"},
+  {"source_domain": "Finance", "source_entity": "Gasto", "relationship": "references", "target_entity": "Asset", "target_domain": "Assets", "confidence": "medium"},
+  {"source_domain": "Finance", "source_entity": "Gasto", "relationship": "references", "target_entity": "Documento", "target_domain": "FamilyCloud", "confidence": "medium"},
+  {"source_domain": "Finance", "source_entity": "Fondo", "relationship": "references", "target_entity": "Goal", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Presence", "source_entity": "Ubicacion", "relationship": "references", "target_entity": "Persona", "target_domain": "People", "confidence": "high"},
+  {"source_domain": "Presence", "source_entity": "Geocerca", "relationship": "references", "target_entity": "Lugar", "target_domain": "Presence", "confidence": "high"},
+  {"source_domain": "Presence", "source_entity": "Ubicacion", "relationship": "feeds", "target_entity": "SOS", "target_domain": "SOS", "confidence": "high"},
+  {"source_domain": "Presence", "source_entity": "Ubicacion", "relationship": "feeds", "target_entity": "Geni", "target_domain": "Geni", "confidence": "high"},
+  {"source_domain": "Presence", "source_entity": "SugerenciaComprasCerca", "relationship": "consults", "target_entity": "Consumible", "target_domain": "Inventory", "confidence": "high"},
+  {"source_domain": "Inventory", "source_entity": "Consumible", "relationship": "generates", "target_entity": "Task", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Inventory", "source_entity": "Consumible", "relationship": "generates", "target_entity": "Gasto", "target_domain": "Finance", "confidence": "high"},
+  {"source_domain": "Inventory", "source_entity": "Medicamento", "relationship": "generates", "target_entity": "Notificacion", "target_domain": "Core", "confidence": "high"},
+  {"source_domain": "Assets", "source_entity": "Mantenimiento", "relationship": "generates", "target_entity": "Task", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Assets", "source_entity": "Asset", "relationship": "references", "target_entity": "Documento", "target_domain": "FamilyCloud", "confidence": "high"},
+  {"source_domain": "Assets", "source_entity": "Asset", "relationship": "references", "target_entity": "Gasto", "target_domain": "Finance", "confidence": "medium"},
+  {"source_domain": "Assets", "source_entity": "Asset", "relationship": "references", "target_entity": "Presupuesto", "target_domain": "Finance", "confidence": "medium"},
+  {"source_domain": "Assets", "source_entity": "Asset", "relationship": "references", "target_entity": "Goal", "target_domain": "Planner", "confidence": "medium"},
+  {"source_domain": "FamilyCloud", "source_entity": "Documento", "relationship": "references", "target_entity": "Asset", "target_domain": "Assets", "confidence": "high"},
+  {"source_domain": "FamilyCloud", "source_entity": "Documento", "relationship": "references", "target_entity": "Goal", "target_domain": "Planner", "confidence": "medium"},
+  {"source_domain": "FamilyCloud", "source_entity": "Documento", "relationship": "references", "target_entity": "Event", "target_domain": "Planner", "confidence": "medium"},
+  {"source_domain": "FamilyCloud", "source_entity": "Documento", "relationship": "references", "target_entity": "Gasto", "target_domain": "Finance", "confidence": "medium"},
+  {"source_domain": "FamilyCloud", "source_entity": "Documento", "relationship": "references", "target_entity": "Responsabilidad", "target_domain": "Planner", "confidence": "medium"},
+  {"source_domain": "FamilyCloud", "source_entity": "Recuerdo", "relationship": "references", "target_entity": "Feed", "target_domain": "People", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "consults", "target_entity": "Task", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "consults", "target_entity": "Event", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "consults", "target_entity": "Goal", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "consults", "target_entity": "Gasto", "target_domain": "Finance", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "consults", "target_entity": "Presupuesto", "target_domain": "Finance", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "consults", "target_entity": "Ubicacion", "target_domain": "Presence", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "consults", "target_entity": "Asset", "target_domain": "Assets", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "consults", "target_entity": "Consumible", "target_domain": "Inventory", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "consults", "target_entity": "Documento", "target_domain": "FamilyCloud", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "consults", "target_entity": "Persona", "target_domain": "People", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "creates", "target_entity": "Task", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Geni", "source_entity": "Geni", "relationship": "reprograms", "target_entity": "Task", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Automatizaciones", "source_entity": "Trigger", "relationship": "monitors", "target_entity": "Ubicacion", "target_domain": "Presence", "confidence": "high"},
+  {"source_domain": "Automatizaciones", "source_entity": "Trigger", "relationship": "monitors", "target_entity": "Task", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Automatizaciones", "source_entity": "Trigger", "relationship": "monitors", "target_entity": "Event", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Automatizaciones", "source_entity": "Trigger", "relationship": "monitors", "target_entity": "Gasto", "target_domain": "Finance", "confidence": "high"},
+  {"source_domain": "Automatizaciones", "source_entity": "Trigger", "relationship": "monitors", "target_entity": "Consumible", "target_domain": "Inventory", "confidence": "high"},
+  {"source_domain": "Automatizaciones", "source_entity": "Trigger", "relationship": "monitors", "target_entity": "Asset", "target_domain": "Assets", "confidence": "high"},
+  {"source_domain": "Automatizaciones", "source_entity": "Trigger", "relationship": "monitors", "target_entity": "SOS", "target_domain": "SOS", "confidence": "high"},
+  {"source_domain": "SOS", "source_entity": "SOS", "relationship": "uses", "target_entity": "Ubicacion", "target_domain": "Presence", "confidence": "high"},
+  {"source_domain": "SOS", "source_entity": "SOS", "relationship": "uses", "target_entity": "HistorialUbicacion", "target_domain": "Presence", "confidence": "high"},
+  {"source_domain": "SOS", "source_entity": "SOS", "relationship": "notifies", "target_entity": "Persona", "target_domain": "People", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Auditoria", "relationship": "tracks", "target_entity": "Task", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Auditoria", "relationship": "tracks", "target_entity": "Event", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Auditoria", "relationship": "tracks", "target_entity": "Gasto", "target_domain": "Finance", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Auditoria", "relationship": "tracks", "target_entity": "Documento", "target_domain": "FamilyCloud", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Auditoria", "relationship": "tracks", "target_entity": "Automatizacion", "target_domain": "Automatizaciones", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Exportacion", "relationship": "exports_to", "target_entity": "Task", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Exportacion", "relationship": "exports_to", "target_entity": "Event", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Exportacion", "relationship": "exports_to", "target_entity": "Gasto", "target_domain": "Finance", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Exportacion", "relationship": "exports_to", "target_entity": "Documento", "target_domain": "FamilyCloud", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Exportacion", "relationship": "exports_to", "target_entity": "HistorialUbicacion", "target_domain": "Presence", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Exportacion", "relationship": "exports_to", "target_entity": "Racha", "target_domain": "Planner", "confidence": "high"},
+  {"source_domain": "Core", "source_entity": "Exportacion", "relationship": "exports_to", "target_entity": "MemoriaPersonal", "target_domain": "Geni", "confidence": "high"}
+]
+# OUTPUT 4 — DATA FLOWS
+[
+  {"origin": "Ubicacion (GPS del dispositivo)", "data": "Coordenadas lat/long en tiempo real", "destination": "Servidores FamilyHub (Presence)", "purpose": "Presencia y coordinación familiar"},
+  {"origin": "Ubicacion (GPS del dispositivo)", "data": "Evento procesado 'Llegó a casa'", "destination": "Geni", "purpose": "Contexto para recomendaciones y recordatorios"},
+  {"origin": "Servidores FamilyHub (Presence)", "data": "Historial de ubicación (30 días)", "destination": "Base de datos (cifrada en reposo)", "purpose": "Detección de patrones de movilidad por Geni"},
+  {"origin": "Task (completada)", "data": "Evento de completitud", "destination": "Racha", "purpose": "Cálculo de rachas y reconocimiento"},
+  {"origin": "Event (Calendar, finalizado)", "data": "Evento finalizado + fotos del período", "destination": "AlbumAutomaticoCalendar → Recuerdo", "purpose": "Crear recuerdo automático con sugerencia al usuario"},
+  {"origin": "Consumible (stock < mínimo)", "data": "Alerta de stock bajo", "destination": "Geni → Task/Notificacion", "purpose": "Sugerir compra o crear tarea de reposición"},
+  {"origin": "Asset (vencimiento próximo)", "data": "Alerta de vencimiento", "destination": "AtencionRequerida + Notificacion", "purpose": "Notificar mantenimiento o vencimiento pendiente"},
+  {"origin": "Mantenimiento (programado)", "data": "Tarea de mantenimiento", "destination": "Planner (Task)", "purpose": "Generar tarea automática de mantenimiento"},
+  {"origin": "Gasto (registrado)", "data": "Monto, categoría, cuenta", "destination": "CuentaFinanciera (actualización de saldo)", "purpose": "Calcular saldo actual"},
+  {"origin": "Presupuesto (≥90% consumido)", "data": "Alerta de presupuesto", "destination": "Geni + Notificacion", "purpose": "Recomendación y alerta al usuario"},
+  {"origin": "Goal (financiera)", "data": "Saldo acumulado del fondo", "destination": "Goal (progreso)", "purpose": "Cálculo automático de progreso"},
+  {"origin": "Fondo (completado)", "data": "Evento de fondo completado", "destination": "AtencionRequerida + Notificacion", "purpose": "Notificar logro financiero"},
+  {"origin": "SOS (activado)", "data": "Persona, ubicación, hora, contexto", "destination": "Notificacion → Coordinador → Adultos → Personas relevantes", "purpose": "Escalar emergencia según nivel"},
+  {"origin": "SOS (offline)", "data": "Alerta guardada localmente", "destination": "Reintento → WhatsApp → SMS → Llamada", "purpose": "Fallback progresivo sin conexión"},
+  {"origin": "Conversación con Geni", "data": "Temas y decisiones extraídas", "destination": "MemoriaPersonal / MemoriaFamiliar", "purpose": "Persistir conocimiento relevante con confirmación del usuario"},
+  {"origin": "Conversación con Geni (literal)", "data": "No se almacena", "destination": "Ninguno", "purpose": "Solo temas extraídos persisten (máx 90 días historial crudo)"},
+  {"origin": "Geni", "data": "Briefing diario", "destination": "Home (primer widget)", "purpose": "Resumir estado del hogar al usuario"},
+  {"origin": "Geni (detección de patrón)", "data": "Sugerencia de automatización", "destination": "Usuario (aprobación)", "purpose": "Crear automatización solo con aprobación explícita"},
+  {"origin": "Automatizacion (trigger disparado)", "data": "Acción configurada", "destination": "Sistema de notificaciones / Planner / Finance", "purpose": "Ejecutar acción automática"},
+  {"origin": "Documento (subido)", "data": "Archivo original", "destination": "FamilyCloud (cifrado AES-256 + clave por documento)", "purpose": "Almacenamiento seguro con cifrado individual"},
+  {"origin": "Documento (modificado)", "data": "Nueva versión", "destination": "VersionDocumento", "purpose": "Preservar historial completo de cambios"},
+  {"origin": "Documento (eliminado)", "data": "Documento + versiones", "destination": "Papelera (30 días)", "purpose": "Red de seguridad contra eliminación accidental"},
+  {"origin": "Usuario (solicita exportación)", "data": "Datos seleccionados por dominio y rango", "destination": "Archivo CSV/JSON/iCalendar/GeoJSON/PDF", "purpose": "Portabilidad completa de datos"},
+  {"origin": "Usuario (cierra cuenta)", "data": "Todos los datos personales", "destination": "Eliminación (día 30 tras período de gracia)", "purpose": "Derecho al olvido"},
+  {"origin": "QuickActions (+)", "data": "Selección de acción", "destination": "Formulario modal de creación", "purpose": "Acceso rápido a crear tarea, evento, gasto, check-in"},
+  {"origin": "GeniSearch (consulta)", "data": "Término de búsqueda", "destination": "Índice global: People, Planner, Finance, Presence, Inventory, Assets, FamilyCloud, Feed, Settings", "purpose": "Búsqueda unificada y ejecución de acciones"},
+  {"origin": "Notificacion push", "data": "Notificación entregada al dispositivo", "destination": "Descartada (no se almacena en servidor)", "purpose": "Notificación efímera"},
+  {"origin": "Notificacion in-app", "data": "Notificación", "destination": "Bandeja in-app (30 días)", "purpose": "Historial temporal de notificaciones"},
+  {"origin": "Offline (cambios locales)", "data": "Tareas completadas, comentarios", "destination": "Cola de sincronización → Servidor (al reconectar)", "purpose": "Continuidad operativa sin conexión"},
+  {"origin": "CheckIn (manual)", "data": "Confirmación de llegada", "destination": "Presence → Personas autorizadas", "purpose": "Coordinación sin depender de GPS"},
+  {"origin": "Geocerca (entrada/salida)", "data": "Evento Llegó/Salió", "destination": "Automatizacion + Notificacion + Geni", "purpose": "Disparar flujos automáticos de coordinación"}
+]
+# OUTPUT 5 — BUSINESS RULES
+[
+  {"rule": "Ningún dato del hogar se vende, se analiza para entrenar modelos externos, se usa para publicidad ni se cruza con datos de otros hogares.", "affected_entities": ["DatosCoordinacion", "DatosPersonales", "DatosSensibles", "DatosAuditoria"]},
+  {"rule": "Historial de ubicación: retención fija de 30 días, no configurable, eliminación directa sin papelera.", "affected_entities": ["HistorialUbicacion"]},
+  {"rule": "Conversaciones con Geni: 90 días de historial crudo, no compartibles, eliminación directa.", "affected_entities": ["Geni", "Persona"]},
+  {"rule": "Auditoría: permanente e inmutable. Ningún miembro del hogar puede ver el log crudo.", "affected_entities": ["Auditoria"]},
+  {"rule": "Papelera universal de 30 días para eliminaciones de tareas, eventos, gastos, documentos, fotos/videos, memorias.", "affected_entities": ["Papelera", "Task", "Event", "Gasto", "Documento", "Recuerdo", "MemoriaPersonal", "MemoriaFamiliar"]},
+  {"rule": "Las tareas completadas y eventos pasados son historial permanente. No se eliminan.", "affected_entities": ["Task", "Event"]},
+  {"rule": "Las recurrencias generan nuevas instancias de tareas. No reutilizan la misma.", "affected_entities": ["Recurrencia", "Task"]},
+  {"rule": "Una tarea posee una única responsabilidad principal.", "affected_entities": ["Task", "Responsabilidad"]},
+  {"rule": "Las dependencias entre tareas bloquean la tarea dependiente hasta que la previa se complete.", "affected_entities": ["Dependencia", "Task"]},
+  {"rule": "Los gastos no se eliminan, se anulan.", "affected_entities": ["Gasto"]},
+  {"rule": "Los ajustes manuales de saldo están permitidos y quedan auditados.", "affected_entities": ["AjusteManual", "CuentaFinanciera", "Auditoria"]},
+  {"rule": "Las metas financieras calculan progreso automáticamente: saldo acumulado del fondo vs objetivo.", "affected_entities": ["Goal", "Fondo"]},
+  {"rule": "Las geocercas están habilitadas por defecto en todos los lugares.", "affected_entities": ["Geocerca", "Lugar"]},
+  {"rule": "Estados manuales de presence tienen prioridad sobre estados automáticos.", "affected_entities": ["EstadoPresence"]},
+  {"rule": "Los medicamentos pertenecen a Inventory, no a Assets.", "affected_entities": ["Medicamento", "Inventory", "Assets"]},
+  {"rule": "Los documentos soportan versionado ilimitado. Todas las versiones se conservan.", "affected_entities": ["Documento", "VersionDocumento"]},
+  {"rule": "Notificaciones push se descartan tras entrega. Notificaciones in-app: 30 días.", "affected_entities": ["Notificacion"]},
+  {"rule": "Exportación sin límite de frecuencia. Archivo disponible 7 días en servidor.", "affected_entities": ["Exportacion"]},
+  {"rule": "Cierre de cuenta: 30 días de gracia, luego eliminación total de datos personales.", "affected_entities": ["Cuenta", "Persona"]},
+  {"rule": "TLS 1.3 en tránsito. AES-256 en reposo. Datos sensibles: AES-256 + clave por hogar.", "affected_entities": ["CifradoDocumentos", "DatosSensibles"]},
+  {"rule": "Documentos: cifrado AES-256 con clave independiente por documento. Clave del documento cifrada con clave del hogar.", "affected_entities": ["Documento", "CifradoDocumentos", "Hogar"]},
+  {"rule": "RLS: cada consulta a base de datos se filtra por permisos del miembro. Geni hereda permisos del miembro que consulta.", "affected_entities": ["RLS", "Geni", "Persona"]},
+  {"rule": "Datos de ubicación nunca se envían a APIs externas de IA.", "affected_entities": ["Ubicacion", "Geni"]},
+  {"rule": "Log de patrones de Geni es visible solo para Geni. Ni el Coordinador puede verlo.", "affected_entities": ["LogPatronesGeni", "Geni", "Coordinador"]},
+  {"rule": "Las conversaciones entre un miembro y Geni no son compartibles con otros miembros.", "affected_entities": ["Geni", "Persona"]},
+  {"rule": "Niños no pueden crear recuerdos directamente ni emitir SOS nivel 🔴 Emergencia grave.", "affected_entities": ["Niño", "Recuerdo", "SOS"]},
+  {"rule": "Empleado Familiar no puede crear tareas ni emitir SOS nivel 🔴.", "affected_entities": ["EmpleadoFamiliar", "Task", "SOS"]},
+  {"rule": "Coordinador puede aprobar ingresos, cambiar roles, expulsar miembros, transferir coordinación. No puede eliminar hogares.", "affected_entities": ["Coordinador", "Membresía", "Hogar"]},
+  {"rule": "Las relaciones familiares son informativas. No modifican permisos automáticamente.", "affected_entities": ["RelacionesFamiliares", "Persona"]},
+  {"rule": "Multi-hogar: cada hogar es independiente. Roles, Planner, Finance, Presence, Inventory, Assets, FamilyCloud, Feed, Automatizaciones son por hogar.", "affected_entities": ["Hogar", "Persona"]},
+  {"rule": "Home no administra información. Solo resume y redirige al módulo correspondiente.", "affected_entities": ["Home"]},
+  {"rule": "Más de 4 niveles de navegación es fallo. Objetivo: 95% de acciones ≤ 3 niveles.", "affected_entities": ["BottomNav", "Home"]},
+  {"rule": "SOS no vive en Bottom Nav ni en Quick Actions. Acceso vía swipe ↑ global.", "affected_entities": ["SOS", "BottomNav", "QuickActions"]},
+  {"rule": "Geni no tiene tab propio en Bottom Nav. Acceso principal: Quick Actions (slot fijo).", "affected_entities": ["Geni", "BottomNav", "QuickActions"]},
+  {"rule": "Settings vive exclusivamente en More. Indexado por GeniSearch para acceso rápido.", "affected_entities": ["Settings", "More", "GeniSearch"]},
+  {"rule": "Offline: Last Write Wins para resolución de conflictos.", "affected_entities": ["Offline"]},
+  {"rule": "Rachas son permanentes y derivadas de datos de tareas. Si las tareas se eliminan, las rachas se recalculan.", "affected_entities": ["Racha", "Task"]},
+  {"rule": "Logros se rastrean dentro de Goals. No son entidad de datos independiente.", "affected_entities": ["Goal"]},
+  {"rule": "Ubicación de niños: Nivel 2 (información resumida) por defecto.", "affected_entities": ["Niño", "Ubicacion"]},
+  {"rule": "Adolescente puede crear gastos del hogar y siempre ve los gastos que creó.", "affected_entities": ["Adolescente", "Gasto"]}
+]
+# OUTPUT 6 — ARCHITECTURAL DECISIONS
+[
+  {"decision": "D-01: Historial de tareas y eventos permanente", "reason": "El historial del hogar es memoria emocional. Las tareas completadas y eventos pasados son la narrativa de la familia.", "affected_domains": ["Planner"]},
+  {"decision": "D-02: Historial de ubicación: 30 días fijo, no configurable", "reason": "30 días capturan patrones sin vigilancia. Extenderlo invita al abuso. Permanente es inaceptable.", "affected_domains": ["Presence"]},
+  {"decision": "D-03: Conversaciones con Geni: 90 días, no compartibles", "reason": "Suficiente para contextualizar, suficientemente corto para privacidad. Compartir cambiaría la relación con Geni.", "affected_domains": ["Geni"]},
+  {"decision": "D-04: Auditoría permanente e inmutable", "reason": "Es la defensa del sistema ante disputas. §23 lo establece como invariante.", "affected_domains": ["Core"]},
+  {"decision": "D-05: Datos de ubicación nunca a APIs externas de IA", "reason": "La ubicación es el dato más sensible de una familia. La riqueza de respuesta no justifica el riesgo.", "affected_domains": ["Presence", "Geni"]},
+  {"decision": "D-06: Log de patrones de Geni visible solo para Geni", "reason": "Si el Coordinador lo viera, se convertiría en herramienta de vigilancia.", "affected_domains": ["Geni"]},
+  {"decision": "D-07: Cifrado especial de documentos con clave por documento", "reason": "Si una clave se compromete, solo se expone un documento. Overhead mínimo.", "affected_domains": ["FamilyCloud", "Core"]},
+  {"decision": "D-08: Papelera de 30 días para eliminaciones", "reason": "Red de seguridad contra eliminaciones accidentales sin eternizar datos.", "affected_domains": ["Core"]},
+  {"decision": "D-09: Sin benchmark entre hogares", "reason": "Cruzar datos viola el principio de bóveda aislada. Cada hogar es su propio universo.", "affected_domains": ["Core"]},
+  {"decision": "D-10: Notificaciones push descartadas, in-app 30 días", "reason": "Las notificaciones son efímeras por naturaleza. Guardarlas para siempre no es útil.", "affected_domains": ["Core"]},
+  {"decision": "D-11: Rachas permanentes, logros dentro de Goals", "reason": "El reconocimiento es atemporal. Los logros se rastrean naturalmente dentro del sistema de Goals.", "affected_domains": ["Planner"]},
+  {"decision": "D-12: Métricas de carga: detalle 90 días, agregados permanentes", "reason": "Detalle diario pierde utilidad tras 90 días. Agregados permiten evolución a largo plazo.", "affected_domains": ["Core", "Geni"]},
+  {"decision": "D-13: Conversaciones con Geni no compartibles", "reason": "Habilitar el compartir cambiaría la relación: el usuario se autocensuraría.", "affected_domains": ["Geni"]},
+  {"decision": "D-14: Ubicación de niños limitada a Nivel 2", "reason": "La seguridad es importante, pero FamilyHub no es un rastreador de niños.", "affected_domains": ["Presence"]},
+  {"decision": "D-15: Sin análisis de tono emocional", "reason": "Es intrusivo y propenso a errores culturales. Patrones se detectan por datos objetivos.", "affected_domains": ["Geni"]},
+  {"decision": "D-16: Exportación sin límites de frecuencia", "reason": "La portabilidad es un derecho, no un favor. Poner límites contradice que los datos son del usuario.", "affected_domains": ["Core"]},
+  {"decision": "GPS desaparece como nombre de dominio. Todo lo de ubicación se llama Presence.", "reason": "Decisión de naming y arquitectura de dominios consagrada en §03.02 de Final Spec V1.", "affected_domains": ["Presence"]},
+  {"decision": "Geni es capa transversal, no módulo aislado ni tab en Bottom Nav.", "reason": "Opera sobre todos los dominios autorizados. Acceso principal vía Quick Actions (slot fijo).", "affected_domains": ["Geni", "Core"]},
+  {"decision": "Mobile First. Tablet: 2 columnas. Desktop: sidebar.", "reason": "Prioridad de uso móvil para coordinación familiar cotidiana.", "affected_domains": ["Core"]},
+  {"decision": "Responsabilidades como eje organizador de Tasks, no como dominio independiente.", "reason": "Agrupan áreas operativas. Una tarea siempre tiene una única responsabilidad.", "affected_domains": ["Planner"]},
+  {"decision": "Modelo de negocio por suscripción, sin publicidad.", "reason": "Garantiza que los datos nunca se usen para anuncios.", "affected_domains": ["Core"]},
+  {"decision": "Reconocimiento facial: V2 futuro. V1 hereda participantes del evento de Calendar.", "reason": "No existe asignación manual de personas en V1. O es automático (V2) o no está.", "affected_domains": ["FamilyCloud"]},
+  {"decision": "FamilyHub Recap anual y Línea temporal familiar: features futuras confirmadas.", "reason": "Resumen emocional tipo Spotify Wrapped e historia cronológica del hogar.", "affected_domains": ["FamilyCloud"]},
+  {"decision": "Sugerencia contextual Compras Cerca: feature derivada de navegación inteligente.", "reason": "Nace desde la Responsabilidad, no desde una Tarea individual. Pendiente de spec técnico.", "affected_domains": ["Presence", "Inventory", "Planner"]}
+]
+# OUTPUT 7 — MISSING OR IMPLIED CONNECTIONS
+[
+  {"source": "Racha", "relationship": "feeds", "target": "Briefing", "reasoning": "Las rachas son memoria emocional y deberían aparecer en el Briefing como reconocimiento positivo.", "confidence": "medium"},
+  {"source": "Geni", "relationship": "detects_risk", "target": "Deuda", "reasoning": "Geni analiza finanzas y puede detectar deudas vencidas (riesgo financiero).", "confidence": "high"},
+  {"source": "CargaFamiliar", "relationship": "derives_from", "target": "Task", "reasoning": "La carga familiar se calcula a partir de la distribución de tareas entre miembros.", "confidence": "high"},
+  {"source": "AtencionRequerida", "relationship": "aggregates", "target": "Notificacion", "reasoning": "Las notificaciones de alta prioridad alimentan el bloque de Atención Requerida.", "confidence": "high"},
+  {"source": "HistorialUbicacion", "relationship": "feeds", "target": "SugerenciaComprasCerca", "reasoning": "La detección de proximidad a supermercado requiere historial de ubicación reciente.", "confidence": "high"},
+  {"source": "Medicamento", "relationship": "triggers", "target": "Automatizacion", "reasoning": "Los medicamentos próximos a vencer pueden disparar automatizaciones de reposición.", "confidence": "high"},
+  {"source": "Asset", "relationship": "feeds", "target": "AtencionRequerida", "reasoning": "Vencimientos y mantenimientos pendientes de Assets aparecen en Atención Requerida.", "confidence": "high"},
+  {"source": "GeniSearch", "relationship": "uses", "target": "RLS", "reasoning": "Los resultados de búsqueda deben filtrarse por los permisos del miembro que consulta.", "confidence": "high"},
+  {"source": "Exportacion", "relationship": "uses", "target": "RLS", "reasoning": "La exportación solo debe incluir datos que el miembro tiene permiso de ver.", "confidence": "high"},
+  {"source": "Offline", "relationship": "stores", "target": "DatosPersonales", "reasoning": "Los datos en cola de sincronización offline deben cifrarse localmente.", "confidence": "high"},
+  {"source": "MemoriaFamiliar", "relationship": "feeds", "target": "Briefing", "reasoning": "Las memorias familiares relevantes pueden incluirse en el Briefing contextual.", "confidence": "medium"},
+  {"source": "Goal", "relationship": "feeds", "target": "Home", "reasoning": "Las metas en riesgo aparecen en Finanzas Relevantes (bloque condicional de Home).", "confidence": "high"},
+  {"source": "Persona", "relationship": "has", "target": "DatosSensibles", "reasoning": "Los datos de salud y documentos de identidad de una persona son Datos Sensibles.", "confidence": "high"},
+  {"source": "Invitación", "relationship": "requires", "target": "Aprobación del Coordinador", "reasoning": "El flujo de invitación explícito requiere aprobación del Coordinador para ciertos roles.", "confidence": "high"},
+  {"source": "EmpleadoFamiliar", "relationship": "has", "target": "Horario laboral", "reasoning": "El horario laboral del empleado debe poder consultarse desde Planner (Calendar).", "confidence": "medium"},
+  {"source": "AdultoMayor", "relationship": "prioritizes", "target": "Medicamento", "reasoning": "Home de Adulto Mayor prioriza medicación. Los medicamentos son de Inventory.", "confidence": "medium"},
+  {"source": "QuickActions", "relationship": "learns_from", "target": "Task", "reasoning": "El motor de aprendizaje de Quick Actions registra frecuencia de creación de tareas para reordenar.", "confidence": "medium"},
+  {"source": "DatosAuditoria", "relationship": "protects", "target": "CifradoDocumentos", "reasoning": "La auditoría contiene datos sensibles que requieren cifrado especial (clave por hogar).", "confidence": "high"},
+  {"source": "DatosSensibles", "relationship": "includes", "target": "HistorialUbicacion", "reasoning": "El historial de ubicación es clasificado como Dato Sensible por su naturaleza.", "confidence": "high"},
+  {"source": "DatosSensibles", "relationship": "includes", "target": "Datos de salud", "reasoning": "La información de salud y medicación se clasifica como Dato Sensible.", "confidence": "high"},
+  {"source": "Recuerdo", "relationship": "generates", "target": "Album", "reasoning": "Los recuerdos pueden organizarse en álbumes temáticos.", "confidence": "high"},
+  {"source": "PlantillaTarea", "relationship": "generates", "target": "Task", "reasoning": "Las plantillas se instancian en tareas reales al ser utilizadas.", "confidence": "high"},
+  {"source": "BibliotecaAutomatizaciones", "relationship": "instantiates", "target": "Automatizacion", "reasoning": "Las automatizaciones prearmadas se copian como automatizaciones activas al ser seleccionadas.", "confidence": "high"},
+  {"source": "ConfiguracionIA", "relationship": "controls", "target": "Geni", "reasoning": "La pantalla de Configuración IA permite ajustar el comportamiento de Geni.", "confidence": "medium"},
+  {"source": "SelectorMultiHogar", "relationship": "isolates", "target": "Datos del hogar activo", "reasoning": "El cambio de hogar debe garantizar que ningún dato de un hogar se filtre a otro.", "confidence": "high"}
+]
+# OUTPUT 8 — GRAPH EDGES
+```csv
+source,relationship,target
+Hogar,contains,Persona
+Hogar,contains,Planner
+Hogar,contains,Finance
+Hogar,contains,Presence
+Hogar,contains,Inventory
+Hogar,contains,Assets
+Hogar,contains,FamilyCloud
+Hogar,contains,Feed
+Hogar,contains,Automatizacion
+Hogar,contains,Membresía
+Cuenta,owns,Persona
+Membresía,links,Persona
+Membresía,links,Hogar
+Task,belongs_to,Planner
+Task,has,Subtarea
+Task,depends_on,Task
+Task,references,Responsabilidad
+Task,references,Goal
+Task,references,Persona
+Task,references,Documento
+Task,requires,Verificación
+Recurrencia,generates,Task
+Responsabilidad,has,Persona
+Event,belongs_to,Calendar
+Event,references,Persona
+Goal,contains,Hito
+Hito,contains,Task
+Goal,references,Fondo
+Goal,references,Task
+CuentaFinanciera,contains,Gasto
+CuentaFinanciera,contains,Ingreso
+Gasto,references,Persona
+Gasto,references,Responsabilidad
+Gasto,references,Goal
+Gasto,references,Asset
+Gasto,references,Fondo
+Gasto,has,Comprobante
+Fondo,references,Goal
+Fondo,references,CuentaFinanciera
+Deuda,references,Persona
+Presupuesto,monitors,Gasto
+Ubicacion,belongs_to,Persona
+HistorialUbicacion,tracks,Ubicacion
+Geocerca,triggers,Lugar
+CheckIn,references,Lugar
+CheckIn,references,Persona
+Consumible,belongs_to,Inventory
+ProductoHogar,belongs_to,Inventory
+Medicamento,belongs_to,Inventory
+Vehiculo,belongs_to,Assets
+Mascota,belongs_to,Assets
+Dispositivo,belongs_to,Assets
+Propiedad,belongs_to,Assets
+Asset,references,Persona
+Asset,references,Documento
+Asset,has,Mantenimiento
+Mantenimiento,generates,Task
+Recuerdo,belongs_to,FamilyCloud
+Recuerdo,references,Persona
+Album,contains,Recuerdo
+Documento,belongs_to,FamilyCloud
+Documento,has,VersionDocumento
+Documento,references,Persona
+Documento,references,Asset
+Documento,references,Goal
+Documento,references,Event
+Documento,references,Gasto
+Papelera,contains,Documento
+Papelera,contains,Recuerdo
+AlbumAutomaticoCalendar,triggers,Event
+AlbumAutomaticoCalendar,generates,Recuerdo
+SOS,uses,Ubicacion
+SOS,uses,HistorialUbicacion
+SOS,notifies,Persona
+EscaladoSOS,triggers,SOS
+Geni,consults,Task
+Geni,consults,Event
+Geni,consults,Gasto
+Geni,consults,Presupuesto
+Geni,consults,Ubicacion
+Geni,consults,HistorialUbicacion
+Geni,consults,Consumible
+Geni,consults,Asset
+Geni,consults,Documento
+Geni,consults,MemoriaPersonal
+Geni,consults,MemoriaFamiliar
+Geni,generates,Briefing
+Geni,creates,MemoriaPersonal
+Geni,creates,MemoriaFamiliar
+Geni,suggests,Automatizacion
+Geni,creates,Task
+Geni,suggests,Post
+Briefing,references,Task
+Briefing,references,Event
+Briefing,references,Gasto
+Briefing,references,Ubicacion
+Briefing,references,Goal
+Automatizacion,uses,Trigger
+Automatizacion,executes,AccionAutomatizacion
+Automatizacion,belongs_to,Hogar
+Trigger,monitors,Ubicacion
+Trigger,monitors,Task
+Trigger,monitors,Event
+Trigger,monitors,Gasto
+Trigger,monitors,Presupuesto
+Trigger,monitors,Fondo
+Trigger,monitors,Consumible
+Trigger,monitors,Asset
+Trigger,monitors,SOS
+AccionAutomatizacion,creates,Task
+AccionAutomatizacion,creates,Event
+AccionAutomatizacion,creates,Notificacion
+AccionAutomatizacion,updates,Goal
+AccionAutomatizacion,publishes,Post
+Home,contains,Briefing
+Home,contains,AtencionRequerida
+Home,contains,CargaFamiliar
+AtencionRequerida,references,SOS
+AtencionRequerida,references,Task
+AtencionRequerida,references,Gasto
+QuickActions,contains,Geni
+GeniSearch,searches,Task
+GeniSearch,searches,Event
+GeniSearch,searches,Goal
+GeniSearch,searches,Gasto
+GeniSearch,searches,Documento
+GeniSearch,searches,Settings
+Notificacion,references,Task
+Notificacion,references,Event
+Notificacion,references,Gasto
+Notificacion,references,SOS
+Offline,synchronizes_with,Task
+Offline,synchronizes_with,Event
+Offline,synchronizes_with,Persona
+Offline,synchronizes_with,Asset
+Offline,synchronizes_with,Consumible
+Auditoria,tracks,Task
+Auditoria,tracks,Event
+Auditoria,tracks,Gasto
+Auditoria,tracks,Ingreso
+Auditoria,tracks,Fondo
+Auditoria,tracks,Deuda
+Auditoria,tracks,Documento
+Auditoria,tracks,Membresía
+Auditoria,tracks,Automatizacion
+Auditoria,tracks,SOS
+Exportacion,exports_to,Task
+Exportacion,exports_to,Event
+Exportacion,exports_to,Gasto
+Exportacion,exports_to,HistorialUbicacion
+Exportacion,exports_to,Documento
+Exportacion,exports_to,Racha
+Exportacion,exports_to,MemoriaPersonal
+Racha,derives_from,Task
+Racha,belongs_to,Persona
+DatosSensibles,requires,CifradoDocumentos
+DatosSensibles,requires,RLS
+CifradoDocumentos,protects,Documento
+RLS,protects,DatosPersonales
+RLS,protects,DatosSensibles
+LogPatronesGeni,belongs_to,Geni
+LogPatronesGeni,requires,CifradoDocumentos
+Post,references,Persona
+Post,references,Recuerdo
+Post,references,Goal
+Event,generates,AlbumAutomaticoCalendar
+SugerenciaComprasCerca,uses,Ubicacion
+SugerenciaComprasCerca,consults,Consumible
+SugerenciaComprasCerca,references,Responsabilidad
+Medicamento,generates,Notificacion
+Consumible,generates,Task
+Asset,references,Gasto
+Asset,references,Presupuesto
+Asset,references,Goal
+Persona,has,RelacionesFamiliares
+Invitación,creates,Membresía
+Coordinador,approves,Invitación
+Coordinador,changes,Membresía
+EmpleadoFamiliar,completes,Task
+Niño,cannot_create,Recuerdo
+Geni,cannot_complete,Task
+Geni,analyzes,Gasto
+Geni,analyzes,CargaFamiliar
+Geni,personalizes,Home
+SelectorMultiHogar,switches,Hogar
+BottomNav,navigates_to,Home
+BottomNav,navigates_to,People
+BottomNav,navigates_to,QuickActions
+BottomNav,navigates_to,Planner
+BottomNav,navigates_to,More
+People,contains,Feed
+People,contains,Presence
+People,contains,Persona
+More,contains,Finance
+More,contains,Inventory
+More,contains,FamilyCloud
+More,contains,Settings
+Planner,contains,Task
+Planner,contains,Calendar
+Planner,contains,Goal
+Planner,contains,Responsabilidad
+Finance,contains,CuentaFinanciera
+Finance,contains,Presupuesto
+Finance,contains,Fondo
+Finance,contains,Deuda
+Presence,contains,Ubicacion
+Presence,contains,HistorialUbicacion
+Presence,contains,EstadoPresence
+Presence,contains,Lugar
+Presence,contains,Geocerca
+Presence,contains,CheckIn
+Persona,references,Ubicacion
+Persona,references,Asset
+Persona,references,Consumible
+Persona,references,Documento
+Persona,references,Recuerdo
+Persona,references,Automatizacion
+Goal,references,Fondo
+Goal,references,CuentaFinanciera
+Task,references,Gasto
+Task,references,Documento
+Event,references,Ubicacion
+Event,generates,Recuerdo
+Gasto,references,Responsabilidad
+Gasto,references,Goal
+Gasto,references,Asset
+Gasto,references,Documento
+Fondo,references,Goal
+Ubicacion,references,Persona
+Ubicacion,feeds,SOS
+Ubicacion,feeds,Geni
+SugerenciaComprasCerca,consults,Consumible
+Consumible,generates,Task
+Consumible,generates,Gasto
+Medicamento,generates,Notificacion
+Mantenimiento,generates,Task
+Asset,references,Documento
+Asset,references,Gasto
+Asset,references,Presupuesto
+Asset,references,Goal
+Documento,references,Asset
+Documento,references,Goal
+Documento,references,Event
+Documento,references,Gasto
+Documento,references,Responsabilidad
+Recuerdo,references,Feed
+Geni,consults,Task
+Geni,consults,Event
+Geni,consults,Goal
+Geni,consults,Gasto
+Geni,consults,Presupuesto
+Geni,consults,Ubicacion
+Geni,consults,Asset
+Geni,consults,Consumible
+Geni,consults,Documento
+Geni,consults,Persona
+Geni,creates,Task
+Geni,reprograms,Task
+Trigger,monitors,Ubicacion
+Trigger,monitors,Task
+Trigger,monitors,Event
+Trigger,monitors,Gasto
+Trigger,monitors,Consumible
+Trigger,monitors,Asset
+Trigger,monitors,SOS
+SOS,uses,Ubicacion
+SOS,uses,HistorialUbicacion
+SOS,notifies,Persona
+Auditoria,tracks,Task
+Auditoria,tracks,Event
+Auditoria,tracks,Gasto
+Auditoria,tracks,Documento
+Auditoria,tracks,Automatizacion
+Exportacion,exports_to,Task
+Exportacion,exports_to,Event
+Exportacion,exports_to,Gasto
+Exportacion,exports_to,Documento
+Exportacion,exports_to,HistorialUbicacion
+Exportacion,exports_to,Racha
+Exportacion,exports_to,MemoriaPersonal
+Racha,feeds,Briefing
+Geni,detects_risk,Deuda
+CargaFamiliar,derives_from,Task
+AtencionRequerida,aggregates,Notificacion
+HistorialUbicacion,feeds,SugerenciaComprasCerca
+Medicamento,triggers,Automatizacion
+Asset,feeds,AtencionRequerida
+GeniSearch,uses,RLS
+Exportacion,uses,RLS
+Offline,stores,DatosPersonales
+MemoriaFamiliar,feeds,Briefing
+Goal,feeds,Home
+Persona,has,DatosSensibles
+EmpleadoFamiliar,has,Horario laboral
+AdultoMayor,prioritizes,Medicamento
+QuickActions,learns_from,Task
+DatosAuditoria,protects,CifradoDocumentos
+Recuerdo,generates,Album
+PlantillaTarea,generates,Task
+BibliotecaAutomatizaciones,instantiates,Automatizacion
+SelectorMultiHogar,isolates,Datos del hogar activo

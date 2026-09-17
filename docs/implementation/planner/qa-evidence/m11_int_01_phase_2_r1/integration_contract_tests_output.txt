@@ -1,0 +1,79 @@
+﻿PASS: contract tests syntax OK
+PASS: SHARED-HASH-01: hash is 64-char hex string
+PASS: SHARED-HASH-02: hash is lowercase hex
+PASS: SHARED-HASH-03: same input produces same hash
+PASS: SHARED-HASH-04: different payload produces different hash
+PASS: SHARED-HASH-05: key order does not affect hash
+PASS: SHARED-HASH-06: nested key order does not affect hash
+PASS: SHARED-HASH-07: different array order produces different hash
+PASS: SHARED-HASH-08: null payload produces valid hash
+PASS: SHARED-HASH-09: boolean in payload produces valid hash
+PASS: SHARED-HASH-10: empty string in payload produces valid hash
+PASS: SHARED-HASH-11: Unicode in payload produces valid hash
+PASS: SHARED-HASH-12: expected version in hash works
+PASS: SHARED-HASH-13: household scope hash works
+PASS: SHARED-HASH-14: household and personal scope produce different hashes
+PASS: CONTRACT-01: idempotency_conflict canon defined
+PASS: CONTRACT-02: idempotency_in_flight canon defined
+PASS: CONTRACT-03: version_conflict_v2 canon defined
+PASS: CONTRACT-04: mutation_id_required canon defined
+PASS: CONTRACT-05: internal_error canon defined
+PASS: CONTRACT-06: legacy idempotency_key_conflict maps to idempotency_conflict
+PASS: CONTRACT-07: legacy version_conflict maps to version_conflict_v2
+PASS: CONTRACT-08: normalize maps legacy to canonical
+PASS: CONTRACT-09: normalize maps version_conflict to version_conflict_v2
+PASS: CONTRACT-10: normalize passes through new canon codes
+PASS: CONTRACT-11: conflict error is 409
+PASS: CONTRACT-12: conflict error code is canonical
+PASS: CONTRACT-13: in-flight error is 409
+PASS: CONTRACT-14: in-flight error code is canonical
+PASS: CONTRACT-15: valid mutation ID passes
+PASS: CONTRACT-16: empty mutation ID is null
+PASS: CONTRACT-17: whitespace mutation ID is null
+PASS: CONTRACT-18: null mutation ID is null
+PASS: CONTRACT-19: unsafe chars rejected
+PASS: CONTRACT-20: CREATE_IDEMPOTENT kind exists
+PASS: CONTRACT-21: VERSIONED_MUTATION kind exists
+PASS: ENVELOPE-01: normal error code preserved
+PASS: ENVELOPE-02: normal error message preserved
+PASS: ENVELOPE-03: request_id forwarded
+PASS: ENVELOPE-04: no details without explicit details
+PASS: ENVELOPE-05: details forwarded for 4xx
+PASS: ENVELOPE-06: error code preserved (caller trust)
+PASS: ENVELOPE-07: 500 message is internal placeholder
+PASS: ENVELOPE-08: request_id preserved for 500
+PASS: ENVELOPE-09: NO details for 500
+PASS: ENVELOPE-10: NO hint leaked
+PASS: ENVELOPE-11: NO stack leaked
+PASS: ENVELOPE-12: NO raw constraint leaked
+PASS: ENVELOPE-13: NO SQLSTATE leaked
+PASS: ENVELOPE-14: null request_id when no req
+PASS: PMC-01: create policy requires mutationId
+PASS: PMC-02: create policy requires idempotency
+PASS: PMC-03: existingEntity policy requires version
+PASS: ADAPTER-01: parseIdempotencyKey legacy export preserved
+PASS: ADAPTER-02: requireIdempotencyKey legacy export preserved
+PASS: ADAPTER-03: hashIdempotencyRequest legacy export preserved
+PASS: ADAPTER-04: withIdempotency legacy export preserved
+PASS: ADAPTER-05: mapRpcError legacy export preserved
+PASS: ADAPTER-06: hashIdempotencyRequestV2 V2 export exists
+PASS: ADAPTER-07: invokeAtomicPlannerMutationV2 V2 atomic frontier exists
+PASS: ADAPTER-08: mapV2RpcError V2 export exists
+PASS: ADAPTER-09: callV2ReserveRpc internal helper exists
+PASS: ADAPTER-10: callV2CompleteRpc internal helper exists
+PASS: ADAPTER-11: V2IdempotencyOutcome exists
+PASS: ADAPTER-12: withIdempotencyV2 NOT exported as productive frontier
+PASS: ADAPTER-13: P0010 maps to idempotency_conflict
+PASS: ADAPTER-12: legacy hashIdempotencyRequest works
+PASS: ADAPTER-13: V2 hash matches local reference implementation
+PASS: SYNTAX-OK: backend/src/lib/plannerIdempotencyAdapter.js
+PASS: SYNTAX-OK: backend/src/lib/mutationContracts.js
+PASS: SYNTAX-OK: backend/src/lib/plannerMutationContracts.js
+PASS: SYNTAX-OK: backend/src/lib/httpErrors.js
+PASS: SYNTAX-OK: backend/src/services/planner.context.service.js
+PASS: SYNTAX-OK: scripts/planner_m11_int_01_shared_contract_tests.js
+PASS: SYNTAX-OK: scripts/planner_m11_int_01_shared_database_tests.js
+PASS: SYNTAX-OK: scripts/planner_m11_int_01_shared_test_runner.js
+
+CONTRACT TESTS: 76 assertions
+VERDICT: PASS

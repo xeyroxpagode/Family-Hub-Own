@@ -1,0 +1,121 @@
+// 1. Cargar variables de entorno SIEMPRE primero
+require('dotenv').config();
+
+// 2. Importar librerías (UNA sola vez cada una)
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+
+// 3. Importar tus rutas de la carpeta src
+const authRoutes = require('./src/routes/auth');
+const householdsRoutes = require('./src/routes/households');
+const {
+  householdInviteLinksRouter,
+  householdJoinRequestsRouter,
+  inviteLinksRouter,
+} = require('./src/routes/inviteLinks');
+const invitationsRoutes = require('./src/routes/invitations');
+const usersRoutes = require('./src/routes/users');
+const peopleRoutes = require('./src/routes/people');
+const plannerRoutes = require('./src/routes/planner');
+const inventoryRoutes = require('./src/routes/inventory');
+const financeRoutes = require('./src/routes/finance');
+const featureFlagsRoutes = require('./src/routes/featureFlags');
+const presenceRoutes = require('./src/routes/presence');
+const { requestContextMiddleware } = require('./src/middleware/requestContextMiddleware');
+const { errorEnvelopeMiddleware } = require('./src/middleware/errorEnvelopeMiddleware');
+const { sendApiError } = require('./src/lib/httpErrors');
+
+const app = express();
+
+// 4. Middlewares de seguridad y logs
+app.use(helmet());
+app.use(morgan('dev'));
+
+// CORS configurable por ambiente
+const isProduction = process.env.NODE_ENV === 'production';
+const corsOrigin = process.env.CORS_ORIGIN;
+
+if (isProduction) {
+  // Producción: usar CORS_ORIGIN o restringir
+  if (corsOrigin) {
+    const origins = corsOrigin.split(',').map(o => o.trim());
+    app.use(cors({ origin: origins, credentials: true }));
+  } else {
+    // Sin CORS_ORIGIN en producción: permitir solo requests sin origin (mobile/Expo)
+    app.use(cors({
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        console.warn('⚠️  CORS: Origin no configurado en producción. Considerar establecer CORS_ORIGIN.');
+        callback(null, false);
+      },
+      credentials: true
+    }));
+  }
+} else {
+  // Desarrollo: permitir todo (Expo, local, Postman)
+  app.use(cors());
+}
+
+// HomePlus Core: request identity and canonical error compatibility apply to
+// JSON parser failures, health, every API domain, 404s and the final handler.
+app.use(requestContextMiddleware);
+app.use(errorEnvelopeMiddleware);
+app.use(express.json());
+
+// 5. Health check endpoint (antes de rutas)
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: 'homeplus-backend',
+    timestamp: new Date().toISOString(),
+    env: process.env.NODE_ENV || 'development'
+  });
+});
+
+// 6. Conectar rutas
+app.use('/api/auth', authRoutes);
+app.use('/api/invite-links', inviteLinksRouter);
+app.use('/api/households/:household_id/join-requests', householdJoinRequestsRouter);
+app.use('/api/households/:household_id/invite-links', householdInviteLinksRouter);
+app.use('/api/households', householdsRoutes);
+app.use('/households', householdsRoutes);
+app.use('/api/invitations', invitationsRoutes);
+app.use('/invitations', invitationsRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/users', usersRoutes);
+app.use('/api/people', peopleRoutes);
+app.use('/api/feature-flags', featureFlagsRoutes);
+app.use('/api/planner', plannerRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/finance', financeRoutes);
+app.use('/api/presence', presenceRoutes);
+// Ruta de prueba
+app.get('/', (req, res) => {
+    res.send('¡El servidor de FamilyHub está funcionando correctamente!');
+});
+
+// 7. Not found handler (404) - después de todas las rutas
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Ruta no encontrada.',
+    code: 'not_found'
+  });
+});
+
+// 8. Global error handler - debe ir al final
+app.use((err, req, res, next) => {
+  // Si ya se enviaron headers, no podemos modificar la respuesta
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  return sendApiError(res, err, req);
+});
+
+// 9. Encender servidor
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Servidor listo en http://0.0.0.0:${PORT}`);
+});

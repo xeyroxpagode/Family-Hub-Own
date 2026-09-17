@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HomePlus Planner M11 — paquete visual</title>
+<style>
+  :root{--bg:#fbfaf8;--paper:#fff;--ink:#2c2623;--muted:#6f6660;--line:#e7dfda;--accent:#c17f59;--danger:#a54839}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,sans-serif}main{max-width:1180px;margin:auto;padding:48px 24px 96px}h1{font-size:clamp(32px,5vw,60px);line-height:1.05;margin:0 0 16px}h2{margin-top:64px;font-size:30px}.lede{max-width:780px;font-size:20px;color:var(--muted)}.tag{display:inline-block;padding:6px 12px;border-radius:999px;background:#f4e7df;color:#70462f;font-weight:700}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}.card{background:var(--paper);border:1px solid var(--line);border-radius:22px;padding:20px}.shot{position:relative;padding:0;overflow:hidden}.shot img{display:block;width:100%;height:auto}.note{position:absolute;left:12px;right:12px;bottom:12px;background:rgba(44,38,35,.92);color:#fff;padding:12px 14px;border-radius:14px;font-weight:650}.sev{color:#fff;background:var(--danger);padding:2px 8px;border-radius:999px;margin-right:6px}.preview{width:100%;background:white;border:1px solid var(--line);border-radius:24px}.decision{border-left:5px solid var(--accent)}code{background:#f2ece8;padding:.1em .35em;border-radius:5px}@media(max-width:560px){main{padding:28px 16px}.grid{grid-template-columns:1fr}.note{font-size:14px}}
+</style></head>
+<body><main>
+  <span class="tag">M11-A/B/C · no productivo</span><h1>Planner Premium<br>dirección para aprobación</h1>
+  <p class="lede">Evidencia real de Android, alternativas aisladas y jerarquía propuesta. Este HTML no se importa desde la aplicación y usa solo datos ficticios.</p>
+  <h2>Evidencia actual anotada</h2>
+  <div class="grid">
+    <figure class="card shot"><img src="screenshots/02-quick-actions-open.png" alt="Quick Actions actual"><figcaption class="note"><span class="sev">P1</span>Tres filas administrativas, descripción y chevron compiten con una decisión de tres opciones.</figcaption></figure>
+    <figure class="card shot"><img src="screenshots/20-tasks-live-data.png" alt="Lista de tareas actual"><figcaption class="note"><span class="sev">P1</span>Métricas + dos filas de filtros consumen el primer viewport antes de la lista.</figcaption></figure>
+    <figure class="card shot"><img src="screenshots/40-calendar-month-event.png" alt="Calendar Month actual"><figcaption class="note"><span class="sev">P0</span>Los numerales del mes se recortan en resolución y escala tipográfica por defecto.</figcaption></figure>
+    <figure class="card shot"><img src="screenshots/38-goals-list-dense.png" alt="Lista de metas actual"><figcaption class="note"><span class="sev">P1</span>Status, categoría y alcance se presentan con el mismo peso de cápsula.</figcaption></figure>
+    <figure class="card shot"><img src="screenshots/39-goal-detail.png" alt="Detalle de meta actual"><figcaption class="note"><span class="sev">P1</span>“Cerrar meta” destructiva/terminal compite en la superficie principal.</figcaption></figure>
+    <figure class="card shot"><img src="screenshots/31-runtime-load-check.png" alt="Home summary actual"><figcaption class="note"><span class="sev">P0</span>Home contradice datos existentes y expone un código técnico de error parcial.</figcaption></figure>
+    <figure class="card shot"><img src="screenshots/28-event-create-loading.png" alt="Guardado de evento"><figcaption class="note"><span class="sev">P0</span>El CTA queda en “Guardando” aun cuando el registro ya persistió: riesgo de duplicados.</figcaption></figure>
+    <figure class="card shot"><img src="screenshots/44-quick-actions-large-text.png" alt="Quick Actions con texto grande"><figcaption class="note"><span class="sev">P2</span>1.3× cabe, pero conserva el exceso vertical y no define reflujo para escalas mayores.</figcaption></figure>
+  </div>
+  <h2>Quick Actions</h2><img class="preview" src="quick-actions-alternatives.svg" alt="Tres alternativas de Quick Actions">
+  <div class="card decision"><h3>Recomendación B</h3><p>Celdas compactas de superficie completa: target inequívoco, jerarquía equilibrada y reflujo definido para 1, 2 o 3 capacidades y texto grande.</p></div>
+  <h2>Listas diferenciadas</h2><img class="preview" src="planner-cards-proposal.svg" alt="Propuesta Task Event Goal">
+  <h2>Calendar Month</h2><img class="preview" src="calendar-month-proposal.svg" alt="Propuesta Calendar Month">
+  <h2>Gestos, fricción y Undo</h2><img class="preview" src="planner-gesture-lab.png" alt="Comparación de acción visible, swipe parcial, long press y Undo">
+  <div class="card decision"><h3>D11–D20</h3><p>Los gestos son aceleradores redundantes: Task conserva controles visibles, Event y Goal no heredan completion swipe, y full swipe queda limitado a completar una Task reversible.</p><p><a href="planner-gesture-lab.html">Abrir el laboratorio interactivo aislado</a></p></div>
+  <h2>Límites del prototipo</h2><div class="card"><p>Especificación visual, no implementación. No contiene navegación, servicios, dependencias, datos personales ni código importable por producción. Las decisiones D1–D36 viven en el Approval Packet, Registry y Freeze Contract.</p></div>
+</main></body></html>

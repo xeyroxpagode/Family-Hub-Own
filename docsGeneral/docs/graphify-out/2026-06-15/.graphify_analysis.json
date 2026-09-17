@@ -1,0 +1,333 @@
+{
+  "communities": {
+    "0": [
+      "00_mapa_arquitectura_ai_philosophy",
+      "00_mapa_arquitectura_assets",
+      "00_mapa_arquitectura_automatizaciones",
+      "00_mapa_arquitectura_calendar",
+      "00_mapa_arquitectura_documento",
+      "00_mapa_arquitectura_emotional_design",
+      "00_mapa_arquitectura_eventos",
+      "00_mapa_arquitectura_feed",
+      "00_mapa_arquitectura_finance",
+      "00_mapa_arquitectura_gastos",
+      "00_mapa_arquitectura_geni",
+      "00_mapa_arquitectura_goal",
+      "00_mapa_arquitectura_goals",
+      "00_mapa_arquitectura_home",
+      "00_mapa_arquitectura_homecloud",
+      "00_mapa_arquitectura_inventory",
+      "00_mapa_arquitectura_people",
+      "00_mapa_arquitectura_persona",
+      "00_mapa_arquitectura_planner",
+      "00_mapa_arquitectura_presence",
+      "00_mapa_arquitectura_responsabilidad",
+      "00_mapa_arquitectura_sos",
+      "00_mapa_arquitectura_tasks",
+      "00_mapa_arquitectura_ux_writing_guide"
+    ],
+    "1": [
+      "HomePlus_Homecloud",
+      "HomePlus_adult_role",
+      "HomePlus_assets",
+      "HomePlus_automatizaciones",
+      "HomePlus_child_role",
+      "HomePlus_family_employee_role",
+      "HomePlus_finance",
+      "HomePlus_geni",
+      "HomePlus_guest_role",
+      "HomePlus_inventory",
+      "HomePlus_people",
+      "HomePlus_planner",
+      "HomePlus_presence",
+      "HomePlus_product",
+      "HomePlus_senior_role",
+      "HomePlus_sos",
+      "HomePlus_teen_role",
+      "homeplus_finalspec_document",
+      "homeplus_seccion_1_producto_document"
+    ],
+    "2": [
+      "homeplus_seccion_1_producto_homeplus",
+      "homeplus_seccion_2_principios_del_producto_transparencia_operativa",
+      "homeplus_seccion_3_filosofia_asimetria_coordinacion",
+      "homeplus_seccion_3_filosofia_geni",
+      "homeplus_seccion_5_relationship_philosophy_assets",
+      "homeplus_seccion_5_relationship_philosophy_automatizaciones",
+      "homeplus_seccion_5_relationship_philosophy_finance",
+      "homeplus_seccion_5_relationship_philosophy_homecloud",
+      "homeplus_seccion_5_relationship_philosophy_inventory",
+      "homeplus_seccion_5_relationship_philosophy_planner",
+      "homeplus_seccion_5_relationship_philosophy_presence",
+      "homeplus_seccion_5_relationship_philosophy_sos",
+      "homeplus_seccion_7_ai_philosophy_geni_analizar",
+      "homeplus_seccion_7_ai_philosophy_geni_automatizar",
+      "homeplus_seccion_7_ai_philosophy_geni_consultar",
+      "homeplus_seccion_7_ai_philosophy_geni_coordinar",
+      "homeplus_seccion_7_ai_philosophy_geni_recomendar",
+      "homeplus_seccion_8_data_philosophy_datos_coordinacion"
+    ],
+    "3": [
+      "homeplus_seccion_2_principios_del_producto_HomePlus",
+      "homeplus_seccion_2_principios_del_producto_coordinador",
+      "homeplus_seccion_2_principios_del_producto_privacidad",
+      "homeplus_seccion_2_principios_del_producto_verdad_primero",
+      "homeplus_seccion_3_filosofia_autonomia_vs_cohesion",
+      "homeplus_seccion_4_emotional_desing_emociones_objetivo",
+      "homeplus_seccion_4_emotional_desing_sos",
+      "homeplus_seccion_4_emotional_desing_sos_emocional",
+      "homeplus_seccion_5_relationship_philosophy_ecosistema",
+      "homeplus_seccion_6_ux_philosophy_home",
+      "homeplus_seccion_7_ai_philosophy_geni_geni",
+      "homeplus_seccion_7_ai_philosophy_geni_memoria_personal",
+      "homeplus_seccion_7_ai_philosophy_geni_restricciones",
+      "homeplus_seccion_8_data_philosophy_ownership",
+      "homeplus_ux_writing_guide_para_geni_personalidad"
+    ],
+    "4": [
+      "HomePlus_coordinator_role",
+      "homeplus_seccion_2_principios_del_producto_privacidad_primero",
+      "homeplus_seccion_3_filosofia_escalamiento_4_niveles",
+      "homeplus_seccion_4_emotional_desing_adolescente",
+      "homeplus_seccion_4_emotional_desing_adulto",
+      "homeplus_seccion_4_emotional_desing_adulto_mayor",
+      "homeplus_seccion_4_emotional_desing_empleado_familiar",
+      "homeplus_seccion_4_emotional_desing_invitado",
+      "homeplus_seccion_4_emotional_desing_nino",
+      "homeplus_seccion_5_relationship_philosophy_multi_hogar",
+      "homeplus_seccion_5_relationship_philosophy_people",
+      "homeplus_seccion_7_ai_philosophy_geni_umbrales"
+    ],
+    "5": [
+      "00_mapa_arquitectura_api_y_edgecases",
+      "00_mapa_arquitectura_auditoria_permanente",
+      "00_mapa_arquitectura_base_de_datos",
+      "00_mapa_arquitectura_data_philosophy",
+      "00_mapa_arquitectura_dominios_oficiales",
+      "00_mapa_arquitectura_final_spec_v1",
+      "00_mapa_arquitectura_homeplus",
+      "00_mapa_arquitectura_las_filosofias",
+      "00_mapa_arquitectura_roles_oficiales",
+      "homeplus_api_testcases_edgecases_v1_supabase",
+      "homeplus_esquema_de_base_de_datos_v1_schema"
+    ],
+    "6": [
+      "HomePlus_api",
+      "HomePlus_supabase",
+      "HomePlus_supabase_storage",
+      "ai_philosophy_section_7_document",
+      "data_philosophy_section_8_document",
+      "homeplus_api_testcases_edgecases_v1_document",
+      "homeplus_api_testcases_edgecases_v1_rls",
+      "homeplus_api_testcases_edgecases_v1_soft_delete",
+      "homeplus_esquema_de_base_de_datos_v1_document",
+      "homeplus_eventos_del_sistema_v1_document"
+    ],
+    "7": [
+      "HomePlus_auth",
+      "HomePlus_home_screen",
+      "HomePlus_onboarding",
+      "HomePlus_supabase_auth",
+      "homeplus_desing_system_v1_document",
+      "homeplus_diseno_de_onboarding_completo_v1_document",
+      "homeplus_diseno_de_pantallas_de_home_v1_document",
+      "homeplus_diseno_ed_pantallas_de_auth_v1_document",
+      "ux_philosophy_v2_document",
+      "ux_writing_guide_v1_document"
+    ],
+    "8": [
+      "00_mapa_arquitectura_design_system",
+      "00_mapa_arquitectura_pantallas_ui",
+      "00_mapa_arquitectura_ux_philosophy"
+    ],
+    "9": [
+      "00_mapa_arquitectura_adulto",
+      "00_mapa_arquitectura_coordinador"
+    ],
+    "10": [
+      "00_mapa_arquitectura_adolescente"
+    ],
+    "11": [
+      "00_mapa_arquitectura_adulto_mayor"
+    ],
+    "12": [
+      "00_mapa_arquitectura_empleado_familiar"
+    ],
+    "13": [
+      "00_mapa_arquitectura_eventos_del_sistema"
+    ],
+    "14": [
+      "00_mapa_arquitectura_invitado"
+    ],
+    "15": [
+      "00_mapa_arquitectura_nino"
+    ],
+    "16": [
+      "00_mapa_arquitectura_relationship_philosophy"
+    ],
+    "17": [
+      "homeplus_seccion_5_relationship_philosophy_persona"
+    ],
+    "18": [
+      "homeplus_seccion_5_relationship_philosophy_tarea"
+    ],
+    "19": [
+      "homeplus_seccion_6_ux_philosophy_navegacion"
+    ],
+    "20": [
+      "homeplus_seccion_8_data_philosophy_clasificacion"
+    ],
+    "21": [
+      "homeplus_seccion_8_data_philosophy_datos_auditoria"
+    ],
+    "22": [
+      "homeplus_seccion_8_data_philosophy_datos_personales"
+    ],
+    "23": [
+      "homeplus_seccion_8_data_philosophy_datos_sensibles"
+    ],
+    "24": [
+      "homeplus_ux_writing_guide_para_geni_tono_por_rol"
+    ]
+  },
+  "cohesion": {
+    "0": 0.10869565217391304,
+    "1": 0.1695906432748538,
+    "2": 0.1895424836601307,
+    "3": 0.1523809523809524,
+    "4": 0.16666666666666666,
+    "5": 0.18181818181818182,
+    "6": 0.2222222222222222,
+    "7": 0.28888888888888886,
+    "8": 0.6666666666666666,
+    "9": 1.0,
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0,
+    "13": 1.0,
+    "14": 1.0,
+    "15": 1.0,
+    "16": 1.0,
+    "17": 1.0,
+    "18": 1.0,
+    "19": 1.0,
+    "20": 1.0,
+    "21": 1.0,
+    "22": 1.0,
+    "23": 1.0,
+    "24": 1.0
+  },
+  "gods": [
+    {
+      "id": "homeplus_finalspec_document",
+      "label": "HomePlus \u2014 FinalSpec",
+      "degree": 26
+    },
+    {
+      "id": "homeplus_seccion_3_filosofia_geni",
+      "label": "Geni",
+      "degree": 16
+    },
+    {
+      "id": "00_mapa_arquitectura_geni",
+      "label": "Geni",
+      "degree": 11
+    },
+    {
+      "id": "homeplus_api_testcases_edgecases_v1_document",
+      "label": "HomePlus \u2014 Api + TestCases + Edgecases V1",
+      "degree": 10
+    },
+    {
+      "id": "homeplus_seccion_1_producto_homeplus",
+      "label": "HomePlus Product",
+      "degree": 10
+    },
+    {
+      "id": "homeplus_seccion_5_relationship_philosophy_people",
+      "label": "People",
+      "degree": 10
+    },
+    {
+      "id": "homeplus_seccion_2_principios_del_producto_HomePlus",
+      "label": "HomePlus",
+      "degree": 8
+    },
+    {
+      "id": "homeplus_seccion_7_ai_philosophy_geni_geni",
+      "label": "Geni",
+      "degree": 7
+    },
+    {
+      "id": "homeplus_desing_system_v1_document",
+      "label": "HomePlus \u2014 Desing system v1",
+      "degree": 6
+    },
+    {
+      "id": "homeplus_diseno_ed_pantallas_de_auth_v1_document",
+      "label": "HomePlus \u2014 Dise\u00f1o ed pantallas de Auth v1",
+      "degree": 6
+    }
+  ],
+  "surprises": [
+    {
+      "source": "Personalidad de Geni",
+      "target": "Geni",
+      "source_files": [
+        "HomePlus \u2014 UX writing guide para geni.md",
+        "HomePlus \u2014 SECCION 3 FILOSOFIA.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `Personalidad de Geni` unexpectedly reaches hub `Geni`"
+    },
+    {
+      "source": "HomePlus \u2014 Api + TestCases + Edgecases V1",
+      "target": "Supabase Auth",
+      "source_files": [
+        "HomePlus \u2014 Api + TestCases + Edgecases V1.md",
+        "HomePlus \u2014 Dise\u00f1o ed pantallas de Auth v1.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "uses",
+      "why": "connects across different repos/directories; bridges separate communities; peripheral node `Supabase Auth` unexpectedly reaches hub `HomePlus \u2014 Api + TestCases + Edgecases V1`"
+    },
+    {
+      "source": "Geni",
+      "target": "People",
+      "source_files": [
+        "HomePlus \u2014 SECCION 3 FILOSOFIA.md",
+        "HomePlus \u2014 SECCION 5 RELATIONSHIP PHILOSOPHY.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "conceptually_related_to",
+      "why": "inferred connection - not explicitly stated in source; connects across different repos/directories; bridges separate communities"
+    },
+    {
+      "source": "HomePlus",
+      "target": "Autonom\u00eda Individual vs Cohesi\u00f3n Grupal",
+      "source_files": [
+        "HomePlus \u2014 SECCION 2 PRINCIPIOS DEL PRODUCTO.md",
+        "HomePlus \u2014 SECCION 3 FILOSOFIA.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "connects across different repos/directories; peripheral node `Autonom\u00eda Individual vs Cohesi\u00f3n Grupal` unexpectedly reaches hub `HomePlus`"
+    },
+    {
+      "source": "HomePlus",
+      "target": "Emociones Objetivo",
+      "source_files": [
+        "HomePlus \u2014 SECCION 2 PRINCIPIOS DEL PRODUCTO.md",
+        "HomePlus \u2014 SECCION 4 EMOTIONAL DESING.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "connects across different repos/directories; peripheral node `Emociones Objetivo` unexpectedly reaches hub `HomePlus`"
+    }
+  ],
+  "tokens": {
+    "input": 108453,
+    "output": 27641
+  }
+}

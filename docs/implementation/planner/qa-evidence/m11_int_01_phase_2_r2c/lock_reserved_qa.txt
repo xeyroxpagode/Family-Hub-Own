@@ -1,0 +1,15 @@
+﻿{
+    "state":  "RESERVED_QA",
+    "owner":  "QA",
+    "branch":  "planner-v1-qa",
+    "worktree":  "C:\\Users\\thega\\Desktop\\HomePlus-worktrees\\qa",
+    "target":  "C:\\Users\\thega\\Desktop\\HomePlus-worktrees\\integration",
+    "purpose":  "R2C final focused independent reaudit",
+    "startedAt":  "2026-07-24T18:25:55.8623347Z",
+    "expectedFinalState":  "CLEAN",
+    "releasedBy":  null,
+    "releasedAt":  null,
+    "finalState":  null,
+    "remote":  "not accessed"
+}
+

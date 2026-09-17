@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "outDir": "./compiled-reliability",
+    "rootDir": "..",
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": false,
+    "jsx": "react"
+  },
+  "include": [
+    "../scripts/planner_reliability_test_globals.d.ts",
+    "../scripts/planner_m11_7a_reliability_tests.ts",
+    "../front/mi-front-limpio/services/api.ts",
+    "../front/mi-front-limpio/services/core/*.ts",
+    "../front/mi-front-limpio/services/planner/plannerMutationIntent.ts",
+    "../front/mi-front-limpio/services/planner/reliability/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

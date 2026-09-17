@@ -1,0 +1,390 @@
+﻿[
+    {
+        "sha256":  "322EB1CF381A5B1B91EE670DB52FC125DD1C36A74FCF5596507415F08F078C06",
+        "path":  "backend/src/adapters/planner.presets-drafts.adapters.js"
+    },
+    {
+        "sha256":  "FD52788B48124FDB9200FD5C801A799C897713CB81E22953B8A704F63B22B29F",
+        "path":  "backend/src/contracts/planner.presets-drafts.contract.js"
+    },
+    {
+        "sha256":  "63E6194B0C9F61BCB3D3E8EE5CF1B2A514EC26C88C312A4BB510D56C31FE0F88",
+        "path":  "backend/src/controllers/planner.activity.controller.js"
+    },
+    {
+        "sha256":  "ADA1B6E22883F1A8B88C607ABCBDFD9B48E8C5CD4B58EA34CB45A42FC58D285F",
+        "path":  "backend/src/controllers/planner.calendar.controller.js"
+    },
+    {
+        "sha256":  "7CA7DA84436D92D30A5759ACEA578B24397427BE34465335A864D2E6512D5898",
+        "path":  "backend/src/controllers/planner.capabilities.controller.js"
+    },
+    {
+        "sha256":  "69B5A855D10BC636C5729EFBCDFE17C96B2E55E8F6D38DF58DA4D17FF526F17F",
+        "path":  "backend/src/controllers/planner.drafts.controller.js"
+    },
+    {
+        "sha256":  "D2D5BF861D383F0F11EE165434E179741DA9F93F2EA597FA2F1D80D9B7612074",
+        "path":  "backend/src/controllers/planner.events.controller.js"
+    },
+    {
+        "sha256":  "DBB96D6169CE51230D2FA5BA12E4471E24D2DD078FB4D420F9BA307BE30723AB",
+        "path":  "backend/src/controllers/planner.events.v1.controller.js"
+    },
+    {
+        "sha256":  "F624934D620A799F4CBCD0E3170C090CEC6FF81078ACCB4CB852B185C96BAC56",
+        "path":  "backend/src/controllers/planner.goals.controller.js"
+    },
+    {
+        "sha256":  "D158AAD1A483CD758FD0A66C09E1ECA831E47BD756EE8B8EB58873F3699F4BC4",
+        "path":  "backend/src/controllers/planner.plans.controller.js"
+    },
+    {
+        "sha256":  "A29F1B19CA387515852D890B03DB91C6C653B190504DC217F88E75A037B221FD",
+        "path":  "backend/src/controllers/planner.presets.controller.js"
+    },
+    {
+        "sha256":  "D06BD73FE3E75A94174628848B4FD838D1B98903CD42E9E405ACAD32951A8D31",
+        "path":  "backend/src/controllers/planner.summary.controller.js"
+    },
+    {
+        "sha256":  "4D709C959692D962807812152003AD731D9692026B8D8FD680BB6AD1DDEBC885",
+        "path":  "backend/src/controllers/planner.tasks.controller.js"
+    },
+    {
+        "sha256":  "82A8372DF13C1C79A8BA5EE43FD1BE30A92984DECBBDCC43A38F5861D048B01C",
+        "path":  "backend/src/controllers/planner.trash.controller.js"
+    },
+    {
+        "sha256":  "F6B2B5041C76D0925639C232102266DF2CE359A28983BB0AE09A9FBBF1331747",
+        "path":  "backend/src/lib/idempotencyHelpers.js"
+    },
+    {
+        "sha256":  "AEC6739C4315150CD63BFC1BEF40C9DA1DF1A7423B3E620B124F7B110CF24BE3",
+        "path":  "backend/src/lib/mutationContracts.js"
+    },
+    {
+        "sha256":  "32D48378BD0E0C3D9528BDBF8189B752DAA73F07BF6E10294760A95F3E154A6D",
+        "path":  "backend/src/lib/plannerIdempotencyAdapter.js"
+    },
+    {
+        "sha256":  "41EFCB88C24232A8989F4648BDFF7DC458C4AE3DECDD3CE02C17626A6030E644",
+        "path":  "backend/src/lib/plannerMutationContracts.js"
+    },
+    {
+        "sha256":  "EBAEEFDFA5DE8C1A69988ABE37EE2D3B840883987774F022A46749500F08CA1D",
+        "path":  "backend/src/routes/planner.js"
+    },
+    {
+        "sha256":  "7005A713A530A5F4C2CFB6B0075CB50B3715B6504113E6DAAF1E1A3DABF25FD4",
+        "path":  "backend/src/routes/planner.presets-drafts.js"
+    },
+    {
+        "sha256":  "A137C71C4BCCD499DEB8D34D263BA5F766FACF939C323B43EC9ACED7B4D2D0D3",
+        "path":  "backend/src/services/planner.activity.service.js"
+    },
+    {
+        "sha256":  "AE06E982A89233BCBC8EC3CDF3337D2321BCA3E30AC6C0ED0ADF8964ED001ACF",
+        "path":  "backend/src/services/planner.calendar.service.js"
+    },
+    {
+        "sha256":  "9EC0313331462F0E7D64A5ADDBA9320A6BFFAE77CB2F82135B5DAF5190678484",
+        "path":  "backend/src/services/planner.context.service.js"
+    },
+    {
+        "sha256":  "33C3D5F1F47B20152E9A97272F4058465A5BA4595FF8C00DAA0C8CC13300279F",
+        "path":  "backend/src/services/planner.drafts.autosaveCoordinator.js"
+    },
+    {
+        "sha256":  "C6A561FDE54B949900285B13B93730EFB53D4BDCC5C5AD38B2DD82A918561BBA",
+        "path":  "backend/src/services/planner.drafts.service.js"
+    },
+    {
+        "sha256":  "0AB763330D70DA240D7EE11A0736C5E65D54E29031C9C006DA53466195646403",
+        "path":  "backend/src/services/planner.events.service.js"
+    },
+    {
+        "sha256":  "604201F62ECC661CCC5DBCE638C20D9C28B7CACEA63538B47D79C10E9EC60BD0",
+        "path":  "backend/src/services/planner.events.v1.context.service.js"
+    },
+    {
+        "sha256":  "6FE41664AD9F61E0E3FEB5B6AA5C7C8DB79EEBAF96057523AE497F87B1CC2A75",
+        "path":  "backend/src/services/planner.events.v1.service.js"
+    },
+    {
+        "sha256":  "024F67F8CE032A1BE9EAA4581EBD3A68B46E4FEF6596FD721C5EA410C0FAB9A3",
+        "path":  "backend/src/services/planner.goals.service.js"
+    },
+    {
+        "sha256":  "E7964BFF29268CAF72451B11CB9450AD84EBCA0580BF340C5AB6B493516B5495",
+        "path":  "backend/src/services/planner.plans.service.js"
+    },
+    {
+        "sha256":  "F06AF9DE491D897B3176DF16BA8D730215798FE5C7C1F23E5A6EB11AE7E76A48",
+        "path":  "backend/src/services/planner.presets.service.js"
+    },
+    {
+        "sha256":  "90BB5E0B1600B7E418F591089984461F2AEFD0A12F1E06E86D57745F8FD6BC74",
+        "path":  "backend/src/services/planner.summary.service.js"
+    },
+    {
+        "sha256":  "00140C7D3744628322442F6C4805B8A41C2BC5B952E8D541E0CE3F747BAA3BB4",
+        "path":  "backend/src/services/planner.tasks.service.js"
+    },
+    {
+        "sha256":  "0CB7BBF22649B592CB0BFB46D556DD7CDF7937C4FB956B6F4EA6348FB5407226",
+        "path":  "backend/src/services/planner.trash.service.js"
+    },
+    {
+        "sha256":  "961474CE213DA03B97E6CB18C221B8878A59F73C622FE686B924709EEA041092",
+        "path":  "scripts/homeplus_g0_4_contract_tests.js"
+    },
+    {
+        "sha256":  "6686C00612639F512D89C5ED0A9772FF3C8CBDC1E9E0C9FC6F3410F5943C122F",
+        "path":  "scripts/homeplus_g0_4_database_tests.js"
+    },
+    {
+        "sha256":  "64AE7E390B1C14FFC948FEF3D957923FA8B70BC9FF0C96C5A7530774A472517F",
+        "path":  "scripts/homeplus_g0_4_runtime_runner.js"
+    },
+    {
+        "sha256":  "9FE721CE9FBC9E31AF96BB81FAB2D0F9C758C8EFD978CFC598176D959384AF09",
+        "path":  "scripts/planner_m11_1a_contract_tests.js"
+    },
+    {
+        "sha256":  "F4CEAF4375BDFB42153B8FF3ED016DFDAF57FC177D23DED44DC6BC611FC6787D",
+        "path":  "scripts/planner_m11_1a_database_tests.js"
+    },
+    {
+        "sha256":  "F83AAC904CDE78A751481AB3CED63379F0A299C0C3D0C8D5518713F4BD75FF78",
+        "path":  "scripts/planner_m11_1a_test_runner.js"
+    },
+    {
+        "sha256":  "62A4EAE193BD8816DB5D99FE483D02E03251479F73B93D8A6EB219E618A3E6EA",
+        "path":  "scripts/planner_m11_1b_contract_tests.js"
+    },
+    {
+        "sha256":  "106A415AE397170B9E7B6BC7CECF010FF7346A6B589B61946E1DAE7108E978BB",
+        "path":  "scripts/planner_m11_1b_database_tests.js"
+    },
+    {
+        "sha256":  "8A538CC13067F2899252A98BB4328AE9F7789B8E1110127C7BC556F17DB71432",
+        "path":  "scripts/planner_m11_1b_http_tests.js"
+    },
+    {
+        "sha256":  "74D177AB67817F5F3D906B017BCCBAEEE4AD930D7FECC9B4F4D55BFBC8BEF697",
+        "path":  "scripts/planner_m11_1b_test_runner.js"
+    },
+    {
+        "sha256":  "BA8343BC56A20243C938949A7B75E11718D3D62E2E7C669B4153C87D1AD28894",
+        "path":  "scripts/planner_m11_2a_event_contract_tests.js"
+    },
+    {
+        "sha256":  "5DFB6AE3044558C0313E11BE3FDA3274564D968561A5F7CBE06A608847685E8D",
+        "path":  "scripts/planner_m11_2a_event_database_tests.js"
+    },
+    {
+        "sha256":  "AC87139B4A5E2827EFBC2089C6C3196EBE0B6145ADC093F3996DDA2DA6D4B6A8",
+        "path":  "scripts/planner_m11_2a_event_test_runner.js"
+    },
+    {
+        "sha256":  "9E39F4A97485B0D26DA924F9C9F923E6F16B4157C58089340EFB81C264C15BE9",
+        "path":  "scripts/planner_m11_3a_contract_tests.js"
+    },
+    {
+        "sha256":  "8697E271EF4208938EC52154526C4B921A7FA2799FE4619E086497FD6BF732C2",
+        "path":  "scripts/planner_m11_3a_database_tests.js"
+    },
+    {
+        "sha256":  "858E5F90B8207EEA3DFE67D60ADC31A8D8A1A8780645EB2464054ADB37ACB653",
+        "path":  "scripts/planner_m11_3a_test_runner.js"
+    },
+    {
+        "sha256":  "86E57FD4507C097291D0037048C26DCBFCF9FDFA7B5E547BDC9EC28C3427D869",
+        "path":  "scripts/planner_m11_4a_contract_tests.js"
+    },
+    {
+        "sha256":  "B479F84ABA0E5EF5509D1A687980FD51975CBB7A4FEFF687F1C563DBD18BA94F",
+        "path":  "scripts/planner_m11_int_01_shared_contract_tests.js"
+    },
+    {
+        "sha256":  "3F182C5285F69A3EBB9F39DBA004CF44C39D0D54F47136FAC3BA740C50E65F3A",
+        "path":  "scripts/planner_m11_int_01_shared_database_tests.js"
+    },
+    {
+        "sha256":  "61989C50714A4F06C49745486B038F958785745C76FCFE8EED4221E196097BD8",
+        "path":  "scripts/planner_m11_int_01_shared_test_runner.js"
+    },
+    {
+        "sha256":  "05611D5EB078FCF78B13C7219E48CD361CD0D80FCB81FD1A796380509C694C85",
+        "path":  "supabase/migrations/202606210001_auth_base.sql"
+    },
+    {
+        "sha256":  "F9F162851971932CFF146C96AA36489303E1A66C9C0C5DB0C795AE97781C4623",
+        "path":  "supabase/migrations/202606210002_rls_auth.sql"
+    },
+    {
+        "sha256":  "D870CAAD6613638E8EDAA6E338748E6114C71F2AD0E049CFB74935A209378776",
+        "path":  "supabase/migrations/202606210003_schedules.sql"
+    },
+    {
+        "sha256":  "997A3135637FF7822E837FC35EB9BB5075CFAA0269D7CA2C8A6525BBEDDDBA86",
+        "path":  "supabase/migrations/202606210004_tasks.sql"
+    },
+    {
+        "sha256":  "B54A77AC4BAE0DFB3A021B3D5E07682963CAD73C49E7DFA5E943A3BEC4F97D78",
+        "path":  "supabase/migrations/202606210005_events.sql"
+    },
+    {
+        "sha256":  "2E18FCA72318DA750093E2814D8A454F03B24DC6D271E1D77D69E1D29420B3FC",
+        "path":  "supabase/migrations/202606210006_ensure_user_fn.sql"
+    },
+    {
+        "sha256":  "8144C48512E5766EC97D2BBAB00B59EE226095C1375A7D61ED64388F584F1D87",
+        "path":  "supabase/migrations/202606210007_join_by_token_fn.sql"
+    },
+    {
+        "sha256":  "F5C064A28A72B9055F937BEF887FBB38F12FB05D9234D90DFB6F30555D374251",
+        "path":  "supabase/migrations/202606210008_fix_es256_jwt.sql"
+    },
+    {
+        "sha256":  "52EB38F41C8971A77D977BE454FACA2131AF76872E2310DDE08EF9762C1BAD4D",
+        "path":  "supabase/migrations/202606210009_auth_onboarding_final.sql"
+    },
+    {
+        "sha256":  "623DCFD605FA22AE920F63F6CE45A621DD8983302E4C4B101EC834251BC8EB21",
+        "path":  "supabase/migrations/202606230001_planner_mvp.sql"
+    },
+    {
+        "sha256":  "062B880F3AD524963325D2F4B923E6B42ECE870831299AD48791548BD6C4DB58",
+        "path":  "supabase/migrations/202606230002_planner_table_grants.sql"
+    },
+    {
+        "sha256":  "F455A565CF7DC5AF390E5B2A5CED9CFD7130694B5746F1BF707CC846BC23D86A",
+        "path":  "supabase/migrations/202606230003_finalize_household_member.sql"
+    },
+    {
+        "sha256":  "40932EE2AD4A9B1ACE28972818EDC50C532D10F1B115776C6AFD4C21FC6F8555",
+        "path":  "supabase/migrations/202606230004_fix_finalize_household_member_order.sql"
+    },
+    {
+        "sha256":  "0543051B8865A08CFC343B90453C54F9AB5A4937B9DA37A3A598B34BCCF83873",
+        "path":  "supabase/migrations/202606230005_planner_event_occurrence_overrides.sql"
+    },
+    {
+        "sha256":  "A8FA836210686ADF22CA4AFA676F2DF3ECD13C088C56EC2C357A0B1510DDA425",
+        "path":  "supabase/migrations/202606240001_h042_1_data_model_hardening.sql"
+    },
+    {
+        "sha256":  "2F19328EB20B0CE563CA14D9DD956A580B642838D66321AAC6E90CB5F789E8E0",
+        "path":  "supabase/migrations/202607050001_h042_4_family_members_role_requests.sql"
+    },
+    {
+        "sha256":  "C3E81CB0B1A3BC7B14B35645EE3A86081CE44396F58E28D0F9783262D61A5582",
+        "path":  "supabase/migrations/202607080001_inventory_module.sql"
+    },
+    {
+        "sha256":  "22121690DBC1BCD10C6BBC7493953A183C2CCF7EC6C221E422BBF1DF1C0AA620",
+        "path":  "supabase/migrations/202607080002_create_person_for_current_user_rpc.sql"
+    },
+    {
+        "sha256":  "887DC5372F70BDDDC765A147E11A943239AD93233181BD73CB9893CB5E44BED2",
+        "path":  "supabase/migrations/202607080003_planner_tasks_origin_fields.sql"
+    },
+    {
+        "sha256":  "3B2B8228B1A029B6869B0C3BF60636925C1B52F6255E3F7DA6D687FB28916442",
+        "path":  "supabase/migrations/202607080004_planner_goals.sql"
+    },
+    {
+        "sha256":  "09D37ECBE31FD37AFA9A332BC064EF6186647C62A9216E2C25C9EFA9E591AC5A",
+        "path":  "supabase/migrations/202607080005_fix_planner_goals_insert_rls.sql"
+    },
+    {
+        "sha256":  "3261646DE36BE3EB7B1CE9CD54E29347678EA49961110DF276A6E7BFEA9E387F",
+        "path":  "supabase/migrations/202607100001_add_progress_mode_to_goals.sql"
+    },
+    {
+        "sha256":  "1CC3478C1986C063B3793C340C1BEA9562058B6CE26C399E3EFC7595E5C8B8B1",
+        "path":  "supabase/migrations/20260711203451_planner_member_actor_ids.sql"
+    },
+    {
+        "sha256":  "9EF0C039F14269C9A03E2AC994D20A46A8B5BBC3BAEC9480D2E9F6E518E183DD",
+        "path":  "supabase/migrations/20260712000000_planner_version_columns.sql"
+    },
+    {
+        "sha256":  "20A7619E0980516B17932B42BADFEEF70E14138417F3F91A07AC0238AC042AF4",
+        "path":  "supabase/migrations/20260712120000_soft_delete_goal_milestone_rpc.sql"
+    },
+    {
+        "sha256":  "6131169751B3ECCBBDF19DAC8E77A5D1054FF0C7F55F4774ABE4DE64766D9CEE",
+        "path":  "supabase/migrations/20260713000000_planner_idempotency_keys.sql"
+    },
+    {
+        "sha256":  "9187B35212C2C1D7333A3C3B7A52DB9F4FB7BE63FCEDF6BFA2EE3FC12DEBE6C4",
+        "path":  "supabase/migrations/20260713001000_normalize_planner_task_priorities.sql"
+    },
+    {
+        "sha256":  "0F955EA307FC8B1B867CBE45045A6380053C24CEE5E3AAAE83F2FB17081019AA",
+        "path":  "supabase/migrations/20260713002000_migrate_goals_failed_to_closed.sql"
+    },
+    {
+        "sha256":  "A670243F0C75D0F1F3C2B167443286A7DE9F9432A755E6A1CE8DCE2D0D2B1EBF",
+        "path":  "supabase/migrations/20260713003000_add_planner_trash_restore.sql"
+    },
+    {
+        "sha256":  "BC1F19A8644DFA84698F4E76332A4502DFD2F6A5F40B62820B62E2686687324D",
+        "path":  "supabase/migrations/20260713004000_add_planner_cancellation_metadata.sql"
+    },
+    {
+        "sha256":  "9BE30C8CE3DF841DE8242C595BF1F065C06DC28B161CF8B274D1BFAA787746DB",
+        "path":  "supabase/migrations/20260713005000_create_planner_activity_log.sql"
+    },
+    {
+        "sha256":  "55B2771370C6ACD136D3C51D3258F8F7AA490C167B590F61A45619575282F5B7",
+        "path":  "supabase/migrations/20260714010000_homeplus_g0_4_operation_rollout.sql"
+    },
+    {
+        "sha256":  "9FA921D389850A92F8765EB09E70E45A661342D39F0CC14F921591BD4701FD47",
+        "path":  "supabase/migrations/20260715010000_remove_broken_legacy_rpcs.sql"
+    },
+    {
+        "sha256":  "E212727839D4D037B25309FB67E451F8910616AC178BD73639C198D424B58132",
+        "path":  "supabase/migrations/20260722010000_m11_1a_task_fulfillment_foundation.sql"
+    },
+    {
+        "sha256":  "D21203B981C372AC6EAA3168833E5098BC91D3730A7D7AE6FA59BF2BF5E2A270",
+        "path":  "supabase/migrations/20260722020000_m11_1b_task_fulfillment_operations.sql"
+    },
+    {
+        "sha256":  "7EB7B5687288524DCB6CCAD669337BFBFC9F1794068FCE688508D7CD9F32DEBF",
+        "path":  "supabase/migrations/20260722030000_m11_2a_event_domain_foundation.sql"
+    },
+    {
+        "sha256":  "38FC7ADB047C84FC111778ED53AD7A7DA50661D1FF049F6130C43E4CB74B5BDB",
+        "path":  "supabase/migrations/20260722040000_m11_3a_plan_graph_foundation.sql"
+    },
+    {
+        "sha256":  "14AA12317F3E35B71420A73732894C1910038F540855C5B46733598D6AB8C4FF",
+        "path":  "supabase/migrations/20260722049000_m11_3a_consume_shared_mutation_authority.sql"
+    },
+    {
+        "sha256":  "BD65AA401E7E66145D6A1BF718D3B047A1A1C7BDC2D6FE769C1D6FCB79FB990D",
+        "path":  "supabase/migrations/20260722050000_m11_4a_presets_drafts_foundation.sql"
+    },
+    {
+        "sha256":  "60780867F9F5BB7F11305B09876C55287485D0CB03AAEE01BBFAEDA191090ED0",
+        "path":  "supabase/migrations/20260722090000_m11_int_01_shared_mutation_authority_foundation.sql"
+    },
+    {
+        "sha256":  "5A1F93EFB5C848BE3448E1D1C852F64A64BF789C82D9E8F57B2772FE676B7834",
+        "path":  "tests/db/run.js"
+    },
+    {
+        "sha256":  "658BBD9030FF62310AC46669D704B8E84742BFE6024657F3D9C2EED5B6EFB913",
+        "path":  "tests/integration/run.js"
+    },
+    {
+        "sha256":  "2B4D90FDF82816E210B32260001B6699F51E146654AACF29ACFE15DA6FE52933",
+        "path":  "tests/run.js"
+    }
+]

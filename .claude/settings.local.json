@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Start-Sleep -Seconds 3)",
+      "Bash(Get-Content \"C:\\\\Users\\\\tig1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-tig1-Documents-Family-Hub---Github\\\\69392b3e-2c60-4a66-a579-aaff346b78ba\\\\tasks\\\\bu946rt78.output\" -Tail 20)",
+      "Bash(npx expo *)",
+      "Bash(xargs grep -l \"supabase\")",
+      "Bash(xargs grep -l \"createClient.*supabase\")",
+      "Bash(xargs grep -l \"useAuth\\\\|AuthContext\\\\|signIn\\\\|signUp\\\\|signOut\")",
+      "Bash(dir C:\\\\Users\\\\tig1\\\\Documents\\\\Family Hub - Github\\\\supabase\\\\migrations\\\\ *)",
+      "Bash(Get-ChildItem \"C:\\\\Users\\\\tig1\\\\Documents\\\\Family Hub - Github\\\\backend\" -Recurse -Depth 2 -Exclude node_modules -File)",
+      "Bash(Select-Object FullName)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tig1\\\\Documents\\\\Family Hub - Github\" -Force)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\tig1\\\\Documents\\\\Family Hub - Github\" -Recurse -Depth 2)",
+      "Bash(Expand-Archive -Path \"login_signup \\(copia\\).make\" -DestinationPath \"login_signup_extracted\" -Force)",
+      "Bash(Get-ChildItem -Recurse \"login_signup_extracted\")",
+      "Bash(Select-Object -First 50)",
+      "Bash(unzip -l \"login_signup \\(copia\\).make\")",
+      "Bash(grep -E \"\\\\.\\(docx|md|env|txt\\)$\")",
+      "Bash(unzip -q \"login_signup \\(copia\\).make\" -d \"login_signup_extracted\")",
+      "Bash(python3)",
+      "Bash(npm install *)",
+      "Bash(mkdir -p \"C:\\\\Users\\\\tig1\\\\Documents\\\\Family Hub - Github\\\\front\\\\mi-front-limpio\\\\screens\\\\home\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\tig1\\\\Documents\\\\Family Hub - Github\\\\front\\\\mi-front-limpio\\\\screens\\\\calendar\")",
+      "Bash(npx tsc *)",
+      "Bash(mkdir -p \"C:\\\\Users\\\\tig1\\\\Downloads\\\\figma_extracted\")",
+      "Bash(python -c ' *)"
+    ]
+  }
+}
