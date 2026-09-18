@@ -5,6 +5,12 @@ const SHARING_MODES = new Set(['off', 'foreground', 'background'])
 
 const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value)
 
+const debugPresence = (event, detail) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[Presence QA] ${event}`, detail)
+  }
+}
+
 const validateCoordinates = ({ latitude, longitude, accuracyMeters }) => {
   if (!isFiniteNumber(latitude) || latitude < -90 || latitude > 90) {
     throw createHttpError(400, 'Latitud invalida.', 'invalid_location')
@@ -74,6 +80,14 @@ const listLocations = async (context) => {
     throw createHttpError(500, locationsError.message, 'presence_locations_lookup_failed')
   }
 
+  debugPresence('locations.loaded', {
+    householdId: context.householdId,
+    currentMembershipId: context.membershipId,
+    activeMembers: members?.length ?? 0,
+    locationRows: locations?.length ?? 0,
+    sharedLocationRows: locations?.filter((location) => location.sharing_enabled).length ?? 0,
+  })
+
   const locationsByMembership = new Map((locations ?? []).map((location) => [location.membership_id, location]))
 
   return {
@@ -96,6 +110,7 @@ const listLocations = async (context) => {
         role: member.role,
         is_self: member.person_id === context.personId,
         sharing_enabled: Boolean(location?.sharing_enabled),
+        presence_updated_at: location?.updated_at ?? null,
         status: !location?.sharing_enabled
           ? 'sharing_disabled'
           : hasCoordinates && !isStale(location.recorded_at)
@@ -158,6 +173,14 @@ const upsertMyLocation = async (context, payload = {}) => {
   if (error) {
     throw createHttpError(500, error.message, 'presence_location_upsert_failed')
   }
+
+  debugPresence('location.upserted', {
+    authUserId: context.accountId,
+    householdId: context.householdId,
+    membershipId: context.membershipId,
+    sharingEnabled: data.sharing_enabled,
+    sharingMode: data.sharing_mode,
+  })
 
   return { location: data }
 }

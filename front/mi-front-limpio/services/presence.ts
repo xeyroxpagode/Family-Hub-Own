@@ -27,6 +27,7 @@ export type PresenceMember = {
   is_self: boolean;
   sharing_enabled: boolean;
   status: PresenceMemberStatus;
+  presence_updated_at: string | null;
   location: PresenceMemberLocation | null;
 };
 
@@ -57,6 +58,46 @@ export type PresenceLocationRecord = {
   recorded_at: string | null;
   updated_at: string;
 };
+
+const memberVersionMs = (member: PresenceMember) => {
+  const value = Date.parse(member.presence_updated_at ?? member.location?.updated_at ?? member.location?.recorded_at ?? '');
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+};
+
+/**
+ * Presence is keyed by household membership, not person or auth user. This
+ * keeps the location selected by the map, the API response and Realtime on
+ * the same identity when a household has multiple people.
+ */
+export const mergePresenceMembers = (
+  currentMembers: PresenceMember[],
+  incomingMembers: PresenceMember[],
+) => {
+  const currentByMembershipId = new Map(
+    currentMembers.map((member) => [member.membership_id, member]),
+  );
+
+  return incomingMembers.map((incoming) => {
+    const current = currentByMembershipId.get(incoming.membership_id);
+    if (!current || memberVersionMs(incoming) >= memberVersionMs(current)) {
+      return incoming;
+    }
+
+    // The member profile still comes from the newest household response, but
+    // an in-flight GET must never roll a newer live location backwards.
+    return {
+      ...incoming,
+      sharing_enabled: current.sharing_enabled,
+      status: current.status,
+      location: current.location,
+    };
+  });
+};
+
+export const shouldApplyPresenceMember = (
+  currentMember: PresenceMember,
+  incomingMember: PresenceMember,
+) => memberVersionMs(incomingMember) >= memberVersionMs(currentMember);
 
 export const fetchPresenceLocations = (
   accessToken: string,

@@ -25,6 +25,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import {
   fetchPresenceLocations,
+  mergePresenceMembers,
+  shouldApplyPresenceMember,
   type PresenceMember,
   type PresenceMemberLocation,
 } from '../../services/presence';
@@ -77,6 +79,7 @@ const memberFromPublishedLocation = (
 ): PresenceMember => ({
   ...member,
   sharing_enabled: true,
+  presence_updated_at: location.updatedAt,
   status: 'live',
   location: {
     latitude: location.latitude,
@@ -90,6 +93,7 @@ const memberFromPublishedLocation = (
 const memberWithoutSharedLocation = (member: PresenceMember): PresenceMember => ({
   ...member,
   sharing_enabled: false,
+  presence_updated_at: new Date().toISOString(),
   status: 'sharing_disabled',
   location: null,
 });
@@ -166,6 +170,7 @@ const memberFromRealtimeRow = (member: PresenceMember, row: RealtimeLocationRow)
   return {
     ...member,
     sharing_enabled: sharingEnabled,
+    presence_updated_at: row.updated_at ?? row.recorded_at ?? member.presence_updated_at,
     status: !sharingEnabled
       ? 'sharing_disabled'
       : location && !isStale(location.recorded_at)
@@ -231,10 +236,20 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
     try {
       const response = await fetchPresenceLocations(accessToken);
       if (currentRequest !== requestId.current) return;
-      membersRef.current = response.members;
-      setMembers(response.members);
+      if (response.household_id !== householdId) {
+        throw new Error('presence_household_response_mismatch');
+      }
+      const nextMembers = mergePresenceMembers(membersRef.current, response.members);
+      membersRef.current = nextMembers;
+      setMembers(nextMembers);
       if (typeof __DEV__ !== 'undefined' && __DEV__) {
-        console.log('[Presence] initialLocations.loaded', { count: response.members.length });
+        const currentMembershipId = nextMembers.find((member) => member.is_self)?.membership_id ?? null;
+        console.log('[Presence QA] initialLocations.loaded', {
+          householdId,
+          currentMembershipId,
+          count: nextMembers.length,
+          sharingCount: nextMembers.filter((member) => member.sharing_enabled).length,
+        });
       }
       setError(null);
     } catch (caught) {
@@ -387,9 +402,11 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
           if (!row.membership_id || row.household_id !== householdId) return;
 
           if (typeof __DEV__ !== 'undefined' && __DEV__) {
-            console.log('[Presence] realtime.location.received', {
-              membershipId: row.membership_id,
-              sharingEnabled: Boolean(row.sharing_enabled),
+            console.log('[Presence QA] realtime.location.received', {
+              householdId,
+              currentMembershipId: membersRef.current.find((member) => member.is_self)?.membership_id ?? null,
+              changedMembershipId: row.membership_id,
+              sharingEnabled: row.sharing_enabled === true,
             });
           }
 
@@ -402,7 +419,10 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
           setMembers((previous) => {
             const next = previous.map((member) => {
               if (member.membership_id !== row.membership_id) return member;
-              return memberFromRealtimeRow(member, row);
+              const incoming = memberFromRealtimeRow(member, row);
+              return shouldApplyPresenceMember(member, incoming)
+                ? incoming
+                : member;
             });
             membersRef.current = next;
             if (typeof __DEV__ !== 'undefined' && __DEV__) {
@@ -413,7 +433,20 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
           });
         },
       )
-      .subscribe();
+      .subscribe((status, subscriptionError) => {
+        if (typeof __DEV__ !== 'undefined' && __DEV__) {
+          console.log('[Presence QA] realtime.subscription', {
+            householdId,
+            status,
+            error: subscriptionError?.message ?? null,
+          });
+        }
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          // A single read keeps the screen useful while Supabase reconnects;
+          // normal updates continue to flow through the live channel.
+          void loadLocations(false);
+        }
+      });
 
     return () => {
       void supabase.removeChannel(channel);
@@ -451,7 +484,7 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
   useEffect(() => {
     if (typeof __DEV__ === 'undefined' || !__DEV__) return;
     visibleMembers.forEach((member) => {
-      console.log('[Presence] marker.render', { membershipId: member.membership_id });
+      console.log('[Presence QA] marker.rendered', { membershipId: member.membership_id });
     });
   }, [visibleMemberRenderKey, visibleMembers]);
 
