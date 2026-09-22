@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+/* eslint-disable react-hooks/set-state-in-effect */
+import React, { useEffect, useMemo, useState } from 'react';
 import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
@@ -76,7 +77,6 @@ export function RegisterPaymentSheet({
   const [submitting, setSubmitting] = useState(false);
   const [accountSelectorVisible, setAccountSelectorVisible] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const contextKeyRef = useRef(`${contextType}:${payment?.id}`);
 
   const isNormal = payment?.kind === PAYMENT_KINDS.NORMAL;
   const expectedAmountText = useMemo(
@@ -239,7 +239,7 @@ export function RegisterPaymentSheet({
   const footer = (
     <View style={styles.footer}>
       <AppButton title="Cancelar" variant="ghost" onPress={close} disabled={submitting} style={styles.footerButton} />
-      <AppButton title="Registrar pago" onPress={submit} loading={submitting} disabled={!canSubmit} style={styles.footerButton} />
+      <AppButton title="Pagar" onPress={submit} loading={submitting} disabled={!canSubmit} style={styles.footerButton} />
     </View>
   );
 
@@ -248,7 +248,7 @@ export function RegisterPaymentSheet({
   return (
     <ActionSheet
       visible={visible}
-      title="Registrar pago"
+      title="Pagar"
       subtitle={payment.title}
       onRequestClose={close}
       closeDisabled={submitting}
@@ -311,7 +311,7 @@ export function RegisterPaymentSheet({
               <View style={styles.fieldGroup}>
                 <FormActionRow
                   label="Categoría"
-                  value={categories.find((c) => c.id === selectedCategoryId)?.label ?? payment.categoryId ? 'Categoría del pago' : 'Sin categoría'}
+                  value={categories.find((c) => c.id === selectedCategoryId)?.label ?? (payment.categoryId ? 'Categoría del pago' : 'Sin categoría')}
                   onPress={() => setActivePicker((current) => current === 'category' ? null : 'category')}
                   disabled={submitting || categoriesLoading}
                   accessibilityLabel="Elegir categoría del gasto real"

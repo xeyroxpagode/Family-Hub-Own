@@ -41,12 +41,9 @@ function parseDayText(text: string): number | null {
   return value;
 }
 
-type BalanceMode = 'unknown' | 'known';
-
 const STARTING_DRAFT = {
   accountType: FINANCE_ACCOUNT_TYPES.ACCOUNT as FinanceAccountType,
   currency: 'ARS' as MoneyInputCurrencyCode,
-  balanceMode: 'unknown' as BalanceMode,
 };
 
 export type AccountFormSheetProps = {
@@ -54,59 +51,69 @@ export type AccountFormSheetProps = {
   accessToken?: string | null;
   contextType: FinanceContextType;
   contextLabel: string;
+  initialAccountType?: FinanceAccountType;
   onRequestClose: () => void;
   onSuccess: (account: FinanceAccountDto) => void;
 };
-
-type Step = 'edit' | 'review';
 
 export function AccountFormSheet({
   visible,
   accessToken,
   contextType,
   contextLabel,
+  initialAccountType,
   onRequestClose,
   onSuccess,
 }: AccountFormSheetProps) {
   const theme = useAppTheme();
   const { colors, motion } = theme;
   const styles = createStyles(theme);
-  const [step, setStep] = useState<Step>('edit');
-  const [accountType, setAccountType] = useState<FinanceAccountType>(STARTING_DRAFT.accountType);
+  const startingAccountType = initialAccountType ?? STARTING_DRAFT.accountType;
+  const startingAmountText = '0';
+  const [accountType, setAccountType] = useState<FinanceAccountType>(startingAccountType);
   const [name, setName] = useState('');
   const [currency, setCurrency] = useState<MoneyInputCurrencyCode>(STARTING_DRAFT.currency);
   const [currencyExpanded, setCurrencyExpanded] = useState(false);
-  const [balanceMode, setBalanceMode] = useState<BalanceMode>(STARTING_DRAFT.balanceMode);
-  const [amountText, setAmountText] = useState('0');
-  const [amount, setAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('0', STARTING_DRAFT.currency));
+  const [amountText, setAmountText] = useState(startingAmountText);
+  const [amount, setAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText(startingAmountText, STARTING_DRAFT.currency));
   const [closingDayText, setClosingDayText] = useState('');
   const [dueDayText, setDueDayText] = useState('');
+  const [closingDayTouched, setClosingDayTouched] = useState(false);
+  const [dueDayTouched, setDueDayTouched] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const isCreditCard = accountType === FINANCE_ACCOUNT_TYPES.CREDIT_CARD;
   const balanceLabel = isCreditCard ? 'Deuda actual' : 'Saldo actual';
-  const canonicalInitialAmount = amount.technicalValue?.amount ?? (amount.status === 'zero' ? amount.canonicalAmount : null);
+  const canonicalInitialAmount = amount.technicalValue?.amount
+    ?? (amount.status === 'zero' ? amount.canonicalAmount : null)
+    ?? (!amountText.trim() ? '0' : null);
   const closingDay = parseDayText(closingDayText);
   const dueDay = parseDayText(dueDayText);
-  const closingDayError = isCreditCard && closingDay === null ? 'Ingresá un día de cierre entre 1 y 31.' : undefined;
-  const dueDayError = isCreditCard && dueDay === null ? 'Ingresá un día de vencimiento entre 1 y 31.' : undefined;
-  const cardTimingComplete = !isCreditCard || (closingDay !== null && dueDay !== null);
-  const requiresInitialAmount = isCreditCard || balanceMode === 'known';
+  const closingDayInvalid = isCreditCard && closingDay === null;
+  const dueDayInvalid = isCreditCard && dueDay === null;
+  const closingDayError = closingDayInvalid && (closingDayTouched || submitAttempted)
+    ? 'Ingresá un día de cierre entre 1 y 31.'
+    : undefined;
+  const dueDayError = dueDayInvalid && (dueDayTouched || submitAttempted)
+    ? 'Ingresá un día de vencimiento entre 1 y 31.'
+    : undefined;
   const canSubmitEdit =
     Boolean(accessToken) && !submitting && name.trim().length > 0 &&
-    (!requiresInitialAmount || canonicalInitialAmount !== null) && cardTimingComplete;
+    canonicalInitialAmount !== null;
 
   const resetDraft = () => {
-    setStep('edit');
-    setAccountType(STARTING_DRAFT.accountType);
+    setAccountType(startingAccountType);
     setName('');
     setCurrency(STARTING_DRAFT.currency);
-    setBalanceMode(STARTING_DRAFT.balanceMode);
-    setAmountText('0');
-    setAmount(parseMoneyInputText('0', STARTING_DRAFT.currency));
+    setAmountText(startingAmountText);
+    setAmount(parseMoneyInputText(startingAmountText, STARTING_DRAFT.currency));
     setClosingDayText('');
     setDueDayText('');
+    setClosingDayTouched(false);
+    setDueDayTouched(false);
+    setSubmitAttempted(false);
     setCurrencyExpanded(false);
     setSubmitError(null);
     setSubmitting(false);
@@ -126,25 +133,13 @@ export function AccountFormSheet({
 
   const chooseAccountType = (nextType: FinanceAccountType) => {
     setAccountType(nextType);
-    const nextBalanceMode = nextType === FINANCE_ACCOUNT_TYPES.CREDIT_CARD ? 'known' : STARTING_DRAFT.balanceMode;
-    const nextAmountText = nextBalanceMode === 'known' ? '0' : '';
-    setBalanceMode(nextBalanceMode);
-    setAmountText(nextAmountText);
-    setAmount(parseMoneyInputText(nextAmountText, currency));
+    setAmountText('0');
+    setAmount(parseMoneyInputText('0', currency));
     setClosingDayText('');
     setDueDayText('');
-    setSubmitError(null);
-  };
-
-  const chooseBalanceMode = (mode: BalanceMode) => {
-    setBalanceMode(mode);
-    if (mode === 'unknown') {
-      setAmountText('');
-      setAmount(parseMoneyInputText('', currency));
-    } else if (!amountText.trim()) {
-      setAmountText('0');
-      setAmount(parseMoneyInputText('0', currency));
-    }
+    setClosingDayTouched(false);
+    setDueDayTouched(false);
+    setSubmitAttempted(false);
     setSubmitError(null);
   };
 
@@ -159,6 +154,7 @@ export function AccountFormSheet({
   const submit = async () => {
     if (submitting) return;
     Keyboard.dismiss();
+    setSubmitAttempted(true);
     setSubmitError(null);
 
     if (!accessToken) {
@@ -169,19 +165,16 @@ export function AccountFormSheet({
     const draftName = name.trim();
     if (!draftName) {
       setSubmitError('Ingresa un nombre para la cuenta.');
-      setStep('edit');
       return;
     }
 
-    if (requiresInitialAmount && canonicalInitialAmount === null) {
+    if (canonicalInitialAmount === null) {
       setSubmitError('Ingresa un saldo valido, incluso si es cero.');
-      setStep('edit');
       return;
     }
 
-    if (isCreditCard && (closingDay === null || dueDay === null)) {
-      setSubmitError(closingDay === null ? 'Ingresá un día de cierre entre 1 y 31.' : 'Ingresá un día de vencimiento entre 1 y 31.');
-      setStep('edit');
+    if (closingDayInvalid || dueDayInvalid) {
+      setSubmitError(closingDayInvalid ? 'Ingresá un día de cierre entre 1 y 31.' : 'Ingresá un día de vencimiento entre 1 y 31.');
       return;
     }
 
@@ -192,14 +185,10 @@ export function AccountFormSheet({
         currency,
         accountType,
         contextType,
-        ...(requiresInitialAmount && canonicalInitialAmount !== null
-          ? {
-            initialBalance: {
-              amount: toCanonicalSignedAccountBalance(canonicalInitialAmount, accountType),
-              effectiveDate: todayLocalDateOnly(),
-            },
-          }
-          : {}),
+        initialBalance: {
+          amount: toCanonicalSignedAccountBalance(canonicalInitialAmount, accountType),
+          effectiveDate: todayLocalDateOnly(),
+        },
         ...(isCreditCard ? { closingDay, dueDay } : {}),
       };
       const response: CreateFinanceAccountResponse = await createFinanceAccount(accessToken, payload);
@@ -212,7 +201,6 @@ export function AccountFormSheet({
         ? error.message
         : 'No pudimos crear la cuenta. Intenta de nuevo.';
       setSubmitError(message);
-      setStep('edit');
     } finally {
       setSubmitting(false);
     }
@@ -227,27 +215,17 @@ export function AccountFormSheet({
         disabled={submitting}
         style={styles.footerButton}
       />
-      {step === 'edit' ? (
-        <AppButton
-          title={isCreditCard ? 'Crear tarjeta' : 'Crear cuenta'}
-          onPress={() => void submit()}
-          loading={submitting}
-          disabled={!canSubmitEdit}
-          style={styles.footerButton}
-        />
-      ) : (
-        <AppButton
-          title={isCreditCard ? 'Crear tarjeta' : 'Crear cuenta'}
-          onPress={() => void submit()}
-          loading={submitting}
-          disabled={submitting}
-          style={styles.footerButton}
-        />
-      )}
+      <AppButton
+        title={isCreditCard ? 'Crear tarjeta' : 'Crear cuenta'}
+        onPress={() => void submit()}
+        loading={submitting}
+        disabled={!canSubmitEdit}
+        style={styles.footerButton}
+      />
     </View>
   );
 
-  const body = step === 'edit' ? (
+  const body = (
     <KeyboardAwareScrollView
       enableOnAndroid
       extraScrollHeight={40}
@@ -335,69 +313,20 @@ export function AccountFormSheet({
       </View>
 
       <View style={styles.fieldGroup}>
-        {!isCreditCard ? (
-          <>
-            <AppText variant="caption" tone="secondary" weight="700">{balanceLabel}</AppText>
-            <View style={styles.balanceMode} accessibilityRole="radiogroup">
-              <InteractivePressable
-                onPress={() => chooseBalanceMode('unknown')}
-                disabled={submitting}
-                haptic="light"
-                pressScale={motion.scale.card}
-                style={[styles.balanceModeOption, balanceMode === 'unknown' && styles.balanceModeOptionSelected]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: balanceMode === 'unknown' }}
-                accessibilityLabel="Saldo no establecido"
-              >
-                <HomePlusIcon
-                  name={balanceMode === 'unknown' ? 'radio-button-on' : 'radio-button-off'}
-                  size={18}
-                  color={balanceMode === 'unknown' ? colors.terracotta[700] : colors.text.tertiary}
-                />
-                <AppText variant="bodySmall" weight="800">No lo sé</AppText>
-              </InteractivePressable>
-              <InteractivePressable
-                onPress={() => chooseBalanceMode('known')}
-                disabled={submitting}
-                haptic="light"
-                pressScale={motion.scale.card}
-                style={[styles.balanceModeOption, balanceMode === 'known' && styles.balanceModeOptionSelected]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: balanceMode === 'known' }}
-                accessibilityLabel={`Ingresar ${balanceLabel.toLowerCase()}`}
-              >
-                <HomePlusIcon
-                  name={balanceMode === 'known' ? 'radio-button-on' : 'radio-button-off'}
-                  size={18}
-                  color={balanceMode === 'known' ? colors.terracotta[700] : colors.text.tertiary}
-                />
-                <AppText variant="bodySmall" weight="800">Ingresar saldo</AppText>
-              </InteractivePressable>
-            </View>
-            {balanceMode === 'unknown' ? (
-              <AppText variant="caption" tone="tertiary">
-                Podés establecer el saldo después, cuando lo sepas.
-              </AppText>
-            ) : null}
-          </>
-        ) : null}
-
-        {isCreditCard || balanceMode === 'known' ? (
-          <MoneyInput
-            value={amountText}
-            currency={currency}
-            onValueChange={handleAmountChange}
-            onCurrencyChange={chooseCurrency}
-            availableCurrencies={[currency]}
-            disabled={submitting}
-            label={balanceLabel}
-            testID="account-create-amount"
-            allowZero
-            allowNegative={false}
-            errorText={amount.status === 'invalid' ? 'Revisa el monto.' : undefined}
-            helperText={isCreditCard ? 'Deuda registrada hoy. Cero es válido.' : 'Saldo de hoy. Cero es válido.'}
-          />
-        ) : null}
+        <MoneyInput
+          value={amountText}
+          currency={currency}
+          onValueChange={handleAmountChange}
+          onCurrencyChange={chooseCurrency}
+          availableCurrencies={[currency]}
+          disabled={submitting}
+          label={balanceLabel}
+          testID="account-create-amount"
+          allowZero
+          allowNegative={false}
+          errorText={amount.status === 'invalid' ? 'Revisa el monto.' : undefined}
+          helperText={isCreditCard ? 'Deuda registrada hoy. Cero es válido.' : 'Saldo de hoy. Cero es válido.'}
+        />
       </View>
 
       {isCreditCard ? (
@@ -407,6 +336,7 @@ export function AccountFormSheet({
               label="Día de cierre"
               value={closingDayText}
               onChangeText={(text) => { setClosingDayText(text); setSubmitError(null); }}
+              onBlur={() => setClosingDayTouched(true)}
               placeholder="28"
               editable={!submitting}
               keyboardType="number-pad"
@@ -421,6 +351,7 @@ export function AccountFormSheet({
               label="Día de vencimiento"
               value={dueDayText}
               onChangeText={(text) => { setDueDayText(text); setSubmitError(null); }}
+              onBlur={() => setDueDayTouched(true)}
               placeholder="8"
               editable={!submitting}
               keyboardType="number-pad"
@@ -433,14 +364,6 @@ export function AccountFormSheet({
         </View>
       ) : null}
 
-      <View style={styles.contextSummary}>
-        <HomePlusIcon name={contextType === 'personal' ? 'person-outline' : 'home-outline'} size={18} color={colors.sage[700]} />
-        <View style={styles.contextSummaryText}>
-          <AppText variant="caption" tone="secondary" weight="700">Finanzas de</AppText>
-          <AppText variant="bodySmall" weight="800" numberOfLines={1}>{contextLabel}</AppText>
-        </View>
-      </View>
-
       {submitError ? (
         <View style={styles.errorBox}>
           <HomePlusIcon name="alert-circle-outline" size={18} color={colors.danger.strong} />
@@ -448,57 +371,12 @@ export function AccountFormSheet({
         </View>
       ) : null}
     </KeyboardAwareScrollView>
-  ) : (
-    <View style={styles.review}>
-      <View style={styles.reviewHeader}>
-        <HomePlusIcon name="checkmark-circle-outline" size={24} color={colors.terracotta[700]} />
-        <AppText variant="title3" weight="800">Vas a crear</AppText>
-      </View>
-
-      <View style={styles.reviewRow}>
-        <AppText variant="caption" tone="secondary" weight="700">Tipo</AppText>
-        <AppText variant="body" weight="800">
-          {accountType === FINANCE_ACCOUNT_TYPES.ACCOUNT ? 'Cuenta' : 'Tarjeta de crédito'}
-        </AppText>
-      </View>
-      <View style={styles.reviewRow}>
-        <AppText variant="caption" tone="secondary" weight="700">Nombre</AppText>
-        <AppText variant="body" weight="800">{name.trim()}</AppText>
-      </View>
-      <View style={styles.reviewRow}>
-        <AppText variant="caption" tone="secondary" weight="700">Moneda</AppText>
-        <AppText variant="body" weight="800">{currency}</AppText>
-      </View>
-<View style={styles.reviewRow}>
-          <AppText variant="caption" tone="secondary" weight="700">{balanceLabel} (hoy)</AppText>
-          <AppText variant="body" weight="800">
-            {`${currency} ${amount.displayText}`}
-          </AppText>
-        </View>
-        {isCreditCard ? (
-          <View style={styles.reviewRow}>
-            <AppText variant="caption" tone="secondary" weight="700">Cierre / Vencimiento</AppText>
-            <AppText variant="body" weight="800">{`${closingDay ?? '—'} / ${dueDay ?? '—'}`}</AppText>
-          </View>
-        ) : null}
-      <View style={styles.reviewRow}>
-        <AppText variant="caption" tone="secondary" weight="700">Finanzas de</AppText>
-        <AppText variant="body" weight="800">{contextLabel}</AppText>
-      </View>
-
-      {submitError ? (
-        <View style={styles.errorBox}>
-          <HomePlusIcon name="alert-circle-outline" size={18} color={colors.danger.strong} />
-          <AppText variant="bodySmall" tone="danger" style={styles.errorText}>{submitError}</AppText>
-        </View>
-      ) : null}
-    </View>
   );
 
   return (
     <ActionSheet
       visible={visible}
-      title={isCreditCard ? 'Nueva tarjeta' : 'Nueva cuenta'}
+      title="Nueva cuenta"
       subtitle={`Finanzas de ${contextLabel}`}
       onRequestClose={closeIfAllowed}
       closeDisabled={submitting}
@@ -516,25 +394,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
   form: {
     gap: spacing[4],
     paddingBottom: spacing[4],
-  },
-  review: {
-    gap: spacing[3],
-    paddingVertical: spacing[2],
-  },
-  reviewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-    marginBottom: spacing[2],
-  },
-  reviewRow: {
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.soft,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[2],
-    gap: spacing[1],
   },
   operationSelector: {
     minHeight: 48,
@@ -558,26 +417,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
   },
   fieldGroup: {
     gap: spacing[2],
-  },
-  balanceMode: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  balanceModeOption: {
-    flex: 1,
-    minHeight: touchTargets.normal,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.soft,
-    paddingHorizontal: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  balanceModeOptionSelected: {
-    backgroundColor: colors.terracotta[50],
-    borderColor: colors.terracotta[300],
   },
   dayFieldsRow: {
     flexDirection: 'row',
@@ -626,21 +465,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
   },
   currencyOptionSelected: {
     backgroundColor: colors.terracotta[600],
-  },
-  contextSummary: {
-    minHeight: 56,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.sage[50],
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-  },
-  contextSummaryText: {
-    flex: 1,
-    minWidth: 0,
   },
   errorBox: {
     borderRadius: radius.lg,

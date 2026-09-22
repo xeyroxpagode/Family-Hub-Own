@@ -111,6 +111,11 @@ export type PlannerStackParamList = {
     fromGoal?: boolean;
     returnToGoalId?: string;
     returnTo?: 'PlannerHome';
+    planId?: string;
+    planTitle?: string;
+    fromPlan?: boolean;
+    /** P2.2A: canonical task preset payload to apply on open ("Usar" preset). */
+    presetPayload?: import('../services/planner/plannerPresetTaskDomain').PlannerPresetTaskPayload;
   } | undefined;
   EditTask: { taskId: string };
   CreateEvent: undefined;
@@ -118,14 +123,23 @@ export type PlannerStackParamList = {
   CreateGoal: undefined;
   EditGoal: { goalId?: string } | import('./plannerNavigationContract').PlannerEntityDetailParams;
   GoalDetail: { goalId: string; source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown'; } | import('./plannerNavigationContract').PlannerEntityDetailParams;
+  EditPlan: { goalId?: string; planId?: string } | import('./plannerNavigationContract').PlannerEntityDetailParams;
   PlannerTrash: undefined;
   PlannerPresetLibrary: undefined;
   PlannerPresetDetail: { presetId: string };
-  PlannerPresetCreate: { duplicateFromPresetId?: string } | undefined;
+  PlannerPresetCreate: {
+    duplicateFromPresetId?: string;
+    /** P2.2A: prefill for "Guardar como preset" from an existing Task (contextual fields already stripped). */
+    presetPrefill?: import('../services/planner/plannerPresetTaskDomain').PlannerPresetTaskPayload;
+  } | undefined;
   PlannerPresetEdit: { presetId: string };
   PlannerDraftRecovery: undefined;
   PlannerDraftResume: { draftId: string };
   PlannerPresetDraftsTrash: undefined;
+  // New canonical V1 Plan routes
+  PlanList: { refreshKey?: number } | undefined;
+  CreatePlan: undefined;
+  PlanDetail: import('./plannerNavigationContract').PlannerEntityDetailParams | { planId: string; justCreated?: boolean };
   // New canonical V1 detail routes. Their params are the canonical typed
   // contract from `plannerNavigationContract.ts`. Visual surfaces land in
   // M10 (TaskDetail/EventDetail) and M7 (PlannerSearch); M1 only defines the
@@ -134,6 +148,10 @@ export type PlannerStackParamList = {
   EventDetail: import('./plannerNavigationContract').PlannerEntityDetailParams;
   PlannerSearch: import('./plannerNavigationContract').PlannerSearchParams;
   PlannerAttentionActivity: import('./plannerNavigationContract').PlannerAttentionActivityParams;
+  Responsibilities: undefined;
+  ResponsibilityCreate: undefined;
+  ResponsibilityEdit: { responsibilityId: string };
+  ResponsibilityDetail: { responsibilityId: string };
 };
 
 export type RootStackParamList = AuthStackParamList & PrivateStackParamList;

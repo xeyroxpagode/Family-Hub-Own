@@ -165,8 +165,17 @@ const getInitialPrivateRoute = (
 const PrivateNavigator = () => {
   const { authMe, authMeLoading, authMeError, pendingJoinToken } = useAuth();
   const initialPrivateRoute = getInitialPrivateRoute(authMe);
+  // P2.1R: con hogar activo, `home` y `household_onboarding` son el mismo
+  // destino (HomeTabs). Derivar la key de la señal fina `navigation.next`
+  // desmontaba PrivateStack + PlannerReliabilityRuntimeOwner en cada
+  // revalidación de /api/auth/me. La key solo distingue cambio real de scope.
+  const privateScopeKey = authMe?.active_household ? 'HomeTabs' : initialPrivateRoute;
 
-  if (authMeLoading || (!authMe && !authMeError)) return <AuthLoadingScreen />;
+  // P2.1R: durante una revalidación en background (refetchMe) con authMe ya
+  // resuelto, mantener el árbol montado. Solo mostrar AuthLoadingScreen en el
+  // bootstrap inicial sin datos; si no, cada GET /api/auth/me desmontaba el
+  // Owner, cancelaba requests Planner en vuelo y remontaba todo.
+  if (!authMe && (authMeLoading || !authMeError)) return <AuthLoadingScreen />;
 
   // Error real cargando el hogar (no es "sin hogar") — mostrar pantalla de reintento
   if (authMeError) {
@@ -206,7 +215,7 @@ const PrivateNavigator = () => {
   return (
     <PlannerReliabilityRuntimeOwner ownerSurface="AppShellPrivate">
     <PrivateStack.Navigator
-      key={initialPrivateRoute}
+      key={privateScopeKey}
       screenOptions={{ headerShown: false }}
       initialRouteName={initialPrivateRoute}
     >

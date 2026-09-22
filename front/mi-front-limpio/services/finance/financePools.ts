@@ -173,7 +173,7 @@ function normalizePoolSummary(raw: RawFinancePoolSummaryResponse): FinancePoolSu
     coverageComplete: ko.coverageComplete,
     unknownAccountCount: ko.unknownAccountCount,
     unknownCreditCardCount: ko.unknownCreditCardCount,
-    knownAccountCount: ko.knownAccountCount,
+    knownAccountCount: ko.knownAccountCount ?? 0,
     pools: raw.pools ?? [],
   };
 }

@@ -820,6 +820,7 @@ const completeGoal = async (context, goalId, expectedVersion) => {
     .from('planner_goals')
     .update({
       status: 'completed',
+      lifecycle: 'completed',
       completed_at: new Date().toISOString(),
     })
     .eq('id', goalId)
@@ -876,6 +877,7 @@ const closeGoal = async (context, goalId, expectedVersion, closedReason) => {
     .from('planner_goals')
     .update({
       status: 'closed',
+      lifecycle: 'cancelled',
       closed_at: new Date().toISOString(),
       closed_reason: closedReason ?? null,
     })
@@ -926,6 +928,7 @@ const reopenGoal = async (context, goalId, expectedVersion) => {
     .from('planner_goals')
     .update({
       status: 'active',
+      lifecycle: 'active',
       closed_at: null,
       closed_reason: null,
       completed_at: null,

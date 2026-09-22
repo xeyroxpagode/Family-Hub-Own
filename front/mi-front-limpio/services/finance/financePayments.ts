@@ -2,8 +2,6 @@ import { OPERATION_KINDS, createIdempotencyKey, generateMutationId, requestJson 
 import { formatFinanceAmount } from './financeDisplay';
 import { hashIdempotencyRequestV2 } from './idempotency';
 import type { FinanceContextType } from './financeContext';
-import type { FinanceCategoryDto } from './financeMovements';
-import type { FinanceAccountDto } from './financeAccounts';
 
 export const PAYMENT_KINDS = {
   NORMAL: 'NORMAL',
@@ -340,13 +338,6 @@ export const getPaymentSeriesDetail = ({
       operationKind: OPERATION_KINDS.READ_ONLY,
     },
   );
-
-type PaymentMutationOptions = {
-  accessToken: string;
-  contextType: FinanceContextType;
-  signal?: AbortSignal | null;
-  contextScope?: string | null;
-};
 
 async function buildIdempotencyPayload(
   operation: string,
@@ -700,8 +691,8 @@ export function formatDueDateHuman(dueDate: string, overdue: boolean): string {
 }
 
 export function formatExpectedAmount(known: boolean, amount: string | null, currency?: string | null): string {
-  if (!known) return 'A confirmar';
-  if (!amount) return 'A confirmar';
+  if (!known) return 'Monto por definir';
+  if (!amount) return 'Monto por definir';
   return currency ? formatFinanceAmount(amount, currency, { sign: 'none' }) : amount;
 }
 
@@ -743,22 +734,38 @@ export function sortPaymentDuesForDisplay(dues: PaymentDueDto[]): PaymentDueDto[
 
 export function groupPaymentDuesByStatus(dues: PaymentDueDto[]): {
   overdue: PaymentDueDto[];
+  today: PaymentDueDto[];
   upcoming: PaymentDueDto[];
   paid: PaymentDueDto[];
+  cancelled: PaymentDueDto[];
 } {
   const overdue: PaymentDueDto[] = [];
+  const today: PaymentDueDto[] = [];
   const upcoming: PaymentDueDto[] = [];
   const paid: PaymentDueDto[] = [];
+  const cancelled: PaymentDueDto[] = [];
+  const todayKey = new Date().toISOString().split('T')[0];
 
   for (const due of dues) {
     if (isPaymentOverdue(due)) {
       overdue.push(due);
+    } else if (isPaymentPending(due) && due.dueDate === todayKey) {
+      today.push(due);
     } else if (isPaymentPending(due)) {
       upcoming.push(due);
     } else if (isPaymentPaid(due)) {
       paid.push(due);
+    } else if (isPaymentCancelled(due)) {
+      cancelled.push(due);
     }
   }
 
-  return { overdue, upcoming, paid };
+  return { overdue, today, upcoming, paid, cancelled };
+}
+
+export function choosePrimaryCreditCardDue(dues: PaymentDueDto[]): PaymentDueDto | null {
+  const pendingCreditCardDues = sortPaymentDuesForDisplay(
+    dues.filter((due) => due.kind === PAYMENT_KINDS.CREDIT_CARD && isPaymentPending(due)),
+  );
+  return pendingCreditCardDues[0] ?? null;
 }

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+/* eslint-disable react-hooks/set-state-in-effect */
+import React, { useEffect, useMemo, useState } from 'react';
 import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
@@ -16,7 +17,6 @@ import { useEligibleAccounts } from '../../services/finance/financeAccountEligib
 import { compareDecimalStrings } from '../../services/finance/accountDisplay';
 import { formatFinanceAmount } from '../../services/finance/financeDisplay';
 import {
-  DEFAULT_MONEY_INPUT_CURRENCY_OPTIONS,
   parseMoneyInputText,
   type MoneyInputCurrencyCode,
   type MoneyInputParseResult,
@@ -24,11 +24,9 @@ import {
 import {
   ActionSheet,
   AppButton,
-  AppInput,
   AppText,
   DatePickerSheet,
   FormActionRow,
-  InteractivePressable,
   formatHumanDate,
 } from '../ui';
 import { todayDateOnly } from '../../services/finance/financeDate';
@@ -63,17 +61,14 @@ export function PayCreditCardSheet({
   const styles = createStyles(theme);
   const [amountText, setAmountText] = useState('');
   const [amount, setAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
-  const [currency, setCurrency] = useState<MoneyInputCurrencyCode>('ARS');
   const [destinationAmountText, setDestinationAmountText] = useState('');
   const [destinationAmount, setDestinationAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
-  const [destinationCurrency, setDestinationCurrency] = useState<MoneyInputCurrencyCode>('ARS');
   const [date, setDate] = useState(todayDateOnly);
   const [activePicker, setActivePicker] = useState<'date' | 'sourceAccount' | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [accountSelectorVisible, setAccountSelectorVisible] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const contextKeyRef = useRef(`${contextType}:${payment?.id}`);
 
   const isCrossCurrency = payment?.targetCreditCard && payment.currency !== payment.targetCreditCard.currency;
   const destinationCurrencyCode = payment?.targetCreditCard?.currency ?? payment?.currency ?? 'ARS';
@@ -114,10 +109,8 @@ export function PayCreditCardSheet({
     const knownAmount = payment.remaining ?? (payment.expectedAmountKnown && payment.expectedAmount ? payment.expectedAmount : '');
     setAmountText(knownAmount);
     setAmount(parseMoneyInputText(knownAmount, paymentCurrency as MoneyInputCurrencyCode));
-    setCurrency(paymentCurrency as MoneyInputCurrencyCode);
     setDestinationAmountText(knownAmount);
     setDestinationAmount(parseMoneyInputText(knownAmount, cardCurrency as MoneyInputCurrencyCode));
-    setDestinationCurrency(cardCurrency as MoneyInputCurrencyCode);
     setDate(todayDateOnly());
     setSelectedAccountId(null);
     setSubmitError(null);
@@ -126,10 +119,8 @@ export function PayCreditCardSheet({
   const resetDraft = () => {
     setAmountText('');
     setAmount(parseMoneyInputText('', 'ARS'));
-    setCurrency('ARS');
     setDestinationAmountText('');
     setDestinationAmount(parseMoneyInputText('', 'ARS'));
-    setDestinationCurrency('ARS');
     setDate(todayDateOnly());
     setSelectedAccountId(null);
     setSubmitError(null);
@@ -157,7 +148,6 @@ export function PayCreditCardSheet({
   };
 
   const handleCurrencyChange = (nextCurrency: MoneyInputCurrencyCode) => {
-    setCurrency(nextCurrency);
     setAmount(parseMoneyInputText(amountText, nextCurrency));
     setSubmitError(null);
   };
@@ -235,7 +225,7 @@ export function PayCreditCardSheet({
   const footer = (
     <View style={styles.footer}>
       <AppButton title="Cancelar" variant="ghost" onPress={close} disabled={submitting} style={styles.footerButton} />
-      <AppButton title="Pagar tarjeta" onPress={submit} loading={submitting} disabled={!canSubmit} style={styles.footerButton} />
+      <AppButton title={payment?.isPartiallyPaid ? 'Pagar restante' : 'Pagar'} onPress={submit} loading={submitting} disabled={!canSubmit} style={styles.footerButton} />
     </View>
   );
 
@@ -300,7 +290,7 @@ export function PayCreditCardSheet({
 
           <View style={styles.fieldGroup}>
             <AppText variant="caption" tone="secondary" weight="700" style={styles.amountSectionLabel}>
-              Monto a acreditar en la tarjeta
+              {isCrossCurrency ? 'Llega' : 'Monto'}
             </AppText>
             <MoneyInput
               value={destinationAmountText}
@@ -309,7 +299,7 @@ export function PayCreditCardSheet({
               onCurrencyChange={() => undefined}
               availableCurrencies={[destinationCurrencyCode as MoneyInputCurrencyCode]}
               label={isCrossCurrency ? `Monto en ${destinationCurrencyCode}` : 'Monto'}
-              helperText={isCrossCurrency ? 'Monto que recibirá la tarjeta en su moneda' : 'Magnitud positiva.'}
+              helperText={isCrossCurrency ? 'Monto que recibe la tarjeta.' : 'No puede superar lo que resta pagar.'}
               disabled={submitting}
               errorText={destinationAmount.status === 'invalid' ? 'Revisá el monto.' : exceedsRemaining ? 'El monto no puede superar lo que resta pagar.' : undefined}
             />
@@ -317,8 +307,8 @@ export function PayCreditCardSheet({
 
           {isCrossCurrency && (
             <View style={styles.fieldGroup}>
-              <AppText variant="caption" tone="secondary" weight="700" style={styles.amountSectionLabel}>
-                Monto que sale de la cuenta de origen
+            <AppText variant="caption" tone="secondary" weight="700" style={styles.amountSectionLabel}>
+                Sale
               </AppText>
               <MoneyInput
                 value={amountText}
@@ -327,7 +317,7 @@ export function PayCreditCardSheet({
                 onCurrencyChange={handleCurrencyChange}
                 availableCurrencies={[sourceCurrencyCode as MoneyInputCurrencyCode]}
                 label={`Monto en ${sourceCurrencyCode}`}
-                helperText='Monto que se debitará de la cuenta de origen en su moneda'
+                helperText="Monto que se debita de la cuenta de origen."
                 disabled={submitting}
                 errorText={amount.status === 'invalid' ? 'Revisá el monto.' : undefined}
               />
@@ -343,7 +333,7 @@ export function PayCreditCardSheet({
                 onCurrencyChange={handleCurrencyChange}
                 availableCurrencies={[sourceCurrencyCode as MoneyInputCurrencyCode]}
                 label="Monto a pagar"
-                helperText='Magnitud positiva. Podés ajustar respecto al esperado.'
+                helperText="No puede superar lo que resta pagar."
                 disabled={submitting}
                 errorText={amount.status === 'invalid' ? 'Revisá el monto.' : exceedsRemaining ? 'El monto no puede superar lo que resta pagar.' : undefined}
               />
@@ -362,7 +352,7 @@ export function PayCreditCardSheet({
 
           <View style={styles.fieldGroup}>
             <FormActionRow
-              label="Pagar desde"
+              label="Desde"
               value={selectedSourceAccount ? `${selectedSourceAccount.name} · ${selectedSourceAccount.currency}` : 'Seleccionar cuenta'}
               onPress={handleOpenAccountSelector}
               disabled={submitting || eligibleSourceAccounts.loading}

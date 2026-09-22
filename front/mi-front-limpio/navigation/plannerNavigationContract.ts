@@ -35,7 +35,7 @@
 
 /**
  * Canonical Planner tab keys. Single authority.
- * Visible perspectives are exactly Tareas, Eventos and Planes. Legacy
+ * Visible perspectives are exactly Tareas, Calendario and Planes. Legacy
  * `calendar`/`goals` inputs are accepted only at boundaries and normalized.
  */
 export type PlannerTabKey = 'tasks' | 'events' | 'plans';
@@ -141,15 +141,16 @@ export const ROUTE_NAMES = {
   Planner: 'Planner',
   TaskDetail: 'TaskDetail',
   EventDetail: 'EventDetail',
-  PlanDetail: 'GoalDetail',
+  PlanDetail: 'PlanDetail',
+  PlanList: 'PlanList',
+  PlanCreate: 'CreatePlan',
   PlannerSearch: 'PlannerSearch',
   PlannerAttentionActivity: 'PlannerAttentionActivity',
   TaskCreate: 'CreateTask',
   TaskEdit: 'EditTask',
   EventCreate: 'CreateEvent',
   EventEdit: 'EditEvent',
-  PlanCreate: 'CreateGoal',
-  PlanStructureEdit: 'EditGoal',
+  PlanStructureEdit: 'EditPlan',
   PresetLibrary: 'PlannerPresetLibrary',
   PresetDetail: 'PlannerPresetDetail',
   PresetCreate: 'PlannerPresetCreate',
@@ -169,6 +170,8 @@ export const PLANNER_ROUTE_NAMES: readonly PlannerRouteName[] = [
   ROUTE_NAMES.TaskDetail,
   ROUTE_NAMES.EventDetail,
   ROUTE_NAMES.PlanDetail,
+  ROUTE_NAMES.PlanList,
+  ROUTE_NAMES.PlanCreate,
   ROUTE_NAMES.PlannerSearch,
   ROUTE_NAMES.PlannerAttentionActivity,
   ROUTE_NAMES.TaskCreate,
@@ -208,6 +211,10 @@ export const LEGACY_ROUTE_NAMES = {
   EditGoal: 'EditGoal',
   GoalDetail: 'GoalDetail',
   PlannerTrash: 'PlannerTrash',
+  // Mapped to new Plan V1 routes
+  PlanList: 'PlanList',
+  CreatePlan: 'CreatePlan',
+  PlanDetail: 'PlanDetail',
 } as const;
 
 // ---------------------------------------------------------------------------

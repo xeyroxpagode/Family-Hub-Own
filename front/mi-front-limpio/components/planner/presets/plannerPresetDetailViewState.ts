@@ -58,11 +58,11 @@ export function describePresetDetailInteraction(
   const canEdit = hasManageCapability && !isTrashed;
   if (canEdit) actions.push('edit');
 
-  // Duplicate: surfaced only for personal & household sources (HomePlus
-  // originals cannot be duplicated — there is no `duplicate` backend route on
-  // the Presets v1 contract; the lane deliberately maps it to no-op rather
-  // than fire an unsupported request).
-  const canDuplicate = !isHomePlus && !isTrashed && capabilities.use;
+  // P2.2A (contract §14): HomePlus originals remain read-only (never edited
+  // nor trashed), but they ARE duplicable: the action creates a NEW editable
+  // household copy via the server-side duplicate route. Personal/household
+  // presets remain duplicable as before.
+  const canDuplicate = capabilities.manage && !isTrashed;
   if (canDuplicate) actions.push('duplicate');
 
   const canTrash = hasManageCapability && !isTrashed;

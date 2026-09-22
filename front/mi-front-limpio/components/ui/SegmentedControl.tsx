@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { AppText } from './AppText';
 import { InteractivePressable } from './InteractivePressable';
 
@@ -15,6 +15,7 @@ export type SegmentedControlProps<T extends string> = {
   options: SegmentOption<T>[];
   onChange: (value: T) => void;
   style?: StyleProp<ViewStyle>;
+  density?: 'compact' | 'form';
 };
 
 export function SegmentedControl<T extends string>({
@@ -22,17 +23,21 @@ export function SegmentedControl<T extends string>({
   options,
   onChange,
   style,
+  density = 'compact',
 }: SegmentedControlProps<T>) {
+  const { colors, motion, radius, spacing } = useAppTheme();
+  const containerHeight = density === 'form' ? 48 : 44;
+  const optionHeight = density === 'form' ? 40 : 36;
   return (
     <View
       style={[
         {
-          minHeight: 52,
+          minHeight: containerHeight,
           padding: spacing[1],
-          borderRadius: radius.lg,
-          backgroundColor: colors.surface.raised,
+          borderRadius: radius.xl,
+          backgroundColor: colors.surface.muted,
           flexDirection: 'row',
-          gap: spacing[1],
+          gap: density === 'form' ? spacing[1] : 0,
         },
         style,
       ]}
@@ -51,14 +56,14 @@ export function SegmentedControl<T extends string>({
             pressedOpacity={0.85}
             style={{
               flex: 1,
-              minHeight: 44,
-              borderRadius: radius.md,
+              minHeight: optionHeight,
+              borderRadius: radius.lg,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: selected ? colors.brand : 'transparent',
+              backgroundColor: selected ? colors.terracotta[600] : 'transparent',
             }}
           >
-            <AppText variant="bodySmall" tone={selected ? 'inverse' : 'secondary'} weight="600">
+            <AppText variant="bodySmall" tone={selected ? 'inverse' : 'secondary'} weight="800">
               {option.label}
             </AppText>
           </InteractivePressable>

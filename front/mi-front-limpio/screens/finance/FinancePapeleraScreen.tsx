@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { AbortError, ApiError } from '../../services/api';
@@ -59,6 +59,9 @@ function safeFinanceReadError(error: unknown): string {
 }
 
 export function FinancePapeleraScreen() {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const navigation = useNavigation<any>();
   const route = useRoute<FinancePapeleraScreenRouteProp>();
   const { session, authMe } = useAuth();
@@ -292,7 +295,10 @@ export function FinancePapeleraScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
   content: {
     gap: spacing[4],
   },
@@ -346,4 +352,5 @@ const styles = StyleSheet.create({
     maxWidth: '42%',
     textAlign: 'right',
   },
-});
+  });
+}

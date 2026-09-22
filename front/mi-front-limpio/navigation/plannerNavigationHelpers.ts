@@ -170,7 +170,7 @@ export function openEntityDetail(
   });
   const normalizedKind = normalizePlannerEntityKind(kind);
   if (normalizedKind === 'plan') {
-    navigation.navigate(LEGACY_ROUTE_NAMES.GoalDetail, params);
+    navigation.navigate(ROUTE_NAMES.PlanDetail, params);
   } else {
     const routeName = resolveDetailRouteName(normalizedKind);
     navigation.navigate(routeName as 'TaskDetail' | 'EventDetail', params);

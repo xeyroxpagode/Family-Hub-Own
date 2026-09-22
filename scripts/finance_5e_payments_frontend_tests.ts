@@ -195,7 +195,7 @@ async function main(): Promise<void> {
     assert(financeScreen.includes('<RegisterPaymentSheet'), '4 register sheet wired');
     assert(financeScreen.includes('<EditPaymentDueSheet'), '5 unified edit sheet wired');
     assert(!financeScreen.includes('<PaymentRecurrenceEditor'), '6 standalone recurrence editor is not user-facing from detail');
-    assert(paymentsList.includes('No tenés pagos pendientes'), '7 empty state copy is user-facing');
+    assert(paymentsList.includes('Nada vencido') && paymentsList.includes('Sin pagos próximos'), '7 empty sections use compact operational copy');
     assert(paymentsList.includes('Agregar pago'), '8 empty state action exists');
     assert(newPayment.includes('kind: PAYMENT_KINDS.NORMAL'), '9 create flow is NORMAL-only in 5E');
     assert(registerPayment.includes('isNormal && amount.isValid'), '10 CREDIT_CARD cannot use NORMAL register form');
@@ -209,9 +209,9 @@ async function main(): Promise<void> {
     const editPayment = fs.readFileSync(path.join(root, 'front/mi-front-limpio/components/finance/EditPaymentDueSheet.tsx'), 'utf8');
     const paymentDetail = fs.readFileSync(path.join(root, 'front/mi-front-limpio/components/finance/PaymentDetailSheet.tsx'), 'utf8');
 
-    assert(paymentDetail.includes('title="Registrar pago"'), '5E-1 PENDING NORMAL exposes Registrar pago');
+    assert(paymentDetail.includes('title="Pagar"'), '5E-1 PENDING NORMAL exposes Pagar');
     assert(paymentDetail.includes('title="Editar"'), '5E-2 PENDING exposes unified Editar action');
-    assert(paymentDetail.includes('title="Cancelar"'), '5E-3 PENDING exposes unified Cancelar action');
+    assert(paymentDetail.includes("'Cancelar'"), '5E-3 PENDING exposes unified Cancelar action');
     assert(!paymentDetail.includes('title="Editar este pago"'), '5E-4 no top-level Editar este pago');
     assert(!paymentDetail.includes('title="Editar recurrencia"'), '5E-5 no top-level Editar recurrencia');
     assert(!paymentDetail.includes('title="Cancelar este pago"'), '5E-6 no top-level Cancelar este pago');
@@ -263,13 +263,13 @@ async function main(): Promise<void> {
     assert(!grouped.upcoming.some((item) => item.id === 'cancelled'), '20 cancelled is not payable upcoming');
     assert(paymentRow.includes('formatExpectedAmount(payment.expectedAmountKnown, payment.expectedAmount, payment.currency)'), '20b row amount uses canonical Finance formatter when currency is known');
     assert(!paymentRow.includes('Se repite cada ${recurrenceIntervalCount}'), '20c row does not duplicate singular recurrence formatting');
-    equal(formatExpectedAmount(false, null), 'A confirmar', '21 unknown amount renders A confirmar');
+    equal(formatExpectedAmount(false, null), 'Monto por definir', '21 unknown amount renders Monto por definir');
     equal(formatExpectedAmount(true, '25000'), '25000', '22 known amount preserved for formatting');
     equal(formatExpectedAmount(true, '25000', 'ARS'), '25.000 ARS', '22b known amount formats canonically with currency');
     assert(formatDueDateHuman(addDays(-1), true).includes('Venció'), '23 overdue copy is human');
     equal(formatDueDateHuman(addDays(0), false), 'Vence hoy', '24 today copy');
     equal(formatDueDateHuman(addDays(1), false), 'Vence mañana', '25 tomorrow copy');
-    equal(formatExpectedAmount(true, null), 'A confirmar', '26 missing amount does not render fake zero');
+    equal(formatExpectedAmount(true, null), 'Monto por definir', '26 missing amount does not render fake zero');
     equal(formatRecurrenceSummary(series({ recurrenceIntervalUnit: RECURRENCE_UNITS.MONTH, recurrenceIntervalCount: 1 })), 'Se repite cada mes', '27 monthly recurrence summary uses singular human copy');
     equal(formatRecurrenceSummary(series({ recurrenceIntervalUnit: RECURRENCE_UNITS.WEEK, recurrenceIntervalCount: 2 })), 'Se repite cada 2 semanas', '27 biweekly recurrence summary');
     equal(formatRecurrenceSummary(series({ recurrenceIntervalUnit: RECURRENCE_UNITS.DAY, recurrenceIntervalCount: 30 })), 'Se repite cada 30 días', '28 custom day recurrence summary');
@@ -296,7 +296,7 @@ async function main(): Promise<void> {
     assert(paymentDetail.includes('setPayment(null);') && paymentDetail.includes('setSeries(null);'), '41 closing clears selected detail state');
     assert(paymentDetail.includes('showRegisterNormal = pending') || paymentDetail.includes('showRegisterCreditCard = pending'), '42 PENDING one-off exposes register path');
     assert(paymentDetail.includes('formatRecurrenceSummary(series)'), '43 PENDING recurring renders recurrence summary');
-    assert(paymentDetail.includes('Detalle del pago registrado'), '44 PAID state renders registered-payment detail');
+    assert(paymentDetail.includes('Pago registrado'), '44 PAID state renders registered-payment detail');
     assert(paymentDetail.includes('Este pago fue cancelado'), '45 CANCELLED state renders cancelled detail');
     assert(paymentDetail.includes("import { ScrollView, StyleSheet, View } from 'react-native'"), '46 Payment Detail owns a scrollable body');
     assert(paymentDetail.includes('size="content"'), '47 Payment Detail keeps the accepted content-sized sheet contract');

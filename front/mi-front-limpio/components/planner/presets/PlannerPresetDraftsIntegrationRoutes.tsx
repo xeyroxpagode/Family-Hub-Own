@@ -5,9 +5,9 @@
  * them in the existing Planner stack and delegates create/recovery gestures to
  * PlannerSheetHost via PlannerSheetContext.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, TouchableOpacity, View } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 
 import { useAuth } from '../../../context/AuthContext';
 import { usePlannerSheet } from '../../../context/PlannerSheetContext';
@@ -16,18 +16,26 @@ import { AppText } from '../../ui/AppText';
 import type { PlannerDraft, PlannerPreset } from '../../../types/plannerPresetsDrafts';
 import {
   createPlannerPresetIdentity,
+  duplicatePlannerPresetToHousehold,
   getPlannerPreset,
   preparePlannerPresetApplication,
+  publishPlannerPresetRevision,
+  startPlannerPresetRevision,
+  updatePlannerPresetMetadata,
+  updatePlannerPresetRevisionDraft,
 } from '../../../services/plannerPresets';
 import { getPlannerDraft } from '../../../services/plannerDrafts';
 import {
   enqueuePlannerPresetCreate,
-  enqueuePlannerPresetPublishRevision,
   enqueuePlannerPresetRestore,
-  enqueuePlannerPresetStartRevision,
   enqueuePlannerPresetTrash,
-  enqueuePlannerPresetUpdate,
 } from '../../../services/planner/reliability';
+import {
+  presetTaskPayloadFromPreset,
+  presetTaskPayloadsDiffer,
+  type PlannerPresetTaskPayload,
+} from '../../../services/planner/plannerPresetTaskDomain';
+import { PRESET_ADAPTER_KEYS } from '../../../services/planner/plannerPresetContracts';
 import { applyPlannerPreset } from '../../../services/planner/plannerPresetAdapters';
 import { applyPlannerDraft } from '../../../services/planner/plannerDraftAdapters';
 import type { DraftOpenFormRequest } from '../../../services/planner/plannerDraftEntry';
@@ -41,9 +49,10 @@ import { ROUTE_NAMES } from '../../../navigation/plannerNavigationContract';
 import { PlannerDraftsScreen } from '../drafts/PlannerDraftsScreen';
 import { PlannerPresetDetailScreen } from './PlannerPresetDetailScreen';
 import {
-  PlannerPresetFormScreen,
-  type PresetCommitInput,
-} from './PlannerPresetFormScreen';
+  PlannerPresetEditorScreen,
+  type PlannerPresetEditorCommitInput,
+} from './PlannerPresetEditorScreen';
+import { PlannerPresetFormScreen } from './PlannerPresetFormScreen';
 import { PlannerPresetDraftsTrashScreen } from './PlannerPresetDraftsTrashScreen';
 import { PlannerPresetLibraryScreen } from './PlannerPresetLibraryScreen';
 import type { PresetDetailAction } from './plannerPresetDetailViewState';
@@ -61,6 +70,7 @@ export function PlannerPresetLibraryRoute() {
 
   return (
     <PlannerPresetLibraryScreen
+      onBack={() => navigation.goBack()}
       onOpenPreset={(preset) => navigation.navigate(ROUTE_NAMES.PresetDetail, { presetId: preset.id })}
       onCreatePreset={() => navigation.navigate(ROUTE_NAMES.PresetCreate)}
       onOpenTrash={() => navigation.navigate(ROUTE_NAMES.PresetDraftsTrash)}
@@ -100,12 +110,35 @@ export function PlannerPresetDetailRoute() {
     void loadPreset();
   }, [loadPreset]);
 
+  // P2.2A-R1 (defecto 2G): al volver con goBack desde Editar, el detalle ya
+  // estaba montado y mostraba datos stale. Recarga única al recuperar foco.
+  const isDetailFocused = useIsFocused();
+  const wasDetailFocusedRef = useRef(isDetailFocused);
+  useEffect(() => {
+    const wasFocused = wasDetailFocusedRef.current;
+    wasDetailFocusedRef.current = isDetailFocused;
+    if (isDetailFocused && !wasFocused) {
+      void loadPreset();
+    }
+  }, [isDetailFocused, loadPreset]);
+
   const handleAction = useCallback(
     async (action: PresetDetailAction, targetPreset: PlannerPreset) => {
       const token = session?.access_token;
       if (!token) return;
 
       if (action === 'use') {
+        // P2.2A: canonical Task presets apply through the pure domain merge
+        // into the Task create form; the form keeps authority over submit.
+        if (targetPreset.entity_type === 'task') {
+          const presetPayload = presetTaskPayloadFromPreset(targetPreset);
+          if (!presetPayload || !presetPayload.title) {
+            setSafeError('No pudimos usar este preset con la version actual.');
+            return;
+          }
+          navigation.navigate('CreateTask', { presetPayload });
+          return;
+        }
         try {
           await preparePlannerPresetApplication(token, targetPreset.id, targetPreset.active_revision_id ?? undefined);
           const revision = targetPreset.planner_preset_revisions?.find((item) => item.id === targetPreset.active_revision_id)
@@ -183,9 +216,11 @@ export function PlannerPresetCreateRoute() {
   const route = useRoute<any>();
   const navigation = useNavigation<Navigation>();
   const duplicateFromPresetId = route.params?.duplicateFromPresetId as string | undefined;
+  const presetPrefill = route.params?.presetPrefill as PlannerPresetTaskPayload | undefined;
   const { session } = useAuth();
   const [initialPreset, setInitialPreset] = useState<PlannerPreset | undefined>(undefined);
   const [safeError, setSafeError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!duplicateFromPresetId || !session?.access_token) return;
@@ -200,37 +235,71 @@ export function PlannerPresetCreateRoute() {
     return () => { disposed = true; };
   }, [duplicateFromPresetId, session?.access_token]);
 
+  const initialPayload: PlannerPresetTaskPayload | null = initialPreset
+    ? presetTaskPayloadFromPreset(initialPreset)
+    : presetPrefill ?? presetTaskPayloadFromPreset(null);
+
   const commit = useCallback(
-    async (input: PresetCommitInput) => {
+    async (input: PlannerPresetEditorCommitInput) => {
       const token = session?.access_token;
-      if (!token) return;
-      const identity = createPlannerPresetIdentity('planner.presets.create');
+      if (!token || submitting) return;
+      setSubmitting(true);
+      setSafeError(null);
       try {
-        await enqueuePlannerPresetCreate({
-          name: input.name,
-          entity_type: input.entity_type,
-          source: input.source,
-          adapter_key: input.adapter_key,
-          payload: input.payload,
-        }, {
-          mutationId: identity.mutationId,
-          idempotencyKey: identity.idempotencyKey,
-        });
+        if (initialPreset && initialPreset.source === 'homeplus') {
+          // P2.2A (contract §14): duplicating a HomePlus preset goes through
+          // the server-side copy route — a NEW editable household row, no
+          // live sync with the original.
+          const identity = createPlannerPresetIdentity('planner.presets.duplicate');
+          await duplicatePlannerPresetToHousehold(
+            token,
+            initialPreset.id,
+            { name: input.name, payload: input.payload as unknown as Record<string, unknown> },
+            { mutationId: identity.mutationId, idempotencyKey: identity.idempotencyKey },
+          );
+        } else {
+          // Canonical create scope is ALWAYS household; canonical kind is task.
+          const identity = createPlannerPresetIdentity('planner.presets.create');
+          await enqueuePlannerPresetCreate({
+            name: input.name,
+            entity_type: 'task',
+            source: 'household',
+            adapter_key: PRESET_ADAPTER_KEYS.task,
+            payload: input.payload as unknown as Record<string, unknown>,
+          }, {
+            mutationId: identity.mutationId,
+            idempotencyKey: identity.idempotencyKey,
+          });
+        }
         navigation.goBack();
       } catch {
         setSafeError('No pudimos guardar el preset.');
+      } finally {
+        setSubmitting(false);
       }
     },
-    [navigation, session?.access_token],
+    [initialPreset, navigation, session?.access_token, submitting],
   );
+
+  // P2.2A-R1 (defecto 6): el editor inicializa su estado UNA vez al montar
+  // (useState). Antes se renderizaba inmediatamente con payload null y la
+  // carga async del original llegaba tarde sin actualizar el form: duplicar
+  // mostraba un form vacío. Se espera a tener el original antes de montar.
+  if (duplicateFromPresetId && initialPreset === undefined && !safeError) {
+    return (
+      <View style={{ flex: 1 }}>
+        <LoadingState label="Preparando copia..." />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1 }}>
       {safeError ? <InlineWarning message={safeError} /> : null}
-      <PlannerPresetFormScreen
+      <PlannerPresetEditorScreen
         mode="create"
-        initialPreset={initialPreset}
-        capabilities={PRESET_CAPABILITIES}
+        initialPayload={initialPayload}
+        submitting={submitting}
         onCommit={(input) => void commit(input)}
         onCancel={() => navigation.goBack()}
       />
@@ -245,6 +314,7 @@ export function PlannerPresetEditRoute() {
   const presetId = route.params?.presetId as string | undefined;
   const [preset, setPreset] = useState<PlannerPreset | null>(null);
   const [safeError, setSafeError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const loadPreset = useCallback(async () => {
     if (!session?.access_token || !presetId) return;
@@ -261,74 +331,98 @@ export function PlannerPresetEditRoute() {
   }, [loadPreset]);
 
   const commit = useCallback(
-    async (input: PresetCommitInput) => {
+    async (input: PlannerPresetEditorCommitInput) => {
       const token = session?.access_token;
-      if (!token || !preset) return;
-      const identity = createPlannerPresetIdentity('planner.presets.update');
+      if (!token || !preset || submitting) return;
+      setSubmitting(true);
+      setSafeError(null);
       try {
-        await enqueuePlannerPresetUpdate(preset.id, input.name, {
-          expectedVersion: preset.version,
-          mutationId: identity.mutationId,
-          idempotencyKey: identity.idempotencyKey,
-        });
+        const nameChanged = input.name.trim() !== preset.name.trim();
+        const payloadChanged = presetTaskPayloadsDiffer(presetTaskPayloadFromPreset(preset), input.payload);
+
+        if (nameChanged) {
+          const identity = createPlannerPresetIdentity('planner.presets.update');
+          await updatePlannerPresetMetadata(
+            token,
+            preset.id,
+            { name: input.name.trim() },
+            {
+              expectedVersion: preset.version,
+              mutationId: identity.mutationId,
+              idempotencyKey: identity.idempotencyKey,
+            },
+          );
+        }
+
+        if (payloadChanged) {
+          // Canonical revision cycle: start draft → update payload → publish.
+          const startIdentity = createPlannerPresetIdentity('planner.presets.revisions.start');
+          const started = await startPlannerPresetRevision(token, preset.id, {
+            mutationId: startIdentity.mutationId,
+            idempotencyKey: startIdentity.idempotencyKey,
+          });
+          const draftRevision = started.data;
+          const updateIdentity = createPlannerPresetIdentity('planner.presets.revisions.update');
+          const updated = await updatePlannerPresetRevisionDraft(
+            token,
+            draftRevision.id,
+            {
+              adapter_key: PRESET_ADAPTER_KEYS.task,
+              entity_type: 'task',
+              payload: input.payload as unknown as Record<string, unknown>,
+            },
+            {
+              expectedVersion: draftRevision.version,
+              mutationId: updateIdentity.mutationId,
+              idempotencyKey: updateIdentity.idempotencyKey,
+            },
+          );
+          const publishIdentity = createPlannerPresetIdentity('planner.presets.revisions.publish');
+          await publishPlannerPresetRevision(token, draftRevision.id, {
+            expectedVersion: updated.data.version,
+            mutationId: publishIdentity.mutationId,
+            idempotencyKey: publishIdentity.idempotencyKey,
+          });
+        }
+
         navigation.goBack();
       } catch {
         setSafeError('No pudimos guardar los cambios.');
+      } finally {
+        setSubmitting(false);
       }
     },
-    [navigation, preset, session?.access_token],
-  );
-
-  const startRevision = useCallback(
-    async (targetPresetId: string) => {
-      const token = session?.access_token;
-      if (!token) return;
-      const identity = createPlannerPresetIdentity('planner.presets.revisions.start');
-      try {
-        await enqueuePlannerPresetStartRevision(targetPresetId, {
-          mutationId: identity.mutationId,
-          idempotencyKey: identity.idempotencyKey,
-        });
-        await loadPreset();
-      } catch {
-        setSafeError('No pudimos iniciar la revision.');
-      }
-    },
-    [loadPreset, session?.access_token],
-  );
-
-  const publishRevision = useCallback(
-    async (revisionId: string) => {
-      const token = session?.access_token;
-      const version = preset?.planner_preset_revisions?.find((revision) => revision.id === revisionId)?.version;
-      if (!token || version === undefined) return;
-      const identity = createPlannerPresetIdentity('planner.presets.revisions.publish');
-      try {
-        await enqueuePlannerPresetPublishRevision(revisionId, {
-          expectedVersion: version,
-          mutationId: identity.mutationId,
-          idempotencyKey: identity.idempotencyKey,
-        });
-        await loadPreset();
-      } catch {
-        setSafeError('No pudimos publicar la revision.');
-      }
-    },
-    [loadPreset, preset?.planner_preset_revisions, session?.access_token],
+    [navigation, preset, session?.access_token, submitting],
   );
 
   if (!preset) return <LoadingState label="Cargando preset..." />;
 
+  // Non-task presets keep the legacy lane form (compatibility-only surface:
+  // P2.2A canonical UX is task-only; event/plan rows are preserved, not
+  // promoted).
+  if (preset.entity_type !== 'task') {
+    return (
+      <View style={{ flex: 1 }}>
+        {safeError ? <InlineWarning message={safeError} /> : null}
+        <PlannerPresetFormScreen
+          mode="edit"
+          initialPreset={preset}
+          capabilities={PRESET_CAPABILITIES}
+          onCommit={() => navigation.goBack()}
+          onCancel={() => navigation.goBack()}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1 }}>
       {safeError ? <InlineWarning message={safeError} /> : null}
-      <PlannerPresetFormScreen
+      <PlannerPresetEditorScreen
         mode="edit"
-        initialPreset={preset}
-        capabilities={PRESET_CAPABILITIES}
-        onCommit={(input) => void commit(input)}
-        onStartRevision={(targetPresetId) => void startRevision(targetPresetId)}
-        onPublishRevision={(revisionId) => void publishRevision(revisionId)}
+        initialPayload={presetTaskPayloadFromPreset(preset)}
+        submitting={submitting}
+        onCommit={(commitInput) => void commit(commitInput)}
         onCancel={() => navigation.goBack()}
       />
     </View>

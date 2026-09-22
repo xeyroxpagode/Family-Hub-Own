@@ -117,6 +117,7 @@ runTest('Tab keys — canonical set', () => {
 runTest('Tab keys — isPlannerTabKey guard', () => {
   assert(isPlannerTabKey('tasks'), 'tasks accepted');
   assert(isPlannerTabKey('events'), 'events accepted');
+  assert(!isPlannerTabKey('schedules'), 'schedules rejected as visible tab');
   assert(isPlannerTabKey('plans'), 'plans accepted');
   assert(!isPlannerTabKey('task'), 'singular task rejected');
   assert(!isPlannerTabKey('event'), 'singular event rejected');
@@ -213,11 +214,14 @@ runTest('Route names — canonical set', () => {
   assert(ROUTE_NAMES.Planner === 'Planner', 'Planner');
   assert(ROUTE_NAMES.TaskDetail === 'TaskDetail', 'TaskDetail');
   assert(ROUTE_NAMES.EventDetail === 'EventDetail', 'EventDetail');
-  assert(ROUTE_NAMES.PlanDetail === 'GoalDetail', 'PlanDetail physical route');
+  assert(ROUTE_NAMES.PlanDetail === 'PlanDetail', 'PlanDetail physical route');
+  assert(ROUTE_NAMES.PlanList === 'PlanList', 'PlanList physical route');
+  assert(ROUTE_NAMES.PlanCreate === 'CreatePlan', 'PlanCreate physical route');
   assert(ROUTE_NAMES.PlannerSearch === 'PlannerSearch', 'PlannerSearch');
-  assert(PLANNER_ROUTE_NAMES.length >= 5, 'canonical routes include extension slots');
+  assert(PLANNER_ROUTE_NAMES.length >= 8, 'canonical routes include extension slots');
   assert(isPlannerRouteName('Planner'), 'Planner in set');
   assert(isPlannerRouteName('TaskDetail'), 'TaskDetail in set');
+  assert(isPlannerRouteName('PlanDetail'), 'PlanDetail in set');
   assert(isPlannerRouteName('PlannerSearch'), 'PlannerSearch in set');
   assert(!isPlannerRouteName('InvalidRoute'), 'invalid not in set');
 });
@@ -380,13 +384,13 @@ runTest('isSerializablePlannerRouteParam — rejects non-serializable', () => {
 runTest('ENTITY_DETAIL_ROUTES mapping', () => {
   assert(ENTITY_DETAIL_ROUTES.task === 'TaskDetail', 'task -> TaskDetail');
   assert(ENTITY_DETAIL_ROUTES.event === 'EventDetail', 'event -> EventDetail');
-  assert(ENTITY_DETAIL_ROUTES.plan === 'GoalDetail', 'plan -> GoalDetail');
+  assert(ENTITY_DETAIL_ROUTES.plan === 'PlanDetail', 'plan -> PlanDetail');
 });
 
 runTest('resolveDetailRouteName', () => {
   assert(resolveDetailRouteName('task') === 'TaskDetail', 'task -> TaskDetail');
   assert(resolveDetailRouteName('event') === 'EventDetail', 'event -> EventDetail');
-  assert(resolveDetailRouteName('plan') === 'GoalDetail', 'plan -> GoalDetail');
+  assert(resolveDetailRouteName('plan') === 'PlanDetail', 'plan -> PlanDetail');
 });
 
 // ---------------------------------------------------------------------------
@@ -438,11 +442,11 @@ runTest('openEntityDetail — dispatches by kind', () => {
 
   nav.calls.length = 0;
   openEntityDetail(nav as any, 'plan', { entityId: uuid });
-  assert(nav.calls[0].route === 'GoalDetail', 'plan -> GoalDetail physical route');
+  assert(nav.calls[0].route === 'PlanDetail', 'plan -> PlanDetail physical route');
 
   nav.calls.length = 0;
   openEntityDetail(nav as any, 'goal', { entityId: uuid });
-  assert(nav.calls[0].route === 'GoalDetail', 'legacy goal -> GoalDetail');
+  assert(nav.calls[0].route === 'PlanDetail', 'legacy goal -> PlanDetail');
 });
 
 runTest('preparePlannerSearchRoute — returns params only', () => {
@@ -500,5 +504,5 @@ console.log(`\n=== SUMMARY ===`);
 console.log(`Passed: ${passCount}`);
 console.log(`Failed: ${failCount}`);
 if (failCount > 0) {
-  process.exitCode = 1;
+  process.exit(1);
 }

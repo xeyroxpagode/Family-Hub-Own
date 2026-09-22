@@ -2,6 +2,7 @@
 
 const { getPlannerContext } = require('../services/planner.context.service');
 const tasksService = require('../services/planner.tasks.service');
+const responsibilitiesService = require('../services/planner.responsibilities.service');
 const {
   requireMutationId,
   parseRequiredExpectedVersion,
@@ -30,6 +31,7 @@ const listTasks = async (req, res) => {
     const context = await getPlannerContext(req);
     const capabilities = buildCapabilities(context);
     assertCapability(capabilities, 'planner.view');
+    await responsibilitiesService.materializeHousehold(context);
     const payload = await tasksService.listTasks(context, req.query ?? {});
     return res.status(200).json(payload);
   } catch (error) {
@@ -168,6 +170,7 @@ const completeTask = async (req, res) => {
       idempotencyKey,
       operation,
     });
+    await responsibilitiesService.materializeHousehold(context);
 
     await telemetry.track('planner_mutation_succeeded', {
       action: 'task.complete',
@@ -220,6 +223,7 @@ const runTaskV1Mutation = async (req, res, options) => {
         requestId: req.requestId,
       },
     );
+    await responsibilitiesService.materializeHousehold(context);
     res.set('X-Mutation-Id', mutationId);
     return res.status(200).json(payload);
   } catch (error) {
@@ -241,6 +245,36 @@ const updateTaskAssignmentV1 = (req, res) => runTaskV1Mutation(req, res, {
 const claimTaskV1 = (req, res) => runTaskV1Mutation(req, res, {
   operation: 'planner.v1.tasks.claim',
   execute: (context, _body, expectedVersion, correlation) => tasksService.claimTaskV1(
+    context,
+    req.params.taskId,
+    expectedVersion,
+    correlation,
+  ),
+});
+
+const releaseTaskV1 = (req, res) => runTaskV1Mutation(req, res, {
+  operation: 'planner.v1.tasks.release',
+  execute: (context, _body, expectedVersion, correlation) => tasksService.releaseTaskV1(
+    context,
+    req.params.taskId,
+    expectedVersion,
+    correlation,
+  ),
+});
+
+const archiveTaskV1 = (req, res) => runTaskV1Mutation(req, res, {
+  operation: 'planner.v1.tasks.archive',
+  execute: (context, _body, expectedVersion, correlation) => tasksService.archiveTaskV1(
+    context,
+    req.params.taskId,
+    expectedVersion,
+    correlation,
+  ),
+});
+
+const unarchiveTaskV1 = (req, res) => runTaskV1Mutation(req, res, {
+  operation: 'planner.v1.tasks.unarchive',
+  execute: (context, _body, expectedVersion, correlation) => tasksService.unarchiveTaskV1(
     context,
     req.params.taskId,
     expectedVersion,
@@ -285,6 +319,7 @@ const verifyTask = async (req, res) => {
       idempotencyKey,
       operation,
     });
+    await responsibilitiesService.materializeHousehold(context);
 
     res.set('X-Mutation-Id', mutationId);
     return res.status(200).json(payload);
@@ -369,18 +404,73 @@ const reactivateTask = async (req, res) => {
   }
 };
 
+const submitTaskEvidence = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'planner.view');
+
+    const operation = 'planner.tasks.evidence.submit';
+    const mutationId = requireMutationId(req);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const payload = await tasksService.submitTaskEvidence(context, req.params.id, req.params.fulfillmentId, req.body ?? {}, {
+      requestId: req.requestId,
+      mutationId,
+      idempotencyKey,
+      operation,
+    });
+
+    res.set('X-Mutation-Id', mutationId);
+    return res.status(200).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
+const getTaskEvidenceHistory = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'planner.view');
+
+    const payload = await tasksService.getTaskEvidenceHistory(context, req.params.id);
+    return res.status(200).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
+const getTaskAuditHistory = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const capabilities = buildCapabilities(context);
+    assertCapability(capabilities, 'planner.view');
+
+    const payload = await tasksService.getTaskAuditHistory(context, req.params.id);
+    return res.status(200).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
 module.exports = {
   cancelTask,
   completeTask,
   createTask,
   getTaskById,
+  getTaskEvidenceHistory,
+  getTaskAuditHistory,
   listTasks,
   reactivateTask,
   restoreTask,
+  submitTaskEvidence,
   trashTask,
   updateTask,
   verifyTask,
   claimTaskV1,
+  releaseTaskV1,
+  archiveTaskV1,
+  unarchiveTaskV1,
   completeTaskFulfillmentV1,
   getTaskFulfillmentV1,
   reopenTaskFulfillmentV1,

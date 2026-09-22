@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
@@ -58,7 +59,6 @@ export function PaymentDetailSheet({
   onRefresh,
 }: PaymentDetailSheetProps) {
   const theme = useAppTheme();
-  const { colors, motion } = theme;
   const styles = createStyles(theme);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +184,15 @@ export function PaymentDetailSheet({
   const showEdit = pending && !creditCardHasSettlementProgress;
   const showCancel = pending && !creditCardHasSettlementProgress;
   const amountLine = expectedAmountDisplay;
+  const statusLabel = paid
+    ? 'Pagado'
+    : overdue
+    ? 'Vencido'
+    : cancelled
+    ? payment?.paymentSeriesId
+      ? 'Saltado'
+      : 'Cancelado'
+    : 'Pendiente';
 
   if (!visible) return null;
 
@@ -213,6 +222,14 @@ export function PaymentDetailSheet({
             contentContainerStyle={styles.content}
           >
             <View style={styles.header}>
+              <View style={styles.identityCopy}>
+                <AppText variant="title3" weight="800" numberOfLines={1}>
+                  {payment.title}
+                </AppText>
+                <AppText variant="caption" tone="secondary" weight="700">
+                  Pago · {contextLabel}
+                </AppText>
+              </View>
               <View style={styles.statusBadgeContainer}>
                 <AppText
                   variant="caption"
@@ -222,7 +239,7 @@ export function PaymentDetailSheet({
                   }
                   style={styles.statusBadge}
                 >
-                  {paid ? 'Pagado' : overdue ? 'Vencido' : cancelled ? 'Cancelado' : 'Pendiente'}
+                  {statusLabel}
                 </AppText>
               </View>
             </View>
@@ -298,7 +315,7 @@ export function PaymentDetailSheet({
                 </View>
                 {creditCardHasSettlementProgress ? (
                   <AppText variant="caption" tone="tertiary">
-                    Este PaymentDue ya tiene pagos registrados. Podés pagar lo restante, pero no editarlo ni cancelarlo.
+                    Ya registraste pagos para este vencimiento. Podés pagar lo restante, pero no editarlo ni cancelarlo.
                   </AppText>
                 ) : null}
               </View>
@@ -308,14 +325,14 @@ export function PaymentDetailSheet({
               <View>
                 <View style={styles.divider} />
                 <AppText variant="caption" tone="secondary" weight="700" style={styles.sectionLabel}>
-                  Detalle del pago registrado
+                  Pago registrado
                 </AppText>
                 <View style={styles.detailRow}>
                   <AppText variant="caption" tone="secondary" weight="700" style={styles.label}>
                     Monto real
                   </AppText>
                   <AppText variant="title3" weight="800" tone="success" style={styles.value}>
-                    {payment.actualAmount} {payment.currency}
+                    {formatExpectedAmount(true, payment.actualAmount ?? null, payment.currency)}
                   </AppText>
                 </View>
                 <View style={styles.detailRow}>
@@ -353,7 +370,7 @@ export function PaymentDetailSheet({
               <View>
                 <View style={styles.divider} />
                 <AppText variant="caption" tone="tertiary" weight="700" style={styles.sectionLabel}>
-                  Este pago fue cancelado y no genera obligación.
+                  {payment.paymentSeriesId ? 'Esta ocurrencia fue saltada y no generó gasto.' : 'Este pago fue cancelado y no genera obligación.'}
                 </AppText>
               </View>
             )}
@@ -362,7 +379,7 @@ export function PaymentDetailSheet({
               <View style={styles.actions}>
                 {showRegisterNormal && (
                   <AppButton
-                    title="Registrar pago"
+                    title="Pagar"
                     variant="primary"
                     onPress={handleRegister}
                     style={styles.primaryAction}
@@ -387,7 +404,7 @@ export function PaymentDetailSheet({
                   )}
                   {showCancel && (
                     <AppButton
-                      title="Cancelar"
+                      title={isActiveRecurring ? 'Saltar' : 'Cancelar'}
                       variant="danger"
                       onPress={handleCancel}
                       size="sm"
@@ -414,7 +431,7 @@ export function PaymentDetailSheet({
 
         <ActionSheet
           visible={actionSheetVisible}
-          title="Cancelar pago"
+          title={isActiveRecurring ? 'Saltar o cancelar' : 'Cancelar pago'}
           onRequestClose={closeActionSheet}
           closeDisabled={deleting}
           size="content"
@@ -442,7 +459,7 @@ export function PaymentDetailSheet({
               </AppText>
             )}
             <AppButton
-              title={isActiveRecurring ? 'Confirmar cancelación' : 'Cancelar pago'}
+              title={isActiveRecurring ? (cancelScope === 'single' ? 'Saltar este pago' : 'Cancelar los siguientes') : 'Cancelar pago'}
               variant="danger"
               onPress={confirmDelete}
               loading={deleting}
@@ -516,6 +533,12 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing[3],
+  },
+  identityCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing[1],
   },
   statusBadgeContainer: {
     flexDirection: 'row',

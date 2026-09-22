@@ -1,15 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutAnimation, Platform, Pressable, StyleSheet, UIManager, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 
-import { MovementDetailSheet, NewMovementSheet, TransactionCorrectionSheet, NewPaymentSheet, RegisterPaymentSheet, PaymentDetailSheet, PaymentsList, EditPaymentDueSheet, PayCreditCardSheet, TransferDetailSheet } from '../../components/finance';
-import { FinancePoolSummary, FinanceSpendingLimitSummary, FinanceAnalysisHighlights } from '../../components/finance';
 import {
-  AppButton,
+  EditPaymentDueSheet,
+  DirectCreditCardPaymentSheet,
+  FinancePoolSummary,
+  FinanceSpendingLimitSummary,
+  MovementDetailSheet,
+  NewMovementSheet,
+  NewPaymentSheet,
+  PaymentDetailSheet,
+  PaymentsList,
+  PayCreditCardSheet,
+  RegisterPaymentSheet,
+  TransactionCorrectionSheet,
+  TransferDetailSheet,
+} from '../../components/finance';
+import {
   AppCard,
   AppScreen,
   AppText,
-  ActionSheet,
   EmptyState,
   ErrorState,
   InteractivePressable,
@@ -17,7 +28,6 @@ import {
   UndoToast,
 } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
-import { motion as themeMotion } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { useAppTheme } from '../../context/AppThemeContext';
 import { useHousehold } from '../../context/HouseholdContext';
@@ -40,10 +50,8 @@ import {
 import {
   getFinanceSummary,
   getFinanceTransactionDetail,
-  getFinanceTransferDetail,
   listFinanceMovements,
   type FinanceTransactionDetailDto,
-  type FinanceTransferDetailDto,
   type FinanceUnifiedMovementDto,
   type FinanceSummaryCurrencyDto,
   type GetFinanceSummaryResponse,
@@ -58,6 +66,7 @@ import {
   shiftFinanceMonth,
 } from '../../services/finance/financePeriod';
 import type { PaymentDueDto } from '../../services/finance/financePayments';
+import type { FinanceAccountDto } from '../../services/finance/financeAccounts';
 import {
   getFinancePoolSummary,
   type FinancePoolSummaryResponse,
@@ -70,42 +79,12 @@ import {
   getFinanceAnalysis,
   type FinanceAnalysisResponse,
 } from '../../services/finance/financeAnalysis';
+import {
+  getFinanceCategoryPresentationByLabel,
+  type FinanceCategoryPresentation,
+} from '../../services/finance/financeCategories';
 
 type TransactionMovementDto = Extract<FinanceUnifiedMovementDto, { kind: 'EXPENSE' | 'INCOME' }>;
-
-const TAB_EMPTY_COPY: Record<FinanceTabKey, { title: string; description: string; icon: React.ComponentProps<typeof HomePlusIcon>['name'] }> = {
-  resumen: {
-    title: 'Sin informacion financiera todavia',
-    description: 'Este espacio se va a completar cuando existan gastos, ingresos y saldos reales.',
-    icon: 'pie-chart-outline',
-  },
-  movimientos: {
-    title: 'Sin movimientos registrados',
-    description: 'Cuando registres gastos o ingresos reales, la lectura de esta vista se activa en su etapa propia.',
-    icon: 'swap-vertical-outline',
-  },
-  pagos: {
-    title: 'Sin pagos configurados',
-    description: 'Agregá pagos esperados para ver vencimientos, registrar pagos y mantener el historial.',
-    icon: 'card-outline',
-  },
-};
-
-const selectorLayoutAnimation = {
-  duration: themeMotion.normal,
-  create: {
-    type: LayoutAnimation.Types.easeInEaseOut,
-    property: LayoutAnimation.Properties.opacity,
-  },
-  update: {
-    type: LayoutAnimation.Types.easeInEaseOut,
-  },
-  delete: {
-    type: LayoutAnimation.Types.easeInEaseOut,
-    property: LayoutAnimation.Properties.opacity,
-  },
-};
-
 type FinanceReadState = {
   key: string | null;
   loading: boolean;
@@ -140,6 +119,50 @@ function groupMovementsByTransactionDate(movements: FinanceUnifiedMovementDto[])
   return groups;
 }
 
+type MovementTypeFilterKey = 'expense' | 'income' | 'transfer';
+type MovementFilterKey = MovementTypeFilterKey;
+
+const MOVEMENT_FILTER_OPTIONS: { key: MovementFilterKey; label: string }[] = [
+  { key: 'expense', label: 'Gastos' },
+  { key: 'income', label: 'Ingresos' },
+  { key: 'transfer', label: 'Transferencias' },
+];
+
+const ALL_MOVEMENT_TYPE_FILTERS: MovementTypeFilterKey[] = ['expense', 'income', 'transfer'];
+
+function normalizeMovementFilters(filters: MovementTypeFilterKey[]): MovementTypeFilterKey[] {
+  const unique = ALL_MOVEMENT_TYPE_FILTERS.filter((type) => filters.includes(type));
+  return unique.length === 0 ? ALL_MOVEMENT_TYPE_FILTERS : unique;
+}
+
+function toggleMovementFilter(
+  currentFilters: MovementTypeFilterKey[],
+  nextFilter: MovementFilterKey,
+): MovementTypeFilterKey[] {
+  const current = normalizeMovementFilters(currentFilters);
+  if (current.includes(nextFilter) && current.length === 1) return current;
+  const next = current.includes(nextFilter)
+    ? current.filter((type) => type !== nextFilter)
+    : [...current, nextFilter];
+  return normalizeMovementFilters(next);
+}
+
+function movementMatchesFilter(movement: FinanceUnifiedMovementDto, filters: MovementTypeFilterKey[]): boolean {
+  const normalized = normalizeMovementFilters(filters);
+  if (normalized.length === ALL_MOVEMENT_TYPE_FILTERS.length) return true;
+  if (movement.kind === 'EXPENSE') return normalized.includes('expense');
+  if (movement.kind === 'INCOME') return normalized.includes('income');
+  return normalized.includes('transfer');
+}
+
+function financeCategoryToneColor(colors: ReturnType<typeof useAppTheme>['colors'], presentation: FinanceCategoryPresentation) {
+  if (presentation.tone === 'terracotta') return colors.terracotta[600];
+  if (presentation.tone === 'sage') return colors.sage[600];
+  if (presentation.tone === 'sand') return colors.sand[600];
+  if (presentation.tone === 'info') return colors.info.text;
+  return colors.text.tertiary;
+}
+
 function safeFinanceReadError(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   return 'No pudimos cargar Finanzas. Intenta de nuevo.';
@@ -156,13 +179,12 @@ export function FinanceScreen() {
   const { currentHousehold, loading, reloading, householdError } = useHousehold();
   const [selectedContext, setSelectedContext] = useState<FinanceContextType>(entryParams.contextType ?? FINANCE_CONTEXT_TYPES.PERSONAL);
   const [selectedTab, setSelectedTab] = useState<FinanceTabKey>(entryParams.initialTab ?? 'resumen');
-  const [selectorExpanded, setSelectorExpanded] = useState(false);
-  const [overflowVisible, setOverflowVisible] = useState(false);
   const [newMovementVisible, setNewMovementVisible] = useState(false);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState(() => financeMonthFromLocalDate());
-  const [selectedMovement, setSelectedMovement] = useState<TransactionMovementDto | null>(null);
+const [selectedMovement, setSelectedMovement] = useState<TransactionMovementDto | null>(null);
   const [movementDetailVisible, setMovementDetailVisible] = useState(false);
+  const [movementFilters, setMovementFilters] = useState<MovementTypeFilterKey[]>(ALL_MOVEMENT_TYPE_FILTERS);
   const [selectedTransferId, setSelectedTransferId] = useState<string | null>(null);
   const [transferDetailVisible, setTransferDetailVisible] = useState(false);
   const [transferDetailRefreshNonce, setTransferDetailRefreshNonce] = useState(0);
@@ -182,8 +204,6 @@ export function FinanceScreen() {
   const [spendingLimitProgressError, setSpendingLimitProgressError] = useState<string | null>(null);
 
   const [analysis, setAnalysis] = useState<FinanceAnalysisResponse | null>(null);
-  const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   // Payment sheets state
   const [newPaymentVisible, setNewPaymentVisible] = useState(false);
@@ -193,6 +213,8 @@ export function FinanceScreen() {
   const [editPaymentDueVisible, setEditPaymentDueVisible] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<PaymentDueDto | null>(null);
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(entryParams.paymentDueId ?? null);
+  const [selectedDirectCard, setSelectedDirectCard] = useState<FinanceAccountDto | null>(null);
+  const [directCardPaymentVisible, setDirectCardPaymentVisible] = useState(false);
   const [paymentDetailRefreshNonce, setPaymentDetailRefreshNonce] = useState(0);
 
   const allowVisibleBackExit = useRef(false);
@@ -201,15 +223,7 @@ export function FinanceScreen() {
   const detailPrefetchRef = useRef<TransactionCorrectionDetailPrefetch | null>(null);
   const [detailPrefetchSnapshot, setDetailPrefetchSnapshot] = useState<TransactionCorrectionDetailPrefetch | null>(null);
 
-  const openAccounts = () => {
-    setOverflowVisible(false);
-    navigation.navigate('FinanceAccounts', {
-      contextType: selectedContext,
-    });
-  };
-
   const openPapelera = () => {
-    setOverflowVisible(false);
     navigation.navigate('FinancePapelera', {
       contextType: selectedContext,
     });
@@ -223,7 +237,6 @@ export function FinanceScreen() {
       name: currentHousehold.nombre,
     };
   }, [currentHousehold]);
-  const selectorOptions = useMemo(() => financeSelectorOptions(activeHousehold), [activeHousehold]);
   const contextLabel = financeContextLabel(selectedContext, activeHousehold, contextLoading);
   const viewState = financeContextViewState(selectedContext, activeHousehold, contextLoading);
   const readReady = Boolean(session?.access_token) && (
@@ -234,12 +247,7 @@ export function FinanceScreen() {
   const summaryCurrencies = visibleReadState.summary?.currencies ?? EMPTY_SUMMARY_CURRENCIES;
   const selectedSummaryBucket = summaryCurrencies.find((bucket) => bucket.currency === selectedSummaryCurrency) ?? null;
 
-  useEffect(() => {
-    if (Platform.OS === 'android') {
-      UIManager.setLayoutAnimationEnabledExperimental?.(true);
-    }
-  }, []);
-
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
   useEffect(() => {
     const entryContextType = entryParams.contextType;
     const entryInitialTab = entryParams.initialTab;
@@ -263,21 +271,6 @@ export function FinanceScreen() {
   }, [entryParams]);
 
   useEffect(() => {
-    const unsubscribe = navigation.addListener?.('beforeRemove', (event: { preventDefault: () => void }) => {
-      if (allowVisibleBackExit.current) {
-        allowVisibleBackExit.current = false;
-        return;
-      }
-      if (!selectorExpanded) return;
-      event.preventDefault();
-      LayoutAnimation.configureNext(selectorLayoutAnimation);
-      setSelectorExpanded(false);
-    });
-
-    return unsubscribe;
-  }, [navigation, selectorExpanded]);
-
-  useEffect(() => {
     if (!readReady || !session?.access_token) {
       readKeyRef.current = null;
       setReadState(EMPTY_READ_STATE);
@@ -299,12 +292,10 @@ export function FinanceScreen() {
     setPoolSummary(null);
     setPoolSummaryLoading(true);
     setPoolSummaryError(null);
-    setSpendingLimitProgress([]);
+    setSpendingLimitProgress(null);
     setSpendingLimitProgressLoading(true);
     setSpendingLimitProgressError(null);
     setAnalysis(null);
-    setAnalysisLoading(true);
-    setAnalysisError(null);
 
     const readOptions = {
       accessToken: session.access_token,
@@ -337,7 +328,6 @@ export function FinanceScreen() {
         setSpendingLimitProgress(spendingLimitData.limits);
         setSpendingLimitProgressLoading(false);
         setAnalysis(analysisData);
-        setAnalysisLoading(false);
       })
       .catch((error) => {
         if (error instanceof AbortError || (error instanceof Error && error.name === 'AbortError')) return;
@@ -353,8 +343,6 @@ export function FinanceScreen() {
         setPoolSummaryLoading(false);
         setSpendingLimitProgressError(safeFinanceReadError(error));
         setSpendingLimitProgressLoading(false);
-        setAnalysisError(safeFinanceReadError(error));
-        setAnalysisLoading(false);
       });
 
     return () => {
@@ -370,28 +358,7 @@ export function FinanceScreen() {
       return currencies[0];
     });
   }, [summaryCurrencies]);
-
-  const animateSelectorLayout = () => {
-    LayoutAnimation.configureNext(selectorLayoutAnimation);
-  };
-
-  const expandSelector = () => {
-    animateSelectorLayout();
-    setSelectorExpanded(true);
-  };
-
-  const collapseSelector = () => {
-    animateSelectorLayout();
-    setSelectorExpanded(false);
-  };
-
-  const toggleSelector = () => {
-    if (selectorExpanded) {
-      collapseSelector();
-      return;
-    }
-    expandSelector();
-  };
+  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
   const handleVisibleBack = () => {
     allowVisibleBackExit.current = true;
@@ -399,9 +366,10 @@ export function FinanceScreen() {
   };
 
   const chooseContext = (nextContext: FinanceContextType) => {
-    animateSelectorLayout();
-    setSelectedContext((current) => selectFinanceContext(current, nextContext));
-    setSelectorExpanded(false);
+    setSelectedContext((current) => {
+      if (current === nextContext) return current;
+      return selectFinanceContext(current, nextContext);
+    });
   };
 
   const movePeriod = (direction: 'previous' | 'next') => {
@@ -476,6 +444,9 @@ export function FinanceScreen() {
         : 'Transferencia registrada',
     );
     setReadRefreshNonce((current) => current + 1);
+    if (operation === 'transfer') {
+      setTransferDetailRefreshNonce((current) => current + 1);
+    }
   };
 
   const handleMovementPress = (movement: FinanceUnifiedMovementDto) => {
@@ -497,8 +468,8 @@ export function FinanceScreen() {
   const handleTransferPress = (movement: FinanceUnifiedMovementDto) => {
     if (movement.kind !== 'TRANSFER') return;
     setSelectedTransferId(movement.id);
-    setTransferDetailVisible(true);
     setTransferDetailRefreshNonce((current) => current + 1);
+    setTransferDetailVisible(true);
   };
 
   const handleTransferDetailClose = () => {
@@ -526,6 +497,7 @@ export function FinanceScreen() {
   const handleCorrectionSuccess = () => {
     setSuccessFeedback('Movimiento corregido.');
     setReadRefreshNonce((current) => current + 1);
+    setTransferDetailRefreshNonce((current) => current + 1);
     clearDetailPrefetch();
     handleCorrectionClose();
     handleMovementDetailClose();
@@ -551,6 +523,7 @@ export function FinanceScreen() {
     setReadRefreshNonce((current) => current + 1);
     setPaymentDetailRefreshNonce((current) => current + 1);
     setSelectedPayment(null);
+    setSelectedDirectCard(null);
   };
 
   const handlePaymentRefresh = () => {
@@ -577,6 +550,11 @@ export function FinanceScreen() {
   const handleRegisterCreditCardPayment = (payment: PaymentDueDto) => {
     setSelectedPayment(payment);
     setPayCreditCardVisible(true);
+  };
+
+  const handleDirectCardPayment = (card: FinanceAccountDto) => {
+    setSelectedDirectCard(card);
+    setDirectCardPaymentVisible(true);
   };
 
   const handleEditPayment = (payment: PaymentDueDto) => {
@@ -610,102 +588,43 @@ export function FinanceScreen() {
           </Pressable>
         ) : null}
         <View style={styles.headerText}>
-          <AppText variant="title1" accessibilityRole="header">
+          <AppText variant="title1" accessibilityRole="header" numberOfLines={1}>
             Finanzas
           </AppText>
         </View>
-        <InteractivePressable
-          onPress={() => setOverflowVisible(true)}
-          haptic="light"
-          pressScale={motion.scale.icon}
-          style={styles.overflowButton}
-          accessibilityRole="button"
-          accessibilityLabel="Mas opciones"
-          hitSlop={8}
-        >
-          <HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.primary} />
-        </InteractivePressable>
-      </View>
-
-      <View style={styles.selectorArea}>
-        <View style={styles.contextCard}>
-          <InteractivePressable
-            onPress={toggleSelector}
-            disabled={contextLoading}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={styles.contextHeader}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: selectorExpanded }}
-            accessibilityLabel={`Finanzas de ${contextLabel}`}
-            accessibilityHint="Cambia entre finanzas personales y el hogar activo"
-          >
-            <View style={styles.contextIcon}>
-              <HomePlusIcon
-                name={selectedContext === FINANCE_CONTEXT_TYPES.PERSONAL ? 'person-outline' : 'home-outline'}
-                size={20}
-                color={colors.terracotta[700]}
-              />
-            </View>
-            <View style={styles.contextCopy}>
-              <AppText variant="caption" tone="secondary">
-                Finanzas de
-              </AppText>
-              <AppText variant="body" weight="800" numberOfLines={1}>
-                {contextLabel}
-              </AppText>
-            </View>
-            <HomePlusIcon
-              name={selectorExpanded ? 'chevron-up-outline' : 'chevron-down-outline'}
-              size={18}
-              color={colors.text.tertiary}
-            />
-          </InteractivePressable>
-
-          {selectorExpanded ? (
-            <View style={styles.expandedArea}>
-              <View style={styles.contextDivider} />
-              <View style={styles.contextOptions}>
-                {selectorOptions.map((option) => {
-                  const selected = option.contextType === selectedContext && (
-                    option.contextType === FINANCE_CONTEXT_TYPES.PERSONAL || activeHousehold !== null
-                  );
-                  return (
-                    <InteractivePressable
-                      key={option.contextType}
-                      onPress={() => chooseContext(option.contextType)}
-                      haptic="light"
-                      pressScale={motion.scale.card}
-                      style={styles.contextOption}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected }}
-                      accessibilityLabel={option.label}
-                    >
-                      <HomePlusIcon
-                        name={selected ? 'radio-button-on' : 'radio-button-off'}
-                        size={20}
-                        color={selected ? colors.terracotta[700] : colors.text.tertiary}
-                      />
-                      <AppText variant="bodySmall" weight="800" style={styles.contextOptionLabel} numberOfLines={1}>
-                        {option.label}
-                      </AppText>
-                    </InteractivePressable>
-                  );
-                })}
-              </View>
-            </View>
-          ) : null}
+        <View style={styles.scopeSegmented} accessibilityRole="tablist">
+          {financeSelectorOptions(activeHousehold).map((option) => {
+            const selected = option.contextType === selectedContext;
+            const disabled = contextLoading && !selected;
+            return (
+              <InteractivePressable
+                key={option.contextType}
+                onPress={() => chooseContext(option.contextType)}
+                disabled={disabled}
+                haptic="light"
+                pressScale={motion.scale.tab}
+                style={[styles.scopeOption, selected && styles.scopeOptionSelected, disabled && styles.disabledOption]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected, disabled }}
+                accessibilityLabel={option.contextType === FINANCE_CONTEXT_TYPES.PERSONAL ? 'Personal' : 'Hogar'}
+              >
+                <AppText variant="caption" weight="800" tone={selected ? 'brand' : 'secondary'} numberOfLines={1}>
+                  {option.contextType === FINANCE_CONTEXT_TYPES.PERSONAL ? 'Personal' : 'Hogar'}
+                </AppText>
+              </InteractivePressable>
+            );
+          })}
         </View>
-
-        {contextLoading ? (
-          <View style={styles.loadingRow}>
-            <Skeleton width={120} height={12} />
-            <AppText variant="caption" tone="tertiary">
-              Actualizando Current
-            </AppText>
-          </View>
-        ) : null}
       </View>
+
+      {contextLoading ? (
+        <View style={styles.loadingRow}>
+          <Skeleton width={120} height={12} />
+          <AppText variant="caption" tone="tertiary">
+            Actualizando Current
+          </AppText>
+        </View>
+      ) : null}
 
       <View style={styles.tabs} accessibilityRole="tablist">
         {FINANCE_TABS.map((tab) => {
@@ -736,27 +655,6 @@ export function FinanceScreen() {
 
       {householdError ? (
         <ErrorState title="No pudimos actualizar Current" description={householdError} />
-      ) : null}
-
-      {movementsReady ? (
-        <View style={styles.movementsHeader}>
-          <View style={styles.movementsHeaderCopy}>
-            <AppText variant="title3" weight="800">
-              Movimientos
-            </AppText>
-            <AppText variant="caption" tone="secondary" numberOfLines={1}>
-              {contextLabel}
-            </AppText>
-          </View>
-          <AppButton
-            variant="icon"
-            onPress={() => setNewMovementVisible(true)}
-            accessibilityLabel="Nuevo movimiento"
-            haptic="medium"
-          >
-            <HomePlusIcon name="add" size={24} color={colors.terracotta[700]} />
-          </AppButton>
-        </View>
       ) : null}
 
       {viewState === 'loading' ? (
@@ -804,7 +702,6 @@ export function FinanceScreen() {
               contextType: selectedContext,
               currency: selectedSummaryCurrency ?? 'ARS',
             })}
-            onOpenAccounts={openAccounts}
           />
           <FinanceSpendingLimitSummary
             progress={spendingLimitProgress}
@@ -817,22 +714,22 @@ export function FinanceScreen() {
               period: selectedPeriod,
             })}
           />
-          <FinanceAnalysisHighlights
-            analysis={analysis}
-            currency={selectedSummaryCurrency ?? 'ARS'}
-          />
         </>
       ) : null}
 
       {movementsReady ? (
-        <FinanceMovementsSurface
+<FinanceMovementsSurface
           period={selectedPeriod}
           loading={visibleReadState.loading}
           error={visibleReadState.error}
           movements={visibleReadState.movements?.movements ?? []}
+          filters={movementFilters}
+          onFilterChange={(filter) => setMovementFilters((current) => toggleMovementFilter(current, filter))}
           onRetry={retryReads}
           onMovePeriod={movePeriod}
           onMovementPress={handleMovementPress}
+          onOpenTrash={openPapelera}
+          onCreateMovement={() => setNewMovementVisible(true)}
         />
       ) : null}
 
@@ -844,6 +741,8 @@ export function FinanceScreen() {
           activeHousehold={activeHousehold}
           onCreatePayment={() => setNewPaymentVisible(true)}
           onPaymentPress={handlePaymentPress}
+          onCreditCardDuePress={handlePaymentPress}
+          onDirectCardPayment={handleDirectCardPayment}
           onRefresh={handlePaymentRefresh}
         />
       ) : null}
@@ -883,11 +782,12 @@ export function FinanceScreen() {
         contextType={selectedContext}
         contextLabel={contextLabel}
         transferId={selectedTransferId}
+        refreshNonce={transferDetailRefreshNonce}
         onRequestClose={handleTransferDetailClose}
       />
 
       <TransactionCorrectionSheet
-        key={`${correctionTransactionId ?? 'none'}:${detailPrefetchSnapshot?.detail ? 'prefetched' : 'fallback'}`}
+        key={correctionTransactionId ?? 'none'}
         visible={correctionVisible}
         accessToken={session?.access_token ?? null}
         contextType={selectedContext}
@@ -935,6 +835,18 @@ export function FinanceScreen() {
         onSuccess={handlePaymentRegisterSuccess}
       />
 
+      <DirectCreditCardPaymentSheet
+        visible={directCardPaymentVisible}
+        accessToken={session?.access_token ?? null}
+        contextType={selectedContext}
+        contextLabel={contextLabel}
+        contextState={viewState}
+        activeHousehold={activeHousehold}
+        card={selectedDirectCard}
+        onRequestClose={() => { setDirectCardPaymentVisible(false); setSelectedDirectCard(null); }}
+        onSuccess={handlePaymentRegisterSuccess}
+      />
+
       <EditPaymentDueSheet
         visible={editPaymentDueVisible}
         accessToken={session?.access_token ?? null}
@@ -958,31 +870,6 @@ export function FinanceScreen() {
         onEditPayment={handleEditPayment}
         onRefresh={handlePaymentRefresh}
       />
-
-      <ActionSheet
-        visible={overflowVisible}
-        title="Finanzas"
-        onRequestClose={() => setOverflowVisible(false)}
-        size="content"
-      >
-        <View style={styles.overflowContent}>
-          <InteractivePressable
-            onPress={openPapelera}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={styles.overflowItem}
-            accessibilityRole="button"
-            accessibilityLabel="Abrir Papelera"
-          >
-            <HomePlusIcon name="trash-outline" size={22} color={colors.danger.strong} />
-            <AppText variant="body" weight="800">Papelera</AppText>
-            <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
-          </InteractivePressable>
-          <AppText variant="caption" tone="tertiary" style={styles.overflowHint}>
-            Categorías llegarán en su etapa propia.
-          </AppText>
-        </View>
-      </ActionSheet>
 
       <UndoToast
         visible={Boolean(successFeedback)}
@@ -1090,111 +977,94 @@ function FinanceSummarySurface({
     );
   }
 
-  const netExpenseComparison = analysis?.comparison?.netExpense;
-  const incomeComparison = analysis?.comparison?.income;
   const summaryExpense = analysis?.totals?.netExpense ?? selectedBucket?.expense ?? '0';
   const summaryIncome = analysis?.totals?.income ?? selectedBucket?.income ?? '0';
   const summaryNet = analysis?.totals?.netResult ?? selectedBucket?.net ?? '0';
 
   return (
-    <AppCard variant="quiet" padding="generous">
-      <View style={styles.surfaceStack}>
-        <FinancePeriodControl period={period} onMovePeriod={onMovePeriod} />
-        <View style={styles.surfaceTitleRow}>
-          <AppText variant="caption" tone="secondary" weight="800">
-            {isCurrentFinanceMonth(period) ? 'ESTE MES' : 'MES SELECCIONADO'}
-          </AppText>
-          {loading ? <Skeleton width={64} height={12} /> : null}
-        </View>
-
-        {currencies.length === 0 || !selectedBucket ? (
-          <EmptyState
-            title="Sin actividad financiera"
-            description="No hay gastos ni ingresos registrados para este periodo."
-            illustration={<HomePlusIcon name="pie-chart-outline" size={30} color={colors.terracotta[600]} />}
-          />
-        ) : (
-          <View style={styles.summaryStack}>
-            {currencies.length > 1 ? (
-              <View style={styles.currencySelector} accessibilityRole="tablist">
-                {currencies.map((bucket) => {
-                  const selected = bucket.currency === selectedCurrency;
-                  return (
-                    <InteractivePressable
-                      key={bucket.currency}
-                      onPress={() => onSelectCurrency(bucket.currency)}
-                      haptic="light"
-                      pressScale={motion.scale.tab}
-                      style={[styles.currencyOption, selected && styles.currencyOptionSelected]}
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected }}
-                      accessibilityLabel={`Resumen ${bucket.currency}`}
-                    >
-                      <AppText variant="caption" weight="800" tone={selected ? 'inverse' : 'secondary'}>
-                        {bucket.currency}
-                      </AppText>
-                    </InteractivePressable>
-                  );
-                })}
-              </View>
-            ) : null}
-
-            <View style={styles.summaryRows}>
-              <SummaryMetric
-                label="Gastamos"
-                value={formatFinanceAmount(summaryExpense, selectedBucket.currency)}
-                secondary={netExpenseComparison && netExpenseComparison.comparisonKind !== 'NONE'
-                  ? netExpenseComparison.comparisonKind === 'NEW'
-                    ? 'Nuevo este mes'
-                    : netExpenseComparison.comparisonKind === 'PERCENT'
-                    ? `${netExpenseComparison.percentChange ? (Number(netExpenseComparison.percentChange) > 0 ? '+' : '') + Number(netExpenseComparison.percentChange).toFixed(0) + '%' : ''} vs mes anterior`
-                    : 'Sin cambios vs mes anterior'
-                  : undefined}
-                secondaryTone={netExpenseComparison && netExpenseComparison.comparisonKind === 'PERCENT' && Number(netExpenseComparison.percentChange ?? 0) > 0 ? 'danger' : 'secondary'}
-              />
-              <SummaryMetric
-                label="Ingresó"
-                value={formatFinanceAmount(summaryIncome, selectedBucket.currency)}
-                secondary={incomeComparison && incomeComparison.comparisonKind !== 'NONE'
-                  ? incomeComparison.comparisonKind === 'NEW'
-                    ? 'Nuevo este mes'
-                    : incomeComparison.comparisonKind === 'PERCENT'
-                    ? `${incomeComparison.percentChange ? (Number(incomeComparison.percentChange) > 0 ? '+' : '') + Number(incomeComparison.percentChange).toFixed(0) + '%' : ''} vs mes anterior`
-                    : 'Sin cambios vs mes anterior'
-                  : undefined}
-                secondaryTone={incomeComparison && incomeComparison.comparisonKind === 'PERCENT' && Number(incomeComparison.percentChange ?? 0) > 0 ? 'success' : 'secondary'}
-              />
-              <SummaryMetric
-                label="Neto"
-                value={formatFinanceAmount(summaryNet, selectedBucket.currency, { sign: 'net' })}
-                tone={isZeroDecimalString(summaryNet) ? 'primary' : summaryNet.startsWith('-') ? 'danger' : 'success'}
-              />
-            </View>
-            {selectedBucket && analysis && (
-              <InteractivePressable
-                onPress={() => navigation.navigate('FinanceAnalysisDetail', {
-                  contextType,
-                  currency: selectedBucket.currency,
-                  periodType: 'MONTHLY',
-                  period,
-                })}
-                haptic="light"
-                pressScale={motion.scale.card}
-                style={styles.analysisEntryButton}
-                accessibilityRole="button"
-                accessibilityLabel="Ver análisis detallado"
-              >
-                <HomePlusIcon name="analytics-outline" size={18} color={colors.terracotta[600]} />
-                <AppText variant="bodySmall" weight="800" tone="brand">
-                  Ver análisis
-                </AppText>
-                <HomePlusIcon name="chevron-forward-outline" size={16} color={colors.text.tertiary} />
-              </InteractivePressable>
-            )}
-          </View>
-        )}
+    <View style={styles.surfaceStack}>
+      <FinancePeriodControl period={period} onMovePeriod={onMovePeriod} />
+      <View style={styles.surfaceTitleRow}>
+        <AppText variant="title3" weight="800">
+          {isCurrentFinanceMonth(period) ? 'Este mes' : 'Mes seleccionado'}
+        </AppText>
+        {loading ? <Skeleton width={64} height={12} /> : null}
       </View>
-    </AppCard>
+
+      {currencies.length === 0 || !selectedBucket ? (
+        <EmptyState
+          title="Sin actividad financiera"
+          description="No hay gastos ni ingresos registrados para este periodo."
+          illustration={<HomePlusIcon name="pie-chart-outline" size={30} color={colors.terracotta[600]} />}
+          style={styles.flatEmptyState}
+        />
+      ) : (
+        <View style={styles.summaryStack}>
+          {currencies.length > 1 ? (
+            <View style={styles.currencySelector} accessibilityRole="tablist">
+              {currencies.map((bucket) => {
+                const selected = bucket.currency === selectedCurrency;
+                return (
+                  <InteractivePressable
+                    key={bucket.currency}
+                    onPress={() => onSelectCurrency(bucket.currency)}
+                    haptic="light"
+                    pressScale={motion.scale.tab}
+                    style={[styles.currencyOption, selected && styles.currencyOptionSelected]}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Resumen ${bucket.currency}`}
+                  >
+                    <AppText variant="caption" weight="800" tone={selected ? 'inverse' : 'secondary'}>
+                      {bucket.currency}
+                    </AppText>
+                  </InteractivePressable>
+                );
+              })}
+            </View>
+          ) : null}
+
+          <View style={styles.summaryRows}>
+            <SummaryMetric
+              label="Ingresó"
+              value={formatFinanceAmount(summaryIncome, selectedBucket.currency)}
+              tone={isZeroDecimalString(summaryIncome) ? 'primary' : 'success'}
+            />
+            <SummaryMetric
+              label="Gastamos"
+              value={formatFinanceAmount(summaryExpense, selectedBucket.currency)}
+              tone={isZeroDecimalString(summaryExpense) ? 'primary' : 'danger'}
+            />
+            <SummaryMetric
+              label="Balance"
+              value={formatFinanceAmount(summaryNet, selectedBucket.currency, { sign: 'net' })}
+              tone={isZeroDecimalString(summaryNet) ? 'primary' : summaryNet.startsWith('-') ? 'danger' : 'success'}
+              showDivider={false}
+            />
+          </View>
+          {selectedBucket && analysis && (
+            <InteractivePressable
+              onPress={() => navigation.navigate('FinanceAnalysisDetail', {
+                contextType,
+                currency: selectedBucket.currency,
+                periodType: 'MONTHLY',
+                period,
+              })}
+              haptic="light"
+              pressScale={motion.scale.card}
+              style={styles.analysisEntryButton}
+              accessibilityRole="button"
+              accessibilityLabel="Ver análisis detallado"
+            >
+              <AppText variant="bodySmall" weight="800" tone="brand">
+                Ver análisis
+              </AppText>
+              <HomePlusIcon name="chevron-forward-outline" size={16} color={colors.text.tertiary} />
+            </InteractivePressable>
+          )}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -1204,21 +1074,23 @@ function SummaryMetric({
   tone = 'primary',
   secondary,
   secondaryTone = 'secondary',
+  showDivider = true,
 }: {
   label: string;
   value: string;
   tone?: 'primary' | 'danger' | 'success';
   secondary?: string;
   secondaryTone?: 'primary' | 'secondary' | 'success' | 'danger' | 'warning';
+  showDivider?: boolean;
 }) {
   const styles = createStyles(useAppTheme());
 
   return (
-    <View style={styles.summaryMetric}>
+    <View style={[styles.summaryMetric, showDivider && styles.summaryMetricDivider]}>
       <AppText variant="caption" tone="secondary" weight="700">
         {label}
       </AppText>
-      <AppText variant="title3" tone={tone} weight="800" numberOfLines={1}>
+      <AppText variant="title3" tone={tone} weight="800" style={styles.summaryMetricValue}>
         {value}
       </AppText>
       {secondary && (
@@ -1235,21 +1107,34 @@ function FinanceMovementsSurface({
   loading,
   error,
   movements,
+  filters,
+  onFilterChange,
   onRetry,
   onMovePeriod,
   onMovementPress,
+  onOpenTrash,
+  onCreateMovement,
 }: {
   period: string;
   loading: boolean;
   error: string | null;
   movements: FinanceUnifiedMovementDto[];
+  filters: MovementTypeFilterKey[];
+  onFilterChange: (filter: MovementFilterKey) => void;
   onRetry: () => void;
   onMovePeriod: (direction: 'previous' | 'next') => void;
   onMovementPress?: (movement: FinanceUnifiedMovementDto) => void;
+  onOpenTrash: () => void;
+  onCreateMovement: () => void;
 }) {
   const theme = useAppTheme();
   const { colors, motion } = theme;
   const styles = createStyles(theme);
+  const normalizedFilters = normalizeMovementFilters(filters);
+  const allSelected = normalizedFilters.length === ALL_MOVEMENT_TYPE_FILTERS.length;
+  const emptyDescription = allSelected
+    ? 'Sin movimientos este mes'
+    : 'No hay movimientos que coincidan con estos filtros';
 
   if (loading && movements.length === 0) return <FinanceSurfaceLoading />;
   if (error && movements.length === 0) {
@@ -1262,20 +1147,86 @@ function FinanceMovementsSurface({
     );
   }
 
-  const groups = groupMovementsByTransactionDate(movements);
+const groups = groupMovementsByTransactionDate(
+    movements.filter((movement) => movementMatchesFilter(movement, normalizedFilters)),
+  );
 
   return (
     <View style={styles.surfaceStack}>
-      <FinancePeriodControl period={period} onMovePeriod={onMovePeriod} />
+      <View style={styles.movementUtilityRow}>
+        <Pressable
+          onPress={onOpenTrash}
+          style={styles.trashLink}
+          accessibilityRole="button"
+          accessibilityLabel="Abrir Papelera"
+        >
+          <HomePlusIcon name="trash-outline" size={22} color={colors.text.secondary} />
+        </Pressable>
+        <View style={styles.movementPeriodControl}>
+          <Pressable
+            onPress={() => onMovePeriod('previous')}
+            style={styles.periodButton}
+            accessibilityRole="button"
+            accessibilityLabel="Mes anterior"
+          >
+            <HomePlusIcon name="chevron-back" size={22} color={colors.text.secondary} />
+          </Pressable>
+          <AppText variant="bodySmall" weight="800" style={styles.periodLabel} numberOfLines={1}>
+            {formatFinancePeriodLabel(period)}
+          </AppText>
+          <Pressable
+            onPress={() => onMovePeriod('next')}
+            style={styles.periodButton}
+            accessibilityRole="button"
+            accessibilityLabel="Mes siguiente"
+          >
+            <HomePlusIcon name="chevron-forward" size={22} color={colors.text.secondary} />
+          </Pressable>
+        </View>
+        <Pressable
+          onPress={onCreateMovement}
+          style={styles.newMovementGlyphButton}
+          accessibilityRole="button"
+          accessibilityLabel="Nuevo movimiento"
+        >
+          <HomePlusIcon name="add" size={28} color={colors.text.secondary} />
+        </Pressable>
+      </View>
+      <View style={styles.connectedFilter} accessibilityRole="tablist">
+        {MOVEMENT_FILTER_OPTIONS.map((option, index) => {
+          const selected = normalizedFilters.includes(option.key);
+          const previousSelected = index > 0 && normalizedFilters.includes(MOVEMENT_FILTER_OPTIONS[index - 1].key);
+          const nextSelected = index < MOVEMENT_FILTER_OPTIONS.length - 1 && normalizedFilters.includes(MOVEMENT_FILTER_OPTIONS[index + 1].key);
+          return (
+            <InteractivePressable
+              key={option.key}
+              onPress={() => onFilterChange(option.key)}
+              pressScale={motion.scale.tab}
+              style={[
+                styles.connectedFilterSegment,
+                selected && styles.connectedFilterSegmentSelected,
+                selected && !previousSelected && styles.connectedFilterSegmentSelectedLeft,
+                selected && !nextSelected && styles.connectedFilterSegmentSelectedRight,
+              ]}
+              accessibilityRole="tab"
+              accessibilityState={{ selected }}
+              accessibilityLabel={option.label}
+            >
+              <AppText variant="caption" weight={selected ? '900' : '700'} tone={selected ? 'inverse' : 'secondary'} numberOfLines={1}>
+                {option.label}
+              </AppText>
+            </InteractivePressable>
+          );
+        })}
+      </View>
       {loading ? <Skeleton width="38%" height={12} /> : null}
       {groups.length === 0 ? (
-        <AppCard variant="quiet" padding="generous">
-          <EmptyState
-            title="Sin movimientos en este periodo"
-            description="No hay gastos, ingresos ni transferencias registrados para este mes."
-            illustration={<HomePlusIcon name="swap-vertical-outline" size={30} color={colors.terracotta[600]} />}
-          />
-        </AppCard>
+        <EmptyState
+          title={emptyDescription}
+          description={allSelected ? 'Cuando registres gastos, ingresos o transferencias van a aparecer acá.' : 'Probá ajustar los tipos seleccionados.'}
+          illustration={<HomePlusIcon name="swap-vertical-outline" size={24} color={colors.text.tertiary} />}
+          style={styles.flatEmptyState}
+        />
       ) : (
         <View style={styles.movementGroups}>
           {groups.map((group) => (
@@ -1283,136 +1234,185 @@ function FinanceMovementsSurface({
               <AppText variant="caption" tone="secondary" weight="800">
                 {formatFinanceDateGroupLabel(group.date)}
               </AppText>
-              <AppCard variant="quiet" padding="default" style={styles.movementListCard}>
-                {group.movements.map((movement) => {
-                  if (movement.kind === 'EXPENSE') {
-                    const hasRefund = !isZeroDecimalString(movement.totalRefunded);
-                    return (
-                      <InteractivePressable
-                        key={`${movement.kind}:${movement.id}`}
-                        onPress={() => onMovementPress?.(movement)}
-                        haptic="light"
-                        pressScale={motion.scale.card}
-                        style={styles.movementRow}
-                        accessibilityRole="button"
-                        accessibilityLabel={financeMovementTitle('expense', movement.description)}
-                      >
-                        <View style={styles.movementCopy}>
-                          <AppText variant="body" weight="800" numberOfLines={1}>
-                            {financeMovementTitle('expense', movement.description)}
-                          </AppText>
-                          {movement.categoryLabel ? (
-                            <AppText variant="caption" tone="secondary" numberOfLines={1}>
-                              {movement.categoryLabel}
-                            </AppText>
-                          ) : null}
-                          {hasRefund ? (
-                            <AppText variant="caption" tone="success" weight="800" numberOfLines={1}>
-                              Devuelto {formatFinanceAmount(movement.totalRefunded, movement.currency, { sign: 'none' })} · Neto {formatFinanceAmount(movement.netAmount, movement.currency, { sign: 'none' })}
-                            </AppText>
-                          ) : null}
-                        </View>
-                        <AppText
-                          variant="bodySmall"
-                          tone="danger"
-                          weight="800"
-                          style={styles.movementAmount}
-                          numberOfLines={1}
-                        >
-                          {formatFinanceAmount(movement.amount, movement.currency, {
-                            sign: 'transaction',
-                            transactionType: 'expense',
-                          })}
-                        </AppText>
-                      </InteractivePressable>
-                    );
-                  }
-                  if (movement.kind === 'INCOME') {
-                    return (
-                      <InteractivePressable
-                        key={`${movement.kind}:${movement.id}`}
-                        onPress={() => onMovementPress?.(movement)}
-                        haptic="light"
-                        pressScale={motion.scale.card}
-                        style={styles.movementRow}
-                        accessibilityRole="button"
-                        accessibilityLabel={financeMovementTitle('income', movement.description)}
-                      >
-                        <View style={styles.movementCopy}>
-                          <AppText variant="body" weight="800" numberOfLines={1}>
-                            {financeMovementTitle('income', movement.description)}
-                          </AppText>
-                          {movement.categoryLabel ? (
-                            <AppText variant="caption" tone="secondary" numberOfLines={1}>
-                              {movement.categoryLabel}
-                            </AppText>
-                          ) : null}
-                        </View>
-                        <AppText
-                          variant="bodySmall"
-                          tone="success"
-                          weight="800"
-                          style={styles.movementAmount}
-                          numberOfLines={1}
-                        >
-                          {formatFinanceAmount(movement.amount, movement.currency, {
-                            sign: 'transaction',
-                            transactionType: 'income',
-                          })}
-                        </AppText>
-                      </InteractivePressable>
-                    );
-                  }
-                  if (movement.kind === 'TRANSFER') {
-                    const title = financeTransferTitle(movement);
-                    const isCrossCurrency = movement.sourceCurrency !== movement.destinationCurrency;
-                    const amountLabel = isCrossCurrency
-                      ? `${formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' })} → ${formatFinanceAmount(movement.destinationAmount, movement.destinationCurrency, { sign: 'none' })}`
-                      : formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' });
-                    return (
-                      <InteractivePressable
-                        key={`${movement.kind}:${movement.id}`}
-                        onPress={() => onMovementPress?.(movement)}
-                        haptic="light"
-                        pressScale={motion.scale.card}
-                        style={styles.movementRow}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${title}, ${movement.sourceAccount.name} a ${movement.destinationAccount.name}`}
-                      >
-                        <View style={styles.movementCopy}>
-                          <AppText variant="body" weight="800" numberOfLines={1}>
-                            {title}
-                          </AppText>
-                          <AppText variant="caption" tone="secondary" numberOfLines={1}>
-                            {movement.sourceAccount.name} → {movement.destinationAccount.name}
-                          </AppText>
-                          {movement.description?.trim() ? (
-                            <AppText variant="caption" tone="tertiary" numberOfLines={1}>
-                              {movement.description.trim()}
-                            </AppText>
-                          ) : null}
-                        </View>
-                        <AppText
-                          variant="bodySmall"
-                          tone="primary"
-                          weight="800"
-                          style={styles.movementAmount}
-                          numberOfLines={2}
-                        >
-                          {amountLabel}
-                        </AppText>
-                      </InteractivePressable>
-                    );
-                  }
-                  return null;
-                })}
-              </AppCard>
+              <View style={styles.movementRows}>
+                {group.movements.map((movement, index) => (
+                  <MovementRow
+                    key={`${movement.kind}:${movement.id}`}
+                    movement={movement}
+                    isLast={index === group.movements.length - 1}
+                    onMovementPress={onMovementPress}
+                  />
+                ))}
+              </View>
             </View>
           ))}
         </View>
       )}
     </View>
   );
+}
+
+function MovementRow({
+  movement,
+  isLast,
+  onMovementPress,
+}: {
+  movement: FinanceUnifiedMovementDto;
+  isLast: boolean;
+  onMovementPress?: (movement: FinanceUnifiedMovementDto) => void;
+}) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
+
+  if (movement.kind === 'EXPENSE') {
+    const hasRefund = !isZeroDecimalString(movement.totalRefunded);
+    const presentation = getFinanceCategoryPresentationByLabel(movement.categoryLabel);
+    return (
+      <React.Fragment>
+      <InteractivePressable
+        onPress={() => onMovementPress?.(movement)}
+        haptic="light"
+        pressScale={motion.scale.card}
+        style={styles.movementRow}
+        accessibilityRole="button"
+        accessibilityLabel={financeMovementTitle('expense', movement.description)}
+      >
+        <HomePlusIcon
+          name={presentation.iconKey}
+          size={18}
+          color={financeCategoryToneColor(colors, presentation)}
+        />
+        <View style={styles.movementCopy}>
+          <AppText variant="body" weight="800" numberOfLines={1}>
+            {financeMovementTitle('expense', movement.description)}
+          </AppText>
+          {movement.categoryLabel ? (
+            <AppText variant="caption" tone="secondary" numberOfLines={1}>
+              {movement.categoryLabel}
+            </AppText>
+          ) : null}
+          {hasRefund ? (
+            <AppText variant="caption" tone="success" weight="800" numberOfLines={1}>
+              Devuelto {formatFinanceAmount(movement.totalRefunded, movement.currency, { sign: 'none' })} · Neto {formatFinanceAmount(movement.netAmount, movement.currency, { sign: 'none' })}
+            </AppText>
+          ) : null}
+        </View>
+        <AppText
+          variant="bodySmall"
+          tone="danger"
+          weight="800"
+          style={styles.movementAmount}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.78}
+        >
+          {formatFinanceAmount(movement.amount, movement.currency, {
+            sign: 'transaction',
+            transactionType: 'expense',
+          })}
+        </AppText>
+      </InteractivePressable>
+      {!isLast ? <View style={styles.movementRowDivider} /> : null}
+      </React.Fragment>
+    );
+  }
+
+  if (movement.kind === 'INCOME') {
+    const presentation = getFinanceCategoryPresentationByLabel(movement.categoryLabel);
+    return (
+      <React.Fragment>
+      <InteractivePressable
+        onPress={() => onMovementPress?.(movement)}
+        haptic="light"
+        pressScale={motion.scale.card}
+        style={styles.movementRow}
+        accessibilityRole="button"
+        accessibilityLabel={financeMovementTitle('income', movement.description)}
+      >
+        <HomePlusIcon
+          name={presentation.iconKey}
+          size={18}
+          color={financeCategoryToneColor(colors, presentation)}
+        />
+        <View style={styles.movementCopy}>
+          <AppText variant="body" weight="800" numberOfLines={1}>
+            {financeMovementTitle('income', movement.description)}
+          </AppText>
+          {movement.categoryLabel ? (
+            <AppText variant="caption" tone="secondary" numberOfLines={1}>
+              {movement.categoryLabel}
+            </AppText>
+          ) : null}
+        </View>
+        <AppText
+          variant="bodySmall"
+          tone="success"
+          weight="800"
+          style={styles.movementAmount}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.78}
+        >
+          {formatFinanceAmount(movement.amount, movement.currency, {
+            sign: 'transaction',
+            transactionType: 'income',
+          })}
+        </AppText>
+      </InteractivePressable>
+      {!isLast ? <View style={styles.movementRowDivider} /> : null}
+      </React.Fragment>
+    );
+  }
+
+  if (movement.kind === 'TRANSFER') {
+    const title = financeTransferTitle(movement);
+    const isCrossCurrency = movement.sourceCurrency !== movement.destinationCurrency;
+    const amountLabel = isCrossCurrency
+      ? `${formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' })} → ${formatFinanceAmount(movement.destinationAmount, movement.destinationCurrency, { sign: 'none' })}`
+      : formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' });
+    return (
+      <React.Fragment>
+      <InteractivePressable
+        onPress={() => onMovementPress?.(movement)}
+        haptic="light"
+        pressScale={motion.scale.card}
+        style={styles.movementRow}
+        accessibilityRole="button"
+        accessibilityLabel={`${title}, ${movement.sourceAccount.name} a ${movement.destinationAccount.name}`}
+      >
+        <HomePlusIcon name="swap-horizontal-outline" size={18} color={colors.text.tertiary} />
+        <View style={styles.movementCopy}>
+          <AppText variant="body" weight="800" numberOfLines={1}>
+            {title}
+          </AppText>
+          <AppText variant="caption" tone="secondary" numberOfLines={1}>
+            {movement.sourceAccount.name} → {movement.destinationAccount.name}
+          </AppText>
+          {movement.description?.trim() ? (
+            <AppText variant="caption" tone="tertiary" numberOfLines={1}>
+              {movement.description.trim()}
+            </AppText>
+          ) : null}
+        </View>
+        <AppText
+          variant="bodySmall"
+          tone="primary"
+          weight="800"
+          style={styles.movementAmount}
+          numberOfLines={2}
+          adjustsFontSizeToFit
+          minimumFontScale={0.78}
+        >
+          {amountLabel}
+        </AppText>
+      </InteractivePressable>
+      {!isLast ? <View style={styles.movementRowDivider} /> : null}
+      </React.Fragment>
+    );
+  }
+
+  return null;
 }
 
 function createStyles(theme: ReturnType<typeof useAppTheme>) {
@@ -1425,7 +1425,7 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing[3],
+      gap: spacing[2],
     },
     backButton: {
       width: touchTargets.normal,
@@ -1437,92 +1437,32 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
       borderWidth: 1,
       borderColor: colors.border.subtle,
     },
-    overflowButton: {
-      width: touchTargets.normal,
-      height: touchTargets.normal,
-      borderRadius: radius.pill,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.surface.soft,
-      borderWidth: 1,
-      borderColor: colors.border.subtle,
-    },
-    overflowContent: {
-      paddingHorizontal: spacing[4],
-      paddingTop: spacing[2],
-      paddingBottom: spacing[4],
-      gap: spacing[2],
-    },
-    overflowItem: {
-      minHeight: 48,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing[3],
-      paddingHorizontal: spacing[2],
-      paddingVertical: spacing[2],
-    },
-    overflowHint: {
-      marginTop: spacing[1],
-      marginHorizontal: spacing[1],
-    },
     headerText: {
       flex: 1,
+      minWidth: 64,
       gap: spacing[1],
     },
-    selectorArea: {
-      gap: spacing[2],
-    },
-    contextCard: {
-      minHeight: 64,
+    scopeSegmented: {
+      minHeight: 34,
+      alignSelf: 'flex-start',
       borderRadius: radius.xl,
-      borderWidth: 1,
-      borderColor: colors.border.default,
-      backgroundColor: colors.surface.card,
-      overflow: 'hidden',
-    },
-    contextHeader: {
-      minHeight: 64,
-      paddingHorizontal: spacing[4],
-      paddingVertical: spacing[3],
+      backgroundColor: colors.surface.muted,
+      padding: spacing[1],
       flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing[3],
     },
-    contextIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: radius.lg,
-      backgroundColor: colors.terracotta[50],
+    scopeOption: {
+      minHeight: 26,
+      minWidth: 66,
+      borderRadius: radius.md,
       alignItems: 'center',
       justifyContent: 'center',
+      paddingHorizontal: spacing[2],
     },
-    contextCopy: {
-      flex: 1,
-      minWidth: 0,
+    scopeOptionSelected: {
+      backgroundColor: colors.surface.raised,
     },
-    expandedArea: {
-      overflow: 'hidden',
-    },
-    contextDivider: {
-      height: 1,
-      marginHorizontal: spacing[4],
-      backgroundColor: colors.border.subtle,
-    },
-    contextOptions: {
-      paddingHorizontal: spacing[4],
-      paddingTop: spacing[2],
-      paddingBottom: spacing[3],
-      gap: spacing[1],
-    },
-    contextOption: {
-      minHeight: 44,
-      borderRadius: radius.lg,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing[3],
-    },
-    contextOptionLabel: {
-      flex: 1,
+    disabledOption: {
+      opacity: 0.5,
     },
     loadingRow: {
       flexDirection: 'row',
@@ -1530,28 +1470,17 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
       gap: spacing[2],
       paddingHorizontal: spacing[2],
     },
-    movementsHeader: {
-      minHeight: 52,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing[3],
-    },
-    movementsHeaderCopy: {
-      flex: 1,
-      minWidth: 0,
-    },
     tabs: {
-      minHeight: 48,
+      minHeight: 44,
       borderRadius: radius.xl,
       backgroundColor: colors.surface.muted,
       padding: spacing[1],
       flexDirection: 'row',
-      gap: spacing[1],
     },
     tab: {
       flex: 1,
       minWidth: 0,
-      minHeight: 40,
+      minHeight: 36,
       borderRadius: radius.lg,
       alignItems: 'center',
       justifyContent: 'center',
@@ -1565,14 +1494,9 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
     },
     periodControl: {
       minHeight: 44,
-      borderRadius: radius.xl,
-      backgroundColor: colors.surface.soft,
-      borderWidth: 1,
-      borderColor: colors.border.subtle,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: spacing[2],
     },
     periodButton: {
       width: 40,
@@ -1587,7 +1511,7 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
       minWidth: 0,
     },
     surfaceStack: {
-      gap: spacing[4],
+      gap: spacing[8],
     },
     surfaceTitleRow: {
       minHeight: 18,
@@ -1595,6 +1519,28 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: spacing[3],
+    },
+    movementUtilityRow: {
+      minHeight: 44,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing[2],
+    },
+    movementPeriodControl: {
+      flex: 1,
+      minWidth: 0,
+      minHeight: 44,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing[1],
+    },
+    trashLink: {
+      width: 44,
+      height: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     summaryStack: {
       gap: spacing[3],
@@ -1620,17 +1566,25 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
       backgroundColor: colors.terracotta[600],
     },
     summaryRows: {
-      gap: spacing[2],
+      gap: 0,
     },
     summaryMetric: {
-      minHeight: 58,
-      borderRadius: radius.lg,
-      borderWidth: 1,
-      borderColor: colors.border.subtle,
-      backgroundColor: colors.surface.card,
-      paddingHorizontal: spacing[4],
+      minHeight: 56,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing[3],
       paddingVertical: spacing[3],
-      gap: spacing[1],
+    },
+    summaryMetricDivider: {
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border.subtle,
+    },
+    summaryMetricValue: {
+      flexShrink: 1,
+      maxWidth: '68%',
+      textAlign: 'right',
+      fontVariant: ['tabular-nums'],
     },
     analysisEntryButton: {
       flexDirection: 'row',
@@ -1638,27 +1592,64 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
       justifyContent: 'center',
       gap: spacing[2],
       paddingVertical: spacing[3],
-      paddingHorizontal: spacing[4],
-      borderRadius: radius.lg,
-      borderWidth: 1,
-      borderColor: colors.border.subtle,
-      backgroundColor: colors.surface.card,
+      borderTopWidth: 1,
+      borderTopColor: colors.border.subtle,
     },
-    movementGroups: {
+movementGroups: {
       gap: spacing[4],
+    },
+    connectedFilter: {
+      minHeight: 44,
+      borderRadius: radius.xl,
+      backgroundColor: colors.surface.muted,
+      flexDirection: 'row',
+      overflow: 'hidden',
+      padding: spacing[1],
+    },
+    connectedFilterSegment: {
+      flex: 1,
+      minWidth: 0,
+      minHeight: 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing[2],
+    },
+    connectedFilterSegmentSelected: {
+      backgroundColor: colors.terracotta[600],
+    },
+    connectedFilterSegmentSelectedLeft: {
+      borderTopLeftRadius: radius.lg,
+      borderBottomLeftRadius: radius.lg,
+    },
+    connectedFilterSegmentSelectedRight: {
+      borderTopRightRadius: radius.lg,
+      borderBottomRightRadius: radius.lg,
+    },
+    newMovementGlyphButton: {
+      width: 44,
+      height: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     movementGroup: {
       gap: spacing[2],
     },
-    movementListCard: {
+    movementRows: {
       gap: 0,
     },
     movementRow: {
-      minHeight: 62,
+      minHeight: 64,
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing[3],
-      paddingVertical: spacing[2],
+      paddingVertical: spacing[3],
+      paddingHorizontal: spacing[1],
+    },
+    movementRowDivider: {
+      height: 1,
+      backgroundColor: colors.border.subtle,
+      marginLeft: spacing[7],
+      marginRight: spacing[1],
     },
     movementCopy: {
       flex: 1,
@@ -1666,8 +1657,14 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
       gap: spacing[1],
     },
     movementAmount: {
-      maxWidth: '42%',
+      flexShrink: 0,
+      maxWidth: '50%',
       textAlign: 'right',
+      fontVariant: ['tabular-nums'],
+    },
+    flatEmptyState: {
+      paddingHorizontal: spacing[4],
+      paddingVertical: spacing[5],
     },
   });
 }

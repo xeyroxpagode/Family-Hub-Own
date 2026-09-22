@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import {
+  AppButton,
+  AppCard,
   AppText,
   ActionSheet,
   InteractivePressable,
 } from '../ui';
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { HomePlusIcon } from '../../constants/icons';
 import { formatFinanceAmount, isZeroDecimalString } from '../../services/finance/financeDisplay';
 import {
@@ -47,6 +49,9 @@ export function PoolDetailSheet({
   onSuccess,
   onArchiveSuccess,
 }: PoolDetailSheetProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const [allocateVisible, setAllocateVisible] = useState(false);
   const [releaseVisible, setReleaseVisible] = useState(false);
   const [renameVisible, setRenameVisible] = useState(false);
@@ -56,12 +61,14 @@ export function PoolDetailSheet({
 
   React.useEffect(() => {
     if (visible) return;
-    setAllocateVisible(false);
-    setReleaseVisible(false);
-    setRenameVisible(false);
-    setArchiveVisible(false);
-    setTransferVisible(false);
-    setCategoryDefaultVisible(false);
+    void Promise.resolve().then(() => {
+      setAllocateVisible(false);
+      setReleaseVisible(false);
+      setRenameVisible(false);
+      setArchiveVisible(false);
+      setTransferVisible(false);
+      setCategoryDefaultVisible(false);
+    });
   }, [visible]);
 
   if (!visible || !pool) return null;
@@ -166,111 +173,93 @@ export function PoolDetailSheet({
       <ActionSheet
         visible={!nestedSheetVisible}
         title={pool.name}
+        subtitle={`Pozo · ${contextLabel}`}
         onRequestClose={handleActionSheetClose}
+        size="content"
       >
-        <View style={styles.actionContent}>
-          <View style={styles.balancePreview}>
-            <AppText variant="caption" tone="secondary" weight="700">Saldo actual</AppText>
-            <AppText
-              variant="title2"
-              weight="800"
-              tone={isBalanceZero ? 'primary' : isBalanceNegative ? 'danger' : 'success'}
-            >
-              {formatFinanceAmount(pool.balance, currency, { sign: isBalanceNegative ? 'net' : 'none' })}
+        <View style={styles.content}>
+          <View style={styles.identity}>
+            <AppText variant="caption" tone="secondary" weight="800">
+              {currency}
             </AppText>
           </View>
 
-          <InteractivePressable
+          <View style={styles.balancePreview}>
+            <AppText variant="caption" tone="secondary" weight="700">Saldo actual</AppText>
+            <AppText
+              variant="title1"
+              weight="800"
+              tone={isBalanceZero ? 'primary' : isBalanceNegative ? 'danger' : 'success'}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.72}
+            >
+              {formatFinanceAmount(pool.balance, currency, { sign: isBalanceNegative ? 'net' : 'none' })}
+            </AppText>
+            <AppText variant="caption" tone="secondary">
+              organizado
+            </AppText>
+          </View>
+
+          <AppButton
+            title="Agregar dinero"
             onPress={handleAllocatePress}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={styles.actionItem}
-            accessibilityRole="button"
-          >
-            <HomePlusIcon name="arrow-down-circle-outline" size={24} color={colors.terracotta[700]} />
-            <AppText variant="body" weight="700">Agregar dinero</AppText>
-            <AppText variant="caption" tone="secondary">Sin asignar → Pozo</AppText>
-          </InteractivePressable>
+            leftSlot={<HomePlusIcon name="add" size={18} color={colors.text.inverse} />}
+          />
 
-          {canRelease && (
-            <InteractivePressable
-              onPress={handleReleasePress}
-              haptic="light"
-              pressScale={motion.scale.card}
-              style={styles.actionItem}
-              accessibilityRole="button"
-            >
-              <HomePlusIcon name="arrow-up-circle-outline" size={24} color={colors.success.strong} />
-              <AppText variant="body" weight="700">Liberar dinero</AppText>
-              <AppText variant="caption" tone="secondary">Pozo → Sin asignar</AppText>
-            </InteractivePressable>
-          )}
+          <View style={styles.section}>
+            <AppText variant="caption" tone="secondary" weight="800">ACTIVIDAD RECIENTE</AppText>
+            <AppCard variant="quiet" padding="default">
+              <View style={styles.infoRow}>
+                <AppText variant="bodySmall" tone="secondary" weight="700">
+                  Las operaciones recientes del pozo se reflejan al volver a Organización.
+                </AppText>
+              </View>
+            </AppCard>
+          </View>
 
-          {!canRelease && (
-            <View style={styles.disabledAction}>
-              <HomePlusIcon name="arrow-up-circle-outline" size={24} color={colors.text.tertiary} />
-              <AppText variant="body" weight="700" tone="tertiary">Liberar dinero</AppText>
-              <AppText variant="caption" tone="tertiary">No hay saldo positivo para liberar</AppText>
-            </View>
-          )}
-
-          {canTransfer && (
-            <InteractivePressable
-              onPress={handleTransferPress}
-              haptic="light"
-              pressScale={motion.scale.card}
-              style={styles.actionItem}
-              accessibilityRole="button"
-            >
-              <HomePlusIcon name="swap-horizontal-outline" size={24} color={colors.info.text} />
-              <AppText variant="body" weight="700">Mover dinero</AppText>
-              <AppText variant="caption" tone="secondary">Pozo → Pozo</AppText>
-            </InteractivePressable>
-          )}
-
-          {!canTransfer && (
-            <View style={styles.disabledAction}>
-              <HomePlusIcon name="swap-horizontal-outline" size={24} color={colors.text.tertiary} />
-              <AppText variant="body" weight="700" tone="tertiary">Mover dinero</AppText>
-              <AppText variant="caption" tone="tertiary">No hay otros pozos activos</AppText>
-            </View>
-          )}
-
-          <InteractivePressable
-            onPress={handleRenamePress}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={styles.actionItem}
-            accessibilityRole="button"
-          >
-            <HomePlusIcon name="pencil-outline" size={24} color={colors.text.secondary} />
-            <AppText variant="body" weight="700">Renombrar</AppText>
-            <AppText variant="caption" tone="secondary">Cambiar nombre del pozo</AppText>
-          </InteractivePressable>
-
-          <InteractivePressable
-            onPress={handleArchivePress}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={[styles.actionItem, styles.archiveAction]}
-            accessibilityRole="button"
-          >
-            <HomePlusIcon name="archive-outline" size={24} color={colors.danger.strong} />
-            <AppText variant="body" weight="700" tone="danger">Archivar pozo</AppText>
-            <AppText variant="caption" tone="secondary">El historial se conserva</AppText>
-          </InteractivePressable>
-
-          <InteractivePressable
-            onPress={handleCategoryDefaultPress}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={styles.actionItem}
-            accessibilityRole="button"
-          >
-            <HomePlusIcon name="link-outline" size={24} color={colors.info.text} />
-            <AppText variant="body" weight="700">Pozo sugerido por categoria</AppText>
-            <AppText variant="caption" tone="secondary">Configurar sugerencia para nuevos gastos</AppText>
-          </InteractivePressable>
+          <View style={styles.section}>
+            <AppText variant="caption" tone="secondary" weight="800">ACCIONES</AppText>
+            <AppCard variant="quiet" padding="default">
+              <PoolActionRow
+                icon="arrow-up-circle-outline"
+                label="Liberar dinero"
+                detail={canRelease ? 'Pozo a sin asignar' : 'No hay saldo positivo para liberar'}
+                onPress={handleReleasePress}
+                disabled={!canRelease}
+              />
+              <PoolActionRow
+                icon="swap-horizontal-outline"
+                label="Mover dinero"
+                detail={canTransfer ? 'Entre pozos' : 'No hay otros pozos activos'}
+                onPress={handleTransferPress}
+                disabled={!canTransfer}
+                withDivider
+              />
+              <PoolActionRow
+                icon="pencil-outline"
+                label="Renombrar"
+                detail="Cambiar nombre del pozo"
+                onPress={handleRenamePress}
+                withDivider
+              />
+              <PoolActionRow
+                icon="link-outline"
+                label="Pozo sugerido por categoría"
+                detail="Configurar sugerencia para nuevos gastos"
+                onPress={handleCategoryDefaultPress}
+                withDivider
+              />
+              <PoolActionRow
+                icon="archive-outline"
+                label="Archivar pozo"
+                detail="El historial se conserva"
+                onPress={handleArchivePress}
+                danger
+                withDivider
+              />
+            </AppCard>
+          </View>
         </View>
       </ActionSheet>
 
@@ -346,44 +335,100 @@ export function PoolDetailSheet({
   );
 }
 
-const styles = StyleSheet.create({
-  actionContent: {
+function PoolActionRow({
+  icon,
+  label,
+  detail,
+  onPress,
+  disabled = false,
+  danger = false,
+  withDivider = false,
+}: {
+  icon: React.ComponentProps<typeof HomePlusIcon>['name'];
+  label: string;
+  detail: string;
+  onPress: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  withDivider?: boolean;
+}) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
+
+  return (
+    <InteractivePressable
+      onPress={onPress}
+      disabled={disabled}
+      haptic="light"
+      pressScale={motion.scale.card}
+      style={[styles.actionRow, withDivider && styles.actionRowDivider, danger && styles.actionRowDanger, disabled && styles.actionRowDisabled]}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      accessibilityLabel={label}
+    >
+      <HomePlusIcon name={icon} size={20} color={disabled ? colors.text.tertiary : danger ? colors.danger.strong : colors.text.secondary} />
+      <View style={styles.actionCopy}>
+        <AppText variant="bodySmall" weight="800" tone={disabled ? 'tertiary' : danger ? 'danger' : 'primary'}>
+          {label}
+        </AppText>
+        <AppText variant="caption" tone={disabled ? 'tertiary' : 'secondary'} numberOfLines={1}>
+          {detail}
+        </AppText>
+      </View>
+      {!disabled ? <HomePlusIcon name="chevron-forward-outline" size={16} color={colors.text.tertiary} /> : null}
+    </InteractivePressable>
+  );
+}
+
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
+  content: {
     paddingHorizontal: spacing[4],
     paddingTop: spacing[2],
     paddingBottom: spacing[4],
-    gap: spacing[2],
+    gap: spacing[4],
+  },
+  identity: {
+    alignSelf: 'flex-start',
   },
   balancePreview: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: spacing[1],
-    paddingVertical: spacing[3],
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border.subtle,
   },
-  actionItem: {
+  section: {
+    gap: spacing[2],
+  },
+  infoRow: {
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  actionRow: {
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
-    paddingVertical: spacing[3],
-    paddingHorizontal: spacing[2],
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.card,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
+    paddingVertical: spacing[2],
   },
-  disabledAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    paddingVertical: spacing[3],
-    paddingHorizontal: spacing[2],
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.muted,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
+  actionRowDivider: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border.subtle,
   },
-  archiveAction: {
-    borderColor: colors.danger.soft,
+  actionRowDanger: {
     backgroundColor: colors.danger.soft,
+    marginHorizontal: -spacing[2],
+    paddingHorizontal: spacing[2],
+    borderRadius: radius.lg,
   },
-});
+  actionRowDisabled: {
+    opacity: 0.64,
+  },
+  actionCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing[1],
+  },
+  });
+}

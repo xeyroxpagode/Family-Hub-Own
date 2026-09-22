@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
@@ -24,6 +25,12 @@ import {
   useStableTransferMutationIdentity,
 } from '../../services/finance/financeTransfers';
 import type { FinanceAccountDto } from '../../services/finance/financeAccounts';
+import {
+  createFinanceCategory,
+  getFinanceCategoryPresentation,
+  getQuickFinanceCategories,
+  type FinanceCategoryPresentation,
+} from '../../services/finance/financeCategories';
 import { useEligibleAccounts } from '../../services/finance/financeAccountEligibility';
 import { useEligiblePools } from '../../services/finance/financePoolEligibility';
 import {
@@ -78,6 +85,7 @@ type ActivePicker =
   | 'expensePool'
   | 'transferSource'
   | 'transferDestination'
+  | 'commission'
   | null;
 
 const todayDateOnly = () => {
@@ -201,6 +209,14 @@ function getAccountBalancePresentationSafe(account: FinanceAccountDto) {
   return { isUnknown: false, isCreditCard: false, isDebt: isNegative, displayAmount: canonical };
 }
 
+function financeCategoryToneColor(colors: ReturnType<typeof useAppTheme>['colors'], presentation: FinanceCategoryPresentation) {
+  if (presentation.tone === 'terracotta') return colors.terracotta[600];
+  if (presentation.tone === 'sage') return colors.sage[600];
+  if (presentation.tone === 'sand') return colors.sand[600];
+  if (presentation.tone === 'info') return colors.info.text;
+  return colors.text.tertiary;
+}
+
 function poolAssignmentCreateErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     switch (error.code) {
@@ -250,8 +266,14 @@ export function NewMovementSheet({
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
+  const [categoryCreateOpen, setCategoryCreateOpen] = useState(false);
+  const [categoryGalleryExpanded, setCategoryGalleryExpanded] = useState(false);
+  const [categoryDraft, setCategoryDraft] = useState('');
+  const [categoryCreateSubmitting, setCategoryCreateSubmitting] = useState(false);
+  const [categoryCreateError, setCategoryCreateError] = useState<string | null>(null);
   const [activePicker, setActivePicker] = useState<ActivePicker>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [expenseCreatedAfterPoolFailure, setExpenseCreatedAfterPoolFailure] = useState(false);
   const contextKeyRef = useRef(`${contextType}:${contextLabel}`);
@@ -290,6 +312,7 @@ export function NewMovementSheet({
     () => categories.find((category) => category.id === selectedCategoryId) ?? null,
     [categories, selectedCategoryId],
   );
+  const quickCategories = useMemo(() => getQuickFinanceCategories(categories), [categories]);
 
   const contextUnavailable = contextState === 'loading' || contextState === 'household_unavailable';
 
@@ -312,6 +335,7 @@ export function NewMovementSheet({
     setCommission(parseMoneyInputText('', 'ARS'));
     setActivePicker(null);
     setSubmitError(null);
+    setSubmitAttempted(false);
   }, [visible, presetTransferDestination]);
 
   useEffect(() => {
@@ -322,7 +346,12 @@ export function NewMovementSheet({
       setSelectedCategoryId(null);
       setCategories([]);
       setCategoriesError(null);
+      setCategoryCreateOpen(false);
+      setCategoryGalleryExpanded(false);
+      setCategoryDraft('');
+      setCategoryCreateError(null);
       setSubmitError(null);
+      setSubmitAttempted(false);
       setExpensePoolId(null);
       setCategoryPoolDefault(null);
       setUserTouchedPool(false);
@@ -354,7 +383,7 @@ export function NewMovementSheet({
         if (cancelled) return;
         setCategories([]);
         setSelectedCategoryId(null);
-        setCategoriesError('No pudimos cargar las categorias. Podes registrar sin categoria.');
+        setCategoriesError('No pudimos cargar las categorías. Podés registrar sin categoría.');
       })
       .finally(() => {
         if (!cancelled) setCategoriesLoading(false);
@@ -542,8 +571,14 @@ const resetDraft = () => {
     setCategories([]);
     setSelectedCategoryId(null);
     setCategoriesError(null);
+    setCategoryCreateOpen(false);
+    setCategoryGalleryExpanded(false);
+    setCategoryDraft('');
+    setCategoryCreateSubmitting(false);
+    setCategoryCreateError(null);
     setActivePicker(null);
     setSubmitError(null);
+    setSubmitAttempted(false);
     setSubmitting(false);
     setExpenseCreatedAfterPoolFailure(false);
     setExpenseAccountId(null);
@@ -610,6 +645,10 @@ const resetDraft = () => {
     setActivePicker(null);
     if (nextOperation !== 'expense') {
       setSelectedCategoryId(null);
+      setCategoryCreateOpen(false);
+      setCategoryGalleryExpanded(false);
+      setCategoryDraft('');
+      setCategoryCreateError(null);
       setNotesExpanded(false);
       setNotes('');
       setCardPaymentMode('single');
@@ -679,17 +718,60 @@ const resetDraft = () => {
     setSubmitError(null);
   };
 
+  const submitNewCategory = async () => {
+    if (categoryCreateSubmitting) return;
+    const label = categoryDraft.trim();
+    setCategoryCreateError(null);
+
+    if (!accessToken) {
+      setCategoryCreateError('Tu sesión no está disponible. Volvé a iniciar sesión.');
+      return;
+    }
+    if (contextUnavailable) {
+      setCategoryCreateError('El contexto financiero cambió o no está disponible.');
+      return;
+    }
+    if (!label) {
+      setCategoryCreateError('Escribí un nombre para la categoría.');
+      return;
+    }
+
+    setCategoryCreateSubmitting(true);
+    try {
+      const response = await createFinanceCategory(accessToken, {
+        contextType,
+        type: 'expense',
+        label,
+      });
+      const nextCategory = response.category;
+      setCategories((current) => {
+        const withoutDuplicate = current.filter((category) => category.id !== nextCategory.id);
+        return [...withoutDuplicate, nextCategory];
+      });
+      setSelectedCategoryId(nextCategory.id);
+      setCategoryDraft('');
+      setCategoryCreateOpen(false);
+      setCategoryGalleryExpanded(false);
+      setActivePicker(null);
+    } catch (error) {
+      setCategoryCreateError(error instanceof ApiError ? error.message : 'No pudimos crear la categoría.');
+    } finally {
+      setCategoryCreateSubmitting(false);
+    }
+  };
+
   const submitExpenseOrIncome = async () => {
     if (submitting) return;
     Keyboard.dismiss();
     setSubmitError(null);
+    setSubmitAttempted(true);
 
     if (!accessToken) {
-      setSubmitError('Tu sesion no esta disponible. Volve a iniciar sesion.');
+      setSubmitError('Tu sesión no está disponible. Volvé a iniciar sesión.');
       return;
     }
     if (contextUnavailable) {
-      setSubmitError('El contexto financiero cambio o no esta disponible. Cerralo y volve a abrirlo.');
+      setSubmitError('El contexto financiero cambió o no está disponible. Cerralo y volvé a abrirlo.');
       return;
     }
     if (!amount.technicalValue) {
@@ -825,7 +907,7 @@ const resetDraft = () => {
     } catch (error) {
       const message = error instanceof ApiError
         ? error.message
-        : 'No pudimos registrar el movimiento. Intenta de nuevo.';
+        : 'No pudimos registrar el movimiento. Intentá de nuevo.';
       setSubmitError(message);
     } finally {
       setSubmitting(false);
@@ -836,9 +918,10 @@ const resetDraft = () => {
     if (submitting) return;
     Keyboard.dismiss();
     setSubmitError(null);
+    setSubmitAttempted(true);
 
     if (!accessToken) {
-      setSubmitError('Tu sesion no esta disponible. Volve a iniciar sesion.');
+      setSubmitError('Tu sesión no está disponible. Volvé a iniciar sesión.');
       return;
     }
     if (!transferSource || transferSource.accountType !== 'ACCOUNT') {
@@ -854,15 +937,15 @@ const resetDraft = () => {
       return;
     }
     if (!transferAmount.isValid) {
-      setSubmitError('Revisa el monto a transferir.');
+      setSubmitError('Revisá el monto a transferir.');
       return;
     }
     if (transferCrossCurrency && !destinationAmount.isValid) {
-      setSubmitError('Revisa el monto de destino.');
+      setSubmitError('Revisá el monto de destino.');
       return;
     }
 if (commissionMode === 'custom' && !commission.isValid) {
-      setSubmitError('Revisa la comision.');
+      setSubmitError('Revisá la comisión.');
       return;
     }
 
@@ -958,11 +1041,11 @@ if (commissionMode === 'custom' && !commission.isValid) {
             <React.Fragment>
               <View style={styles.fieldGroup}>
                 <FormActionRow
-                  label="Sale de"
+                  label="Desde"
                   value={transferSource ? `${transferSource.name} · ${transferSource.currency}` : 'Elegir cuenta'}
                   onPress={() => setActivePicker('transferSource')}
                   disabled={submitting}
-                  accessibilityLabel={transferSource ? `Cuenta origen ${transferSource.name} ${transferSource.currency}` : 'Elegir cuenta de origen (no se permite tarjeta de credito)'}
+                  accessibilityLabel={transferSource ? `Cuenta origen ${transferSource.name} ${transferSource.currency}` : 'Elegir cuenta de origen (no se permite tarjeta de crédito)'}
                 />
                 <AppText variant="caption" tone="tertiary">
                   Solo cuentas de tipo Cuenta. Tarjetas de crédito no pueden ser origen.
@@ -971,11 +1054,11 @@ if (commissionMode === 'custom' && !commission.isValid) {
 
               <View style={styles.fieldGroup}>
                 <FormActionRow
-                  label="Llega a"
+                  label="Hacia"
                   value={transferDestination ? `${transferDestination.name} · ${transferDestination.currency}` : 'Elegir cuenta'}
                   onPress={() => setActivePicker('transferDestination')}
                   disabled={submitting || !transferSource}
-                  accessibilityLabel={transferDestination ? `Cuenta destino ${transferDestination.name} ${transferDestination.currency}` : 'Elegir cuenta de destino (se permiten tarjetas de credito)'}
+                  accessibilityLabel={transferDestination ? `Cuenta destino ${transferDestination.name} ${transferDestination.currency}` : 'Elegir cuenta de destino (se permiten tarjetas de crédito)'}
                 />
               </View>
 
@@ -994,9 +1077,9 @@ if (commissionMode === 'custom' && !commission.isValid) {
                     onCurrencyChange={() => undefined}
                     availableCurrencies={[transferCurrency]}
                     label="Monto"
-                    helperText="Magnitud positiva, sin convertir monedas."
                     disabled={submitting || !transferSource}
-                    errorText={transferAmount.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                    forceValidation={submitAttempted}
+                    errorText={submitAttempted && transferAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
                   />
                 ) : (
                   <View style={styles.fieldGroup}>
@@ -1009,7 +1092,8 @@ if (commissionMode === 'custom' && !commission.isValid) {
                       label="Sale"
                       helperText="Monto en la moneda de origen."
                       disabled={submitting}
-                      errorText={transferAmount.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                      forceValidation={submitAttempted}
+                      errorText={submitAttempted && transferAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
                     />
                     <MoneyInput
                       value={destinationAmountText}
@@ -1020,49 +1104,25 @@ if (commissionMode === 'custom' && !commission.isValid) {
                       label="Llega"
                       helperText="Monto declarado en la moneda de destino. No mostramos ni calculamos tipo de cambio."
                       disabled={submitting}
-                      errorText={destinationAmount.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                      forceValidation={submitAttempted}
+                      errorText={submitAttempted && destinationAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
                     />
                   </View>
                 )}
 
                 <View style={styles.fieldGroup}>
-                  <AppText variant="caption" tone="secondary" weight="700">Comisión</AppText>
-                  <View style={styles.commissionMode}>
-                    <InteractivePressable
-                      onPress={setCommissionNone}
-                      disabled={submitting}
-                      haptic="light"
-                      pressScale={motion.scale.card}
-                      style={[styles.commissionOption, commissionMode === 'none' && styles.commissionOptionSelected]}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: commissionMode === 'none' }}
-                      accessibilityLabel="Sin comisión"
-                    >
-                      <HomePlusIcon
-                        name={commissionMode === 'none' ? 'radio-button-on' : 'radio-button-off'}
-                        size={18}
-                        color={commissionMode === 'none' ? colors.terracotta[700] : colors.text.tertiary}
-                      />
-                      <AppText variant="bodySmall" weight="800">Ninguna</AppText>
-                    </InteractivePressable>
-                    <InteractivePressable
-                      onPress={setCommissionCustom}
-                      disabled={submitting || !transferSource}
-                      haptic="light"
-                      pressScale={motion.scale.card}
-                      style={[styles.commissionOption, commissionMode === 'custom' && styles.commissionOptionSelected]}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: commissionMode === 'custom' }}
-                      accessibilityLabel="Ingresar comisión (moneda de origen, sin categoría ni cuenta adicional)"
-                    >
-                      <HomePlusIcon
-                        name={commissionMode === 'custom' ? 'radio-button-on' : 'radio-button-off'}
-                        size={18}
-                        color={commissionMode === 'custom' ? colors.terracotta[700] : colors.text.tertiary}
-                      />
-                      <AppText variant="bodySmall" weight="800">Agregar comisión</AppText>
-                    </InteractivePressable>
-                  </View>
+                  <FormActionRow
+                    label="Comisión"
+                    value={!transferSource ? 'Elegí origen primero' : commissionMode === 'custom' ? 'Agregar comisión' : 'Sin comisión'}
+                    onPress={() => setActivePicker((current) => current === 'commission' ? null : 'commission')}
+                    disabled={submitting || !transferSource}
+                    accessibilityLabel={`Comisión: ${commissionMode === 'custom' ? 'Agregar comisión' : 'Sin comisión'}`}
+                  />
+                  {!transferSource ? (
+                    <AppText variant="caption" tone="tertiary">
+                      Elegí una cuenta de origen para definir comisión.
+                    </AppText>
+                  ) : null}
                   {commissionMode === 'custom' && transferSource ? (
                     <MoneyInput
                       value={commissionText}
@@ -1073,7 +1133,8 @@ if (commissionMode === 'custom' && !commission.isValid) {
                       label="Monto de comisión"
                       helperText="Se registra como Expense (Comisiones e intereses) en la cuenta de origen. No te pedimos categoría ni cuenta aparte."
                       disabled={submitting}
-                      errorText={commission.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                      forceValidation={submitAttempted}
+                      errorText={submitAttempted && commission.status === 'invalid' ? 'Revisá el monto.' : undefined}
                     />
                   ) : null}
                 </View>
@@ -1109,7 +1170,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
                   <View style={styles.warnBox}>
                     <HomePlusIcon name="alert-circle-outline" size={18} color={colors.warning.strong} />
                     <AppText variant="bodySmall" tone="warning" style={styles.errorInline}>
-                      Saldo insuficiente para cubrir transferencia y comision.
+                      Saldo insuficiente para cubrir transferencia y comisión.
                     </AppText>
                   </View>
                 ) : null}
@@ -1123,13 +1184,13 @@ if (commissionMode === 'custom' && !commission.isValid) {
                 onCurrencyChange={handleCurrencyChange}
                 availableCurrencies={DEFAULT_MONEY_INPUT_CURRENCY_OPTIONS}
                 disabled={submitting}
-                errorText={amount.status === 'invalid' ? 'Revisa el monto.' : undefined}
-                helperText="Magnitud positiva, sin convertir monedas."
+                forceValidation={submitAttempted}
+                errorText={submitAttempted && amount.status === 'invalid' ? 'Revisá el monto.' : undefined}
                 testID="finance-new-movement-money-input"
               />
 
               <AppInput
-                label="Descripcion (opcional)"
+                label="Descripción (opcional)"
                 value={description}
                 onChangeText={(text) => {
                   setDescription(text);
@@ -1145,11 +1206,16 @@ if (commissionMode === 'custom' && !commission.isValid) {
           {isExpense(operation) ? (
             <View style={styles.fieldGroup}>
               <FormActionRow
-                label="Categoria"
-                value={selectedCategory?.label ?? 'Sin categoria'}
-                onPress={() => setActivePicker((current) => current === 'category' ? null : 'category')}
+                label="Categoría"
+                value={selectedCategory?.label ?? 'Sin categoría'}
+                onPress={() => {
+                  setCategoryCreateOpen(false);
+                  setCategoryCreateError(null);
+                  setCategoryGalleryExpanded(false);
+                  setActivePicker((current) => current === 'category' ? null : 'category');
+                }}
                 disabled={submitting || categoriesLoading}
-                accessibilityLabel="Elegir categoria de gasto"
+                accessibilityLabel="Elegir categoría de gasto"
               />
               {categoriesError ? (
                 <AppText variant="caption" tone="warning">
@@ -1157,60 +1223,8 @@ if (commissionMode === 'custom' && !commission.isValid) {
                 </AppText>
               ) : categoriesLoading ? (
                 <AppText variant="caption" tone="tertiary">
-                  Cargando categorias
+                  Cargando categorías
                 </AppText>
-              ) : null}
-              {activePicker === 'category' ? (
-                <View style={styles.categoryPicker} accessibilityLabel="Categorias de gasto">
-                  <InteractivePressable
-                    onPress={() => {
-                      setSelectedCategoryId(null);
-                      setActivePicker(null);
-                    }}
-                    haptic="light"
-                    pressScale={motion.scale.card}
-                    style={[styles.categoryOption, selectedCategoryId === null && styles.categoryOptionSelected]}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: selectedCategoryId === null }}
-                    accessibilityLabel="Sin categoria"
-                  >
-                    <HomePlusIcon
-                      name={selectedCategoryId === null ? 'radio-button-on' : 'radio-button-off'}
-                      size={18}
-                      color={selectedCategoryId === null ? colors.terracotta[700] : colors.text.tertiary}
-                    />
-                    <AppText variant="bodySmall" weight="800">
-                      Sin categoria
-                    </AppText>
-                  </InteractivePressable>
-                  {categories.map((category) => {
-                    const selected = category.id === selectedCategoryId;
-                    return (
-                      <InteractivePressable
-                        key={category.id}
-                        onPress={() => {
-                          setSelectedCategoryId(category.id);
-                          setActivePicker(null);
-                        }}
-                        haptic="light"
-                        pressScale={motion.scale.card}
-                        style={[styles.categoryOption, selected && styles.categoryOptionSelected]}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected }}
-                        accessibilityLabel={category.label}
-                      >
-                        <HomePlusIcon
-                          name={selected ? 'radio-button-on' : 'radio-button-off'}
-                          size={18}
-                          color={selected ? colors.terracotta[700] : colors.text.tertiary}
-                        />
-                        <AppText variant="bodySmall" weight="800" numberOfLines={1} style={styles.categoryLabel}>
-                          {category.label}
-                        </AppText>
-                      </InteractivePressable>
-                    );
-                  })}
-                </View>
               ) : null}
             </View>
           ) : null}
@@ -1481,7 +1495,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
                                 onCurrencyChange={() => undefined}
                                 availableCurrencies={[currency]}
                                 disabled={submitting}
-                                errorText={allocation.amount && (isNaN(Number(allocation.amount)) || Number(allocation.amount) <= 0) ? 'Revisa el monto.' : undefined}
+                                errorText={allocation.amount && (isNaN(Number(allocation.amount)) || Number(allocation.amount) <= 0) ? 'Revisá el monto.' : undefined}
                                 label="Monto"
                                 testID={`finance-income-pool-allocation-${index}`}
                               />
@@ -1581,25 +1595,6 @@ if (commissionMode === 'custom' && !commission.isValid) {
             </View>
           </React.Fragment>
         ) : null}
-
-          {!isTransfer(operation) ? (
-            <View style={styles.contextSummary}>
-              <HomePlusIcon
-                name={contextType === 'personal' ? 'person-outline' : 'home-outline'}
-                size={18}
-                color={colors.sage[700]}
-              />
-              <View style={styles.contextSummaryText}>
-                <AppText variant="caption" tone="secondary" weight="700">
-                  Contexto financiero
-                </AppText>
-                <AppText variant="bodySmall" weight="800" numberOfLines={1}>
-                  {contextLabel}
-                </AppText>
-              </View>
-            </View>
-          ) : null}
-
           <FormActionRow
             label="Fecha"
             value={formatHumanDate(date)}
@@ -1618,10 +1613,10 @@ if (commissionMode === 'custom' && !commission.isValid) {
                 style={styles.moreDetails}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: notesExpanded }}
-                accessibilityLabel="Mas detalles"
+                accessibilityLabel="Más detalles"
               >
                 <AppText variant="bodySmall" weight="800">
-                  Mas detalles
+                  Más detalles
                 </AppText>
                 <HomePlusIcon
                   name={notesExpanded ? 'chevron-up-outline' : 'chevron-down-outline'}
@@ -1662,6 +1657,209 @@ if (commissionMode === 'custom' && !commission.isValid) {
             setActivePicker(null);
           }}
         />
+
+        <ActionSheet
+          visible={activePicker === 'category'}
+          title={categoryGalleryExpanded ? 'Elegir categoría' : 'Categoría'}
+          subtitle={`Finanzas de ${contextLabel}`}
+          onRequestClose={() => {
+            setActivePicker(null);
+            setCategoryGalleryExpanded(false);
+            setCategoryCreateOpen(false);
+            setCategoryCreateError(null);
+          }}
+          closeDisabled={categoryCreateSubmitting}
+          size="content"
+        >
+          <KeyboardAwareScrollView
+            enableOnAndroid
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={categoryGalleryExpanded}
+            contentContainerStyle={styles.categorySheetContent}
+          >
+            <View style={styles.categoryGalleryGrid} accessibilityLabel={categoryGalleryExpanded ? 'Todas las categorías' : 'Categorías rápidas'}>
+              {(categoryGalleryExpanded ? categories : quickCategories.slice(0, 6)).map((category) => {
+                const selected = category.id === selectedCategoryId;
+                const presentation = getFinanceCategoryPresentation(category);
+                return (
+                  <InteractivePressable
+                    key={category.id}
+                    onPress={() => {
+                      setSelectedCategoryId(category.id);
+                      setActivePicker(null);
+                      setCategoryGalleryExpanded(false);
+                      setCategoryCreateOpen(false);
+                      setCategoryCreateError(null);
+                    }}
+                    disabled={submitting}
+                    pressScale={motion.scale.card}
+                    style={[styles.categoryGalleryTile, selected && styles.categoryGalleryTileSelected]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={category.label}
+                  >
+                    <HomePlusIcon
+                      name={presentation.iconKey}
+                      size={22}
+                      color={selected ? colors.terracotta[700] : financeCategoryToneColor(colors, presentation)}
+                    />
+                    <AppText variant="caption" weight="800" tone={selected ? 'brand' : 'secondary'} numberOfLines={2} align="center" style={styles.categoryGalleryLabel}>
+                      {category.label}
+                    </AppText>
+                  </InteractivePressable>
+                );
+              })}
+              {!categoryGalleryExpanded ? (
+                <InteractivePressable
+                  onPress={() => {
+                    setCategoryGalleryExpanded(true);
+                    setCategoryCreateOpen(false);
+                    setCategoryCreateError(null);
+                  }}
+                  disabled={submitting}
+                  pressScale={motion.scale.card}
+                  style={styles.categoryGalleryTile}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ver todas las categorías"
+                >
+                  <HomePlusIcon name="grid-outline" size={22} color={colors.terracotta[700]} />
+                  <AppText variant="caption" weight="800" tone="brand" numberOfLines={2} align="center" style={styles.categoryGalleryLabel}>
+                    Ver todas
+                  </AppText>
+                </InteractivePressable>
+              ) : null}
+            </View>
+            {categoryGalleryExpanded ? (
+              <React.Fragment>
+                <View style={styles.categoryCreateDivider} />
+                <InteractivePressable
+                  onPress={() => {
+                    setSelectedCategoryId(null);
+                    setActivePicker(null);
+                    setCategoryGalleryExpanded(false);
+                    setCategoryCreateOpen(false);
+                    setCategoryCreateError(null);
+                  }}
+                  pressScale={motion.scale.card}
+                  style={[styles.categoryCreateTrigger, selectedCategoryId === null && styles.categoryOptionSelected]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: selectedCategoryId === null }}
+                  accessibilityLabel="Sin categoría"
+                >
+                  <HomePlusIcon name="pricetag-outline" size={18} color={selectedCategoryId === null ? colors.terracotta[700] : colors.text.tertiary} />
+                  <AppText variant="bodySmall" weight="800">Sin categoría</AppText>
+                </InteractivePressable>
+                {categoryCreateOpen ? (
+                  <View style={styles.categoryCreateBox}>
+                    <AppInput
+                      label="Nueva categoría"
+                      value={categoryDraft}
+                      onChangeText={(text) => {
+                        setCategoryDraft(text);
+                        setCategoryCreateError(null);
+                      }}
+                      placeholder="Ej. Librería"
+                      editable={!submitting && !categoryCreateSubmitting}
+                      returnKeyType="done"
+                    />
+                    {categoryCreateError ? (
+                      <AppText variant="caption" tone="danger">
+                        {categoryCreateError}
+                      </AppText>
+                    ) : null}
+                    <View style={styles.categoryCreateActions}>
+                      <AppButton
+                        title="Cancelar"
+                        variant="ghost"
+                        size="sm"
+                        onPress={() => {
+                          setCategoryCreateOpen(false);
+                          setCategoryDraft('');
+                          setCategoryCreateError(null);
+                        }}
+                        disabled={categoryCreateSubmitting}
+                      />
+                      <AppButton
+                        title="Guardar"
+                        size="sm"
+                        onPress={submitNewCategory}
+                        loading={categoryCreateSubmitting}
+                        disabled={submitting || !categoryDraft.trim()}
+                      />
+                    </View>
+                  </View>
+                ) : (
+                  <InteractivePressable
+                    onPress={() => {
+                      setCategoryCreateOpen(true);
+                      setCategoryCreateError(null);
+                    }}
+                    disabled={submitting || !accessToken || contextUnavailable}
+                    pressScale={motion.scale.card}
+                    style={styles.categoryCreateTrigger}
+                    accessibilityRole="button"
+                    accessibilityLabel="Nueva categoría"
+                  >
+                    <HomePlusIcon name="add" size={18} color={colors.terracotta[700]} />
+                    <AppText variant="bodySmall" weight="800">Nueva categoría</AppText>
+                  </InteractivePressable>
+                )}
+              </React.Fragment>
+            ) : null}
+          </KeyboardAwareScrollView>
+        </ActionSheet>
+
+        <ActionSheet
+          visible={activePicker === 'commission'}
+          title="Comisión"
+          subtitle={transferSource ? transferSource.currency : undefined}
+          onRequestClose={() => setActivePicker(null)}
+          size="content"
+        >
+          <View style={styles.commissionPicker} accessibilityLabel="Opciones de comisión">
+            <InteractivePressable
+              onPress={() => {
+                setCommissionNone();
+                setActivePicker(null);
+              }}
+              disabled={submitting}
+              haptic="light"
+              pressScale={motion.scale.card}
+              style={[styles.commissionPickerOption, commissionMode === 'none' && styles.commissionOptionSelected]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: commissionMode === 'none' }}
+              accessibilityLabel="Sin comisión"
+            >
+              <HomePlusIcon
+                name={commissionMode === 'none' ? 'checkmark-circle' : 'ellipse-outline'}
+                size={18}
+                color={commissionMode === 'none' ? colors.terracotta[700] : colors.text.tertiary}
+              />
+              <AppText variant="bodySmall" weight="800">Sin comisión</AppText>
+            </InteractivePressable>
+            <InteractivePressable
+              onPress={() => {
+                setCommissionCustom();
+                setActivePicker(null);
+              }}
+              disabled={submitting || !transferSource}
+              haptic="light"
+              pressScale={motion.scale.card}
+              style={[styles.commissionPickerOption, commissionMode === 'custom' && styles.commissionOptionSelected]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: commissionMode === 'custom' }}
+              accessibilityLabel="Agregar comisión"
+            >
+              <HomePlusIcon
+                name={commissionMode === 'custom' ? 'checkmark-circle' : 'ellipse-outline'}
+                size={18}
+                color={commissionMode === 'custom' ? colors.terracotta[700] : colors.text.tertiary}
+              />
+              <AppText variant="bodySmall" weight="800">Agregar comisión</AppText>
+            </InteractivePressable>
+          </View>
+        </ActionSheet>
 
         <AccountSelector
           visible={expenseAccountPickerVisible}
@@ -1863,15 +2061,41 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
     alignItems: 'center',
     gap: spacing[2],
   },
-  categoryPicker: {
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface.card,
-    padding: spacing[2],
+  categoryGalleryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing[2],
+  },
+  categoryGalleryTile: {
+    width: '31%',
+    minHeight: 78,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface.soft,
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[2],
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing[1],
   },
-  categoryOption: {
+  categoryGalleryTileSelected: {
+    backgroundColor: colors.terracotta[50],
+  },
+  categorySheetContent: {
+    gap: spacing[3],
+    paddingBottom: spacing[4],
+  },
+  categoryOptionSelected: {
+    backgroundColor: colors.terracotta[50],
+  },
+  categoryGalleryLabel: {
+    minHeight: 28,
+  },
+  categoryCreateDivider: {
+    height: 1,
+    backgroundColor: colors.border.subtle,
+    marginVertical: spacing[1],
+  },
+  categoryCreateTrigger: {
     minHeight: 44,
     borderRadius: radius.lg,
     paddingHorizontal: spacing[3],
@@ -1879,16 +2103,34 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
     alignItems: 'center',
     gap: spacing[2],
   },
-  categoryOptionSelected: {
-    backgroundColor: colors.terracotta[50],
+  categoryCreateBox: {
+    gap: spacing[2],
+    padding: spacing[2],
   },
-  categoryLabel: {
-    flex: 1,
-    minWidth: 0,
+  categoryCreateActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing[2],
   },
   noAccountsBlock: {
     paddingVertical: spacing[4],
     gap: spacing[3],
+  },
+  commissionPicker: {
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    borderRadius: radius.xl,
+    backgroundColor: colors.surface.card,
+    padding: spacing[2],
+    gap: spacing[1],
+  },
+  commissionPickerOption: {
+    minHeight: 44,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing[3],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
   },
   commissionMode: {
     flexDirection: 'row',

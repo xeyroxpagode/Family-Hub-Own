@@ -14,6 +14,7 @@ router.post('/presets/:id/revisions', presetsController.startRevision);
 router.get('/presets/:id/revisions', presetsController.listRevisionHistory);
 router.post('/presets/:id/trash', presetsController.trashPreset);
 router.post('/presets/:id/restore', presetsController.restorePreset);
+router.post('/presets/:id/duplicate-to-household', presetsController.duplicatePresetToHousehold);
 router.get('/presets/:id/prepare', presetsController.prepareApplicationPayload);
 router.get('/preset-revisions/:revisionId', presetsController.getRevision);
 router.patch('/preset-revisions/:revisionId', presetsController.updateRevisionDraft);

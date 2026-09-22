@@ -122,7 +122,7 @@ export const getPlannerPresetRevision = (accessToken: string, revisionId: string
 export const updatePlannerPresetRevisionDraft = (
   accessToken: string,
   revisionId: string,
-  payload: { adapter_key?: string; payload?: Record<string, unknown> },
+  payload: { adapter_key?: string; entity_type?: string; payload?: Record<string, unknown> },
   options: PlannerPresetMutationOptions,
 ) =>
   requestJson<{ data: PlannerPresetRevision; outcome: string; version: number; operationId?: string }>(
@@ -178,6 +178,30 @@ export const restorePlannerPreset = (
       operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
       accessToken,
       headers: mutationHeaders('planner.presets.restore', options),
+    },
+  );
+
+/**
+ * P2.2A — Duplicate a HomePlus preset into the current household as a NEW
+ * editable household copy (contract: copy-on-duplicate, no live sync). The
+ * caller MAY pass `name`/`payload` overrides (e.g. the user edited fields in
+ * the editor before confirming); the backend re-validates the payload through
+ * the canonical adapter.
+ */
+export const duplicatePlannerPresetToHousehold = (
+  accessToken: string,
+  presetId: string,
+  payload?: { name?: string; payload?: Record<string, unknown> },
+  options?: PlannerPresetMutationOptions,
+) =>
+  requestJson<{ data: PlannerPreset; outcome: string; version: number; operationId?: string }>(
+    `/api/planner/presets/${presetId}/duplicate-to-household`,
+    {
+      method: 'POST',
+      operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
+      accessToken,
+      headers: mutationHeaders('planner.presets.duplicate', options),
+      body: payload ?? {},
     },
   );
 

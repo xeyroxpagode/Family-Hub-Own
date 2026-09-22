@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
@@ -20,6 +21,7 @@ type TransferDetailSheetProps = {
   contextType: FinanceContextType;
   contextLabel: string;
   transferId: string | null;
+  refreshNonce?: number;
   onRequestClose: () => void;
 };
 
@@ -29,6 +31,7 @@ export function TransferDetailSheet({
   contextType,
   contextLabel,
   transferId,
+  refreshNonce = 0,
   onRequestClose,
 }: TransferDetailSheetProps) {
   const theme = useAppTheme();
@@ -72,7 +75,7 @@ export function TransferDetailSheet({
       setLoading(true);
       setError(null);
     }
-  }, [visible, transferId, accessToken, contextType]);
+  }, [visible, transferId, accessToken, contextType, refreshNonce]);
 
   const close = () => {
     if (loading) return;
@@ -80,7 +83,6 @@ export function TransferDetailSheet({
   };
 
   const isCardPayment = detail?.destinationAccount.accountType === 'CREDIT_CARD';
-  const isCrossCurrency = detail?.sourceCurrency !== detail?.destinationCurrency;
 
   if (!visible) return null;
 

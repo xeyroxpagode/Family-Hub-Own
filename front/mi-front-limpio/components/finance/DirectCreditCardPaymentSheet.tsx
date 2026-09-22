@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
@@ -69,7 +70,6 @@ export function DirectCreditCardPaymentSheet({
   );
   const isCrossCurrency = Boolean(selectedSourceAccount && card && selectedSourceAccount.currency !== card.currency);
   const effectiveSourceAmount = isCrossCurrency ? sourceAmount : cardAmount;
-  const effectiveSourceAmountText = isCrossCurrency ? sourceAmountText : cardAmountText;
   const transferSignature = buildTransferPayloadSignature({
     sourceAccount: selectedSourceAccount?.id ?? '',
     destinationAccount: card?.id ?? '',
@@ -170,7 +170,7 @@ export function DirectCreditCardPaymentSheet({
           contentContainerStyle={styles.form}
         >
           <View style={styles.summaryBox}>
-            <AppText variant="caption" tone="secondary" weight="700">Deuda actual registrada</AppText>
+            <AppText variant="caption" tone="secondary" weight="700">Estado de la tarjeta</AppText>
             <AppText variant="title3" weight="800">{currentDebtLabel}</AppText>
           </View>
 
@@ -189,7 +189,7 @@ export function DirectCreditCardPaymentSheet({
             onCurrencyChange={() => undefined}
             availableCurrencies={[cardCurrency]}
             label="Monto para la tarjeta"
-            helperText="Podés pagar parcial, total o de más."
+            helperText="Podés pagar parcial, total o de más y generar saldo a favor."
             disabled={submitting}
             errorText={cardAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
           />
@@ -201,8 +201,8 @@ export function DirectCreditCardPaymentSheet({
               onValueChange={(next) => { setSourceAmountText(next.inputText); setSourceAmount(next); setSubmitError(null); }}
               onCurrencyChange={() => undefined}
               availableCurrencies={[selectedSourceAccount.currency as MoneyInputCurrencyCode]}
-              label="Monto que sale"
-              helperText="No calculamos tipo de cambio. Ingresá lo que debitó tu cuenta."
+              label="Sale"
+              helperText="Ingresá lo que se debita de la cuenta. No calculamos tipo de cambio."
               disabled={submitting}
               errorText={sourceAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
             />

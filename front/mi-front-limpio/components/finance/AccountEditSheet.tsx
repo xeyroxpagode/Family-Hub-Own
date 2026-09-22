@@ -65,6 +65,9 @@ export function AccountEditSheet({
   const [balance, setBalance] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
   const [closingDayText, setClosingDayText] = useState('');
   const [dueDayText, setDueDayText] = useState('');
+  const [closingDayTouched, setClosingDayTouched] = useState(false);
+  const [dueDayTouched, setDueDayTouched] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -76,6 +79,7 @@ export function AccountEditSheet({
   const closingDay = parseDayText(closingDayText);
   const dueDay = parseDayText(dueDayText);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- Sheet draft state is hydrated when a different account is opened. */
   useEffect(() => {
     if (visible && account) {
       setName(account.name ?? '');
@@ -86,18 +90,30 @@ export function AccountEditSheet({
       setBalance(parseMoneyInputText(prefill, account.currency));
       setClosingDayText(isCreditCard && account.closingDay != null ? String(account.closingDay) : '');
       setDueDayText(isCreditCard && account.dueDay != null ? String(account.dueDay) : '');
+      setClosingDayTouched(false);
+      setDueDayTouched(false);
+      setSubmitAttempted(false);
       setSubmitError(null);
       setSubmitting(false);
     }
     if (!visible) {
+      setClosingDayTouched(false);
+      setDueDayTouched(false);
+      setSubmitAttempted(false);
       setSubmitError(null);
       setSubmitting(false);
     }
   }, [visible, account, isCreditCard, presentation]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  const closingDayError = isCreditCard && closingDay === null ? 'Ingresá un día de cierre entre 1 y 31.' : undefined;
-  const dueDayError = isCreditCard && dueDay === null ? 'Ingresá un día de vencimiento entre 1 y 31.' : undefined;
-  const cardTimingValid = !isCreditCard || (closingDay !== null && dueDay !== null);
+  const closingDayInvalid = isCreditCard && closingDay === null;
+  const dueDayInvalid = isCreditCard && dueDay === null;
+  const closingDayError = closingDayInvalid && (closingDayTouched || submitAttempted)
+    ? 'Ingresá un día de cierre entre 1 y 31.'
+    : undefined;
+  const dueDayError = dueDayInvalid && (dueDayTouched || submitAttempted)
+    ? 'Ingresá un día de vencimiento entre 1 y 31.'
+    : undefined;
 
   const enteredMagnitude = balance.technicalValue?.amount ?? (balance.status === 'zero' && balance.canonicalAmount !== null ? balance.canonicalAmount : null);
   const enteredCanonical = enteredMagnitude !== null && account
@@ -113,7 +129,7 @@ export function AccountEditSheet({
     : false;
 
   const hasChange = nameChanged || timingChanged || balanceChanged;
-  const canSubmit = Boolean(accessToken) && Boolean(account) && name.trim().length > 0 && cardTimingValid && hasChange && !submitting;
+  const canSubmit = Boolean(accessToken) && Boolean(account) && name.trim().length > 0 && hasChange && !submitting;
 
   const close = () => {
     if (submitting) return;
@@ -124,7 +140,14 @@ export function AccountEditSheet({
   const submit = async () => {
     if (submitting || !accessToken || !account) return;
     Keyboard.dismiss();
+    setSubmitAttempted(true);
     setSubmitError(null);
+
+    if (closingDayInvalid || dueDayInvalid) {
+      setSubmitError(closingDayInvalid ? 'Ingresá un día de cierre entre 1 y 31.' : 'Ingresá un día de vencimiento entre 1 y 31.');
+      return;
+    }
+
     setSubmitting(true);
 
     const metadataChanged = nameChanged || timingChanged;
@@ -225,6 +248,7 @@ export function AccountEditSheet({
                 label="Día de cierre"
                 value={closingDayText}
                 onChangeText={(text) => { setClosingDayText(text); setSubmitError(null); }}
+                onBlur={() => setClosingDayTouched(true)}
                 placeholder="28"
                 editable={!submitting}
                 keyboardType="number-pad"
@@ -239,6 +263,7 @@ export function AccountEditSheet({
                 label="Día de vencimiento"
                 value={dueDayText}
                 onChangeText={(text) => { setDueDayText(text); setSubmitError(null); }}
+                onBlur={() => setDueDayTouched(true)}
                 placeholder="8"
                 editable={!submitting}
                 keyboardType="number-pad"

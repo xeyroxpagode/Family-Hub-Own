@@ -22,11 +22,17 @@ import { EditEventScreen } from '../screens/planner/EditEventScreen';
 import { CreateGoalScreen } from '../screens/planner/CreateGoalScreen';
 import { PlannerPlanStructureEditScreen } from '../screens/planner/PlannerPlanStructureEditScreen';
 import { PlannerPlanDetailScreen } from '../screens/planner/PlannerPlanDetailScreen';
+import { PlannerPlanCreateScreen } from '../screens/planner/PlannerPlanCreateScreen';
+import { PlannerPlanListScreen } from '../screens/planner/PlannerPlanListScreen';
+import { PlannerPlanDetailScreen as PlannerPlanDetailScreenV1 } from '../screens/planner/PlannerPlanDetailScreenV1';
 import { PlannerTrashScreen } from '../screens/planner/PlannerTrashScreen';
 import { PlannerSearchScreen } from '../screens/planner/PlannerSearchScreen';
 import { PlannerAttentionActivityScreen } from '../screens/planner/PlannerAttentionActivityScreen';
 import { TaskDetailScreen } from '../screens/planner/TaskDetailScreen';
 import { EventDetailScreen } from '../screens/planner/EventDetailScreen';
+import { ResponsibilitiesScreen } from '../screens/planner/ResponsibilitiesScreen';
+import { ResponsibilityFormScreen } from '../screens/planner/ResponsibilityFormScreen';
+import { ResponsibilityDetailScreen } from '../screens/planner/ResponsibilityDetailScreen';
 import {
   PlannerDraftRecoveryRoute,
   PlannerDraftResumeRoute,
@@ -172,6 +178,9 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="CreateGoal" component={CreateGoalScreen} />
       <PlannerStack.Screen name="EditGoal" component={PlannerPlanStructureEditScreen} />
       <PlannerStack.Screen name="GoalDetail" component={PlannerPlanDetailScreen} />
+      <PlannerStack.Screen name="EditPlan" component={PlannerPlanStructureEditScreen} />
+      <PlannerStack.Screen name="PlanList" component={PlannerPlanListScreen} />
+      <PlannerStack.Screen name="PlanDetail" component={PlannerPlanDetailScreenV1} />
       <PlannerStack.Screen name="PlannerTrash" component={PlannerTrashScreen} />
       <PlannerStack.Screen name="PlannerPresetLibrary" component={PlannerPresetLibraryRoute} />
       <PlannerStack.Screen name="PlannerPresetDetail" component={PlannerPresetDetailRoute} />
@@ -184,6 +193,11 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="PlannerAttentionActivity" component={PlannerAttentionActivityScreen} />
       <PlannerStack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <PlannerStack.Screen name="EventDetail" component={EventDetailScreen} />
+      <PlannerStack.Screen name="Responsibilities" component={ResponsibilitiesScreen} />
+      <PlannerStack.Screen name="ResponsibilityCreate" component={ResponsibilityFormScreen} />
+      <PlannerStack.Screen name="ResponsibilityEdit" component={ResponsibilityFormScreen} />
+      <PlannerStack.Screen name="ResponsibilityDetail" component={ResponsibilityDetailScreen} />
+      <PlannerStack.Screen name="CreatePlan" component={PlannerPlanCreateScreen} />
     </PlannerStack.Navigator>
   );
 }

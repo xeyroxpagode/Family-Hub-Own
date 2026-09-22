@@ -1,47 +1,62 @@
 /**
- * Planner V1 — M11 Presets/Drafts Frontend — Preset Library screen.
+ * Planner V1 — M11 Presets/Drafts — Preset Library screen.
  *
- * Lane-owned. Lists Presets personally/household/homeplus-partitioned with
- * active vs trashed sections, lifecycle-aware visual state and safe error
- * messages. This screen is NOT registered in the global navigator; the lane
- * publishes a route descriptor in
- * `navigation/plannerPresetDraftsRouteDescriptors.tsx` for Integration to wire.
+ * P2.2A canonical shape (frozen):
+ *   <  Biblioteca de presets                                +
  *
- * Compliance:
- * - Does NOT add a fourth Planner tab.
- * - Does NOT modify shared files.
- * - Does NOT broadcast Preset selection as entity creation. Selecting opens
- *   Detail/Preview, never creates anything.
- * - Privacy: no UUID/SQLSTATE/payload shown; only safe labels.
+ *   DEL HOGAR            (household presets first — editable)
+ *   Preset 1                                           >
+ *
+ *   --------------------------------------------------
+ *
+ *   DE HOMEPLUS          (system presets — read-only, duplicable)
+ *   12 presets                                            ^
+ *   Preset A                                           >
+ *
+ * Canonical presets are TASK presets only, in scopes homeplus | household.
+ * Compatibility rows (personal scope, event/plan kinds, trashed items) remain
+ * in storage but are NOT part of the canonical surface; the trash entry still
+ * opens the lifecycle/trash surface for rows the user owns.
+ *
+ * Finance Categories is the visual donor: custom/household content first,
+ * system content second, single continuous hierarchy, flat rows — no
+ * card-per-preset, no kind tabs.
+ *
+ * Lane compliance retained from M11:
+ * - Lifecycle-aware visual states with safe (non-technical) messages.
+ * - Selecting a preset opens Detail; it NEVER creates an entity.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 
-import { plannerStyles as S } from '../../../screens/planner/plannerShared';
+import { useAppTheme } from '../../../context/AppThemeContext';
+import type { AppResolvedTheme } from '../../../constants/theme';
+import { HomePlusIcon } from '../../../constants/icons';
 import { AppText } from '../../ui/AppText';
 import { useAuth } from '../../../context/AuthContext';
-import { useHousehold } from '../../../context/HouseholdContext';
 import { listPlannerPresets } from '../../../services/plannerPresets';
+import { getTypeLabel } from '../../../screens/planner/plannerShared';
 import {
+  CANONICAL_PRESET_SECTION_TITLES,
+  canonicalPresetLibraryGroups,
   classifyPresetLibraryVisualState,
-  filterPresetsByKind,
+  isCanonicalLibraryEmpty,
   partitionPresets,
-  presetKindSafeLabel,
-  presetSourceSafeLabel,
-  groupPresetsBySource,
-  PRESET_LIBRARY_EMPTY_MESSAGE,
   PRESET_LIBRARY_FATAL_MESSAGE,
   PRESET_LIBRARY_PARTIAL_ERROR_MESSAGE,
   PRESET_LIBRARY_REFRESH_FAILED_MESSAGE,
-  type PresetLibraryFilter,
   type PresetLibraryVisualState,
 } from './plannerPresetLibraryViewState';
+import { presetTaskPayloadFromPreset } from '../../../services/planner/plannerPresetTaskDomain';
 import type { PlannerPreset } from '../../../types/plannerPresetsDrafts';
 
 type Props = {
   onOpenPreset?: (preset: PlannerPreset) => void;
   onCreatePreset?: () => void;
   onOpenTrash?: () => void;
+  onBack?: () => void;
   /** Optional accessToken override (for tests / Storybook). */
   accessTokenOverride?: string;
 };
@@ -50,19 +65,29 @@ export function PlannerPresetLibraryScreen({
   onOpenPreset,
   onCreatePreset,
   onOpenTrash,
+  onBack,
   accessTokenOverride,
 }: Props) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const insets = useSafeAreaInsets();
   const { session } = useAuth();
-  const { currentHousehold } = useHousehold();
   const accessToken = accessTokenOverride ?? session?.access_token;
 
   const [presets, setPresets] = useState<readonly PlannerPreset[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isStale, setIsStale] = useState(false);
+  const [isStale] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [errorKind, setErrorKind] = useState<'none' | 'partial' | 'fatal' | null>('none');
-  const [filter, setFilter] = useState<PresetLibraryFilter>('all');
+  const [homeplusExpanded, setHomeplusExpanded] = useState(true);
+  // P2.2A-R1 (defecto 2G): la biblioteca solo cargaba al montar. Al volver
+  // con goBack desde Crear/Editar/Duplicar (el screen ya estaba montado en
+  // el stack) la lista quedaba stale y el preset del hogar recién creado no
+  // aparecía. Recarga única al recuperar foco, sin polling ni loops.
+  const isFocused = useIsFocused();
+  const wasFocusedRef = useRef(isFocused);
 
   const loadFresh = useCallback(async () => {
     if (!accessToken) {
@@ -77,7 +102,6 @@ export function PlannerPresetLibraryScreen({
         include_trashed: true,
       });
       setPresets(response.presets);
-      setIsStale(false);
       setIsOffline(false);
     } catch (error) {
       const msg = error instanceof Error ? error.message.toLowerCase() : '';
@@ -97,13 +121,12 @@ export function PlannerPresetLibraryScreen({
         include_trashed: true,
       });
       setPresets(response.presets);
-      setIsStale(false);
       setErrorKind('none');
     } catch (error) {
       const msg = error instanceof Error ? error.message.toLowerCase() : '';
       const offline = msg.includes('network') || msg.includes('fetch');
       setIsOffline(offline);
-      setErrorKind(offline ? 'partial' : 'partial');
+      setErrorKind('partial');
     } finally {
       setIsRefreshing(false);
     }
@@ -112,6 +135,17 @@ export function PlannerPresetLibraryScreen({
   useEffect(() => {
     void loadFresh();
   }, [loadFresh]);
+
+  useEffect(() => {
+    const wasFocused = wasFocusedRef.current;
+    wasFocusedRef.current = isFocused;
+    // Solo en transición desenfocado → enfocado (volver con goBack) y con
+    // datos ya cargados: una recarga con datos preservados, sin spinner.
+    if (isFocused && !wasFocused && presets !== null && !isLoading && !isRefreshing) {
+      void refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFocused]);
 
   const visualState: PresetLibraryVisualState = useMemo(
     () =>
@@ -126,219 +160,346 @@ export function PlannerPresetLibraryScreen({
     [presets, isLoading, isRefreshing, isStale, isOffline, errorKind],
   );
 
-  const partitions = useMemo(
-    () => partitionPresets(presets ?? []),
-    [presets],
-  );
-  const activeFiltered = useMemo(
-    () => filterPresetsByKind(partitions.active, filter),
-    [partitions.active, filter],
-  );
-  const activeBySource = useMemo(
-    () => groupPresetsBySource(activeFiltered),
-    [activeFiltered],
-  );
+  const groups = useMemo(() => canonicalPresetLibraryGroups(presets ?? []), [presets]);
+  const trashedCount = useMemo(() => partitionPresets(presets ?? []).trashed.length, [presets]);
+  const canonicalEmpty = isCanonicalLibraryEmpty(groups);
+
+  const showList =
+    visualState === 'loaded'
+    || visualState === 'refreshing_with_data_preserved'
+    || visualState === 'partial_error'
+    || visualState === 'offline'
+    || visualState === 'stale';
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-        <AppText variant="title2" weight="700" style={{ flex: 1 }}>
+    <View style={styles.root}>
+      <View style={[styles.header, { paddingTop: 12 + insets.top * 0 }]}>
+        {onBack ? (
+          <Pressable
+            style={styles.headerIconBtn}
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel="Volver"
+          >
+            <HomePlusIcon name="chevron-back" size={22} color={colors.text.primary} />
+          </Pressable>
+        ) : null}
+        <AppText variant="title2" weight="800" style={styles.headerTitle}>
           Biblioteca de presets
         </AppText>
         {onCreatePreset ? (
-          <TouchableOpacity onPress={onCreatePreset} accessibilityRole="button" accessibilityLabel="Crear nuevo preset">
-            <AppText variant="body" weight="700" tone="primary">
-              + Nuevo
-            </AppText>
-          </TouchableOpacity>
+          <Pressable
+            style={styles.headerIconBtn}
+            onPress={onCreatePreset}
+            accessibilityRole="button"
+            accessibilityLabel="Nuevo preset"
+          >
+            <HomePlusIcon name="add" size={24} color={colors.text.primary} />
+          </Pressable>
         ) : null}
       </View>
 
-      <FilterBar filter={filter} onChange={setFilter} />
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        {visualState === 'initial_loading' ? (
+          <View style={styles.centerState}>
+            <ActivityIndicator color={colors.terracotta[500]} />
+          </View>
+        ) : null}
 
-      {visualState === 'initial_loading' ? (
-        <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-          <ActivityIndicator />
-        </View>
-      ) : null}
+        {visualState === 'fatal_safe_error' ? (
+          <SafeErrorBox message={PRESET_LIBRARY_FATAL_MESSAGE} onRetry={() => void loadFresh()} />
+        ) : null}
 
-      {visualState === 'fatal_safe_error' ? (
-        <SafeErrorBox message={PRESET_LIBRARY_FATAL_MESSAGE} onRetry={() => void loadFresh()} />
-      ) : null}
+        {visualState === 'partial_error' ? (
+          <SafeErrorBox message={PRESET_LIBRARY_PARTIAL_ERROR_MESSAGE} onRetry={() => void refresh()} />
+        ) : null}
 
-      {visualState === 'partial_error' ? (
-        <SafeErrorBox
-          message={PRESET_LIBRARY_PARTIAL_ERROR_MESSAGE}
-          onRetry={currentHousehold ? () => void refresh() : undefined}
-          canRetry={currentHousehold !== undefined}
-        />
-      ) : null}
+        {visualState === 'offline' ? (
+          <AppText variant="bodySmall" tone="tertiary" style={styles.inlineNote}>
+            Sin conexión. Mostramos lo que tenemos guardado.
+          </AppText>
+        ) : null}
 
-      {visualState === 'empty' ? (
-        <AppText variant="body" tone="tertiary" style={{ marginTop: 16 }}>
-          {PRESET_LIBRARY_EMPTY_MESSAGE}
-        </AppText>
-      ) : null}
+        {visualState === 'refreshing_with_data_preserved' ? (
+          <AppText variant="caption" tone="tertiary" style={styles.inlineNote}>
+            {PRESET_LIBRARY_REFRESH_FAILED_MESSAGE}
+          </AppText>
+        ) : null}
 
-      {visualState === 'offline' ? (
-        <AppText variant="bodySmall" tone="tertiary">
-          Sin conexión. Mostramos lo que tenemos guardado.
-        </AppText>
-      ) : null}
+        {showList && canonicalEmpty ? (
+          <View style={styles.centerState}>
+            <AppText variant="body" tone="tertiary" align="center">
+              {'Todavía no tenés presets.\nCreá el primero con el + de arriba.'}
+            </AppText>
+          </View>
+        ) : null}
 
-      {visualState === 'stale' ? (
-        <AppText variant="micro" tone="tertiary">
-          Datos en revisión. Actualizá cuando puedas.
-        </AppText>
-      ) : null}
+        {showList && !canonicalEmpty ? (
+          <View>
+            {groups.household.length > 0 ? (
+              <PresetFlatSection
+                title={CANONICAL_PRESET_SECTION_TITLES.household}
+                presets={groups.household}
+                onOpenPreset={onOpenPreset}
+              />
+            ) : null}
 
-      {visualState === 'loaded'
-        || visualState === 'refreshing_with_data_preserved'
-        || visualState === 'partial_error'
-        || visualState === 'offline'
-        || visualState === 'stale' ? (
-        <View style={{ marginTop: 12 }}>
-          <PresetSection
-            title="HomePlus"
-            presets={activeBySource.homeplus}
-            onOpenPreset={onOpenPreset}
-            readOnly
-          />
-          <PresetSection
-            title="Personal"
-            presets={activeBySource.personal}
-            onOpenPreset={onOpenPreset}
-          />
-          <PresetSection
-            title="Familiar"
-            presets={activeBySource.household}
-            onOpenPreset={onOpenPreset}
-          />
-          {partitions.trashed.length > 0 && onOpenTrash ? (
-            <TouchableOpacity
-              style={{ marginTop: 16 }}
-              onPress={onOpenTrash}
-              accessibilityRole="button"
-              accessibilityLabel="Ver papelera de presets"
-            >
-              <AppText variant="bodySmall" tone="tertiary">
-                Papelera ({partitions.trashed.length})
-              </AppText>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      ) : null}
+            {groups.household.length > 0 && groups.homeplus.length > 0 ? (
+              <View style={styles.sectionDivider} />
+            ) : null}
 
-      {visualState === 'refreshing_with_data_preserved' ? (
-        <AppText variant="micro" tone="tertiary" style={{ marginBottom: 8 }}>
-          {PRESET_LIBRARY_REFRESH_FAILED_MESSAGE}
-        </AppText>
-      ) : null}
-    </ScrollView>
+            {groups.homeplus.length > 0 ? (
+              <View>
+                <Pressable
+                  style={styles.homeplusHeader}
+                  onPress={() => setHomeplusExpanded((value) => !value)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${CANONICAL_PRESET_SECTION_TITLES.homeplus}, ${groups.homeplus.length} presets`}
+                >
+                  <AppText variant="caption" weight="800" style={styles.sectionTitle}>
+                    {CANONICAL_PRESET_SECTION_TITLES.homeplus}
+                  </AppText>
+                  <View style={styles.homeplusHeaderRight}>
+                    <AppText variant="caption" tone="tertiary">
+                      {`${groups.homeplus.length} presets`}
+                    </AppText>
+                    <HomePlusIcon
+                      name={homeplusExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color={colors.text.tertiary}
+                    />
+                  </View>
+                </Pressable>
+                {homeplusExpanded ? (
+                  <PresetFlatRows presets={groups.homeplus} onOpenPreset={onOpenPreset} readOnlyMark />
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {trashedCount > 0 && onOpenTrash ? (
+          <Pressable
+            style={styles.trashLink}
+            onPress={onOpenTrash}
+            accessibilityRole="button"
+            accessibilityLabel="Ver papelera de presets"
+          >
+            <HomePlusIcon name="trash" size={16} color={colors.text.tertiary} />
+            <AppText variant="bodySmall" tone="tertiary">
+              {`Papelera (${trashedCount})`}
+            </AppText>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+    </View>
   );
 }
 
-function FilterBar({
-  filter,
-  onChange,
+function PresetFlatSection({
+  title,
+  presets,
+  onOpenPreset,
 }: {
-  filter: PresetLibraryFilter;
-  onChange: (next: PresetLibraryFilter) => void;
+  title: string;
+  presets: readonly PlannerPreset[];
+  onOpenPreset?: (preset: PlannerPreset) => void;
 }) {
-  const tabs: PresetLibraryFilter[] = ['all', 'task', 'event', 'plan'];
-  const labels: Record<PresetLibraryFilter, string> = {
-    all: 'Todos',
-    task: 'Tareas',
-    event: 'Eventos',
-    plan: 'Planes',
-  };
+  const theme = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   return (
-    <View style={{ flexDirection: 'row', marginBottom: 12 }}>
-      {tabs.map((tab) => {
-        const active = tab === filter;
+    <View>
+      <AppText variant="caption" weight="800" style={styles.sectionTitle}>
+        {title}
+      </AppText>
+      <PresetFlatRows presets={presets} onOpenPreset={onOpenPreset} />
+    </View>
+  );
+}
+
+function PresetFlatRows({
+  presets,
+  onOpenPreset,
+  readOnlyMark = false,
+}: {
+  presets: readonly PlannerPreset[];
+  onOpenPreset?: (preset: PlannerPreset) => void;
+  readOnlyMark?: boolean;
+}) {
+  const theme = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  return (
+    <View>
+      {presets.map((preset) => {
+        const payload = presetTaskPayloadFromPreset(preset);
+        const typeLabel = payload ? getTypeLabel(payload.template_key, payload.category) : null;
+        const metaParts: string[] = [];
+        if (typeLabel) metaParts.push(typeLabel);
+        if (payload && payload.checklist.length > 0) metaParts.push(`${payload.checklist.length} pasos`);
+        if (payload?.estimated_duration_minutes) metaParts.push(`${payload.estimated_duration_minutes} min`);
+        const meta = metaParts.join(' · ');
         return (
-          <TouchableOpacity
-            key={tab}
-            onPress={() => onChange(tab)}
+          <Pressable
+            key={preset.id}
+            style={styles.row}
+            onPress={() => onOpenPreset?.(preset)}
             accessibilityRole="button"
-            style={{
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 16,
-              backgroundColor: active ? '#2B6CB0' : 'transparent',
-              marginRight: 8,
-            }}
+            accessibilityLabel={`Abrir preset ${preset.name}`}
           >
-            <AppText variant="bodySmall" weight="700" tone={active ? 'inverse' : 'tertiary'}>
-              {labels[tab]}
-            </AppText>
-          </TouchableOpacity>
+            <View style={styles.rowContent}>
+              <AppText variant="body" weight="600" numberOfLines={1}>
+                {preset.name}
+              </AppText>
+              {meta ? (
+                <AppText variant="caption" tone="tertiary" numberOfLines={1}>
+                  {meta}
+                </AppText>
+              ) : null}
+            </View>
+            {readOnlyMark ? (
+              <AppText variant="caption" tone="tertiary" style={styles.readOnlyTag}>
+                Solo lectura
+              </AppText>
+            ) : null}
+            <HomePlusIcon name="chevron-forward" size={18} color={colorsTextTertiary(theme)} />
+          </Pressable>
         );
       })}
     </View>
   );
 }
 
-function PresetSection({
-  title,
-  presets,
-  onOpenPreset,
-  readOnly,
-}: {
-  title: string;
-  presets: readonly PlannerPreset[];
-  onOpenPreset?: (preset: PlannerPreset) => void;
-  readOnly?: boolean;
-}) {
-  if (presets.length === 0) return null;
-  return (
-    <View style={{ marginBottom: 16 }}>
-      <AppText variant="bodySmall" weight="700" style={{ marginBottom: 6 }}>
-        {title}
-      </AppText>
-      {presets.map((preset) => (
-        <Pressable
-          key={preset.id}
-          onPress={() => onOpenPreset?.(preset)}
-          accessibilityRole="button"
-          accessibilityLabel={`Abrir preset ${preset.name}`}
-        >
-          <View style={S.row}>
-            <AppText variant="body" weight="600" style={{ flex: 1 }}>
-              {preset.name}
-            </AppText>
-            <AppText variant="micro" tone="tertiary">
-              {presetKindSafeLabel(preset.entity_type)} · {presetSourceSafeLabel(preset.source)}
-              {readOnly ? ' · Solo lectura' : ''}
-            </AppText>
-          </View>
-        </Pressable>
-      ))}
-    </View>
-  );
+function colorsTextTertiary(theme: AppResolvedTheme) {
+  return theme.colors.text.tertiary;
 }
 
 function SafeErrorBox({
   message,
   onRetry,
-  canRetry,
 }: {
   message: string;
   onRetry?: () => void;
-  canRetry?: boolean;
 }) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = useMemo(() => createStyles(theme), [theme]);
   return (
-    <View style={S.toastBox}>
-      <AppText variant="bodySmall" tone="warning" weight="700" style={{ flex: 1 }}>
+    <View style={styles.errorBox}>
+      <AppText variant="bodySmall" tone="warning" weight="700" style={styles.errorBoxText}>
         {message}
       </AppText>
-      {canRetry && onRetry ? (
-        <TouchableOpacity onPress={onRetry} accessibilityRole="button" accessibilityLabel="Reintentar">
-          <AppText variant="bodySmall" tone="primary" weight="700">
+      {onRetry ? (
+        <Pressable onPress={onRetry} accessibilityRole="button" accessibilityLabel="Reintentar">
+          <AppText variant="bodySmall" weight="700" style={{ color: colors.terracotta[600] }}>
             Reintentar
           </AppText>
-        </TouchableOpacity>
+        </Pressable>
       ) : null}
     </View>
   );
+}
+
+function createStyles(theme: AppResolvedTheme) {
+  const { colors } = theme;
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: colors.background.base,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingBottom: 10,
+    },
+    headerTitle: {
+      flex: 1,
+    },
+    headerIconBtn: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surface.soft,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+    },
+    content: {
+      paddingHorizontal: 16,
+      paddingBottom: 96,
+    },
+    centerState: {
+      paddingVertical: 48,
+      alignItems: 'center',
+      paddingHorizontal: 24,
+    },
+    inlineNote: {
+      marginBottom: 10,
+    },
+    sectionTitle: {
+      color: colors.text.secondary,
+      letterSpacing: 0.5,
+      marginTop: 14,
+      marginBottom: 2,
+    },
+    sectionDivider: {
+      height: 1,
+      backgroundColor: colors.border.subtle,
+      marginVertical: 14,
+    },
+    homeplusHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: 4,
+      paddingVertical: 6,
+    },
+    homeplusHeaderRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      minHeight: 52,
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border.subtle,
+    },
+    rowContent: {
+      flex: 1,
+      gap: 2,
+    },
+    readOnlyTag: {
+      marginRight: 2,
+    },
+    trashLink: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 20,
+      paddingVertical: 6,
+    },
+    errorBox: {
+      backgroundColor: colors.warning.soft,
+      borderColor: colors.warning.base,
+      borderWidth: 1,
+      borderRadius: 14,
+      padding: 14,
+      marginVertical: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    errorBoxText: {
+      flex: 1,
+    },
+  });
 }

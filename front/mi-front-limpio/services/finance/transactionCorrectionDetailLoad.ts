@@ -2,6 +2,7 @@ import { ApiError } from '../api';
 import type { FinanceTransactionDetailDto } from './financeTransactionDetail';
 import type { CorrectFinanceTransactionPayload } from './financeMovements';
 import {
+  formatMoneyInputDisplay,
   parseMoneyInputText,
   type MoneyInputCurrencyCode,
   type MoneyInputParseResult,
@@ -115,9 +116,10 @@ export function transactionCorrectionDraftFromOriginal(
   original: TransactionCorrectionOriginal,
 ): TransactionCorrectionDraft {
   const currency = original.currency as MoneyInputCurrencyCode;
+  const amount = parseMoneyInputText(original.amount, currency);
   return {
-    amountText: original.amount,
-    amount: parseMoneyInputText(original.amount, currency),
+    amountText: amount.displayText || formatMoneyInputDisplay(original.amount),
+    amount,
     currency,
     description: original.description ?? '',
     notes: original.notes ?? '',
@@ -179,10 +181,10 @@ export function transactionCorrectionCategoryReviewLabel(args: {
   const { original, selectedCategoryId, selectedCategoryLabel } = args;
   if (selectedCategoryLabel) return selectedCategoryLabel;
   if (selectedCategoryId === original.categoryId) {
-    return original.categoryLabelSnapshot ?? 'Sin categoria';
+    return original.categoryLabelSnapshot ?? 'Sin categoría';
   }
-  if (selectedCategoryId) return 'Categoria seleccionada';
-  return 'Sin categoria';
+  if (selectedCategoryId) return 'Categoría seleccionada';
+  return 'Sin categoría';
 }
 
 export function transactionCorrectionAccountReviewLabel(args: {
@@ -241,7 +243,7 @@ export function isTransactionCorrectionAccountSelectionInvalid(args: {
 export function transactionCorrectionOriginalCategoryLabel(original: TransactionCorrectionOriginal): string {
   return original.categoryId && original.categoryLabelSnapshot
     ? original.categoryLabelSnapshot
-    : 'Sin categoria';
+    : 'Sin categoría';
 }
 
 export function transactionCorrectionOriginalAccountLabel(original: TransactionCorrectionOriginal): string {
@@ -293,7 +295,7 @@ export function getTransactionCorrectionChanges(args: {
   if (originalDescription.trim() !== draftDescription) {
     changes.push({
       field: 'description',
-      label: 'Descripcion',
+      label: 'Descripción',
       oldValue: originalDescription || '(vacio)',
       newValue: draftDescription || '(vacio)',
     });
@@ -302,7 +304,7 @@ export function getTransactionCorrectionChanges(args: {
   if (original.categoryId !== draft.categoryId) {
     changes.push({
       field: 'categoryId',
-      label: 'Categoria',
+      label: 'Categoría',
       oldValue: transactionCorrectionOriginalCategoryLabel(original),
       newValue: transactionCorrectionCategoryReviewLabel({
         original,

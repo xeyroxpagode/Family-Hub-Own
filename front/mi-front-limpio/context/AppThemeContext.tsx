@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useColorScheme } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 
 import {
@@ -9,7 +10,6 @@ import {
   seniorTypography,
   spacing,
   radius,
-  borders,
   shadows,
   darkShadows,
   componentSizes,
@@ -32,6 +32,11 @@ type AppThemeContextValue = {
 };
 
 const AppThemeContext = createContext<AppThemeContextValue | null>(null);
+const THEME_PREFERENCE_STORAGE_KEY = 'homeplus:themePreference';
+
+function isThemePreference(value: unknown): value is ThemePreference {
+  return value === 'system' || value === 'light' || value === 'dark';
+}
 
 function buildBorders(activeColors: ColorTokens) {
   return {
@@ -51,9 +56,29 @@ function buildBorders(activeColors: ColorTokens) {
 }
 
 export function AppThemeProvider({ children }: { children: React.ReactNode }) {
-  const [preference, setPreference] = useState<ThemePreference>('system');
+  const [preference, setPreferenceState] = useState<ThemePreference>('system');
   const systemScheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const resolvedScheme: ResolvedColorScheme = preference === 'system' ? systemScheme : preference;
+
+  useEffect(() => {
+    let mounted = true;
+    void AsyncStorage.getItem(THEME_PREFERENCE_STORAGE_KEY)
+      .then((stored) => {
+        if (mounted && isThemePreference(stored)) {
+          setPreferenceState(stored);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const setPreference = useCallback((nextPreference: ThemePreference) => {
+    setPreferenceState(nextPreference);
+    void AsyncStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, nextPreference).catch(() => undefined);
+  }, []);
 
   const theme = useMemo<AppResolvedTheme>(() => {
     const activeColors = resolvedScheme === 'dark' ? darkColors : colors;
@@ -81,7 +106,7 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(
     () => ({ theme, preference, resolvedScheme, setPreference }),
-    [theme, preference, resolvedScheme],
+    [theme, preference, resolvedScheme, setPreference],
   );
 
   return (

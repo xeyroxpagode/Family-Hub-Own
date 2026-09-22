@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError, generateMutationId, createIdempotencyKey } from '../../services/api';
 import { formatFinanceAmount } from '../../services/finance/financeDisplay';
 import type { FinanceTrashMovementDto } from '../../services/finance/financeMovements';
@@ -39,6 +39,9 @@ export function TrashMovementDetailSheet({
   onRequestClose,
   onRestoreSuccess,
 }: TrashMovementDetailSheetProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const [step, setStep] = useState<RestoreFlowStep>('detail');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -269,7 +272,10 @@ export function TrashMovementDetailSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
   content: {
     gap: spacing[4],
     paddingBottom: spacing[2],
@@ -331,4 +337,5 @@ const styles = StyleSheet.create({
   confirmButton: {
     flex: 1,
   },
-});
+  });
+}

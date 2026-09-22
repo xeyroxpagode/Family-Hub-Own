@@ -35,6 +35,7 @@ const {
   cancelPaymentDue,
   cancelPaymentSeries,
   editPaymentDue,
+  settleCreditCardPaymentDue,
   registerPayment,
 } = require('../src/services/finance.payment.service');
 const {
@@ -58,6 +59,10 @@ const {
   listFinanceMovements,
   summarizeFinance,
 } = require('../src/services/finance.read.service');
+const {
+  buildPayloadEnvelope,
+  structuralFingerprint,
+} = require('../src/contracts/planner.presets-drafts.contract');
 
 const SUPABASE_URL = cleanEnv(process.env.SUPABASE_URL);
 const SUPABASE_ANON_KEY = cleanEnv(process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_KEY);
@@ -401,6 +406,13 @@ async function cleanupQaData(authUsers) {
     `, params);
     await deleteIfExists(pg, 'finance_spending_limit_series', scopedDelete('finance_spending_limit_series'), params);
 
+    await deleteIfExists(pg, 'finance_payment_due_settlements', `
+      delete from public.finance_payment_due_settlements fpds
+      using public.finance_payment_dues fpd
+      where fpds.payment_due_id = fpd.id
+        and (($1::uuid is not null and fpd.household_id = $1)
+          or (coalesce(array_length($2::uuid[], 1), 0) > 0 and fpd.owner_person_id = any($2::uuid[])))
+    `, params);
     await deleteIfExists(pg, 'finance_payment_dues', scopedDelete('finance_payment_dues'), params);
     await deleteIfExists(pg, 'finance_payment_series', scopedDelete('finance_payment_series'), params);
 
@@ -453,10 +465,39 @@ async function cleanupQaData(authUsers) {
       await deleteIfExists(pg, 'inventory_item_movements', 'delete from public.inventory_item_movements where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'inventory_items', 'delete from public.inventory_items where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'presence_member_locations', 'delete from public.presence_member_locations where household_id = $1', [householdId]);
+      await deleteIfExists(pg, 'planner_responsibility_occurrences', 'delete from public.planner_responsibility_occurrences where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'planner_tasks', 'delete from public.planner_tasks where household_id = $1', [householdId]);
+      // P2.2A: household-scoped presets are recreated on each rerun (their
+      // revisions cascade). HomePlus system presets are NOT touched.
+      await deleteIfExists(pg, 'planner_presets', 'delete from public.planner_presets where household_id = $1', [householdId]);
+      await deleteIfExists(pg, 'planner_responsibility_members', 'delete from public.planner_responsibility_members where household_id = $1', [householdId]);
+      await deleteIfExists(pg, 'planner_responsibilities', 'delete from public.planner_responsibilities where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'planner_events', 'delete from public.planner_events where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'household_schedule_blocks', 'delete from public.household_schedule_blocks where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'household_schedule_preferences', 'delete from public.household_schedule_preferences where household_id = $1', [householdId]);
+      await deleteIfExists(pg, 'planner_goal_milestones', `
+        delete from public.planner_goal_milestones where goal_id in (select id from public.planner_goals where household_id = $1)
+      `, [householdId]);
+      await deleteIfExists(pg, 'planner_goals', 'delete from public.planner_goals where household_id = $1', [householdId]);
+      await deleteIfExists(pg, 'planner_plan_requirements', `
+        delete from public.planner_plan_requirements where plan_id in (select id from public.planner_plans where household_id = $1)
+      `, [householdId]);
+      await deleteIfExists(pg, 'planner_plan_measurement_history', `
+        delete from public.planner_plan_measurement_history where plan_id in (select id from public.planner_plans where household_id = $1)
+      `, [householdId]);
+      await deleteIfExists(pg, 'planner_plan_manual_conditions', `
+        delete from public.planner_plan_manual_conditions where plan_id in (select id from public.planner_plans where household_id = $1)
+      `, [householdId]);
+      await deleteIfExists(pg, 'planner_plan_measurements', `
+        delete from public.planner_plan_measurements where plan_id in (select id from public.planner_plans where household_id = $1)
+      `, [householdId]);
+      await deleteIfExists(pg, 'planner_plan_milestones', `
+        delete from public.planner_plan_milestones where plan_id in (select id from public.planner_plans where household_id = $1)
+      `, [householdId]);
+      await deleteIfExists(pg, 'planner_plan_legacy_goal_links', `
+        delete from public.planner_plan_legacy_goal_links where plan_id in (select id from public.planner_plans where household_id = $1)
+      `, [householdId]);
+      await deleteIfExists(pg, 'planner_plans', 'delete from public.planner_plans where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'household_invite_links', 'delete from public.household_invite_links where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'household_role_change_requests', 'delete from public.household_role_change_requests where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'household_members', 'delete from public.household_members where household_id = $1', [householdId]);
@@ -640,12 +681,160 @@ async function loadNativeCategories(ctx) {
   return byKey;
 }
 
+function scopedRequest(ctx, table, select) {
+  let request = ctx.client.from(table).select(select);
+  if (ctx.contextType === 'personal') {
+    request = request
+      .eq('financial_context_type', 'personal')
+      .eq('owner_person_id', ctx.personId)
+      .is('household_id', null);
+  } else {
+    request = request
+      .eq('financial_context_type', 'household')
+      .eq('household_id', ctx.householdId)
+      .is('owner_person_id', null);
+  }
+  return request;
+}
+
+async function readPaymentDues(ctx) {
+  const { data, error } = await scopedRequest(ctx, 'finance_payment_dues', `
+    id,title,kind,status,currency,expected_amount_known,expected_amount,due_date,
+    category_id,target_credit_card_account_id,payment_series_id,cycle_close_date,
+    expense_root_transaction_id,transfer_id,actual_amount,actual_date,paid_at
+  `).order('due_date', { ascending: true }).order('created_at', { ascending: true });
+  if (error) throw new Error(`Cannot verify Payment Dues: ${error.message}`);
+  return data ?? [];
+}
+
+async function readPaymentSeries(ctx) {
+  const { data, error } = await scopedRequest(ctx, 'finance_payment_series', `
+    id,title,kind,status,currency,recurrence_interval_unit,recurrence_interval_count,
+    recurrence_anchor_date
+  `).order('title', { ascending: true });
+  if (error) throw new Error(`Cannot verify Payment Series: ${error.message}`);
+  return data ?? [];
+}
+
+async function readSettlementRows(ctx, dueId) {
+  const { data, error } = await ctx.client
+    .from('finance_payment_due_settlements')
+    .select('id,payment_due_id,transfer_id,finance_transfers(source_amount,destination_amount,source_currency,destination_currency)')
+    .eq('payment_due_id', dueId);
+  if (error) throw new Error(`Cannot verify Payment Due settlements: ${error.message}`);
+  return data ?? [];
+}
+
+async function accountBalanceText(ctx, accountId) {
+  const { data, error } = await ctx.client.rpc('finance_account_current_balance_text', {
+    p_account_id: accountId,
+  });
+  if (error) throw new Error(`Cannot verify account balance: ${error.message}`);
+  return data === null || data === undefined ? null : String(data);
+}
+
+function countBy(rows, field) {
+  return rows.reduce((acc, row) => {
+    const key = row[field] ?? 'null';
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+}
+
+async function verifyStage4PaymentSeed(contexts, accounts, artifacts) {
+  const householdDues = await readPaymentDues(contexts.household);
+  const personalDues = await readPaymentDues(contexts.sofiaPersonal);
+  const householdSeries = await readPaymentSeries(contexts.household);
+  const personalSeries = await readPaymentSeries(contexts.sofiaPersonal);
+  const allDues = [...householdDues, ...personalDues];
+  const today = dateDays(0);
+
+  const findDue = (id) => allDues.find((row) => row.id === id);
+  const partialDue = findDue(artifacts.partialCardDueId);
+  const paidMismatchDue = findDue(artifacts.paidMismatchDueId);
+  const cancelledDue = findDue(artifacts.cancelledDueId);
+  const recurringDue = findDue(artifacts.recurringDueId);
+  const partialSettlements = partialDue ? await readSettlementRows(contexts.sofiaPersonal, partialDue.id) : [];
+  const partialPaid = partialSettlements.reduce((sum, row) => {
+    const transfer = Array.isArray(row.finance_transfers) ? row.finance_transfers[0] : row.finance_transfers;
+    return sum + Number(transfer?.destination_amount ?? 0);
+  }, 0);
+
+  const normalPending = allDues.filter((row) => row.kind === 'NORMAL' && row.status === 'PENDING');
+  const cardDues = allDues.filter((row) => row.kind === 'CREDIT_CARD');
+  const amexDueCount = cardDues.filter((row) => row.target_credit_card_account_id === accounts.personalAmexUsd.id).length;
+  const visaPriorityDues = cardDues.filter((row) => row.target_credit_card_account_id === accounts.personalVisa.id);
+
+  return {
+    localApi: SUPABASE_URL,
+    localDb: LOCAL_DB_URL.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:***@'),
+    today,
+    accountBalances: {
+      personalMercadoPagoArs: await accountBalanceText(contexts.sofiaPersonal, accounts.personalMp.id),
+      personalGaliciaArs: await accountBalanceText(contexts.sofiaPersonal, accounts.personalGalicia.id),
+      personalUsd: await accountBalanceText(contexts.sofiaPersonal, accounts.personalUsd.id),
+      householdCuentaFamiliarArs: await accountBalanceText(contexts.household, accounts.householdFamilyArs.id),
+      householdAhorroFamiliarUsd: await accountBalanceText(contexts.household, accounts.householdFamilyUsd.id),
+      visaPersonalArs: await accountBalanceText(contexts.sofiaPersonal, accounts.personalVisa.id),
+      mastercardPersonalArs: await accountBalanceText(contexts.sofiaPersonal, accounts.personalMastercard.id),
+      amexUsdPersonal: await accountBalanceText(contexts.sofiaPersonal, accounts.personalAmexUsd.id),
+      zeroDebtCard: await accountBalanceText(contexts.sofiaPersonal, accounts.personalZeroCard.id),
+      positiveBalanceCard: await accountBalanceText(contexts.sofiaPersonal, accounts.personalPositiveCard.id),
+    },
+    dueCounts: {
+      total: allDues.length,
+      byStatus: countBy(allDues, 'status'),
+      byKind: countBy(allDues, 'kind'),
+      household: householdDues.length,
+      personal: personalDues.length,
+    },
+    normalPayments: {
+      pendingOverdue: normalPending.filter((row) => row.due_date < today).length,
+      pendingToday: normalPending.filter((row) => row.due_date === today).length,
+      pendingUpcoming: normalPending.filter((row) => row.due_date > today).length,
+      unknownAmount: allDues.filter((row) => row.kind === 'NORMAL' && row.expected_amount_known === false).length,
+      paidExpectedVsActual: Boolean(
+        paidMismatchDue
+        && paidMismatchDue.status === 'PAID'
+        && String(paidMismatchDue.expected_amount) !== String(paidMismatchDue.actual_amount)
+        && paidMismatchDue.expense_root_transaction_id
+      ),
+      cancelledOccurrence: cancelledDue?.status === 'CANCELLED',
+    },
+    recurring: {
+      activeSeries: [...householdSeries, ...personalSeries].filter((row) => row.status === 'ACTIVE').length,
+      canonicalPendingDueId: recurringDue?.id ?? null,
+      canonicalPendingDueDate: recurringDue?.due_date ?? null,
+      onePendingPerSeriesConstraint: true,
+    },
+    creditCards: {
+      cardDueCount: cardDues.length,
+      visaPriorityDates: visaPriorityDues.map((row) => row.due_date),
+      partialSettlement: {
+        dueStatus: partialDue?.status ?? null,
+        expectedAmount: partialDue?.expected_amount ? String(partialDue.expected_amount) : null,
+        paidSoFar: partialPaid.toFixed(4).replace(/\.?0+$/, ''),
+        remaining: partialDue?.expected_amount ? (Number(partialDue.expected_amount) - partialPaid).toFixed(4).replace(/\.?0+$/, '') : null,
+        settlementRows: partialSettlements.length,
+      },
+      directUsdCardNoDue: amexDueCount === 0,
+      directUsdCardAllowsManualFx: accounts.personalAmexUsd.currency === 'USD' && accounts.personalGalicia.currency === 'ARS',
+      zeroDebtCardHasDue: cardDues.some((row) => row.target_credit_card_account_id === accounts.personalZeroCard.id),
+      positiveBalanceCardHasDue: cardDues.some((row) => row.target_credit_card_account_id === accounts.personalPositiveCard.id),
+    },
+    unsupportedStates: {
+      skippedPersisted: allDues.some((row) => row.status === 'SKIPPED'),
+      skippedSeeded: false,
+    },
+  };
+}
+
 async function seedFinance(contexts) {
   const cats = await loadNativeCategories(contexts.household);
 
   const accounts = {};
-  async function account(ctx, key, name, currency, accountType, amount) {
-    const body = { name, currency, accountType };
+  async function account(ctx, key, name, currency, accountType, amount, extras = {}) {
+    const body = { name, currency, accountType, ...extras };
     if (amount !== null) {
       body.initialBalance = { amount: String(amount), effectiveDate: dateDays(-70) };
     }
@@ -654,20 +843,30 @@ async function seedFinance(contexts) {
     return created;
   }
 
-  await account(contexts.household, 'cash', 'Efectivo Casa QA', 'ARS', 'ACCOUNT', '65000');
-  await account(contexts.household, 'mp', 'Mercado Pago QA', 'ARS', 'ACCOUNT', '220000');
-  await account(contexts.household, 'galicia', 'Banco Galicia QA', 'ARS', 'ACCOUNT', '980000');
+  await account(contexts.household, 'cash', 'Efectivo Casa QA', 'ARS', 'ACCOUNT', '250000');
+  await account(contexts.household, 'mp', 'Mercado Pago QA', 'ARS', 'ACCOUNT', '750000');
+  await account(contexts.household, 'galicia', 'Banco Galicia QA', 'ARS', 'ACCOUNT', '2200000');
   await account(contexts.household, 'usd', 'Caja USD QA', 'USD', 'ACCOUNT', '850');
-  await account(contexts.household, 'visa', 'Visa Galicia QA', 'ARS', 'CREDIT_CARD', '-185000');
+  await account(contexts.household, 'householdFamilyArs', 'Cuenta familiar ARS QA', 'ARS', 'ACCOUNT', '1250000');
+  await account(contexts.household, 'householdFamilyUsd', 'Ahorro familiar USD QA', 'USD', 'ACCOUNT', '1200');
+  await account(contexts.household, 'visa', 'Visa Galicia QA', 'ARS', 'CREDIT_CARD', '-185000', { closingDay: 18, dueDay: 28 });
   await account(contexts.household, 'zero', 'Cuenta Cero QA', 'ARS', 'ACCOUNT', '0');
-  await account(contexts.household, 'negative', 'Cuenta Negativa QA', 'ARS', 'ACCOUNT', '-15000');
+  await account(contexts.household, 'negative', 'Tarjeta Negativa QA', 'ARS', 'CREDIT_CARD', '-15000', { closingDay: 3, dueDay: 13 });
   await account(contexts.household, 'unknown', 'Saldo sin establecer QA', 'ARS', 'ACCOUNT', null);
   const archived = await account(contexts.household, 'archived', 'Cuenta Archivada QA', 'ARS', 'ACCOUNT', '0');
   await archiveFinanceAccount(contexts.household, archived.id);
 
-  await account(contexts.sofiaPersonal, 'sofiaWallet', 'Billetera Personal Sofía QA', 'ARS', 'ACCOUNT', '90000');
-  await account(contexts.sofiaPersonal, 'sofiaCard', 'Tarjeta Personal Sofía QA', 'ARS', 'CREDIT_CARD', '-42000');
-  await account(contexts.martinPersonal, 'martinWallet', 'Billetera Personal Martín QA', 'ARS', 'ACCOUNT', '70000');
+  await account(contexts.sofiaPersonal, 'sofiaWallet', 'Billetera Personal Sofía QA', 'ARS', 'ACCOUNT', '240000');
+  await account(contexts.sofiaPersonal, 'personalMp', 'Mercado Pago Personal QA', 'ARS', 'ACCOUNT', '420000');
+  await account(contexts.sofiaPersonal, 'personalGalicia', 'Galicia Personal QA', 'ARS', 'ACCOUNT', '860000');
+  await account(contexts.sofiaPersonal, 'personalUsd', 'Caja de ahorro USD Personal QA', 'USD', 'ACCOUNT', '640');
+  await account(contexts.sofiaPersonal, 'sofiaCard', 'Tarjeta Personal Sofía QA', 'ARS', 'CREDIT_CARD', '-42000', { closingDay: 7, dueDay: 17 });
+  await account(contexts.sofiaPersonal, 'personalVisa', 'Visa Personal QA', 'ARS', 'CREDIT_CARD', '-265000', { closingDay: 10, dueDay: 20 });
+  await account(contexts.sofiaPersonal, 'personalMastercard', 'Mastercard Personal QA', 'ARS', 'CREDIT_CARD', '-120000', { closingDay: 12, dueDay: 22 });
+  await account(contexts.sofiaPersonal, 'personalAmexUsd', 'Amex USD Personal QA', 'USD', 'CREDIT_CARD', '-420', { closingDay: 15, dueDay: 25 });
+  await account(contexts.sofiaPersonal, 'personalZeroCard', 'Visa Cero Personal QA', 'ARS', 'CREDIT_CARD', '0', { closingDay: 8, dueDay: 18 });
+  await account(contexts.sofiaPersonal, 'personalPositiveCard', 'Mastercard Saldo a Favor QA', 'ARS', 'CREDIT_CARD', '28000', { closingDay: 5, dueDay: 15 });
+  await account(contexts.martinPersonal, 'martinWallet', 'Billetera Personal Martín QA', 'ARS', 'ACCOUNT', '180000');
 
   const expenses = {};
   async function expense(key, ctx, description, amount, currency, days, categoryKey, accountKey, notes = null) {
@@ -927,6 +1126,7 @@ async function seedFinance(contexts) {
     dueDate: dateDays(-1),
     categoryId: cats.subscriptions.id,
   }))).paymentDue;
+  const stage4Artifacts = {};
   await registerPayment(contexts.household, netflixDue.id, withPaymentMutation('payment-register-netflix', {
     actualAmount: '14999',
     actualDate: dateDays(-1),
@@ -975,6 +1175,121 @@ async function seedFinance(contexts) {
     dueDate: dateDays(5),
     targetCreditCardAccountId: accounts.visa.id,
   }));
+
+  const paidMismatchDue = (await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-expensas-paid-mismatch', {
+    title: 'Expensas edificio QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '185000',
+    dueDate: dateDays(-4),
+    categoryId: cats.housing.id,
+  }))).paymentDue;
+  await registerPayment(contexts.household, paidMismatchDue.id, withPaymentMutation('payment-register-expensas-mismatch', {
+    actualAmount: '192350',
+    actualDate: dateDays(-1),
+    actualCategoryId: cats.housing.id,
+    actualAccountId: accounts.householdFamilyArs.id,
+  }));
+  stage4Artifacts.paidMismatchDueId = paidMismatchDue.id;
+
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-osde-overdue', {
+    title: 'OSDE familiar QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '248000',
+    dueDate: dateDays(-8),
+    categoryId: cats.health.id,
+  }));
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-colegio-today', {
+    title: 'Cuota colegio hoy QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '172000',
+    dueDate: dateDays(0),
+    categoryId: cats.education.id,
+  }));
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-gas-plus2', {
+    title: 'Gas Naturgy QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '31500',
+    dueDate: dateDays(2),
+    categoryId: cats.utilities.id,
+  }));
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-aysa-plus5', {
+    title: 'AySA QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: false,
+    dueDate: dateDays(5),
+    categoryId: cats.utilities.id,
+  }));
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-patente-plus10', {
+    title: 'Patente auto QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '68200',
+    dueDate: dateDays(10),
+    categoryId: cats.taxes.id,
+  }));
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-seguro-hogar-plus20', {
+    title: 'Seguro hogar QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '44500',
+    dueDate: dateDays(20),
+    categoryId: cats.housing.id,
+  }));
+
+  await createOneOffPaymentDue(contexts.sofiaPersonal, withPaymentMutation('payment-visa-personal-overdue', {
+    title: 'Visa Personal QA',
+    kind: 'CREDIT_CARD',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '65000',
+    dueDate: dateDays(-2),
+    targetCreditCardAccountId: accounts.personalVisa.id,
+  }));
+  await createOneOffPaymentDue(contexts.sofiaPersonal, withPaymentMutation('payment-visa-personal-today', {
+    title: 'Visa Personal QA',
+    kind: 'CREDIT_CARD',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '85000',
+    dueDate: dateDays(0),
+    targetCreditCardAccountId: accounts.personalVisa.id,
+  }));
+  await createOneOffPaymentDue(contexts.sofiaPersonal, withPaymentMutation('payment-visa-personal-future', {
+    title: 'Visa Personal QA',
+    kind: 'CREDIT_CARD',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '94000',
+    dueDate: dateDays(9),
+    targetCreditCardAccountId: accounts.personalVisa.id,
+  }));
+  const partialCardDue = (await createOneOffPaymentDue(contexts.sofiaPersonal, withPaymentMutation('payment-mastercard-partial', {
+    title: 'Mastercard Personal QA',
+    kind: 'CREDIT_CARD',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '120000',
+    dueDate: dateDays(3),
+    targetCreditCardAccountId: accounts.personalMastercard.id,
+  }))).paymentDue;
+  await settleCreditCardPaymentDue(contexts.sofiaPersonal, partialCardDue.id, withPaymentMutation('payment-mastercard-partial-settlement', {
+    sourceAccountId: accounts.personalGalicia.id,
+    sourceAmount: '45000',
+    actualDate: dateDays(0),
+  }));
+  stage4Artifacts.partialCardDueId = partialCardDue.id;
+
   const cancelledDue = (await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-monotributo-cancel', {
     title: 'Monotributo QA',
     kind: 'NORMAL',
@@ -985,6 +1300,7 @@ async function seedFinance(contexts) {
     categoryId: cats.taxes.id,
   }))).paymentDue;
   await cancelPaymentDue(contexts.household, cancelledDue.id, withPaymentMutation('payment-cancel-monotributo', {}));
+  stage4Artifacts.cancelledDueId = cancelledDue.id;
   await createPaymentSeries(contexts.household, withPaymentMutation('series-seguro-auto', {
     title: 'Seguro auto QA',
     kind: 'NORMAL',
@@ -996,6 +1312,18 @@ async function seedFinance(contexts) {
     recurrenceIntervalCount: 1,
     recurrenceAnchorDate: dateDays(6),
   }));
+  const expensasSeries = (await createPaymentSeries(contexts.household, withPaymentMutation('series-expensas-recurrentes-stage4', {
+    title: 'Expensas recurrentes QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    defaultExpectedAmountKnown: true,
+    defaultExpectedAmount: '188000',
+    defaultCategoryId: cats.housing.id,
+    recurrenceIntervalUnit: 'MONTH',
+    recurrenceIntervalCount: 1,
+    recurrenceAnchorDate: dateDays(-30),
+  })));
+  stage4Artifacts.recurringDueId = expensasSeries.firstDue.id;
   const gymSeries = (await createPaymentSeries(contexts.household, withPaymentMutation('series-gimnasio', {
     title: 'Gimnasio QA',
     kind: 'NORMAL',
@@ -1017,6 +1345,7 @@ async function seedFinance(contexts) {
     period: currentMonthKey(),
     currency: 'ARS',
   });
+  const stage4Verification = await verifyStage4PaymentSeed(contexts, accounts, stage4Artifacts);
 
   return {
     accounts,
@@ -1026,7 +1355,266 @@ async function seedFinance(contexts) {
     poolNames: ['Supermercado QA', 'Vacaciones QA', 'Emergencias QA', 'Regalos y extras QA', 'Pozo Archivado QA'],
     movementCount: movements.movements.length,
     summary,
+    stage4Verification,
   };
+}
+
+// ---------------------------------------------------------------------------
+// P2.2A — Presets Foundation seed
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic UUID for a global HomePlus preset so reruns UPSERT instead of
+ * duplicating (contract: seed must be idempotent and never reset data).
+ */
+function homeplusPresetUuid(key) {
+  const hash = crypto.createHash('sha256').update(`homeplus-planner-preset-v1:${key}`).digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+
+/** Deterministic UUID for a household-scoped QA preset (idempotent reruns). */
+function householdPresetUuid(householdId, key) {
+  const hash = crypto.createHash('sha256').update(`homeplus-qa-household-preset-v1:${householdId}:${key}`).digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+
+/**
+ * Built-in HomePlus task presets (frozen P2.2A starter set).
+ * Stable fields only — NO assignee/date/time/Plan anywhere.
+ */
+const HOMEPLUS_TASK_PRESETS = [
+  {
+    key: 'shopping',
+    name: 'Hacer una compra',
+    payload: {
+      title: 'Hacer una compra',
+      note: 'Definí qué hay que comprar y dónde antes de salir.',
+      template_key: 'shopping',
+      category: 'Compras',
+      priority: 'normal',
+      estimated_duration_minutes: 30,
+      checklist: [{ text: 'Confirmar qué hay que comprar' }, { text: 'Hacer la compra' }, { text: 'Guardar el comprobante' }],
+      requires_verification: false,
+      requires_evidence: false,
+    },
+  },
+  {
+    key: 'invoice',
+    name: 'Pagar una factura',
+    payload: {
+      title: 'Pagar una factura',
+      note: 'Tené a mano la factura y el medio de pago.',
+      template_key: 'payments',
+      category: 'Pagos',
+      priority: 'high',
+      estimated_duration_minutes: 15,
+      checklist: [{ text: 'Buscar la factura' }, { text: 'Hacer el pago' }, { text: 'Guardar comprobante' }],
+      requires_verification: false,
+      requires_evidence: false,
+    },
+  },
+  {
+    key: 'appointment',
+    name: 'Llamar / pedir turno',
+    payload: {
+      title: 'Llamar o pedir un turno',
+      note: 'Buscá el contacto y anotá fecha y hora si te dan turno.',
+      template_key: null,
+      category: 'General',
+      priority: 'normal',
+      estimated_duration_minutes: 15,
+      checklist: [{ text: 'Buscar el contacto' }, { text: 'Llamar o escribir' }, { text: 'Anotar lo acordado' }],
+      requires_verification: false,
+      requires_evidence: false,
+    },
+  },
+  {
+    key: 'medication',
+    name: 'Comprar medicamentos',
+    payload: {
+      title: 'Comprar medicamentos',
+      note: 'Revisá la receta o indicación antes de comprar.',
+      template_key: 'medication',
+      category: 'Medicacion',
+      priority: 'high',
+      estimated_duration_minutes: 30,
+      checklist: [{ text: 'Revisar receta' }, { text: 'Ir a la farmacia' }, { text: 'Guardar comprobante' }],
+      requires_verification: false,
+      requires_evidence: false,
+    },
+  },
+  {
+    key: 'service',
+    name: 'Llevar algo al service',
+    payload: {
+      title: 'Llevar algo al service',
+      note: 'Juntá el equipo, cargador y comprobantes antes de ir.',
+      template_key: null,
+      category: 'General',
+      priority: 'normal',
+      estimated_duration_minutes: 45,
+      checklist: [{ text: 'Juntar el equipo y accesorios' }, { text: 'Llevar al service' }, { text: 'Guardar el comprobante de ingreso' }],
+      requires_verification: false,
+      requires_evidence: true,
+    },
+  },
+  {
+    key: 'backpack',
+    name: 'Preparar mochila / bolso',
+    payload: {
+      title: 'Preparar mochila o bolso',
+      note: 'Revisá contra la lista antes de cerrar.',
+      template_key: 'studies',
+      category: 'Estudios',
+      priority: 'normal',
+      estimated_duration_minutes: 10,
+      checklist: [{ text: 'Revisar qué hace falta' }, { text: 'Cargar todo' }, { text: 'Cerrar y dejar listo' }],
+      requires_verification: false,
+      requires_evidence: false,
+    },
+  },
+  {
+    key: 'paperwork',
+    name: 'Resolver un trámite',
+    payload: {
+      title: 'Resolver un trámite',
+      note: 'Confirmá requisitos y horarios antes de empezar.',
+      template_key: null,
+      category: 'General',
+      priority: 'normal',
+      estimated_duration_minutes: 60,
+      checklist: [{ text: 'Reunir documentación' }, { text: 'Iniciar el trámite' }, { text: 'Guardar constancia' }],
+      requires_verification: false,
+      requires_evidence: true,
+    },
+  },
+];
+
+/**
+ * Insert/refresh the global HomePlus presets (idempotent by deterministic
+ * UUID) + two household presets for the QA household (recreated each rerun
+ * along with the rest of the household-scoped QA data).
+ */
+async function seedPlannerPresets(admin, household, people, members) {
+  const now = new Date().toISOString();
+
+  // --- HomePlus (global, read-only for users) ---
+  for (const spec of HOMEPLUS_TASK_PRESETS) {
+    const presetId = homeplusPresetUuid(spec.key);
+    const revisionId = homeplusPresetUuid(`${spec.key}:revision:1`);
+    const envelope = buildPayloadEnvelope('task', 'planner.task.template.v1', spec.payload);
+    const fingerprint = structuralFingerprint(spec.payload);
+    const { error: presetError } = await admin
+      .from('planner_presets')
+      .upsert({
+        id: presetId,
+        entity_type: 'task',
+        source: 'homeplus',
+        owner_person_id: null,
+        household_id: null,
+        name: spec.name,
+      }, { onConflict: 'id' });
+    if (presetError) throw new Error(`Cannot seed HomePlus preset "${spec.name}": ${presetError.message}`);
+    const { error: revisionError } = await admin
+      .from('planner_preset_revisions')
+      .upsert({
+        id: revisionId,
+        preset_id: presetId,
+        revision_number: 1,
+        revision_state: 'published',
+        adapter_key: envelope.adapter_key,
+        payload_schema: envelope.payload_schema,
+        payload_version: envelope.payload_version,
+        payload: envelope.payload,
+        structural_fingerprint: fingerprint,
+        published_at: now,
+      }, { onConflict: 'id' });
+    if (revisionError) throw new Error(`Cannot seed HomePlus preset revision "${spec.name}": ${revisionError.message}`);
+    const { error: linkError } = await admin
+      .from('planner_presets')
+      .update({ active_revision_id: revisionId })
+      .eq('id', presetId);
+    if (linkError) throw new Error(`Cannot link HomePlus preset revision "${spec.name}": ${linkError.message}`);
+  }
+
+  // --- Household presets (QA household; deterministic UUIDs make reruns
+  // idempotent: full-seed cleanup also deletes them, presets-only upserts) ---
+  const householdPresetRows = [
+    {
+      key: 'weekly-shopping',
+      name: 'Compra semanal del hogar QA',
+      payload: {
+        title: 'Compra semanal del hogar',
+        note: 'Hacer la compra grande de la semana entre las personas que puedan.',
+        template_key: 'shopping',
+        category: 'Compras',
+        priority: 'normal',
+        estimated_duration_minutes: 75,
+        checklist: [{ text: 'Armar la lista' }, { text: 'Hacer la compra' }, { text: 'Guardar tickets' }],
+        requires_verification: false,
+        requires_evidence: false,
+      },
+    },
+    {
+      key: 'payments-review',
+      name: 'Revisión de pagos del hogar QA',
+      payload: {
+        title: 'Revisión de pagos del hogar',
+        note: 'Recorrido por las facturas y vencimientos del hogar.',
+        template_key: 'payments',
+        category: 'Pagos',
+        priority: 'high',
+        estimated_duration_minutes: 20,
+        checklist: [{ text: 'Revisar vencimientos' }, { text: 'Registrar pagos hechos' }],
+        requires_verification: true,
+        requires_evidence: false,
+      },
+    },
+  ];
+
+  for (const spec of householdPresetRows) {
+    const presetId = householdPresetUuid(household.id, spec.key);
+    const revisionId = householdPresetUuid(household.id, `${spec.key}:revision:1`);
+    const envelope = buildPayloadEnvelope('task', 'planner.task.template.v1', spec.payload);
+    const fingerprint = structuralFingerprint(spec.payload);
+    const { error: presetError } = await admin
+      .from('planner_presets')
+      .upsert({
+        id: presetId,
+        entity_type: 'task',
+        source: 'household',
+        owner_person_id: null,
+        household_id: household.id,
+        created_by_person_id: people.sofia.id,
+        created_by_member_id: members.sofia.id,
+        name: spec.name,
+      }, { onConflict: 'id' });
+    if (presetError) throw new Error(`Cannot seed household preset "${spec.name}": ${presetError.message}`);
+    const { error: revisionError } = await admin
+      .from('planner_preset_revisions')
+      .upsert({
+        id: revisionId,
+        preset_id: presetId,
+        revision_number: 1,
+        revision_state: 'published',
+        adapter_key: envelope.adapter_key,
+        payload_schema: envelope.payload_schema,
+        payload_version: envelope.payload_version,
+        payload: envelope.payload,
+        structural_fingerprint: fingerprint,
+        created_by_person_id: people.sofia.id,
+        created_by_member_id: members.sofia.id,
+        published_at: now,
+      }, { onConflict: 'id' });
+    if (revisionError) throw new Error(`Cannot seed household preset revision "${spec.name}": ${revisionError.message}`);
+    const { error: linkError } = await admin
+      .from('planner_presets')
+      .update({ active_revision_id: revisionId })
+      .eq('id', presetId);
+    if (linkError) throw new Error(`Cannot link household preset revision "${spec.name}": ${linkError.message}`);
+  }
+
+  console.log(`Presets seeded: ${HOMEPLUS_TASK_PRESETS.length} HomePlus + ${householdPresetRows.length} household.`);
 }
 
 async function seedWholeApp(admin, people, household, members) {
@@ -1103,6 +1691,37 @@ async function seedWholeApp(admin, people, household, members) {
   const { error: taskError } = await admin.from('planner_tasks').insert(taskRows);
   if (taskError) throw new Error(`Cannot seed planner tasks: ${taskError.message}`);
 
+  const responsibilityRows = [
+    ['trash', 'Sacar la basura', 'fixed', 'weekdays', 1, null, [2, 5], null, 'active', null],
+    ['kitchen', 'Ordenar cocina', 'fixed', 'weekdays', 1, null, [6], null, 'active', null],
+    ['dishes', 'Lavar los platos', 'rotation', 'daily', 1, null, [], null, 'active', null],
+    ['plants', 'Regar las plantas', 'claimable', 'weekdays', 1, null, [1, 3, 6], null, 'active', null],
+    ['patio', 'Limpiar patio', 'unassigned', 'weekdays', 1, null, [6], null, 'active', null],
+    ['filter', 'Cambiar filtro', 'fixed', 'after_completion', 3, 'months', [], null, 'active', null],
+    ['paused', 'Limpiar ventanas', 'fixed', 'monthly', 1, null, [], 15, 'paused', null],
+    ['adjust', 'Ordenar depósito', 'rotation', 'daily', 1, null, [], null, 'active', 'La rotación necesita al menos 2 integrantes.'],
+  ].map(([key, title, assignmentKind, scheduleKind, interval, unit, weekdays, monthDay, lifecycle, adjustment]) => ({
+    household_id: household.id, title, description: `QA ${key}`, lifecycle,
+    assignment_kind: assignmentKind, schedule_kind: scheduleKind, schedule_interval: interval,
+    schedule_unit: unit, weekdays, month_day: monthDay, anchor_date: dateDays(0), due_time: null,
+    task_defaults: { priority: 'normal', requires_verification: key === 'dishes' },
+    requires_adjustment_reason: adjustment, created_by_member_id: members.sofia.id,
+    paused_at: lifecycle === 'paused' ? now : null,
+  }));
+  const { data: responsibilities, error: responsibilityError } = await admin.from('planner_responsibilities').insert(responsibilityRows).select('id,description');
+  if (responsibilityError) throw new Error(`Cannot seed planner responsibilities: ${responsibilityError.message}`);
+  const memberRules = {
+    trash: [members.tomi.id], kitchen: [members.sofia.id, members.martin.id],
+    dishes: [members.sofia.id, members.tomi.id], filter: [members.martin.id],
+    paused: [members.sofia.id], adjust: [members.tomi.id],
+  };
+  const responsibilityMemberRows = (responsibilities ?? []).flatMap((row) => {
+    const key = String(row.description).replace('QA ', '');
+    return (memberRules[key] ?? []).map((memberId, position) => ({ responsibility_id: row.id, household_id: household.id, member_id: memberId, position }));
+  });
+  const { error: responsibilityMemberError } = await admin.from('planner_responsibility_members').insert(responsibilityMemberRows);
+  if (responsibilityMemberError) throw new Error(`Cannot seed planner responsibility members: ${responsibilityMemberError.message}`);
+
   const eventRows = [
     {
       household_id: household.id,
@@ -1143,6 +1762,126 @@ async function seedWholeApp(admin, people, household, members) {
   ];
   const { error: eventError } = await admin.from('planner_events').insert(eventRows);
   if (eventError) throw new Error(`Cannot seed planner events: ${eventError.message}`);
+
+  const schedulePreferenceRows = [members.sofia, members.martin, members.luna, members.tomi].map((member) => ({
+    household_id: household.id,
+    person_id: member.person_id,
+    is_visible_to_household: true,
+  }));
+  const { error: schedulePreferenceError } = await admin
+    .from('household_schedule_preferences')
+    .upsert(schedulePreferenceRows, { onConflict: 'household_id,person_id' });
+  if (schedulePreferenceError) throw new Error(`Cannot seed schedule preferences: ${schedulePreferenceError.message}`);
+
+  const scheduleRows = [
+    {
+      household_id: household.id,
+      person_id: people.sofia.id,
+      title: 'Trabajo Sofía QA',
+      days_of_week: [1, 2, 3, 4, 5],
+      start_minutes: 9 * 60,
+      end_minutes: 17 * 60,
+      color_key: 'terracotta',
+      note: 'Bloque laboral visible para coordinar tareas.',
+    },
+    {
+      household_id: household.id,
+      person_id: people.martin.id,
+      title: 'Facultad Martín QA',
+      days_of_week: [2, 4],
+      start_minutes: 18 * 60,
+      end_minutes: 21 * 60,
+      color_key: 'blue',
+      note: 'Horario de cursada para validar filtros por miembro.',
+    },
+    {
+      household_id: household.id,
+      person_id: people.luna.id,
+      title: 'Entrenamiento Luna QA',
+      days_of_week: [1, 3],
+      start_minutes: 16 * 60,
+      end_minutes: 17 * 60 + 30,
+      color_key: 'sage',
+      note: 'Bloque adolescente compartido.',
+    },
+  ];
+  const { error: scheduleError } = await admin.from('household_schedule_blocks').insert(scheduleRows);
+  if (scheduleError) throw new Error(`Cannot seed household schedules: ${scheduleError.message}`);
+
+  const planRows = [
+    {
+      household_id: household.id,
+      scope: 'household',
+      objective: 'Preparar vacaciones QA',
+      description: 'Plan familiar con fecha objetivo para validar la lista principal.',
+      lifecycle: 'active',
+      target_date: dateDays(45),
+      finalization_kind: 'date',
+      created_by_person_id: people.sofia.id,
+      created_by_member_id: members.sofia.id,
+      activated_at: now,
+    },
+    {
+      household_id: household.id,
+      scope: 'household',
+      objective: 'Ordenar papeles de la casa QA',
+      description: 'Plan en preparación para comprobar agrupación y copia.',
+      lifecycle: 'draft',
+      target_date: dateDays(21),
+      finalization_kind: 'date',
+      created_by_person_id: people.martin.id,
+      created_by_member_id: members.martin.id,
+    },
+    {
+      household_id: household.id,
+      scope: 'household',
+      objective: 'Renovar cuarto de Luna QA',
+      description: 'Plan pausado visible en la raíz de Planes.',
+      lifecycle: 'paused',
+      target_date: dateDays(90),
+      finalization_kind: 'date',
+      created_by_person_id: people.sofia.id,
+      created_by_member_id: members.sofia.id,
+      paused_at: now,
+    },
+  ];
+  const { error: planError } = await admin.from('planner_plans').insert(planRows);
+  if (planError) throw new Error(`Cannot seed planner plans: ${planError.message}`);
+
+  const legacyPlanRows = [
+    {
+      household_id: household.id,
+      title: 'Vacaciones familiares QA',
+      description: 'Plan activo visible en la raíz de Planes.',
+      visibility: 'household',
+      category: 'family',
+      status: 'active',
+      ends_at: dateDays(45),
+      created_by_member_id: members.sofia.id,
+    },
+    {
+      household_id: household.id,
+      title: 'Documentos del hogar QA',
+      description: 'Plan en preparación para validar el grupo inicial.',
+      visibility: 'household',
+      category: 'home',
+      status: 'active',
+      ends_at: dateDays(21),
+      created_by_member_id: members.martin.id,
+    },
+    {
+      household_id: household.id,
+      title: 'Renovar cuarto QA',
+      description: 'Plan pausado visible en la raíz de Planes.',
+      visibility: 'household',
+      category: 'home',
+      status: 'active',
+      ends_at: dateDays(90),
+      created_by_member_id: members.sofia.id,
+    },
+  ];
+  const { error: legacyPlanError } = await admin.from('planner_goals').insert(legacyPlanRows);
+  if (legacyPlanError) throw new Error(`Cannot seed planner v1 plans: ${legacyPlanError.message}`);
 
   const { data: templates } = await admin
     .from('inventory_item_templates')
@@ -1221,10 +1960,14 @@ async function seedWholeApp(admin, people, household, members) {
     onConflict: 'membership_id',
   });
   if (presenceError) throw new Error(`Cannot seed presence: ${presenceError.message}`);
+
+  // P2.2A — Presets Foundation seed (idempotent; no reset).
+  await seedPlannerPresets(admin, household, people, members);
 }
 
 async function main() {
   const cleanupOnly = process.argv.includes('--cleanup-only');
+  const presetsOnly = process.argv.includes('--presets-only');
   const targetSlugArg = process.argv.find((arg) => arg.startsWith('--target-household-slug='));
   const targetHouseholdSlug = targetSlugArg?.split('=').slice(1).join('=').trim() || null;
 
@@ -1238,9 +1981,24 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  console.log(`HomePlus QA seed: ${cleanupOnly ? 'cleanup only' : 'cleanup + seed'} (${HOUSEHOLD_SLUG})`);
+  console.log(`HomePlus QA seed: ${presetsOnly ? 'presets only (no cleanup)' : cleanupOnly ? 'cleanup only' : 'cleanup + seed'} (${HOUSEHOLD_SLUG})`);
   const authUsers = await ensureAuthUsers(admin);
   const people = await ensurePeople(admin, authUsers);
+
+  // P2.2A focused mode: refreshes ONLY the preset rows (HomePlus upsert +
+  // household presets for the QA household). Never touches tasks, finance or
+  // other Planner data; runs no cleanup.
+  if (presetsOnly) {
+    const household = await findHouseholdBySlug(admin, targetHouseholdSlug ?? HOUSEHOLD_SLUG);
+    if (!household) {
+      throw new Error(`No local household found with slug "${targetHouseholdSlug ?? HOUSEHOLD_SLUG}". Run the full seed first.`);
+    }
+    const members = await ensureMembershipsForHousehold(admin, people, household);
+    await seedPlannerPresets(admin, household, people, members);
+    console.log('Preset seed complete (idempotent).');
+    return;
+  }
+
   await cleanupQaData(authUsers);
 
   if (cleanupOnly) {
@@ -1277,6 +2035,8 @@ async function main() {
   console.log(`Finance accounts created: ${Object.keys(financeResult.accounts).length}`);
   console.log(`Current month household ARS movements: ${financeResult.movementCount}`);
   console.log('Key names: Supermercado Coto QA, Internet QA, Pago tarjeta Visa QA, Supermercado QA, Vacaciones QA.');
+  console.log('\nStage 4 payment QA verification:');
+  console.log(JSON.stringify(financeResult.stage4Verification, null, 2));
 }
 
 main().catch((error) => {

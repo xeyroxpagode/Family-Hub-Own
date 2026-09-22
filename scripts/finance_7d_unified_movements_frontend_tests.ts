@@ -132,7 +132,7 @@ runTest('T20 movement.date used for unified date grouping', () => {
 
 runTest('T21 Month with only Transfer rows is not empty', () => {
   const screen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
-  assert(screen.includes('groups.length === 0') && screen.includes('No hay gastos, ingresos ni transferencias'), 'T21 Empty state mentions all three kinds');
+  assert(screen.includes('groups.length === 0') && screen.includes('Sin movimientos este mes') && screen.includes('No hay movimientos que coincidan con estos filtros'), 'T21 Empty state adapts to all three kinds vs subset filters');
 });
 
 runTest('T22 Personal/Household request behavior preserved', () => {

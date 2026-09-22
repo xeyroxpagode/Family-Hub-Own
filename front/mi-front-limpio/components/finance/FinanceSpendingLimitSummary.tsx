@@ -1,13 +1,15 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import { colors, radius, spacing, typography } from '../../constants/theme';
-import { AppCard, AppText, Skeleton, InteractivePressable } from '../../components/ui';
+import { AppButton, AppText, Skeleton, InteractivePressable } from '../../components/ui';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { formatFinanceAmount, isZeroDecimalString } from '../../services/finance/financeDisplay';
 import { HomePlusIcon } from '../../constants/icons';
 import type { FinanceSpendingLimitProgressDto } from '../../services/finance/financeSpendingLimits';
 
 function ProgressBar({ percent, status }: { percent: number; status: 'UNDER' | 'AT' | 'OVER' }) {
-  const trackColor = colors.border.default;
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   let fillColor: string = colors.terracotta[600];
 
   if (status === 'AT') fillColor = colors.warning.strong;
@@ -28,6 +30,7 @@ function ProgressBar({ percent, status }: { percent: number; status: 'UNDER' | '
 }
 
 function LimitRow({ limit, currency }: { limit: FinanceSpendingLimitProgressDto; currency: string }) {
+  const styles = createStyles(useAppTheme());
   const spent = limit.spent;
   const limitAmount = limit.amount;
   const percentUsed = Number(limit.percentUsed);
@@ -98,129 +101,158 @@ export function FinanceSpendingLimitSummary({
   onRetry?: () => void;
   onManage?: () => void;
 }) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
+
   if (loading && !progress) {
     return (
-      <AppCard variant="quiet" padding="generous">
+      <View style={styles.sectionShell}>
         <Skeleton width="50%" height={14} />
         <Skeleton width="80%" height={40} />
         <Skeleton width="60%" height={12} />
-      </AppCard>
+      </View>
     );
   }
 
   if (error && !progress) {
     return (
-      <AppCard variant="warning" padding="generous">
+      <View style={[styles.sectionShell, styles.warningState]}>
         <AppText variant="body" weight="800" tone="warning">
           No pudimos cargar los límites
         </AppText>
         <AppText variant="caption" tone="secondary" style={styles.errorText}>
           {error}
         </AppText>
-      </AppCard>
+        {onRetry ? (
+          <AppButton
+            title="Reintentar"
+            variant="secondary"
+            size="sm"
+            onPress={onRetry}
+            style={styles.retryButton}
+          />
+        ) : null}
+      </View>
     );
   }
 
-  if (!progress || progress.length === 0) {
-    return (
-      <AppCard variant="quiet" padding="generous">
-        <View style={styles.emptyState}>
-          <AppText variant="body" weight="700" style={styles.emptyTitle}>
-            Todavía no configuraste límites de gasto.
-          </AppText>
-        </View>
-      </AppCard>
-    );
-  }
-
-  const sortedLimits = sortLimitsForDashboard(progress);
+  const sortedLimits = sortLimitsForDashboard(progress ?? []);
   const displayLimits = sortedLimits.slice(0, 3);
-
   const currency = displayLimits[0]?.currency || 'ARS';
+  const hasLimits = displayLimits.length > 0;
 
   return (
-    <AppCard variant="quiet" padding="generous">
+    <View style={styles.sectionShell}>
       <View style={styles.sectionHeader}>
-        <AppText variant="title3" weight="800">
-          Control de gastos
-        </AppText>
-        {onManage && (
-          <InteractivePressable
-            onPress={onManage}
-            haptic="light"
-            pressScale={1}
-            style={styles.manageButton}
-            accessibilityRole="button"
-            accessibilityLabel="Administrar límites de gasto"
-          >
-            <AppText variant="caption" weight="800" tone="primary">
-              Administrar
+        <View style={styles.sectionTitleCopy}>
+          <AppText variant="title3" weight="800">
+            Límites de gasto
+          </AppText>
+          {!hasLimits ? (
+            <AppText variant="caption" tone="secondary">
+              Sin límites configurados
             </AppText>
-            <HomePlusIcon name="chevron-forward-outline" size={14} color={colors.terracotta[600]} />
-          </InteractivePressable>
-        )}
+          ) : null}
+        </View>
       </View>
-      <View style={styles.limitsList}>
-        {displayLimits.map((limit) => (
-          <LimitRow key={limit.id} limit={limit} currency={currency} />
-        ))}
-      </View>
-    </AppCard>
+      {hasLimits ? (
+        <View style={styles.limitsList}>
+          {displayLimits.map((limit) => (
+            <LimitRow key={limit.id} limit={limit} currency={currency} />
+          ))}
+        </View>
+      ) : null}
+      {onManage && (
+        <InteractivePressable
+          onPress={onManage}
+          haptic="light"
+          pressScale={motion.scale.card}
+          style={styles.manageButton}
+          accessibilityRole="button"
+          accessibilityLabel="Administrar límites de gasto"
+        >
+          <AppText variant="bodySmall" weight="800" tone="brand">
+            Administrar
+          </AppText>
+          <HomePlusIcon name="chevron-forward-outline" size={16} color={colors.text.tertiary} />
+        </InteractivePressable>
+      )}
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing[3],
-  },
-  limitsList: {
-    gap: spacing[3],
-  },
-  limitRow: {
-    gap: spacing[2],
-  },
-  limitHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  limitProgress: {
-    gap: spacing[2],
-  },
-  limitValues: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  progressTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.border.default,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  overText: {
-    marginTop: spacing[1],
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: spacing[2],
-  },
-  emptyTitle: {
-    textAlign: 'center',
-    color: colors.text.secondary,
-  },
-  errorText: {
-    marginTop: spacing[2],
-  },
-  manageButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[1],
-  },
-});
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
+    sectionShell: {
+      gap: spacing[3],
+      paddingVertical: spacing[2],
+    },
+    warningState: {
+      borderRadius: radius.lg,
+      backgroundColor: colors.warning.soft,
+      padding: spacing[3],
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: spacing[3],
+    },
+    sectionTitleCopy: {
+      flex: 1,
+      minWidth: 0,
+      gap: spacing[1],
+    },
+    limitsList: {
+      gap: spacing[3],
+    },
+    limitRow: {
+      gap: spacing[2],
+    },
+    limitHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    limitProgress: {
+      gap: spacing[2],
+    },
+    limitValues: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    progressTrack: {
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.border.default,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      borderRadius: 3,
+    },
+    overText: {
+      marginTop: spacing[1],
+    },
+    errorText: {
+      marginTop: spacing[2],
+    },
+    retryButton: {
+      alignSelf: 'flex-start',
+      marginTop: spacing[3],
+    },
+    manageButton: {
+      minHeight: 44,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing[1],
+      paddingVertical: spacing[3],
+      borderTopWidth: 1,
+      borderTopColor: colors.border.subtle,
+    },
+  });
+}

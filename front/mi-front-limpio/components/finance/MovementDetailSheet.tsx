@@ -1,8 +1,9 @@
+/* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError, generateMutationId, createIdempotencyKey } from '../../services/api';
 import { formatFinanceAmount } from '../../services/finance/financeDisplay';
 import type { FinanceMovementDto, FinanceTransactionDetailDto } from '../../services/finance/financeMovements';
@@ -114,6 +115,9 @@ export function MovementDetailSheet({
   onRefundSuccess,
   onPoolAssignmentSuccess,
 }: MovementDetailSheetProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const [step, setStep] = useState<DetailFlowStep>('detail');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -653,7 +657,7 @@ export function MovementDetailSheet({
                   disabled={poolOrganizationDisabled}
                   haptic="light"
                   pressScale={motion.scale.card}
-                  style={styles.poolOrganizerEntry}
+                  style={[styles.poolOrganizerEntry, poolOrganizationDisabled && styles.poolOrganizerEntryDisabled]}
                   accessibilityRole="button"
                   accessibilityLabel="Organizar gasto por pozo"
                 >
@@ -848,7 +852,10 @@ export function MovementDetailSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
   content: {
     gap: spacing[4],
     paddingBottom: spacing[2],
@@ -869,8 +876,6 @@ const styles = StyleSheet.create({
   },
   refundSummary: {
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
     backgroundColor: colors.surface.soft,
     padding: spacing[3],
     gap: spacing[2],
@@ -885,8 +890,6 @@ const styles = StyleSheet.create({
   refundEntry: {
     minHeight: 56,
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.success.base,
     backgroundColor: colors.success.soft,
     paddingHorizontal: spacing[4],
     flexDirection: 'row',
@@ -896,8 +899,6 @@ const styles = StyleSheet.create({
   refundCorrectionEntry: {
     minHeight: 52,
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
     backgroundColor: colors.surface.soft,
     paddingHorizontal: spacing[4],
     flexDirection: 'row',
@@ -907,13 +908,14 @@ const styles = StyleSheet.create({
   poolOrganizerEntry: {
     minHeight: 52,
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
     backgroundColor: colors.surface.soft,
     paddingHorizontal: spacing[4],
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
+  },
+  poolOrganizerEntryDisabled: {
+    opacity: 0.62,
   },
   poolHint: {
     textAlign: 'center',
@@ -921,8 +923,6 @@ const styles = StyleSheet.create({
   refundSelectRow: {
     minHeight: 52,
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
     backgroundColor: colors.surface.card,
     paddingHorizontal: spacing[4],
     flexDirection: 'row',
@@ -935,8 +935,6 @@ const styles = StyleSheet.create({
   recoveryEntry: {
     minHeight: 56,
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.warning.base,
     backgroundColor: colors.warning.soft,
     paddingHorizontal: spacing[4],
     flexDirection: 'row',
@@ -954,8 +952,6 @@ const styles = StyleSheet.create({
   recoveryOption: {
     minHeight: 56,
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.danger.base,
     backgroundColor: colors.danger.soft,
     paddingHorizontal: spacing[4],
     flexDirection: 'row',
@@ -1040,4 +1036,5 @@ const styles = StyleSheet.create({
   footerButton: {
     flex: 1,
   },
-});
+  });
+}

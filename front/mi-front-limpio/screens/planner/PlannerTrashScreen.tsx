@@ -33,13 +33,13 @@ const FILTER_TABS: FilterTab[] = [
   { key: 'all', label: 'Todos' },
   { key: 'tasks', label: 'Tareas' },
   { key: 'events', label: 'Eventos' },
-  { key: 'goals', label: 'Metas' },
+  { key: 'goals', label: 'Planes' },
 ];
 
 const TYPE_LABELS: Record<string, string> = {
   task: 'Tarea',
   event: 'Evento',
-  goal: 'Meta',
+  goal: 'Plan',
   milestone: 'Hito',
 };
 
@@ -128,7 +128,7 @@ export function PlannerTrashScreen() {
           if (!item.parent) {
             Alert.alert(
               'Papelera',
-              'No pudimos restaurar este hito porque falta la meta asociada. Actualizá la papelera y volvé a intentar.',
+              'No pudimos restaurar este hito porque falta el plan asociado. Actualizá la papelera y volvé a intentar.',
             );
             await load(true);
             return;
@@ -140,17 +140,17 @@ export function PlannerTrashScreen() {
       const typeMessage =
         item.type === 'task' ? 'Tarea restaurada.' :
         item.type === 'event' ? 'Evento restaurado.' :
-        item.type === 'goal' ? 'Meta restaurada.' :
+        item.type === 'goal' ? 'Plan restaurado.' :
         item.type === 'milestone' ? 'Hito restaurado.' :
         'Elemento restaurado.';
       setRestoreToast(typeMessage);
       setTimeout(() => setRestoreToast(null), 3000);
     } catch (err) {
       if (err instanceof ApiError && err.code === 'version_conflict') {
-        Alert.alert('Papelera', 'No pudimos restaurar la meta porque cambió recientemente. Actualizá y probá de nuevo.');
+        Alert.alert('Papelera', 'No pudimos restaurar el plan porque cambió recientemente. Actualizá y probá de nuevo.');
         await load(true);
       } else if (err instanceof ApiError && err.code === 'goal_not_found') {
-        Alert.alert('Papelera', 'No encontramos esta meta. Actualizá la papelera y volvé a intentar.');
+        Alert.alert('Papelera', 'No encontramos este plan. Actualizá la papelera y volvé a intentar.');
         await load(true);
       } else {
         Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo restaurar.');
@@ -196,8 +196,8 @@ export function PlannerTrashScreen() {
             </View>
             {item.parent ? (
               <AppText variant="micro" tone="tertiary" style={{ marginTop: 4 }}>
-                {`En meta: ${item.parent.title}`}
-                {item.restore_requires_parent ? ' (restaurá la meta primero)' : ''}
+                {`En plan: ${item.parent.title}`}
+                {item.restore_requires_parent ? ' (restaurá el plan primero)' : ''}
               </AppText>
             ) : null}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
@@ -236,7 +236,7 @@ export function PlannerTrashScreen() {
         </View>
         {item.restore_requires_parent ? (
           <AppText variant="micro" tone="tertiary" style={{ marginTop: 8, marginLeft: 44 }}>
-            Primero restaurá la meta padre para poder recuperar este hito.
+            Primero restaurá el plan padre para poder recuperar este hito.
           </AppText>
         ) : null}
       </AppCard>
@@ -318,7 +318,7 @@ export function PlannerTrashScreen() {
               <HomePlusIcon name="trash-outline" size={48} color={colors.text.tertiary} />
               <AppText variant="title1" style={S.emptyTitle}>Papelera vacía</AppText>
               <AppText variant="body" style={S.emptyText}>
-                Las metas y los hitos eliminados aparecerán aquí.
+                Los planes y los hitos eliminados aparecerán aquí.
               </AppText>
             </View>
           }

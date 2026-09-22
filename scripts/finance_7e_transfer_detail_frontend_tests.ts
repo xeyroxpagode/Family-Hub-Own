@@ -91,7 +91,7 @@ runTest('PART F — Stale Data Safety', () => {
   const sheet = read('front/mi-front-limpio/components/finance/TransferDetailSheet.tsx');
   assert(sheet.includes('transferIdRef') && sheet.includes('useRef'), '34. Uses ref to track current transferId');
   assert(sheet.includes('transferIdRef.current') && sheet.includes('loadDetail'), '35. Load uses current ref value');
-  assert(sheet.includes('[visible, transferId, accessToken, contextType]'), '36. Effect deps include transferId for reset on identity change');
+  assert(sheet.includes('[visible, transferId, accessToken, contextType, refreshNonce]'), '36. Effect deps include transferId and refreshNonce for reset on identity/freshness changes');
 });
 
 runTest('PART G — Movimientos Press Dispatch', () => {

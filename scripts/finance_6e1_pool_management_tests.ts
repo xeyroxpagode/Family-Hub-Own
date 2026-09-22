@@ -174,13 +174,21 @@ function runTests(): void {
   {
     const source = readRepoFile('front/mi-front-limpio/components/finance/FinancePoolSummary.tsx');
     assert(
-      /<AppButton[\s\S]*?title="Organizar"[\s\S]*?accessibilityLabel="Organizar pozos"[\s\S]*?\/>/.test(source),
-      '15a. Organizar AppButton uses title prop so Pressable never receives raw text',
+      /<InteractivePressable[\s\S]*?accessibilityLabel="Organizar dinero"[\s\S]*?>[\s\S]*?>\s*Organizar\s*<\/AppText>[\s\S]*?chevron-forward-outline[\s\S]*?<\/InteractivePressable>/.test(source),
+      '15a. Organizar uses borderless section action with text and chevron',
     );
     assert(
-      !/<AppButton(?=[\s\S]*?accessibilityLabel="Organizar pozos")[\s\S]*?>\s*Organizar\s*<\/AppButton>/.test(source),
-      '15b. Organizar AppButton does not pass string children into AppButton',
+      !/<AppButton(?=[\s\S]*?accessibilityLabel="Organizar dinero")[\s\S]*title="Organizar"/.test(source),
+      '15b. Organizar does not use AppButton pill',
     );
+  }
+
+  {
+    const source = readRepoFile('front/mi-front-limpio/components/finance/FinancePoolManagementScreen.tsx');
+    assert(source.includes('Todavía no tenés cuentas') && source.includes('Todavía no tenés tarjetas') && source.includes('Todavía no tenés pozos'), '15c. Organization uses compact empty group rows');
+    assert(source.includes('AddGroupRow') && source.includes('Agregar cuenta') && source.includes('Agregar tarjeta') && source.includes('Crear pozo'), '15d. Add actions live as grouped footers');
+    assert(!/variant="icon"[\s\S]*?accessibilityLabel="Agregar cuenta"/.test(source), '15e. account add is not a floating circular plus');
+    assert(source.includes('onPress={() => handleDetailAccount(account)}') && source.includes('onPress={() => handleDetailAccount(card)}'), '15f. account and card rows navigate to detail');
   }
 
   // List / Active Pools

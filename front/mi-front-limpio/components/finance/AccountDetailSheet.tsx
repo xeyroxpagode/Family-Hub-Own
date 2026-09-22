@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AbortError, ApiError } from '../../services/api';
@@ -72,7 +72,7 @@ export function AccountDetailSheet({
   onChanged,
 }: AccountDetailSheetProps) {
   const theme = useAppTheme();
-  const { colors, motion, touchTargets } = theme;
+  const { colors, motion } = theme;
   const styles = createStyles(theme);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -88,24 +88,27 @@ export function AccountDetailSheet({
   const [installmentsExpanded, setInstallmentsExpanded] = useState(false);
   const activitySeqRef = useRef(0);
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!visible) {
-      setOverflowOpen(false);
-      setSubmitError(null);
-      setSubmitting(false);
-      setActivity([]);
-      setActivityError(null);
-      setActivityLoading(false);
-      setCardDues([]);
-      setCardDuesError(null);
-      setCardDuesLoading(false);
-      setInstallmentPlans([]);
-      setInstallmentsLoading(false);
-      setInstallmentsExpanded(false);
+      void Promise.resolve().then(() => {
+        setOverflowOpen(false);
+        setSubmitError(null);
+        setSubmitting(false);
+        setActivity([]);
+        setActivityError(null);
+        setActivityLoading(false);
+        setCardDues([]);
+        setCardDuesError(null);
+        setCardDuesLoading(false);
+        setInstallmentPlans([]);
+        setInstallmentsLoading(false);
+        setInstallmentsExpanded(false);
+      });
       return;
     }
     if (!accessToken || !account) {
-      setActivity([]);
+      void Promise.resolve().then(() => setActivity([]));
       return;
     }
 
@@ -182,6 +185,7 @@ export function AccountDetailSheet({
       controller.abort();
     };
   }, [visible, accessToken, account, contextType]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const presentation = account ? getAccountBalancePresentation(account) : null;
   const isArchived = account?.status === 'ARCHIVED';
@@ -196,6 +200,10 @@ export function AccountDetailSheet({
   const primaryDueHasRemaining = primaryDueRemaining !== null && compareDecimalStrings(primaryDueRemaining, '0') > 0;
   const futureInstallmentCount = installmentPlans.reduce((sum, plan) => sum + plan.futureInstallmentCount, 0);
   const futureInstallmentAmount = installmentPlans.reduce((sum, plan) => sum + Number(plan.futureAmount || 0), 0);
+  const displayedActivity = useMemo(() => {
+    if (!isCreditCard) return activity;
+    return activity.filter((item) => item.effectType === 'expense' || item.effectType === 'refund');
+  }, [activity, isCreditCard]);
 
   const close = () => {
     if (submitting) return;
@@ -255,7 +263,7 @@ export function AccountDetailSheet({
     <ActionSheet
       visible={visible}
       title={account?.name ?? 'Cuenta'}
-      subtitle={account ? `${account.currency} · ${account.accountType === 'CREDIT_CARD' ? 'Tarjeta de crédito' : 'Cuenta'}` : undefined}
+      subtitle={account ? `${account.accountType === 'CREDIT_CARD' ? 'Tarjeta de crédito' : 'Cuenta'} · ${contextType === 'personal' ? 'Personal' : 'Hogar'}` : undefined}
       onRequestClose={close}
       closeDisabled={submitting}
       size="content"
@@ -330,7 +338,7 @@ export function AccountDetailSheet({
             <AppText variant="caption" tone="secondary" weight="700">
               {presentation.label}
             </AppText>
-            <AppText variant="title1" weight="800" numberOfLines={1}>
+            <AppText variant="title1" weight="800" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
               {presentation.isUnknown
                 ? presentation.unknownLabel
                 : `${presentation.currency ?? ''} ${formatAccountPresentationAmount(presentation)}`.trim()}
@@ -378,7 +386,7 @@ export function AccountDetailSheet({
             ) : primaryDue && primaryDueHasRemaining ? (
               <>
                 <View style={styles.dueAmountRow}>
-                  <AppText variant="title3" weight="800">
+                  <AppText variant="title3" weight="800" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={styles.dueAmount}>
                     {formatExpectedAmount(true, primaryDueRemaining, primaryDue.currency)}
                   </AppText>
                   <AppText variant="bodySmall" tone={primaryDue.overdue ? 'danger' : 'secondary'} weight="700">
@@ -447,7 +455,7 @@ export function AccountDetailSheet({
                       <AppText variant="bodySmall" weight="800" numberOfLines={1}>{plan.purchaseTitle ?? 'Compra en cuotas'}</AppText>
                       <AppText variant="caption" tone="secondary">{plan.futureInstallmentCount} de {plan.installmentCount} cuotas futuras</AppText>
                     </View>
-                    <AppText variant="bodySmall" weight="800" numberOfLines={1}>
+                    <AppText variant="bodySmall" weight="800" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78} style={styles.installmentAmount}>
                       {plan.currency} {formatCanonicalAmountForDisplay(plan.futureAmount)}
                     </AppText>
                   </View>
@@ -458,8 +466,10 @@ export function AccountDetailSheet({
         ) : null}
 
         <View style={styles.activitySection}>
-          <AppText variant="caption" tone="secondary" weight="800">ÚLTIMOS MOVIMIENTOS</AppText>
-          {activityLoading && activity.length === 0 ? (
+          <AppText variant="caption" tone="secondary" weight="800">
+            {isCreditCard ? 'COMPRAS RECIENTES' : 'MOVIMIENTOS RECIENTES'}
+          </AppText>
+          {activityLoading && displayedActivity.length === 0 ? (
             <View style={styles.activityLoading}>
               <Skeleton width="62%" height={14} />
               <Skeleton width="48%" height={14} />
@@ -467,15 +477,15 @@ export function AccountDetailSheet({
             </View>
           ) : activityError ? (
             <ErrorState title="No pudimos cargar los movimientos" description={activityError} />
-          ) : activity.length === 0 ? (
+          ) : displayedActivity.length === 0 ? (
             <EmptyState
-              title="Sin movimientos todavía"
-              description="Aparecerán acá los gastos, ingresos y transferencias que afecten a esta cuenta."
-              illustration={<HomePlusIcon name="swap-vertical-outline" size={26} color={colors.terracotta[600]} />}
+              title={isCreditCard ? 'Sin compras recientes' : 'Sin movimientos todavía'}
+              description={isCreditCard ? 'Los pagos de tarjeta viven en Pagos, no en esta lista de compras.' : 'Aparecerán acá los gastos, ingresos y transferencias que afecten a esta cuenta.'}
+              illustration={<HomePlusIcon name={isCreditCard ? 'card-outline' : 'swap-vertical-outline'} size={26} color={colors.terracotta[600]} />}
             />
           ) : (
             <AppCard variant="quiet" padding="default" style={styles.activityCard}>
-              {activity.map((item, index) => (
+              {displayedActivity.map((item, index) => (
                 <View key={item.id} style={[styles.activityRow, index > 0 && styles.activityRowNotFirst]}>
                   <View style={styles.activityCopy}>
                     <AppText variant="bodySmall" weight="800" numberOfLines={1}>{item.title}</AppText>
@@ -488,6 +498,8 @@ export function AccountDetailSheet({
                     weight="800"
                     tone={item.effectType === 'expense' || (item.effectType === 'transfer' && item.effectRole === 'TRANSFER_SOURCE') ? 'danger' : 'success'}
                     numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.78}
                     style={styles.activityAmount}
                   >
                     {formatActivityAmount(item)}
@@ -645,6 +657,10 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
     justifyContent: 'space-between',
     gap: spacing[3],
   },
+  dueAmount: {
+    flex: 1,
+    minWidth: 0,
+  },
   installmentsCard: {
     borderRadius: radius.xl,
     borderWidth: 1,
@@ -677,6 +693,10 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
     justifyContent: 'space-between',
     gap: spacing[3],
     paddingVertical: spacing[2],
+  },
+  installmentAmount: {
+    maxWidth: '42%',
+    textAlign: 'right',
   },
   activitySection: {
     gap: spacing[2],

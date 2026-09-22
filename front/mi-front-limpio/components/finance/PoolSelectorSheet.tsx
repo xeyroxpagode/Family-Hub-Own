@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import {
   ActionSheet,
   AppButton,
@@ -45,6 +45,9 @@ export function PoolSelectorSheet({
   onRequestClose,
   onSelect,
 }: PoolSelectorSheetProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const sortedPools = useMemo(
     () => [...pools].sort((a, b) => a.name.localeCompare(b.name)),
     [pools],
@@ -165,7 +168,10 @@ export function PoolSelectorSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
   sheetBody: {
     flex: 1,
     paddingBottom: spacing[4],
@@ -225,4 +231,5 @@ const styles = StyleSheet.create({
   footerButton: {
     flex: 1,
   },
-});
+  });
+}

@@ -365,10 +365,10 @@ test('UI: No chart dependency', () => {
     expect(screen).not.toContain('createTransfer');
   });
 
-  test('REGRESSION: Resumen remains intact', () => {
+  test('REGRESSION: Resumen framework remains intact without analytics highlights', () => {
     const screen = readFile('screens/finance/FinanceScreen.tsx');
     expect(screen).toContain('FinanceSummarySurface');
-    expect(screen).toContain('FinanceAnalysisHighlights');
+    expect(screen).not.toContain('<FinanceAnalysisHighlights');
   });
 
   test('REGRESSION: 6F management entry remains', () => {
