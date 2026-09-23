@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 
 import {
-  AppButton,
   AppText,
   ActionSheet,
 } from '../ui';
-import { colors, radius, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
+import { useAppTheme } from '../../context/AppThemeContext';
 import {
   archiveFinancePool,
   type FinancePoolDto,
@@ -15,6 +14,15 @@ import {
 import type { FinanceContextType } from '../../services/finance/financeContext';
 import { hashIdempotencyRequestV2 } from '../../services/finance/idempotency';
 import { generateMutationId } from '../../services/api';
+import { formatFinanceAmount } from '../../services/finance/financeDisplay';
+import {
+  FinanceDetailMetaRow,
+  FinanceErrorState,
+  FinanceFormFooter,
+  FinanceSemanticSurface,
+  FINANCE_SHEET_SIZE_POLICY,
+  financeSpacing,
+} from './ui';
 
 type ArchivePoolSheetProps = {
   visible: boolean;
@@ -37,6 +45,7 @@ export function ArchivePoolSheet({
   onRequestClose,
   onSuccess,
 }: ArchivePoolSheetProps) {
+  const { colors } = useAppTheme();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,127 +95,59 @@ export function ArchivePoolSheet({
 
   if (!visible || !pool) return null;
 
+  const isBalanceNegative = pool.balance.startsWith('-');
+  const isBalanceZero = pool.balance === '0';
+
   return (
     <ActionSheet
       visible={true}
       title={`Archivar ${pool.name}`}
       onRequestClose={onRequestClose}
-      size="content"
+      size={FINANCE_SHEET_SIZE_POLICY.CONFIRMATION}
     >
-      <View style={styles.content}>
-        <View style={styles.warningCard}>
-          <HomePlusIcon name="alert-circle-outline" size={28} color={colors.warning.strong} />
-          <AppText variant="body" weight="700" style={styles.warningTitle}>
-            ¿Archivar &quot;{pool.name}&quot;?
-          </AppText>
-          <AppText variant="caption" tone="secondary" style={styles.warningText}>
-            El historial del pozo se conserva. No se eliminan gastos ni movimientos.
-          </AppText>
-        </View>
+      <View style={{ gap: financeSpacing.formFieldGap, paddingBottom: financeSpacing.contentActionGap }}>
+        <FinanceSemanticSurface tone="warning">
+          <View style={{ alignItems: 'center', gap: financeSpacing.titleContentGap }}>
+            <HomePlusIcon name="alert-circle-outline" size={28} color={colors.warning.strong} />
+            <AppText variant="body" weight="700" align="center" numberOfLines={2}>
+              ¿Archivar &quot;{pool.name}&quot;?
+            </AppText>
+            <AppText variant="caption" tone="secondary" align="center">
+              El historial del pozo se conserva. No se eliminan gastos ni movimientos.
+            </AppText>
+          </View>
+        </FinanceSemanticSurface>
 
-        <View style={styles.balanceInfo}>
-          <AppText variant="caption" tone="secondary" weight="700">Saldo actual</AppText>
-          <AppText
-            variant="title3"
-            weight="800"
-            tone={pool.balance.startsWith('-') ? 'danger' : pool.balance === '0' ? 'primary' : 'success'}
-          >
-            {pool.balance} {currency}
-          </AppText>
-          {pool.balance !== '0' && !pool.balance.startsWith('-') && (
-            <AppText variant="caption" tone="warning" weight="700" style={styles.balanceWarning}>
+        <View style={{ gap: financeSpacing.contentActionGap }}>
+          <FinanceDetailMetaRow
+            label="Saldo actual"
+            value={formatFinanceAmount(pool.balance, currency, { sign: 'net' })}
+            valueTone={isBalanceNegative ? 'danger' : isBalanceZero ? 'primary' : 'success'}
+          />
+          {!isBalanceZero && !isBalanceNegative && (
+            <AppText variant="caption" tone="warning" weight="700" align="center">
               El pozo tiene saldo positivo. Debés liberarlo o moverlo antes de archivar.
             </AppText>
           )}
-          {pool.balance.startsWith('-') && (
-            <AppText variant="caption" tone="danger" weight="700" style={styles.balanceWarning}>
+          {isBalanceNegative && (
+            <AppText variant="caption" tone="danger" weight="700" align="center">
               El pozo tiene saldo negativo. Debés agregarle dinero antes de archivar.
             </AppText>
           )}
         </View>
 
         {error && (
-          <View style={styles.errorBox}>
-            <HomePlusIcon name="alert-circle-outline" size={16} color={colors.danger.strong} />
-            <AppText variant="caption" tone="danger" weight="700">{error}</AppText>
-          </View>
+          <FinanceErrorState level="form" message={error} />
         )}
 
-        <View style={styles.buttonRow}>
-          <AppButton
-            title="Cancelar"
-            variant="secondary"
-            onPress={onRequestClose}
-            disabled={submitting}
-            style={styles.cancelButton}
-          />
-          <AppButton
-            title="Archivar"
-            variant="danger"
-            onPress={handleSubmit}
-            disabled={submitting}
-            style={styles.archiveButton}
-          >
-            {submitting && <HomePlusIcon name="refresh" size={20} color={colors.text.inverse} />}
-          </AppButton>
-        </View>
+        <FinanceFormFooter
+          onCancel={onRequestClose}
+          primaryTitle="Archivar"
+          onPrimary={handleSubmit}
+          loading={submitting}
+          destructive
+        />
       </View>
     </ActionSheet>
   );
 }
-
-const styles = StyleSheet.create({
-  content: {
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[2],
-    paddingBottom: spacing[4],
-    gap: spacing[3],
-  },
-  warningCard: {
-    alignItems: 'center',
-    gap: spacing[2],
-    padding: spacing[4],
-    borderRadius: radius.lg,
-    backgroundColor: colors.warning.soft,
-    borderWidth: 1,
-    borderColor: colors.warning.base,
-  },
-  warningTitle: {
-    textAlign: 'center',
-  },
-  warningText: {
-    textAlign: 'center',
-  },
-  balanceInfo: {
-    alignItems: 'center',
-    gap: spacing[1],
-    paddingVertical: spacing[3],
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-  },
-  balanceWarning: {
-    textAlign: 'center',
-    marginTop: spacing[1],
-  },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-    padding: spacing[3],
-    borderRadius: radius.md,
-    backgroundColor: colors.danger.soft,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: spacing[2],
-    marginTop: spacing[1],
-  },
-  cancelButton: {
-    flex: 1,
-  },
-  archiveButton: {
-    flex: 1,
-  },
-});

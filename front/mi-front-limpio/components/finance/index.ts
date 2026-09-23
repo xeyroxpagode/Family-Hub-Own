@@ -17,7 +17,6 @@ export * from './PaymentRecurrenceEditor';
 export * from './EditPaymentDueSheet';
 export * from './FinancePoolSummary';
 export * from './FinanceSpendingLimitSummary';
-export * from './FinanceAnalysisHighlights';
 export * from './FinancePoolManagementScreen';
 export * from './FinanceSpendingLimitsManagementScreen';
 export * from './SpendingLimitSheet';

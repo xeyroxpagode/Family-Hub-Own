@@ -1,9 +1,10 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { AbortError, ApiError } from '../../services/api';
@@ -15,9 +16,25 @@ import {
   type FinanceTrashMovementDto,
   type ListFinanceTrashResponse,
 } from '../../services/finance/financeMovements';
-import { AppScreen, AppText, AppCard, EmptyState, ErrorState, InteractivePressable, Skeleton } from '../../components/ui';
+import { AppScreen, AppText, AppCard, EmptyState, Skeleton } from '../../components/ui';
+import {
+  FinanceEmptyState,
+  FinanceErrorState,
+  FinanceIconAction,
+  FinanceIconBox,
+  FinanceListRow,
+} from '../../components/finance/ui';
+import { getFinanceCategoryPresentationByLabel } from '../../services/finance/financeCategories';
 import { TrashMovementDetailSheet } from '../../components/finance/TrashMovementDetailSheet';
 import type { MoreStackParamList } from '../../navigation/types';
+
+function trashToneColor(colors: ReturnType<typeof useAppTheme>['colors'], tone: string): string {
+  if (tone === 'terracotta') return colors.terracotta[600];
+  if (tone === 'sage') return colors.sage[600];
+  if (tone === 'sand') return colors.sand[600];
+  if (tone === 'info') return colors.info.text;
+  return colors.text.tertiary;
+}
 
 type FinancePapeleraScreenRouteProp = RouteProp<MoreStackParamList, 'FinancePapelera'>;
 
@@ -40,7 +57,7 @@ function groupMovementsByTrashedDate(movements: FinanceTrashMovementDto[]) {
   const indexByDate = new Map<string, number>();
 
   movements.forEach((movement) => {
-    const dateOnly = movement.trashedAt.split('T')[0];
+    const dateOnly = (movement.trashedAt ?? movement.transactionDate).split('T')[0];
     const existingIndex = indexByDate.get(dateOnly);
     if (existingIndex === undefined) {
       indexByDate.set(dateOnly, groups.length);
@@ -59,6 +76,9 @@ function safeFinanceReadError(error: unknown): string {
 }
 
 export function FinancePapeleraScreen() {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const navigation = useNavigation<any>();
   const route = useRoute<FinancePapeleraScreenRouteProp>();
   const { session, authMe } = useAuth();
@@ -163,15 +183,12 @@ export function FinancePapeleraScreen() {
       contentContainerStyle={styles.content}
     >
       <View style={styles.header}>
-        <InteractivePressable
+        <FinanceIconAction
           onPress={handleVisibleBack}
-          style={styles.backButton}
-          accessibilityRole="button"
           accessibilityLabel="Volver"
-          hitSlop={8}
         >
           <HomePlusIcon name="chevron-back-outline" size={22} color={colors.text.primary} />
-        </InteractivePressable>
+        </FinanceIconAction>
         <View style={styles.headerText}>
           <AppText variant="title1" accessibilityRole="header">
             Papelera
@@ -211,68 +228,84 @@ export function FinancePapeleraScreen() {
       ) : null}
 
       {readState.error && movements.length === 0 ? (
-        <ErrorState
-          title="No pudimos cargar la Papelera"
-          description={readState.error}
+        <FinanceErrorState
+          level="full"
+          message={readState.error}
           onRetry={retryReads}
         />
       ) : null}
 
       {groups.length === 0 && !readState.loading && !readState.error ? (
-        <AppCard variant="quiet" padding="generous">
-          <EmptyState
-            title="Papelera vacía"
-            description="Los movimientos que envíes a Papelera aparecerán acá."
-            illustration={<HomePlusIcon name="trash-outline" size={30} color={colors.terracotta[600]} />}
-          />
-        </AppCard>
+        <FinanceEmptyState
+          level="section"
+          title="Papelera vacía"
+          description="Los movimientos que envíes a Papelera aparecerán acá."
+          icon={<HomePlusIcon name="trash-outline" size={20} color={colors.text.tertiary} />}
+        />
       ) : (
         groups.map((group) => (
           <View key={group.date} style={styles.movementGroup}>
             <AppText variant="caption" tone="secondary" weight="800" style={styles.groupDate}>
               {formatFinanceDateGroupLabel(group.date)}
             </AppText>
-            <AppCard variant="quiet" padding="default" style={styles.movementListCard}>
-              {group.movements.map((movement) => (
-                <InteractivePressable
-                  key={movement.id}
-                  onPress={() => handleTrashMovementPress(movement)}
-                  haptic="light"
-                  pressScale={motion.scale.card}
-                  style={styles.movementRow}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Movimiento en Papelera: ${movement.transactionType === 'expense' ? 'Gasto' : 'Ingreso'} ${formatFinanceAmount(movement.amount, movement.currency, { sign: 'transaction', transactionType: movement.transactionType })}`}
-                >
-                  <View style={styles.movementCopy}>
-                    <AppText variant="body" weight="800" numberOfLines={1}>
-                      {movement.transactionType === 'expense' ? 'Gasto' : 'Ingreso'}
-                    </AppText>
-                    {movement.description ? (
-                      <AppText variant="bodySmall" tone="secondary" numberOfLines={1}>
-                        {movement.description}
-                      </AppText>
-                    ) : null}
-                    {movement.categoryLabelSnapshot ? (
-                      <AppText variant="caption" tone="secondary" numberOfLines={1}>
-                        {movement.categoryLabelSnapshot}
-                      </AppText>
-                    ) : null}
-                  </View>
-                  <AppText
-                    variant="bodySmall"
-                    tone={movement.transactionType === 'expense' ? 'danger' : 'success'}
-                    weight="800"
-                    style={styles.movementAmount}
-                    numberOfLines={1}
-                  >
-                    {formatFinanceAmount(movement.amount, movement.currency, {
+            <View>
+              {group.movements.map((movement, index) => {
+                if (movement.kind === 'TRANSFER') {
+                  const isCrossCurrency = movement.sourceCurrency !== movement.destinationCurrency;
+                  const value = isCrossCurrency
+                    ? `${formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' })} → ${formatFinanceAmount(movement.destinationAmount, movement.destinationCurrency, { sign: 'none' })}`
+                    : formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' });
+                  return (
+                    <FinanceListRow
+                      key={movement.id}
+                      title="Transferencia"
+                      subtitle={`${movement.sourceAccount.name} → ${movement.destinationAccount.name}`}
+                      icon={
+                        <FinanceIconBox>
+                          <HomePlusIcon name="swap-horizontal-outline" size={18} color={colors.text.tertiary} />
+                        </FinanceIconBox>
+                      }
+                      value={value}
+                      chevron
+                      divider={index < group.movements.length - 1}
+                      onPress={() => handleTrashMovementPress(movement)}
+                      accessibilityLabel={`Transferencia en Papelera: ${movement.sourceAccount.name} a ${movement.destinationAccount.name}, ${value}`}
+                    />
+                  );
+                }
+                const presentation = getFinanceCategoryPresentationByLabel(movement.categoryLabelSnapshot);
+                const typeLabel = movement.transactionType === 'expense' ? 'Gasto' : 'Ingreso';
+                const title = movement.description?.trim() ? movement.description.trim() : typeLabel;
+                const subtitle = movement.categoryLabelSnapshot
+                  ? `${typeLabel} · ${movement.categoryLabelSnapshot}`
+                  : typeLabel;
+                return (
+                  <FinanceListRow
+                    key={movement.id}
+                    title={title}
+                    subtitle={subtitle}
+                    icon={
+                      <FinanceIconBox>
+                        <HomePlusIcon
+                          name={presentation.iconKey}
+                          size={18}
+                          color={trashToneColor(colors, presentation.tone)}
+                        />
+                      </FinanceIconBox>
+                    }
+                    value={formatFinanceAmount(movement.amount, movement.currency, {
                       sign: 'transaction',
                       transactionType: movement.transactionType,
                     })}
-                  </AppText>
-                </InteractivePressable>
-              ))}
-            </AppCard>
+                    valueTone={movement.transactionType === 'expense' ? 'danger' : 'success'}
+                    chevron
+                    divider={index < group.movements.length - 1}
+                    onPress={() => handleTrashMovementPress(movement)}
+                    accessibilityLabel={`Movimiento en Papelera: ${typeLabel} ${formatFinanceAmount(movement.amount, movement.currency, { sign: 'transaction', transactionType: movement.transactionType })}`}
+                  />
+                );
+              })}
+            </View>
           </View>
         ))
       )}
@@ -292,7 +325,10 @@ export function FinancePapeleraScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
   content: {
     gap: spacing[4],
   },
@@ -300,16 +336,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
-  },
-  backButton: {
-    width: touchTargets.normal,
-    height: touchTargets.normal,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
   },
   headerText: {
     flex: 1,
@@ -327,23 +353,5 @@ const styles = StyleSheet.create({
   groupDate: {
     marginHorizontal: spacing[2],
   },
-  movementListCard: {
-    gap: 0,
-  },
-  movementRow: {
-    minHeight: 62,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    paddingVertical: spacing[2],
-  },
-  movementCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing[1],
-  },
-  movementAmount: {
-    maxWidth: '42%',
-    textAlign: 'right',
-  },
-});
+  });
+}

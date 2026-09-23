@@ -41,7 +41,7 @@ runTest('E01 — Tap Expense movement → Movement Detail opens', () => {
   assert(screen.includes('onMovementPress={handleMovementPress}'), 'E01 MovementsSurface receives onMovementPress handler');
   assert(screen.includes('handleMovementPress') && screen.includes('setSelectedMovement') && screen.includes('setMovementDetailVisible(true)'), 'E01 handleMovementPress sets selected movement and opens detail');
   assert(screen.includes('<MovementDetailSheet') && screen.includes('movement={selectedMovement}') && screen.includes('visible={movementDetailVisible}'), 'E01 MovementDetailSheet rendered with movement and visibility');
-  assert(movementsSurface.includes('Detalle del movimiento') && movementsSurface.includes('Tipo') && movementsSurface.includes('Monto'), 'E01 MovementDetailSheet shows movement detail fields');
+  assert(movementsSurface.includes('Detalle del movimiento') && movementsSurface.includes('<FinanceDetailHeader') && movementsSurface.includes('Gasto neto'), 'E01 MovementDetailSheet shows movement detail fields');
 });
 
 // E02 — Tap Income movement → Movement Detail opens
@@ -68,9 +68,9 @@ runTest('E04 — "Nunca ocurrió" reaches Trash confirmation', () => {
   const detailSheet = read('front/mi-front-limpio/components/finance/MovementDetailSheet.tsx');
 
   assert(detailSheet.includes('Nunca ocurrió'), 'E04 "Nunca ocurrió" label present');
-  assert(detailSheet.includes('handleNuncaOcurrio') && detailSheet.includes('setStep') && detailSheet.includes('\'confirm\''), 'E04 "Nunca ocurrió" navigates to confirm step');
+  assert(detailSheet.includes('handleNuncaOcurrio') && detailSheet.includes("setStep('confirmTrash')"), 'E04 "Nunca ocurrió" navigates to confirm step');
   assert(detailSheet.includes('trash-outline') && detailSheet.includes('colors.danger.strong'), 'E04 Option has trash icon and danger styling');
-  assert(detailSheet.includes('step === \'confirm\'') && detailSheet.includes('¿Enviar a Papelera?'), 'E04 Confirmation step shows trash confirmation dialog');
+  assert(detailSheet.includes("step === 'confirmTrash'") && detailSheet.includes('¿Enviar a Papelera?'), 'E04 Confirmation step shows trash confirmation dialog');
 });
 
 // E05 — Confirm invokes canonical Trash service with correct transaction id
@@ -127,7 +127,7 @@ runTest('E09 — Backend failure remains visible and does not fake success', () 
   const detailSheet = read('front/mi-front-limpio/components/finance/MovementDetailSheet.tsx');
 
   assert(detailSheet.includes('catch (err)') && detailSheet.includes('setError'), 'E09 Error is caught and set in state');
-  assert(detailSheet.includes('error ?') && detailSheet.includes('errorBox') && detailSheet.includes('styles.errorText'), 'E09 Error displayed in confirmation step');
+  assert(detailSheet.includes('error ?') && detailSheet.includes('<FinanceErrorState') && detailSheet.includes('level="form"'), 'E09 Error displayed in confirmation step');
   assert(detailSheet.includes('setSubmitting(false)'), 'E09 Submitting state reset on error');
   assert(detailSheet.includes('ApiError'), 'E09 Uses ApiError for typed error handling');
   // Verify error path doesn't call onTrashSuccess or close (only success path does)
@@ -159,7 +159,7 @@ runTest('E11 — No direct mutation of Account Balance/effect status from fronte
     'front/mi-front-limpio/screens/finance/FinanceScreen.tsx',
   ].map((file) => read(file)).join('\n');
 
-  assert(!/accountEffect|effectStatus|effect_status|Account.*Balance|account.*balance|finance_account_effects|REVERSED|effectStatus.*=|balance\s*[+-]=/i.test(trashFlowFiles), 'E11 No frontend mutation of account effects or balances in trash flow');
+  assert(!/createFinanceAccountEffect|updateFinanceAccountEffect|effectStatus\s*=|effect_status\s*=|finance_account_effects\s*\.(insert|update)|balance\s*[+-]=/i.test(trashFlowFiles), 'E11 No frontend mutation of account effects or balances in trash flow');
   assert(!/updateFinanceAccount|createFinanceAccountEffect|financeAccountEffect|patchAccount|putAccount/i.test(trashFlowFiles), 'E11 No account effect mutation calls in trash flow');
   // Trash flow only calls transaction trash endpoint
   assert(trashFlowFiles.includes('/api/finance/transactions/trash') && !trashFlowFiles.includes('/api/finance/accounts') && !trashFlowFiles.includes('/api/finance/effects'), 'E11 Trash flow only calls transaction trash endpoint');

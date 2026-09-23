@@ -1,8 +1,8 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
-import { HomePlusIcon } from '../../constants/icons';
 import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError } from '../../services/api';
 import type { FinanceActiveHousehold, FinanceContextType, FinanceContextViewState } from '../../services/finance/financeContext';
@@ -11,7 +11,13 @@ import { getAccountBalancePresentation, formatAccountPresentationAmount } from '
 import { useEligibleAccounts } from '../../services/finance/financeAccountEligibility';
 import { createFinanceTransfer, buildTransferPayloadSignature, useStableTransferMutationIdentity } from '../../services/finance/financeTransfers';
 import { parseMoneyInputText, type MoneyInputCurrencyCode, type MoneyInputParseResult } from '../../services/finance/moneyInputValue';
-import { ActionSheet, AppButton, AppText, DatePickerSheet, FormActionRow, formatHumanDate } from '../ui';
+import { ActionSheet, AppText, DatePickerSheet, formatHumanDate } from '../ui';
+import {
+  FinanceErrorState,
+  FinanceFormFooter,
+  FinanceSelectionRow,
+  FINANCE_SHEET_SIZE_POLICY,
+} from './ui';
 import { todayDateOnly } from '../../services/finance/financeDate';
 import { MoneyInput } from './MoneyInput';
 import { AccountSelector } from './AccountSelector';
@@ -40,7 +46,6 @@ export function DirectCreditCardPaymentSheet({
   onSuccess,
 }: Props) {
   const theme = useAppTheme();
-  const { colors } = theme;
   const styles = createStyles(theme);
   const [cardAmountText, setCardAmountText] = useState('');
   const [cardAmount, setCardAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
@@ -69,7 +74,6 @@ export function DirectCreditCardPaymentSheet({
   );
   const isCrossCurrency = Boolean(selectedSourceAccount && card && selectedSourceAccount.currency !== card.currency);
   const effectiveSourceAmount = isCrossCurrency ? sourceAmount : cardAmount;
-  const effectiveSourceAmountText = isCrossCurrency ? sourceAmountText : cardAmountText;
   const transferSignature = buildTransferPayloadSignature({
     sourceAccount: selectedSourceAccount?.id ?? '',
     destinationAccount: card?.id ?? '',
@@ -153,111 +157,111 @@ export function DirectCreditCardPaymentSheet({
       subtitle={`Finanzas de ${contextLabel}`}
       onRequestClose={close}
       closeDisabled={submitting}
+      size={FINANCE_SHEET_SIZE_POLICY.MEDIUM_FORM}
       footer={(
-        <View style={styles.footer}>
-          <AppButton title="Cancelar" variant="ghost" onPress={close} disabled={submitting} style={styles.footerButton} />
-          <AppButton title="Pagar tarjeta" onPress={() => void submit()} loading={submitting} disabled={!canSubmit} style={styles.footerButton} />
-        </View>
+        <FinanceFormFooter
+          primaryTitle="Pagar tarjeta"
+          onPrimary={() => void submit()}
+          onCancel={close}
+          primaryDisabled={!canSubmit}
+          loading={submitting}
+          divided={false}
+        />
       )}
     >
-      <View style={styles.sheetBody}>
-        <KeyboardAwareScrollView
-          enableOnAndroid
-          extraScrollHeight={40}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.form}
-        >
-          <View style={styles.summaryBox}>
-            <AppText variant="caption" tone="secondary" weight="700">Deuda actual registrada</AppText>
-            <AppText variant="title3" weight="800">{currentDebtLabel}</AppText>
-          </View>
+      <KeyboardAwareScrollView
+        enableOnAndroid
+        extraScrollHeight={40}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.form}
+      >
+        <View style={styles.summaryBox}>
+          <AppText variant="caption" tone="secondary" weight="700">Estado de la tarjeta</AppText>
+          <AppText variant="title3" weight="800">{currentDebtLabel}</AppText>
+        </View>
 
-          <FormActionRow
-            label="Desde"
-            value={selectedSourceAccount ? `${selectedSourceAccount.name} · ${selectedSourceAccount.currency}` : 'Seleccionar cuenta'}
-            onPress={() => setAccountSelectorVisible(true)}
-            disabled={submitting || accountsState.loading}
-            accessibilityLabel="Elegir cuenta desde la que se paga la tarjeta"
-          />
+        <FinanceSelectionRow
+          label="Desde"
+          value={selectedSourceAccount ? `${selectedSourceAccount.name} · ${selectedSourceAccount.currency}` : 'Seleccionar cuenta'}
+          onPress={() => setAccountSelectorVisible(true)}
+          disabled={submitting || accountsState.loading}
+          accessibilityLabel="Elegir cuenta desde la que se paga la tarjeta"
+        />
 
+        {isCrossCurrency && selectedSourceAccount ? (
           <MoneyInput
-            value={cardAmountText}
-            currency={cardCurrency}
-            onValueChange={(next) => { setCardAmountText(next.inputText); setCardAmount(next); setSubmitError(null); }}
+            value={sourceAmountText}
+            currency={selectedSourceAccount.currency as MoneyInputCurrencyCode}
+            onValueChange={(next) => { setSourceAmountText(next.inputText); setSourceAmount(next); setSubmitError(null); }}
             onCurrencyChange={() => undefined}
-            availableCurrencies={[cardCurrency]}
-            label="Monto para la tarjeta"
-            helperText="Podés pagar parcial, total o de más."
+            availableCurrencies={[selectedSourceAccount.currency as MoneyInputCurrencyCode]}
+            label="Sale"
+            helperText="Ingresá lo que se debita de la cuenta. No calculamos tipo de cambio."
             disabled={submitting}
-            errorText={cardAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
+            errorText={sourceAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
           />
+        ) : null}
 
-          {isCrossCurrency && selectedSourceAccount ? (
-            <MoneyInput
-              value={sourceAmountText}
-              currency={selectedSourceAccount.currency as MoneyInputCurrencyCode}
-              onValueChange={(next) => { setSourceAmountText(next.inputText); setSourceAmount(next); setSubmitError(null); }}
-              onCurrencyChange={() => undefined}
-              availableCurrencies={[selectedSourceAccount.currency as MoneyInputCurrencyCode]}
-              label="Monto que sale"
-              helperText="No calculamos tipo de cambio. Ingresá lo que debitó tu cuenta."
-              disabled={submitting}
-              errorText={sourceAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
-            />
-          ) : null}
-
-          <FormActionRow
-            label="Fecha"
-            value={formatHumanDate(date)}
-            onPress={() => setDatePickerVisible(true)}
-            disabled={submitting}
-            accessibilityLabel={`Fecha de pago ${formatHumanDate(date)}`}
-          />
-
-          {accountsState.error ? <AppText variant="caption" tone="warning">{accountsState.error}</AppText> : null}
-          {accountsState.accounts.length === 0 && !accountsState.loading ? (
-            <AppText variant="caption" tone="warning">No tenés cuentas disponibles para pagar esta tarjeta.</AppText>
-          ) : null}
-
-          {submitError ? (
-            <View style={styles.errorBox}>
-              <HomePlusIcon name="alert-circle-outline" size={18} color={colors.danger.strong} />
-              <AppText variant="bodySmall" tone="danger" style={styles.errorText}>{submitError}</AppText>
-            </View>
-          ) : null}
-        </KeyboardAwareScrollView>
-
-        <DatePickerSheet
-          visible={datePickerVisible}
-          value={date}
-          onClose={() => setDatePickerVisible(false)}
-          onConfirm={(nextDate) => { setDate(nextDate > todayDateOnly() ? todayDateOnly() : nextDate); setDatePickerVisible(false); }}
-        />
-
-        <AccountSelector
-          visible={accountSelectorVisible}
-          title="Cuenta de origen"
-          subtitle="Cuenta desde la que se paga la tarjeta"
-          accounts={accountsState.accounts.filter((account) => account.id !== card.id)}
-          loading={accountsState.loading}
-          error={accountsState.error}
-          selectedAccountId={selectedAccountId}
-          allowNone={false}
-          activeHousehold={activeHousehold}
+        <MoneyInput
+          value={cardAmountText}
+          currency={cardCurrency}
+          onValueChange={(next) => { setCardAmountText(next.inputText); setCardAmount(next); setSubmitError(null); }}
+          onCurrencyChange={() => undefined}
+          availableCurrencies={[cardCurrency]}
+          label={isCrossCurrency ? 'Llega' : 'Monto para la tarjeta'}
+          helperText={isCrossCurrency ? 'Monto que recibe la tarjeta.' : 'Podés pagar parcial, total o de más y generar saldo a favor.'}
           disabled={submitting}
-          operationHint="transfer-source"
-          onRequestClose={() => setAccountSelectorVisible(false)}
-          onSelect={(account) => {
-            setSelectedAccountId(account?.id ?? null);
-            setSourceAmountText('');
-            setSourceAmount(parseMoneyInputText('', (account?.currency ?? 'ARS') as MoneyInputCurrencyCode));
-            setSubmitError(null);
-            setAccountSelectorVisible(false);
-          }}
+          errorText={cardAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
         />
-      </View>
+
+        <FinanceSelectionRow
+          label="Fecha"
+          value={formatHumanDate(date)}
+          onPress={() => setDatePickerVisible(true)}
+          disabled={submitting}
+          accessibilityLabel={`Fecha de pago ${formatHumanDate(date)}`}
+        />
+
+        {accountsState.error ? <AppText variant="caption" tone="warning">{accountsState.error}</AppText> : null}
+        {accountsState.accounts.length === 0 && !accountsState.loading ? (
+          <AppText variant="caption" tone="warning">No tenés cuentas disponibles para pagar esta tarjeta.</AppText>
+        ) : null}
+
+        {submitError ? (
+          <FinanceErrorState level="form" message={submitError} />
+        ) : null}
+      </KeyboardAwareScrollView>
+
+      <DatePickerSheet
+        visible={datePickerVisible}
+        value={date}
+        onClose={() => setDatePickerVisible(false)}
+        onConfirm={(nextDate) => { setDate(nextDate > todayDateOnly() ? todayDateOnly() : nextDate); setDatePickerVisible(false); }}
+      />
+
+      <AccountSelector
+        visible={accountSelectorVisible}
+        title="Cuenta de origen"
+        subtitle="Cuenta desde la que se paga la tarjeta"
+        accounts={accountsState.accounts.filter((account) => account.id !== card.id)}
+        loading={accountsState.loading}
+        error={accountsState.error}
+        selectedAccountId={selectedAccountId}
+        allowNone={false}
+        activeHousehold={activeHousehold}
+        disabled={submitting}
+        operationHint="transfer-source"
+        onRequestClose={() => setAccountSelectorVisible(false)}
+        onSelect={(account) => {
+          setSelectedAccountId(account?.id ?? null);
+          setSourceAmountText('');
+          setSourceAmount(parseMoneyInputText('', (account?.currency ?? 'ARS') as MoneyInputCurrencyCode));
+          setSubmitError(null);
+          setAccountSelectorVisible(false);
+        }}
+      />
     </ActionSheet>
   );
 }
@@ -266,10 +270,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
   const { colors, radius, spacing } = theme;
 
   return StyleSheet.create({
-    sheetBody: {
-      flex: 1,
-      position: 'relative',
-    },
     form: {
       gap: spacing[4],
       paddingBottom: spacing[4],
@@ -281,24 +281,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
       backgroundColor: colors.surface.card,
       padding: spacing[4],
       gap: spacing[1],
-    },
-    errorBox: {
-      borderRadius: radius.lg,
-      backgroundColor: colors.danger.soft,
-      padding: spacing[3],
-      flexDirection: 'row',
-      gap: spacing[2],
-    },
-    errorText: {
-      flex: 1,
-      minWidth: 0,
-    },
-    footer: {
-      flexDirection: 'row',
-      gap: spacing[2],
-    },
-    footerButton: {
-      flex: 1,
     },
   });
 }

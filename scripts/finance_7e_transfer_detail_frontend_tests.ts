@@ -67,11 +67,12 @@ runTest('PART C — TransferDetailSheet Component', () => {
   assert(sheet.includes('sourceAmount') && sheet.includes('destinationAmount'), '21. Shows source and destination amounts');
   assert(sheet.includes('sourceCurrency') && sheet.includes('destinationCurrency'), '22. Shows source and destination currencies');
   assert(!sheet.includes('FX') && !sheet.includes('equivale') && !sheet.includes('conversion rate'), '23. No FX rate/calculation displayed');
-  assert(sheet.includes('detail.description') && sheet.includes('Detalle'), '24. Shows description in "Detalle" section when present');
+  assert(sheet.includes('detail.description') && sheet.includes('label="Descripción"'), '24. Shows description as detail metadata when present');
   assert(sheet.includes('detail.notes') && sheet.includes('Notas'), '25. Shows notes in "Notas" section when present');
-  assert(sheet.includes('detail.commission') && sheet.includes('Comisión asociada'), '26. Shows commission section when present');
-  assert(sheet.includes('Se registra como gasto separado'), '27. Shows commission context note');
-  assert(!sheet.includes('Editar') && !sheet.includes('Corregir') && !sheet.includes('Eliminar') && !sheet.includes('Papelera') && !sheet.includes('Restaurar') && !sheet.includes('Reembolso') && !sheet.includes('Asignar pozo') && !sheet.includes('Duplicar') && !sheet.includes('Revertir'), '28. No mutation actions offered');
+  assert(sheet.includes('detail.commission') && sheet.includes('Comisión'), '26. Shows commission section when present');
+  assert(!sheet.includes('Se registra como gasto separado'), '27. No implementation-oriented commission helper (7C Patch 02: hierarchy communicates the relationship)');
+  assert(!sheet.includes('Editar') && !sheet.includes('Corregir') && !sheet.includes('Eliminar') && !sheet.includes('Reembolso') && !sheet.includes('Asignar pozo') && !sheet.includes('Duplicar') && !sheet.includes('Revertir') && !sheet.includes('Restaurar'), '28. No in-place mutation actions offered');
+  assert(sheet.includes('Enviar a Papelera') && sheet.includes('trashFinanceTransfer'), '28b. Transfer lifecycle exposes the existing trash capability');
 });
 
 runTest('PART D — Loading State', () => {
@@ -83,15 +84,15 @@ runTest('PART D — Loading State', () => {
 runTest('PART E — Error / Retry', () => {
   const sheet = read('front/mi-front-limpio/components/finance/TransferDetailSheet.tsx');
   assert(sheet.includes('error') && sheet.includes('No pudimos cargar la transferencia'), '31. Error state shows user-friendly message');
-  assert(sheet.includes('Reintentar') && sheet.includes('onPress={loadDetail}'), '32. Retry button calls loadDetail');
-  assert(sheet.includes('closeDisabled={loading}'), '33. Sheet stays open on error (closeDisabled during loading)');
+  assert(sheet.includes('onRetry={loadDetail}'), '32. Retry calls loadDetail through the common error state');
+  assert(sheet.includes('closeDisabled={loading || trashSubmitting}'), '33. Sheet stays open during loading and lifecycle work');
 });
 
 runTest('PART F — Stale Data Safety', () => {
   const sheet = read('front/mi-front-limpio/components/finance/TransferDetailSheet.tsx');
   assert(sheet.includes('transferIdRef') && sheet.includes('useRef'), '34. Uses ref to track current transferId');
   assert(sheet.includes('transferIdRef.current') && sheet.includes('loadDetail'), '35. Load uses current ref value');
-  assert(sheet.includes('[visible, transferId, accessToken, contextType]'), '36. Effect deps include transferId for reset on identity change');
+  assert(sheet.includes('[visible, transferId, accessToken, contextType, refreshNonce]'), '36. Effect deps include transferId and refreshNonce for reset on identity/freshness changes');
 });
 
 runTest('PART G — Movimientos Press Dispatch', () => {
@@ -104,10 +105,10 @@ runTest('PART G — Movimientos Press Dispatch', () => {
 
 runTest('PART H — Row Affordance', () => {
   const screen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
-  assert(screen.includes('kind === \'TRANSFER\'') && screen.includes('<InteractivePressable'), '41. Transfer row uses InteractivePressable');
-  assert(screen.includes('onPress={() => onMovementPress?.(movement)}') && screen.includes('kind === \'TRANSFER\''), '42. Transfer row has onPress handler');
-  assert(screen.includes('pressScale={motion.scale.card}') && screen.includes('kind === \'TRANSFER\''), '43. Transfer row has press scale feedback');
-  assert(screen.includes('accessibilityRole="button"') && screen.includes('kind === \'TRANSFER\''), '44. Transfer row has accessibilityRole button');
+  assert(screen.includes('kind === \'TRANSFER\'') && screen.includes('<FinanceListRow'), '41. Transfer row uses the common FinanceListRow grammar');
+  assert(screen.includes('onMovementPress(movement)') && screen.includes('kind === \'TRANSFER\''), '42. Transfer row has onPress handler');
+  assert(screen.includes('FinanceIconBox') && screen.includes('kind === \'TRANSFER\''), '43. Transfer row uses the common icon box');
+  assert(screen.includes('a ${movement.destinationAccount.name}'), '44. Transfer row keeps an accessible route label');
 });
 
 runTest('PART I — Detail Ownership', () => {
@@ -124,12 +125,13 @@ runTest('PART J — Refresh', () => {
   assert(screen.includes('setTransferDetailRefreshNonce((current) => current + 1)'), '50. Refresh nonce incremented on open');
 });
 
-runTest('PART K — No Actions', () => {
+runTest('PART K — No In-Place Actions', () => {
   const sheet = read('front/mi-front-limpio/components/finance/TransferDetailSheet.tsx');
-  const actions = ['Editar', 'Corregir', 'Eliminar', 'Papelera', 'Restaurar', 'Reembolso', 'Asignar pozo', 'Duplicar', 'Revertir'];
+  const actions = ['Editar', 'Corregir', 'Eliminar', 'Restaurar', 'Reembolso', 'Asignar pozo', 'Duplicar', 'Revertir'];
   actions.forEach(action => {
     assert(!sheet.includes(action), `51. No "${action}" action in TransferDetailSheet`);
   });
+  assert(sheet.includes('Enviar a Papelera'), '51b. Only the trash lifecycle action is offered');
 });
 
 runTest('PART L — Static Test Coverage', () => {

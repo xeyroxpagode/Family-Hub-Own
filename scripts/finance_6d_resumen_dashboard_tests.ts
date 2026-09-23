@@ -1,6 +1,8 @@
 // Finance Stage 6D — Resumen Dashboard Foundation Tests
 // Tests inspect meaningful frontend contracts for the new dashboard components
 
+import fs from 'node:fs';
+import path from 'node:path';
 import type { FinancePoolSummaryResponse } from '../front/mi-front-limpio/services/finance/financePools';
 import type { FinanceSpendingLimitProgressDto } from '../front/mi-front-limpio/services/finance/financeSpendingLimits';
 import type { FinanceAnalysisResponse } from '../front/mi-front-limpio/services/finance/financeAnalysis';
@@ -8,6 +10,10 @@ import type { FinanceSummaryCurrencyDto } from '../front/mi-front-limpio/service
 
 let passCount = 0;
 let failCount = 0;
+
+function readRepoFile(rel: string): string {
+  return fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+}
 
 function assert(condition: boolean, message: string): void {
   if (condition) {
@@ -564,7 +570,45 @@ function runTests(): void {
     // Test 2: Empty Pool state renders (simulated via normalized data)
     const emptySummary = createMockPoolSummary({ pools: [] });
     assert(emptySummary.pools.length === 0, 'empty Pool state - pools is empty array');
-    // The component would render "Todavía no organizaste tu dinero en pozos"
+    const poolSummarySource = readRepoFile('front/mi-front-limpio/components/finance/FinancePoolSummary.tsx');
+    assert(!poolSummarySource.includes('Todavía no organizaste tu dinero en pozos'), 'empty Pool manager copy no longer renders in Resumen');
+    assert(!poolSummarySource.includes('title="Crear pozo"'), 'Crear pozo is not exposed from Tu dinero summary');
+    assert(!poolSummarySource.includes('metadataItems'), 'Tu dinero does not render metadata count rows');
+    assert(!poolSummarySource.includes('knownAccountCount'), 'Tu dinero does not expose account counts');
+    assert(!poolSummarySource.includes('unknownCreditCardCount'), 'Tu dinero does not expose card counts');
+    assert(!poolSummarySource.includes('UnknownCoverageNotice'), 'Tu dinero does not render coverage warning notices');
+    assert(!poolSummarySource.includes('CoverageDeficitWarning'), 'Tu dinero does not render deficit warning notices');
+    assert(!poolSummarySource.includes('Cuentas') && !poolSummarySource.includes('Tarjetas') && !poolSummarySource.includes('Pozos'), 'Tu dinero omits account/card/pool metadata labels');
+    assert(poolSummarySource.includes('Disponible'), 'Tu dinero keeps Disponible row');
+    assert(poolSummarySource.includes('Organizado'), 'Tu dinero keeps Organizado row');
+    assert(poolSummarySource.includes('Sin organizar'), 'Tu dinero keeps Sin organizar row');
+    assert(/>\s*Organizar\s*<\/AppText>/.test(poolSummarySource), 'Tu dinero keeps one Organizar management entry');
+    assert(!poolSummarySource.includes('title="Organizar"'), 'Tu dinero action is borderless text instead of AppButton pill');
+    assert(poolSummarySource.includes('style={styles.sectionAction}'), 'Tu dinero action uses secondary section-action grammar');
+    assert(poolSummarySource.includes('chevron-forward-outline'), 'Tu dinero action includes chevron affordance');
+    assert(!poolSummarySource.includes('<AppCard'), 'Tu dinero renders as flat section without major outer card');
+  }
+
+  {
+    // Test 2b: Stage 1 Resumen boundary keeps analytics highlights out of Resumen
+    const financeScreenSource = readRepoFile('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
+    const spendingLimitSource = readRepoFile('front/mi-front-limpio/components/finance/FinanceSpendingLimitSummary.tsx');
+    assert(!financeScreenSource.includes('<FinanceAnalysisHighlights'), 'Resumen does not render Destacados analytics');
+    assert(!financeScreenSource.includes('Necesita atención'), 'Resumen does not render duplicated Finance attention surface');
+    assert(!financeScreenSource.includes('FinanceAttentionSummary'), 'Resumen removes local attention ownership component');
+    assert(!/return\s*\(\s*<AppCard[\s\S]{0,160}<View style=\{styles\.surfaceStack\}/.test(financeScreenSource), 'Este mes renders as flat section without major outer card');
+    assert(!spendingLimitSource.includes('<AppCard'), 'Límites de gasto renders as flat section without major outer card');
+    assert(financeScreenSource.includes('style={styles.analysisEntryButton}'), 'Ver análisis is a full-width row entry');
+    assert(!/analysisEntryButton:\s*{[^}]*borderRadius/s.test(financeScreenSource), 'Ver análisis row has no pill radius');
+    assert(!/analysisEntryButton:\s*{[^}]*backgroundColor/s.test(financeScreenSource), 'Ver análisis row has no fill background');
+    assert(!/analysisEntryButton:\s*{[^}]*borderWidth/s.test(financeScreenSource), 'Ver análisis row has no outlined pill border');
+    assert(financeScreenSource.includes('showDivider={false}'), 'Balance metric disables its bottom divider before analysis footer');
+    assert(!/summaryRows:\s*{[^}]*borderBottomWidth/s.test(financeScreenSource), 'summary metrics block has no redundant bottom divider');
+    assert(financeScreenSource.includes('summaryMetricDivider'), 'metric dividers are explicit instead of duplicating the footer divider');
+    assert(financeScreenSource.includes('style={styles.periodControl}'), 'period selector keeps its touch control style');
+    assert(!/periodControl:\s*{[^}]*borderRadius/s.test(financeScreenSource), 'period selector has no capsule radius');
+    assert(!/periodControl:\s*{[^}]*backgroundColor/s.test(financeScreenSource), 'period selector has no background capsule');
+    assert(!/periodControl:\s*{[^}]*borderWidth/s.test(financeScreenSource), 'period selector has no border capsule');
   }
 
   {

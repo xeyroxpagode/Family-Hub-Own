@@ -79,6 +79,7 @@ function assertNoCallerOwnerSelectors(query = {}) {
 const TRASH_SELECT_COLUMNS = [
   'id',
   'root_transaction_id',
+  'transfer_id',
   'transaction_type',
   'amount:amount::text',
   'currency',
@@ -89,6 +90,22 @@ const TRASH_SELECT_COLUMNS = [
   'trashed_at',
   'created_at',
   'updated_at',
+].join(', ');
+
+const TRANSFER_TRASH_SELECT_COLUMNS = [
+  'id',
+  'source_account_id',
+  'destination_account_id',
+  'source_amount:source_amount::text',
+  'destination_amount:destination_amount::text',
+  'source_currency',
+  'destination_currency',
+  'transfer_date',
+  'description',
+  'notes',
+  'created_at',
+  'source_account:finance_accounts!finance_transfers_source_account_id_fkey(id, name, account_type, currency)',
+  'destination_account:finance_accounts!finance_transfers_destination_account_id_fkey(id, name, account_type, currency)',
 ].join(', ');
 
 function throwSupabaseError(error) {
@@ -381,8 +398,10 @@ function unifiedRowToDto(row) {
 
 function movementToTrashDto(row) {
   return {
+    kind: String(row.transaction_type).toUpperCase(),
     id: row.id,
     transactionType: row.transaction_type,
+    transferId: row.transfer_id ?? null,
     amount: String(row.amount),
     currency: row.currency,
     transactionDate: row.transaction_date,
@@ -392,6 +411,50 @@ function movementToTrashDto(row) {
     trashedAt: row.trashed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function transferAccountToDto(account, fallbackId, fallbackCurrency) {
+  const value = Array.isArray(account) ? account[0] : account;
+  return {
+    id: value?.id ?? fallbackId,
+    name: value?.name ?? null,
+    accountType: value?.account_type ?? null,
+    currency: value?.currency ?? fallbackCurrency,
+  };
+}
+
+function transferToTrashDto(row, commissionRow = null) {
+  return {
+    kind: FINANCE_TRANSACTION_TYPES.TRANSFER.toUpperCase(),
+    id: row.id,
+    transactionType: FINANCE_TRANSACTION_TYPES.TRANSFER,
+    date: row.transfer_date,
+    transactionDate: row.transfer_date,
+    description: row.description ?? null,
+    notes: row.notes ?? null,
+    sourceAccount: transferAccountToDto(row.source_account, row.source_account_id, row.source_currency),
+    destinationAccount: transferAccountToDto(
+      row.destination_account,
+      row.destination_account_id,
+      row.destination_currency,
+    ),
+    sourceAmount: String(row.source_amount),
+    sourceCurrency: row.source_currency,
+    destinationAmount: String(row.destination_amount),
+    destinationCurrency: row.destination_currency,
+    // Additive disclosure of the dependent commission (deterministic relation:
+    // finance_transactions.transfer_id = transfer.id, transaction_type = expense).
+    // Never a second trash item: the commission follows its root Transfer.
+    commission: commissionRow
+      ? {
+          expenseRootTransactionId: commissionRow.root_transaction_id ?? null,
+          amount: commissionRow.amount ?? null,
+          currency: commissionRow.currency ?? null,
+        }
+      : null,
+    trashedAt: null,
+    createdAt: row.created_at,
   };
 }
 
@@ -533,13 +596,55 @@ async function listFinanceTrash(financeContext, query = {}) {
   request = request
     .eq('status', 'TRASHED')
     .in('transaction_type', [FINANCE_TRANSACTION_TYPES.EXPENSE, FINANCE_TRANSACTION_TYPES.INCOME])
+    // Papelera is a ROOT model: a dependent commission (transfer_id IS NOT NULL)
+    // follows its root Transfer and never renders as a standalone trash item.
+    .is('transfer_id', null)
     .order('trashed_at', { ascending: false })
     .order('id', { ascending: false });
 
-  const { data, error } = await request;
-  if (error) throwSupabaseError(error);
+  const transferRequest = financeContext.client
+    .from('finance_transfers')
+    .select(TRANSFER_TRASH_SELECT_COLUMNS)
+    .eq('status', 'REVERSED')
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
 
-  const movements = (data ?? []).map(movementToTrashDto);
+  const [transactionResult, transferResult] = await Promise.all([request, transferRequest]);
+  if (transactionResult.error) throwSupabaseError(transactionResult.error);
+  if (transferResult.error) throwSupabaseError(transferResult.error);
+
+  // Dependent commissions for trashed roots (deterministic relation:
+  // finance_transactions.transfer_id = transfer.id, transaction_type = expense).
+  // A trashed root expects its commission TRASHED; legacy rows may vary, so we
+  // accept any lifecycle state here and disclose it without creating a row.
+  const transferRows = transferResult.data ?? [];
+  const commissionsByTransferId = new Map();
+  const transferIds = transferRows.map((row) => row.id).filter(Boolean);
+  if (transferIds.length > 0) {
+    const { data: commissionRows, error: commissionError } = await financeContext.client
+      .from('finance_transactions')
+      .select('id, root_transaction_id, transfer_id, amount:amount::text, currency, status')
+      .in('transfer_id', transferIds)
+      .eq('transaction_type', FINANCE_TRANSACTION_TYPES.EXPENSE)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (commissionError) throwSupabaseError(commissionError);
+    for (const commissionRow of commissionRows ?? []) {
+      if (commissionRow?.transfer_id && !commissionsByTransferId.has(commissionRow.transfer_id)) {
+        commissionsByTransferId.set(commissionRow.transfer_id, commissionRow);
+      }
+    }
+  }
+
+  const movements = [
+    ...(transactionResult.data ?? []).map(movementToTrashDto),
+    ...transferRows.map((row) => transferToTrashDto(row, commissionsByTransferId.get(row.id) ?? null)),
+  ].sort((left, right) => {
+    const leftTime = Date.parse(left.trashedAt ?? left.createdAt ?? left.transactionDate);
+    const rightTime = Date.parse(right.trashedAt ?? right.createdAt ?? right.transactionDate);
+    if (leftTime !== rightTime) return rightTime - leftTime;
+    return right.id.localeCompare(left.id);
+  });
   return { contextType: financeContext.contextType, movements };
 }
 

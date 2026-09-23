@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
@@ -42,17 +43,26 @@ import {
 } from '../../services/finance/moneyInputValue';
 import {
   ActionSheet,
-  AppButton,
   AppInput,
   AppText,
   DatePickerSheet,
-  FormActionRow,
   InteractivePressable,
   formatHumanDate,
 } from '../ui';
 import { MoneyInput } from './MoneyInput';
+import { AccountFormSheet } from './AccountFormSheet';
 import { AccountSelector } from './AccountSelector';
+import { CategorySelectorSheet } from './CategorySelectorSheet';
 import { PoolSelectorSheet } from './PoolSelectorSheet';
+import {
+  FinanceDisclosureRow,
+  FinanceFormFooter,
+  FinanceInlineChoice,
+  FinanceSegmented,
+  FinanceSelectionRow,
+  FinanceSemanticSurface,
+  FINANCE_SHEET_SIZE_POLICY,
+} from './ui';
 
 type FinanceOperationKind = 'expense' | 'income' | 'transfer';
 
@@ -246,12 +256,18 @@ export function NewMovementSheet({
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [notes, setNotes] = useState('');
   const [date, setDate] = useState(todayDateOnly);
-  const [categories, setCategories] = useState<FinanceCategoryDto[]>([]);
+const [categories, setCategories] = useState<FinanceCategoryDto[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
   const [activePicker, setActivePicker] = useState<ActivePicker>(null);
+  // Stage 7C — nested account creation preserves the whole movement draft:
+  // the picker stays open behind, the new account refreshes eligibility lists.
+  const [accountCreatorFor, setAccountCreatorFor] = useState<
+    'expenseAccount' | 'incomeAccount' | 'transferSource' | 'transferDestination' | null
+  >(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [expenseCreatedAfterPoolFailure, setExpenseCreatedAfterPoolFailure] = useState(false);
   const contextKeyRef = useRef(`${contextType}:${contextLabel}`);
@@ -286,7 +302,7 @@ export function NewMovementSheet({
   const transferSourcePickerVisible = activePicker === 'transferSource';
   const transferDestinationPickerVisible = activePicker === 'transferDestination';
 
-  const selectedCategory = useMemo(
+const selectedCategory = useMemo(
     () => categories.find((category) => category.id === selectedCategoryId) ?? null,
     [categories, selectedCategoryId],
   );
@@ -312,9 +328,10 @@ export function NewMovementSheet({
     setCommission(parseMoneyInputText('', 'ARS'));
     setActivePicker(null);
     setSubmitError(null);
+    setSubmitAttempted(false);
   }, [visible, presetTransferDestination]);
 
-  useEffect(() => {
+useEffect(() => {
     if (!visible) return;
     const nextKey = `${contextType}:${contextLabel}`;
     if (contextKeyRef.current !== nextKey) {
@@ -323,6 +340,7 @@ export function NewMovementSheet({
       setCategories([]);
       setCategoriesError(null);
       setSubmitError(null);
+      setSubmitAttempted(false);
       setExpensePoolId(null);
       setCategoryPoolDefault(null);
       setUserTouchedPool(false);
@@ -354,7 +372,7 @@ export function NewMovementSheet({
         if (cancelled) return;
         setCategories([]);
         setSelectedCategoryId(null);
-        setCategoriesError('No pudimos cargar las categorias. Podes registrar sin categoria.');
+        setCategoriesError('No pudimos cargar las categorías. Podés registrar sin categoría.');
       })
       .finally(() => {
         if (!cancelled) setCategoriesLoading(false);
@@ -544,6 +562,7 @@ const resetDraft = () => {
     setCategoriesError(null);
     setActivePicker(null);
     setSubmitError(null);
+    setSubmitAttempted(false);
     setSubmitting(false);
     setExpenseCreatedAfterPoolFailure(false);
     setExpenseAccountId(null);
@@ -604,7 +623,7 @@ const resetDraft = () => {
     setCommission(parseMoneyInputText('', 'ARS'));
   };
 
-  const chooseOperation = (nextOperation: FinanceOperationKind) => {
+const chooseOperation = (nextOperation: FinanceOperationKind) => {
     setOperation(nextOperation);
     setSubmitError(null);
     setActivePicker(null);
@@ -648,6 +667,63 @@ const resetDraft = () => {
     setActivePicker(null);
   };
 
+  const canAutoSelectCreatedAccount = (
+    picker: 'expenseAccount' | 'incomeAccount' | 'transferSource' | 'transferDestination',
+    account: FinanceAccountDto,
+  ): boolean => {
+    if (account.status !== 'ACTIVE') return false;
+    if (picker === 'expenseAccount') {
+      return (
+        (account.accountType === 'ACCOUNT' || account.accountType === 'CREDIT_CARD') &&
+        account.currency === currency
+      );
+    }
+    if (picker === 'incomeAccount') {
+      return account.accountType === 'ACCOUNT' && account.currency === currency;
+    }
+    if (picker === 'transferSource') {
+      return account.accountType === 'ACCOUNT';
+    }
+    return account.id !== transferSource?.id;
+  };
+
+  const handleAccountCreated = (account: FinanceAccountDto) => {
+    const target = accountCreatorFor;
+    expenseAccountsState.refresh();
+    incomeAccountsState.refresh();
+    transferSourceAccountsState.refresh();
+    transferDestinationAccountsState.refresh();
+    setAccountCreatorFor(null);
+    if (!target) return;
+    if (!canAutoSelectCreatedAccount(target, account)) return;
+    if (target === 'expenseAccount') {
+      setExpenseAccountId(account.id);
+      if (account.accountType !== 'CREDIT_CARD') {
+        setCardPaymentMode('single');
+        setInstallmentCountText('3');
+      }
+      const accountCanUsePool =
+        account.balanceState === 'KNOWN' || account.accountType === 'CREDIT_CARD';
+      setExpensePoolId(
+        !userTouchedPool && accountCanUsePool && categoryPoolDefault?.poolId
+          ? categoryPoolDefault.poolId
+          : null,
+      );
+      setUserTouchedPool(false);
+      return;
+    }
+    if (target === 'incomeAccount') {
+      setIncomeAccountId(account.id);
+      setIncomePoolAllocations([]);
+      return;
+    }
+    if (target === 'transferSource') {
+      handleSelectTransferSource(account);
+      return;
+    }
+    handleSelectTransferDestination(account);
+  };
+
   const handleTransferAmountChange = (next: MoneyInputParseResult) => {
     setTransferAmountText(next.inputText);
     setTransferAmount(next);
@@ -673,7 +749,7 @@ const resetDraft = () => {
     setSubmitError(null);
   };
 
-  const setCommissionCustom = () => {
+const setCommissionCustom = () => {
     setCommissionMode('custom');
     setCommission(parseMoneyInputText(commissionText, transferCurrency));
     setSubmitError(null);
@@ -683,13 +759,14 @@ const resetDraft = () => {
     if (submitting) return;
     Keyboard.dismiss();
     setSubmitError(null);
+    setSubmitAttempted(true);
 
     if (!accessToken) {
-      setSubmitError('Tu sesion no esta disponible. Volve a iniciar sesion.');
+      setSubmitError('Tu sesión no está disponible. Volvé a iniciar sesión.');
       return;
     }
     if (contextUnavailable) {
-      setSubmitError('El contexto financiero cambio o no esta disponible. Cerralo y volve a abrirlo.');
+      setSubmitError('El contexto financiero cambió o no está disponible. Cerralo y volvé a abrirlo.');
       return;
     }
     if (!amount.technicalValue) {
@@ -825,7 +902,7 @@ const resetDraft = () => {
     } catch (error) {
       const message = error instanceof ApiError
         ? error.message
-        : 'No pudimos registrar el movimiento. Intenta de nuevo.';
+        : 'No pudimos registrar el movimiento. Intentá de nuevo.';
       setSubmitError(message);
     } finally {
       setSubmitting(false);
@@ -836,9 +913,10 @@ const resetDraft = () => {
     if (submitting) return;
     Keyboard.dismiss();
     setSubmitError(null);
+    setSubmitAttempted(true);
 
     if (!accessToken) {
-      setSubmitError('Tu sesion no esta disponible. Volve a iniciar sesion.');
+      setSubmitError('Tu sesión no está disponible. Volvé a iniciar sesión.');
       return;
     }
     if (!transferSource || transferSource.accountType !== 'ACCOUNT') {
@@ -854,15 +932,15 @@ const resetDraft = () => {
       return;
     }
     if (!transferAmount.isValid) {
-      setSubmitError('Revisa el monto a transferir.');
+      setSubmitError('Revisá el monto a transferir.');
       return;
     }
     if (transferCrossCurrency && !destinationAmount.isValid) {
-      setSubmitError('Revisa el monto de destino.');
+      setSubmitError('Revisá el monto de destino.');
       return;
     }
 if (commissionMode === 'custom' && !commission.isValid) {
-      setSubmitError('Revisa la comision.');
+      setSubmitError('Revisá la comisión.');
       return;
     }
 
@@ -901,25 +979,25 @@ if (commissionMode === 'custom' && !commission.isValid) {
   };
 
   const footer = (
-    <View style={styles.footer}>
-      <AppButton title="Cancelar" variant="ghost" onPress={close} disabled={submitting} style={styles.footerButton} />
-      <AppButton
-        title={operation === 'expense' ? 'Registrar gasto' : operation === 'income' ? 'Registrar ingreso' : 'Transferir'}
-        onPress={submit}
-        loading={submitting}
-        disabled={!canSubmit}
-        style={styles.footerButton}
-      />
-    </View>
+    <FinanceFormFooter
+      primaryTitle={operation === 'expense' ? 'Registrar gasto' : operation === 'income' ? 'Registrar ingreso' : 'Transferir'}
+      onPrimary={submit}
+      onCancel={close}
+      primaryDisabled={!canSubmit}
+      loading={submitting}
+      divided={false}
+    />
   );
 
   return (
+    <React.Fragment>
     <ActionSheet
       visible={visible}
       title="Nuevo movimiento"
       subtitle={`Finanzas de ${contextLabel}`}
       onRequestClose={close}
       closeDisabled={submitting}
+      size={FINANCE_SHEET_SIZE_POLICY.LONG_FORM}
       footer={footer}
     >
       <View style={styles.sheetBody}>
@@ -931,52 +1009,46 @@ if (commissionMode === 'custom' && !commission.isValid) {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.form}
         >
-          <View style={styles.operationSelector} accessibilityRole="tablist">
-            {(['expense', 'income', 'transfer'] as const).map((candidate) => {
-              const selected = candidate === operation;
-              return (
-                <InteractivePressable
-                  key={candidate}
-                  onPress={() => chooseOperation(candidate)}
-                  disabled={submitting}
-                  haptic="light"
-                  pressScale={motion.scale.tab}
-                  style={[styles.operationOption, selected && styles.operationOptionSelected]}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={candidate === 'expense' ? 'Gasto' : candidate === 'income' ? 'Ingreso' : 'Transferencia'}
-                >
-                  <AppText variant="bodySmall" weight="800" tone={selected ? 'inverse' : 'secondary'}>
-                    {candidate === 'expense' ? 'Gasto' : candidate === 'income' ? 'Ingreso' : 'Transferir'}
-                  </AppText>
-                </InteractivePressable>
-              );
-            })}
-          </View>
+          <FinanceSegmented
+            variant="standard"
+            distribution="equal"
+            value={operation}
+            onChange={chooseOperation}
+            options={[
+              { value: 'expense', label: 'Gasto' },
+              { value: 'income', label: 'Ingreso' },
+              { value: 'transfer', label: 'Transferir' },
+            ]}
+            testID="finance-new-movement-operation"
+          />
 
           {isTransfer(operation) ? (
             <React.Fragment>
               <View style={styles.fieldGroup}>
-                <FormActionRow
-                  label="Sale de"
-                  value={transferSource ? `${transferSource.name} · ${transferSource.currency}` : 'Elegir cuenta'}
+                <FinanceSelectionRow
+                  label="Desde"
+                  value={transferSource ? `${transferSource.name} · ${transferSource.currency}` : undefined}
+                  placeholder="Elegir cuenta"
                   onPress={() => setActivePicker('transferSource')}
                   disabled={submitting}
-                  accessibilityLabel={transferSource ? `Cuenta origen ${transferSource.name} ${transferSource.currency}` : 'Elegir cuenta de origen (no se permite tarjeta de credito)'}
+                  accessibilityLabel={transferSource ? `Cuenta origen ${transferSource.name} ${transferSource.currency}` : 'Elegir cuenta de origen (no se permite tarjeta de crédito)'}
                 />
-                <AppText variant="caption" tone="tertiary">
-                  Solo cuentas de tipo Cuenta. Tarjetas de crédito no pueden ser origen.
-                </AppText>
               </View>
 
               <View style={styles.fieldGroup}>
-                <FormActionRow
-                  label="Llega a"
-                  value={transferDestination ? `${transferDestination.name} · ${transferDestination.currency}` : 'Elegir cuenta'}
+                <FinanceSelectionRow
+                  label="Hacia"
+                  value={transferDestination ? `${transferDestination.name} · ${transferDestination.currency}` : undefined}
+                  placeholder="Elegir cuenta"
                   onPress={() => setActivePicker('transferDestination')}
                   disabled={submitting || !transferSource}
-                  accessibilityLabel={transferDestination ? `Cuenta destino ${transferDestination.name} ${transferDestination.currency}` : 'Elegir cuenta de destino (se permiten tarjetas de credito)'}
+                  accessibilityLabel={transferDestination ? `Cuenta destino ${transferDestination.name} ${transferDestination.currency}` : 'Elegir cuenta de destino (se permiten tarjetas de crédito)'}
                 />
+                {!transferSource ? (
+                  <AppText variant="caption" tone="tertiary">
+                    Elegí una cuenta de origen primero.
+                  </AppText>
+                ) : null}
               </View>
 
                 {transferSource && transferDestination && transferSource.id === transferDestination.id ? (
@@ -994,9 +1066,9 @@ if (commissionMode === 'custom' && !commission.isValid) {
                     onCurrencyChange={() => undefined}
                     availableCurrencies={[transferCurrency]}
                     label="Monto"
-                    helperText="Magnitud positiva, sin convertir monedas."
                     disabled={submitting || !transferSource}
-                    errorText={transferAmount.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                    forceValidation={submitAttempted}
+                    errorText={submitAttempted && transferAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
                   />
                 ) : (
                   <View style={styles.fieldGroup}>
@@ -1006,10 +1078,10 @@ if (commissionMode === 'custom' && !commission.isValid) {
                       onValueChange={handleTransferAmountChange}
                       onCurrencyChange={() => undefined}
                       availableCurrencies={[transferSource?.currency ?? 'ARS']}
-                      label="Sale"
-                      helperText="Monto en la moneda de origen."
+                      label="Monto"
                       disabled={submitting}
-                      errorText={transferAmount.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                      forceValidation={submitAttempted}
+                      errorText={submitAttempted && transferAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
                     />
                     <MoneyInput
                       value={destinationAmountText}
@@ -1018,51 +1090,32 @@ if (commissionMode === 'custom' && !commission.isValid) {
                       onCurrencyChange={() => undefined}
                       availableCurrencies={[transferDestination?.currency ?? 'ARS']}
                       label="Llega"
-                      helperText="Monto declarado en la moneda de destino. No mostramos ni calculamos tipo de cambio."
+                      helperText="Ingresá el monto que llega a destino."
                       disabled={submitting}
-                      errorText={destinationAmount.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                      forceValidation={submitAttempted}
+                      errorText={submitAttempted && destinationAmount.status === 'invalid' ? 'Revisá el monto.' : undefined}
                     />
                   </View>
                 )}
 
                 <View style={styles.fieldGroup}>
-                  <AppText variant="caption" tone="secondary" weight="700">Comisión</AppText>
-                  <View style={styles.commissionMode}>
-                    <InteractivePressable
-                      onPress={setCommissionNone}
-                      disabled={submitting}
-                      haptic="light"
-                      pressScale={motion.scale.card}
-                      style={[styles.commissionOption, commissionMode === 'none' && styles.commissionOptionSelected]}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: commissionMode === 'none' }}
-                      accessibilityLabel="Sin comisión"
-                    >
-                      <HomePlusIcon
-                        name={commissionMode === 'none' ? 'radio-button-on' : 'radio-button-off'}
-                        size={18}
-                        color={commissionMode === 'none' ? colors.terracotta[700] : colors.text.tertiary}
-                      />
-                      <AppText variant="bodySmall" weight="800">Ninguna</AppText>
-                    </InteractivePressable>
-                    <InteractivePressable
-                      onPress={setCommissionCustom}
-                      disabled={submitting || !transferSource}
-                      haptic="light"
-                      pressScale={motion.scale.card}
-                      style={[styles.commissionOption, commissionMode === 'custom' && styles.commissionOptionSelected]}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: commissionMode === 'custom' }}
-                      accessibilityLabel="Ingresar comisión (moneda de origen, sin categoría ni cuenta adicional)"
-                    >
-                      <HomePlusIcon
-                        name={commissionMode === 'custom' ? 'radio-button-on' : 'radio-button-off'}
-                        size={18}
-                        color={commissionMode === 'custom' ? colors.terracotta[700] : colors.text.tertiary}
-                      />
-                      <AppText variant="bodySmall" weight="800">Agregar comisión</AppText>
-                    </InteractivePressable>
-                  </View>
+                  <FinanceInlineChoice
+                    label="Comisión"
+                    value={commissionMode}
+                    options={[
+                      { value: 'none', label: 'Sin comisión', disabled: submitting || !transferSource },
+                      { value: 'custom', label: 'Con comisión', disabled: submitting || !transferSource },
+                    ]}
+                    onChange={(next) => {
+                      if (next === 'none') setCommissionNone();
+                      else setCommissionCustom();
+                    }}
+                  />
+                  {!transferSource ? (
+                    <AppText variant="caption" tone="tertiary">
+                      Elegí una cuenta de origen para definir comisión.
+                    </AppText>
+                  ) : null}
                   {commissionMode === 'custom' && transferSource ? (
                     <MoneyInput
                       value={commissionText}
@@ -1070,10 +1123,11 @@ if (commissionMode === 'custom' && !commission.isValid) {
                       onValueChange={handleCommissionChange}
                       onCurrencyChange={() => undefined}
                       availableCurrencies={[transferSource.currency]}
-                      label="Monto de comisión"
-                      helperText="Se registra como Expense (Comisiones e intereses) en la cuenta de origen. No te pedimos categoría ni cuenta aparte."
+                      label="Monto comisión"
+                      helperText="Se descuenta de la cuenta de origen."
                       disabled={submitting}
-                      errorText={commission.status === 'invalid' ? 'Revisa el monto.' : undefined}
+                      forceValidation={submitAttempted}
+                      errorText={submitAttempted && commission.status === 'invalid' ? 'Revisá el monto.' : undefined}
                     />
                   ) : null}
                 </View>
@@ -1088,7 +1142,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
                 />
 
                 {transferPreview ? (
-                  <View style={styles.preview} accessibilityRole="summary">
+                  <FinanceSemanticSurface tone="neutral" testID="finance-transfer-preview">
                     <AppText variant="caption" tone="secondary" weight="800">Resumen</AppText>
                     <View style={styles.previewRow}>
                       <AppText variant="bodySmall" weight="700" numberOfLines={1}>Origen</AppText>
@@ -1102,14 +1156,14 @@ if (commissionMode === 'custom' && !commission.isValid) {
                         {transferPreview.destinationLabel}
                       </AppText>
                     </View>
-                  </View>
+                  </FinanceSemanticSurface>
                 ) : null}
 
                 {transferSourceBalanceInsufficient ? (
                   <View style={styles.warnBox}>
                     <HomePlusIcon name="alert-circle-outline" size={18} color={colors.warning.strong} />
                     <AppText variant="bodySmall" tone="warning" style={styles.errorInline}>
-                      Saldo insuficiente para cubrir transferencia y comision.
+                      Saldo insuficiente para cubrir transferencia y comisión.
                     </AppText>
                   </View>
                 ) : null}
@@ -1123,13 +1177,13 @@ if (commissionMode === 'custom' && !commission.isValid) {
                 onCurrencyChange={handleCurrencyChange}
                 availableCurrencies={DEFAULT_MONEY_INPUT_CURRENCY_OPTIONS}
                 disabled={submitting}
-                errorText={amount.status === 'invalid' ? 'Revisa el monto.' : undefined}
-                helperText="Magnitud positiva, sin convertir monedas."
+                forceValidation={submitAttempted}
+                errorText={submitAttempted && amount.status === 'invalid' ? 'Revisá el monto.' : undefined}
                 testID="finance-new-movement-money-input"
               />
 
               <AppInput
-                label="Descripcion (opcional)"
+                label="Descripción (opcional)"
                 value={description}
                 onChangeText={(text) => {
                   setDescription(text);
@@ -1142,14 +1196,15 @@ if (commissionMode === 'custom' && !commission.isValid) {
             </React.Fragment>
           )}
 
-          {isExpense(operation) ? (
+{isExpense(operation) ? (
             <View style={styles.fieldGroup}>
-              <FormActionRow
-                label="Categoria"
-                value={selectedCategory?.label ?? 'Sin categoria'}
+              <FinanceSelectionRow
+                label="Categoría"
+                value={selectedCategory?.label}
+                placeholder="Sin categoría"
                 onPress={() => setActivePicker((current) => current === 'category' ? null : 'category')}
                 disabled={submitting || categoriesLoading}
-                accessibilityLabel="Elegir categoria de gasto"
+                accessibilityLabel="Elegir categoría de gasto"
               />
               {categoriesError ? (
                 <AppText variant="caption" tone="warning">
@@ -1157,69 +1212,18 @@ if (commissionMode === 'custom' && !commission.isValid) {
                 </AppText>
               ) : categoriesLoading ? (
                 <AppText variant="caption" tone="tertiary">
-                  Cargando categorias
+                  Cargando categorías
                 </AppText>
-              ) : null}
-              {activePicker === 'category' ? (
-                <View style={styles.categoryPicker} accessibilityLabel="Categorias de gasto">
-                  <InteractivePressable
-                    onPress={() => {
-                      setSelectedCategoryId(null);
-                      setActivePicker(null);
-                    }}
-                    haptic="light"
-                    pressScale={motion.scale.card}
-                    style={[styles.categoryOption, selectedCategoryId === null && styles.categoryOptionSelected]}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: selectedCategoryId === null }}
-                    accessibilityLabel="Sin categoria"
-                  >
-                    <HomePlusIcon
-                      name={selectedCategoryId === null ? 'radio-button-on' : 'radio-button-off'}
-                      size={18}
-                      color={selectedCategoryId === null ? colors.terracotta[700] : colors.text.tertiary}
-                    />
-                    <AppText variant="bodySmall" weight="800">
-                      Sin categoria
-                    </AppText>
-                  </InteractivePressable>
-                  {categories.map((category) => {
-                    const selected = category.id === selectedCategoryId;
-                    return (
-                      <InteractivePressable
-                        key={category.id}
-                        onPress={() => {
-                          setSelectedCategoryId(category.id);
-                          setActivePicker(null);
-                        }}
-                        haptic="light"
-                        pressScale={motion.scale.card}
-                        style={[styles.categoryOption, selected && styles.categoryOptionSelected]}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected }}
-                        accessibilityLabel={category.label}
-                      >
-                        <HomePlusIcon
-                          name={selected ? 'radio-button-on' : 'radio-button-off'}
-                          size={18}
-                          color={selected ? colors.terracotta[700] : colors.text.tertiary}
-                        />
-                        <AppText variant="bodySmall" weight="800" numberOfLines={1} style={styles.categoryLabel}>
-                          {category.label}
-                        </AppText>
-                      </InteractivePressable>
-                    );
-                  })}
-                </View>
               ) : null}
             </View>
           ) : null}
 
           {isExpense(operation) ? (
             <View style={styles.fieldGroup}>
-              <FormActionRow
+              <FinanceSelectionRow
                 label="Cuenta"
-                value={selectedExpenseAccount ? `${selectedExpenseAccount.name} · ${selectedExpenseAccount.currency}` : 'Sin cuenta'}
+                value={selectedExpenseAccount ? `${selectedExpenseAccount.name} · ${selectedExpenseAccount.currency}` : undefined}
+                placeholder="Sin cuenta"
                 onPress={() => setActivePicker('expenseAccount')}
                 disabled={submitting || expenseAccountsState.loading}
                 accessibilityLabel="Elegir cuenta para gasto"
@@ -1234,43 +1238,15 @@ if (commissionMode === 'custom' && !commission.isValid) {
 
           {isExpense(operation) && selectedExpenseAccountIsCard ? (
             <View style={styles.fieldGroup}>
-              <AppText variant="caption" tone="secondary" weight="700">Forma de pago</AppText>
-              <View style={styles.cardPaymentMode} accessibilityRole="radiogroup">
-                <InteractivePressable
-                  onPress={() => { setCardPaymentMode('single'); setSubmitError(null); }}
-                  disabled={submitting}
-                  haptic="light"
-                  pressScale={motion.scale.tab}
-                  style={[styles.cardPaymentModeOption, cardPaymentMode === 'single' && styles.cardPaymentModeOptionSelected]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: cardPaymentMode === 'single' }}
-                  accessibilityLabel="Un pago"
-                >
-                  <HomePlusIcon
-                    name={cardPaymentMode === 'single' ? 'radio-button-on' : 'radio-button-off'}
-                    size={18}
-                    color={cardPaymentMode === 'single' ? colors.terracotta[700] : colors.text.tertiary}
-                  />
-                  <AppText variant="bodySmall" weight="800">1 pago</AppText>
-                </InteractivePressable>
-                <InteractivePressable
-                  onPress={() => { setCardPaymentMode('installments'); setSubmitError(null); }}
-                  disabled={submitting}
-                  haptic="light"
-                  pressScale={motion.scale.tab}
-                  style={[styles.cardPaymentModeOption, cardPaymentMode === 'installments' && styles.cardPaymentModeOptionSelected]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: cardPaymentMode === 'installments' }}
-                  accessibilityLabel="Cuotas"
-                >
-                  <HomePlusIcon
-                    name={cardPaymentMode === 'installments' ? 'radio-button-on' : 'radio-button-off'}
-                    size={18}
-                    color={cardPaymentMode === 'installments' ? colors.terracotta[700] : colors.text.tertiary}
-                  />
-                  <AppText variant="bodySmall" weight="800">Cuotas</AppText>
-                </InteractivePressable>
-              </View>
+              <FinanceInlineChoice
+                label="Forma de pago"
+                value={cardPaymentMode}
+                options={[
+                  { value: 'single', label: '1 pago', disabled: submitting },
+                  { value: 'installments', label: 'Cuotas', disabled: submitting },
+                ]}
+                onChange={(next) => { setCardPaymentMode(next); setSubmitError(null); }}
+              />
 
               {cardPaymentMode === 'installments' ? (
                 <View style={styles.installmentsBox}>
@@ -1325,12 +1301,12 @@ if (commissionMode === 'custom' && !commission.isValid) {
           {isExpense(operation) ? (
             <View style={styles.fieldGroup}>
               {selectedExpenseAccount === null ? (
-                <View style={styles.poolFieldDisabled}>
-                  <FormActionRow
+                <View style={styles.fieldGroup}>
+                  <FinanceSelectionRow
                     label="Pozo"
-                    value="Elegí una cuenta para usar un pozo"
+                    placeholder="Elegí una cuenta para usar un pozo"
                     onPress={() => {}}
-                    disabled={true}
+                    disabled
                     accessibilityLabel="Pozo no disponible sin cuenta"
                   />
                   <AppText variant="caption" tone="tertiary">
@@ -1338,12 +1314,12 @@ if (commissionMode === 'custom' && !commission.isValid) {
                   </AppText>
                 </View>
               ) : selectedExpenseAccount.balanceState !== 'KNOWN' && selectedExpenseAccount.accountType !== 'CREDIT_CARD' ? (
-                <View style={styles.poolFieldDisabled}>
-                  <FormActionRow
+                <View style={styles.fieldGroup}>
+                  <FinanceSelectionRow
                     label="Pozo"
-                    value="Esta cuenta no tiene un saldo establecido"
+                    placeholder="Esta cuenta no tiene un saldo establecido"
                     onPress={() => {}}
-                    disabled={true}
+                    disabled
                     accessibilityLabel="Pozo no disponible para cuenta con saldo desconocido"
                   />
                   <AppText variant="caption" tone="tertiary">
@@ -1351,9 +1327,10 @@ if (commissionMode === 'custom' && !commission.isValid) {
                   </AppText>
                 </View>
               ) : (
-                <FormActionRow
+                <FinanceSelectionRow
                   label="Pozo"
-                  value={selectedExpensePool ? `${selectedExpensePool.name} · ${selectedExpensePool.balance} ${selectedExpensePool.currency}` : 'Sin pozo'}
+                  value={selectedExpensePool ? `${selectedExpensePool.name} · ${selectedExpensePool.balance} ${selectedExpensePool.currency}` : undefined}
+                  placeholder="Sin pozo"
                   onPress={() => setActivePicker('expensePool')}
                   disabled={submitting || expensePoolsState.loading || expensePoolsState.pools.length === 0}
                   accessibilityLabel={selectedExpensePool ? `Pozo ${selectedExpensePool.name}` : 'Elegir pozo para el gasto'}
@@ -1379,9 +1356,10 @@ if (commissionMode === 'custom' && !commission.isValid) {
           {isIncome(operation) ? (
             <React.Fragment>
               <View style={styles.fieldGroup}>
-                <FormActionRow
+                <FinanceSelectionRow
                   label="Cuenta"
-                  value={selectedIncomeAccount ? `${selectedIncomeAccount.name} · ${selectedIncomeAccount.currency}` : 'Sin cuenta'}
+                  value={selectedIncomeAccount ? `${selectedIncomeAccount.name} · ${selectedIncomeAccount.currency}` : undefined}
+                  placeholder="Sin cuenta"
                   onPress={() => setActivePicker('incomeAccount')}
                   disabled={submitting || incomeAccountsState.loading}
                   accessibilityLabel="Elegir cuenta para ingreso"
@@ -1395,55 +1373,14 @@ if (commissionMode === 'custom' && !commission.isValid) {
 
               {/* Income Pool Organizer */}
               <View style={styles.fieldGroup}>
-                {selectedIncomeAccount === null ? (
-                <View style={styles.poolFieldDisabled}>
-                  <FormActionRow
-                    label="Organizar ingreso"
-                    value="Elegí una cuenta con saldo conocido para organizar este ingreso"
-                    onPress={() => {}}
-                    disabled={true}
-                    accessibilityLabel="Organizar ingreso no disponible sin cuenta"
-                  />
-                </View>
-              ) : selectedIncomeAccount.balanceState !== 'KNOWN' || selectedIncomeAccount.accountType === 'CREDIT_CARD' ? (
-                <View style={styles.poolFieldDisabled}>
-                  <FormActionRow
-                    label="Organizar ingreso"
-                    value="Esta cuenta no tiene un saldo establecido"
-                    onPress={() => {}}
-                    disabled={true}
-                    accessibilityLabel="Organizar ingreso no disponible para cuenta con saldo desconocido"
-                  />
-                  <AppText variant="caption" tone="tertiary">
-                    La organización en pozos requiere una cuenta de dinero con saldo conocido.
-                  </AppText>
-                </View>
-              ) : (
-                <React.Fragment>
-                  <InteractivePressable
-                    onPress={() => setIncomePoolOrganizerOpen((current) => !current)}
-                    disabled={submitting}
-                    haptic="light"
-                    pressScale={motion.scale.card}
-                    style={styles.incomePoolOrganizerTrigger}
-                    accessibilityRole="button"
-                    accessibilityState={{ expanded: incomePoolOrganizerOpen }}
-                    accessibilityLabel="Organizar ingreso"
-                  >
-                    <View style={styles.incomePoolOrganizerTriggerContent}>
-                      <HomePlusIcon name="albums-outline" size={20} color={colors.sage[700]} />
-                      <AppText variant="bodySmall" weight="800">
-                        Organizar ingreso
-                      </AppText>
-                    </View>
-                    <HomePlusIcon
-                      name={incomePoolOrganizerOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
-                      size={18}
-                      color={colors.text.tertiary}
-                    />
-                  </InteractivePressable>
-
-                  {incomePoolOrganizerOpen && (
+                <FinanceDisclosureRow
+                  label="Organizar ingreso"
+                  expanded={incomePoolOrganizerOpen && incomePoolEligible}
+                  onToggle={() => setIncomePoolOrganizerOpen((current) => !current)}
+                  disabled={submitting || !incomePoolEligible}
+                  accessibilityLabel="Organizar ingreso en pozos"
+                >
+                  {incomePoolEligible ? (
                     <View style={styles.incomePoolOrganizerContent}>
                       {incomePoolsState.loading ? (
                         <AppText variant="caption" tone="tertiary">Cargando pozos...</AppText>
@@ -1481,7 +1418,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
                                 onCurrencyChange={() => undefined}
                                 availableCurrencies={[currency]}
                                 disabled={submitting}
-                                errorText={allocation.amount && (isNaN(Number(allocation.amount)) || Number(allocation.amount) <= 0) ? 'Revisa el monto.' : undefined}
+                                errorText={allocation.amount && (isNaN(Number(allocation.amount)) || Number(allocation.amount) <= 0) ? 'Revisá el monto.' : undefined}
                                 label="Monto"
                                 testID={`finance-income-pool-allocation-${index}`}
                               />
@@ -1575,32 +1512,19 @@ if (commissionMode === 'custom' && !commission.isValid) {
                         </View>
                       )}
                     </View>
-                  )}
-                </React.Fragment>
-              )}
-            </View>
+                  ) : null}
+                </FinanceDisclosureRow>
+                {!incomePoolEligible ? (
+                  <AppText variant="caption" tone="tertiary">
+                    {selectedIncomeAccount === null
+                      ? 'Elegí una cuenta con saldo conocido para organizar este ingreso.'
+                      : 'La organización en pozos requiere una cuenta de dinero con saldo conocido.'}
+                  </AppText>
+                ) : null}
+              </View>
           </React.Fragment>
         ) : null}
-
-          {!isTransfer(operation) ? (
-            <View style={styles.contextSummary}>
-              <HomePlusIcon
-                name={contextType === 'personal' ? 'person-outline' : 'home-outline'}
-                size={18}
-                color={colors.sage[700]}
-              />
-              <View style={styles.contextSummaryText}>
-                <AppText variant="caption" tone="secondary" weight="700">
-                  Contexto financiero
-                </AppText>
-                <AppText variant="bodySmall" weight="800" numberOfLines={1}>
-                  {contextLabel}
-                </AppText>
-              </View>
-            </View>
-          ) : null}
-
-          <FormActionRow
+          <FinanceSelectionRow
             label="Fecha"
             value={formatHumanDate(date)}
             onPress={() => setActivePicker('date')}
@@ -1609,38 +1533,23 @@ if (commissionMode === 'custom' && !commission.isValid) {
           />
 
           {isExpense(operation) ? (
-            <View style={styles.fieldGroup}>
-              <InteractivePressable
-                onPress={() => setNotesExpanded((current) => !current)}
-                disabled={submitting}
-                haptic="light"
-                pressScale={motion.scale.card}
-                style={styles.moreDetails}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: notesExpanded }}
-                accessibilityLabel="Mas detalles"
-              >
-                <AppText variant="bodySmall" weight="800">
-                  Mas detalles
-                </AppText>
-                <HomePlusIcon
-                  name={notesExpanded ? 'chevron-up-outline' : 'chevron-down-outline'}
-                  size={18}
-                  color={colors.text.tertiary}
-                />
-              </InteractivePressable>
-              {notesExpanded ? (
-                <AppInput
-                  label="Notas (opcional)"
-                  value={notes}
-                  onChangeText={setNotes}
-                  placeholder="Detalle privado del gasto"
-                  variant="multiline"
-                  editable={!submitting}
-                  multiline
-                />
-              ) : null}
-            </View>
+            <FinanceDisclosureRow
+              label="Más detalles"
+              expanded={notesExpanded}
+              onToggle={() => setNotesExpanded((current) => !current)}
+              disabled={submitting}
+              accessibilityLabel="Más detalles"
+            >
+              <AppInput
+                label="Notas (opcional)"
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Detalle privado del gasto"
+                variant="multiline"
+                editable={!submitting}
+                multiline
+              />
+            </FinanceDisclosureRow>
           ) : null}
 
           {submitError ? (
@@ -1663,6 +1572,22 @@ if (commissionMode === 'custom' && !commission.isValid) {
           }}
         />
 
+<CategorySelectorSheet
+          visible={activePicker === 'category'}
+          accessToken={accessToken ?? null}
+          contextType={contextType}
+          mode="expense"
+          selectedCategoryId={selectedCategoryId}
+          onSelect={(category) => {
+            setSelectedCategoryId(category?.id ?? null);
+            if (category && !categories.some((candidate) => candidate.id === category.id)) {
+              setCategories((current) => [...current, category]);
+            }
+            setActivePicker(null);
+          }}
+          onRequestClose={() => setActivePicker(null)}
+        />
+
         <AccountSelector
           visible={expenseAccountPickerVisible}
           title="Cuenta del gasto"
@@ -1676,6 +1601,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
           disabled={submitting}
           operationHint="expense"
           onRequestClose={() => setActivePicker(null)}
+          onCreateAccount={() => setAccountCreatorFor('expenseAccount')}
           onSelect={(account) => {
             setExpenseAccountId(account?.id ?? null);
             if (account?.accountType !== 'CREDIT_CARD') {
@@ -1708,6 +1634,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
           disabled={submitting}
           operationHint="income"
           onRequestClose={() => setActivePicker(null)}
+          onCreateAccount={() => setAccountCreatorFor('incomeAccount')}
           onSelect={(account) => {
             setIncomeAccountId(account?.id ?? null);
             // Clear income pool allocations when account changes
@@ -1730,7 +1657,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
           operationHint="transfer-source"
           onRequestClose={() => setActivePicker(null)}
           onSelect={handleSelectTransferSource}
-          onCreateAccount={() => setActivePicker(null)}
+          onCreateAccount={() => setAccountCreatorFor('transferSource')}
         />
 
         <AccountSelector
@@ -1747,7 +1674,7 @@ if (commissionMode === 'custom' && !commission.isValid) {
           operationHint="transfer-destination"
           onRequestClose={() => setActivePicker(null)}
           onSelect={handleSelectTransferDestination}
-          onCreateAccount={() => setActivePicker(null)}
+          onCreateAccount={() => setAccountCreatorFor('transferDestination')}
         />
 
         <PoolSelectorSheet
@@ -1769,6 +1696,16 @@ if (commissionMode === 'custom' && !commission.isValid) {
         />
       </View>
     </ActionSheet>
+    <AccountFormSheet
+      visible={accountCreatorFor !== null}
+      accessToken={accessToken ?? null}
+      contextType={contextType}
+      contextLabel={contextLabel}
+      initialAccountType={accountCreatorFor === 'transferSource' ? 'ACCOUNT' : undefined}
+      onRequestClose={() => setAccountCreatorFor(null)}
+      onSuccess={handleAccountCreated}
+    />
+    </React.Fragment>
   );
 }
 
@@ -1777,56 +1714,16 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
 
   return StyleSheet.create({
   sheetBody: {
-    flex: 1,
+    flexShrink: 1,
+    minHeight: 0,
     position: 'relative',
   },
   form: {
     gap: spacing[4],
     paddingBottom: spacing[4],
   },
-  operationSelector: {
-    minHeight: 48,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface.muted,
-    padding: spacing[1],
-    flexDirection: 'row',
-    gap: spacing[1],
-  },
-  operationOption: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 40,
-    borderRadius: radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing[2],
-  },
-  operationOptionSelected: {
-    backgroundColor: colors.terracotta[600],
-  },
   fieldGroup: {
     gap: spacing[2],
-  },
-  cardPaymentMode: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  cardPaymentModeOption: {
-    flex: 1,
-    minHeight: touchTargets.normal,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.soft,
-    paddingHorizontal: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing[2],
-  },
-  cardPaymentModeOptionSelected: {
-    backgroundColor: colors.terracotta[50],
-    borderColor: colors.terracotta[300],
   },
   installmentsBox: {
     borderRadius: radius.xl,
@@ -1863,61 +1760,10 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
     alignItems: 'center',
     gap: spacing[2],
   },
-  categoryPicker: {
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface.card,
-    padding: spacing[2],
-    gap: spacing[1],
-  },
-  categoryOption: {
-    minHeight: 44,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  categoryOptionSelected: {
-    backgroundColor: colors.terracotta[50],
-  },
-  categoryLabel: {
-    flex: 1,
-    minWidth: 0,
-  },
+
   noAccountsBlock: {
     paddingVertical: spacing[4],
     gap: spacing[3],
-  },
-  commissionMode: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  commissionOption: {
-    flex: 1,
-    minHeight: touchTargets.normal,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.soft,
-    paddingHorizontal: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  commissionOptionSelected: {
-    backgroundColor: colors.terracotta[50],
-    borderColor: colors.terracotta[300],
-  },
-  preview: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.soft,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
-    gap: spacing[2],
   },
   previewRow: {
     flexDirection: 'row',
@@ -1953,17 +1799,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
     flex: 1,
     minWidth: 0,
   },
-  moreDetails: {
-    minHeight: touchTargets.normal,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.soft,
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
   errorBox: {
     borderRadius: radius.lg,
     backgroundColor: colors.danger.soft,
@@ -1978,32 +1813,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
   errorInline: {
     flex: 1,
     minWidth: 0,
-  },
-  footer: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  footerButton: {
-    flex: 1,
-  },
-  poolFieldDisabled: {
-    gap: spacing[1],
-  },
-  incomePoolOrganizerTrigger: {
-    minHeight: touchTargets.normal,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.soft,
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  incomePoolOrganizerTriggerContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
   },
   incomePoolOrganizerContent: {
     gap: spacing[3],

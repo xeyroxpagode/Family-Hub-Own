@@ -1,16 +1,14 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 
 import {
   AppButton,
-  AppCard,
   AppText,
   ActionSheet,
-  FormActionRow,
-  InteractivePressable,
 } from '../ui';
-import { colors, motion, radius, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
+import { useAppTheme } from '../../context/AppThemeContext';
 import {
   listFinanceExpenseCategories,
   type FinanceCategoryDto,
@@ -22,6 +20,16 @@ import {
   type FinancePoolDto,
 } from '../../services/finance/financePools';
 import type { FinanceContextType } from '../../services/finance/financeContext';
+import {
+  FinanceDetailSection,
+  FinanceErrorState,
+  FinanceGroupedSurface,
+  FinanceListRow,
+  FinanceSelectionRow,
+  FinanceSemanticSurface,
+  FINANCE_SHEET_SIZE_POLICY,
+  financeSpacing,
+} from './ui';
 
 type CategoryPoolDefaultSheetProps = {
   visible: boolean;
@@ -46,6 +54,7 @@ export function CategoryPoolDefaultSheet({
   onRequestClose,
   onSuccess,
 }: CategoryPoolDefaultSheetProps) {
+  const { colors } = useAppTheme();
   const [categories, setCategories] = useState<FinanceCategoryDto[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
@@ -191,28 +200,38 @@ export function CategoryPoolDefaultSheet({
   const currentPoolId = currentDefault?.poolId;
   const isCurrentPool = currentPoolId === pool.id;
 
+  const renderRadioIcon = (selected: boolean) => (
+    <HomePlusIcon
+      name={selected ? 'radio-button-on' : 'radio-button-off'}
+      size={20}
+      color={selected ? colors.terracotta[700] : colors.text.tertiary}
+    />
+  );
+
   return (
     <ActionSheet
       visible={visible}
       title="Pozo sugerido por categoria"
       subtitle={`Configura que categorias sugieran ${pool.name}`}
       onRequestClose={onRequestClose}
+      size={FINANCE_SHEET_SIZE_POLICY.MEDIUM_FORM}
     >
-      <View style={styles.content}>
-        <AppCard variant="quiet" padding="default" style={styles.infoCard}>
-          <View style={styles.infoRow}>
+      <View style={{ gap: financeSpacing.formFieldGap, paddingBottom: financeSpacing.contentActionGap }}>
+        <FinanceSemanticSurface tone="info">
+          <View style={{ flexDirection: 'row', gap: financeSpacing.titleContentGap, alignItems: 'flex-start' }}>
             <HomePlusIcon name="information-circle-outline" size={18} color={colors.info.text} />
-            <AppText variant="caption" tone="secondary">
+            <AppText variant="caption" tone="secondary" style={{ flex: 1, minWidth: 0 }}>
               Cuando se crea un gasto nuevo con la categoria elegida, se preseleccionara este pozo.
               El usuario puede cambiarlo o elegir Sin pozo.
             </AppText>
           </View>
-        </AppCard>
+        </FinanceSemanticSurface>
 
-        <View style={styles.fieldGroup}>
-          <FormActionRow
-            label="Categoria"
-            value={currentCategory?.label ?? 'Elegir categoria'}
+        <View style={{ gap: financeSpacing.contentActionGap }}>
+          <FinanceSelectionRow
+            label="Categoría"
+            value={currentCategory?.label}
+            placeholder="Elegir categoria"
             onPress={() => setActivePicker((current) => current === 'category' ? null : 'category')}
             disabled={categoriesLoading || saving}
             accessibilityLabel="Elegir categoria para configurar sugerencia"
@@ -225,184 +244,80 @@ export function CategoryPoolDefaultSheet({
         </View>
 
         {activePicker === 'category' && (
-          <View style={styles.categoryPicker} accessibilityLabel="Categorias de gasto">
-            <InteractivePressable
+          <FinanceGroupedSurface>
+            <FinanceListRow
+              title="Sin categoría"
+              icon={renderRadioIcon(selectedCategoryId === null)}
               onPress={() => handleCategorySelect(null)}
-              haptic="light"
-              pressScale={motion.scale.card}
-              style={[styles.categoryOption, selectedCategoryId === null && styles.categoryOptionSelected]}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: selectedCategoryId === null }}
-              accessibilityLabel="Sin categoria"
-            >
-              <HomePlusIcon
-                name={selectedCategoryId === null ? 'radio-button-on' : 'radio-button-off'}
-                size={18}
-                color={selectedCategoryId === null ? colors.terracotta[700] : colors.text.tertiary}
-              />
-              <AppText variant="bodySmall" weight="800">Sin categoria</AppText>
-            </InteractivePressable>
-            {categories.map((category) => {
+              disabled={saving}
+              accessibilityLabel="Sin categoría"
+            />
+            {categories.map((category, index) => {
               const selected = category.id === selectedCategoryId;
+              const isLast = index === categories.length - 1;
               return (
-                <InteractivePressable
+                <FinanceListRow
                   key={category.id}
+                  title={category.label}
+                  titleNumberOfLines={2}
+                  icon={renderRadioIcon(selected)}
                   onPress={() => handleCategorySelect(category.id)}
-                  haptic="light"
-                  pressScale={motion.scale.card}
-                  style={[styles.categoryOption, selected && styles.categoryOptionSelected]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
+                  disabled={saving}
+                  divider={!isLast}
                   accessibilityLabel={category.label}
-                >
-                  <HomePlusIcon
-                    name={selected ? 'radio-button-on' : 'radio-button-off'}
-                    size={18}
-                    color={selected ? colors.terracotta[700] : colors.text.tertiary}
-                  />
-                  <AppText variant="bodySmall" weight="800" numberOfLines={1} style={styles.categoryLabel}>
-                    {category.label}
-                  </AppText>
-                </InteractivePressable>
+                />
               );
             })}
-          </View>
+          </FinanceGroupedSurface>
         )}
 
         {selectedCategoryId && (
-          <View style={styles.currentState}>
-            <AppText variant="caption" tone="secondary" weight="700">Estado actual</AppText>
-            <View style={styles.currentStateCard}>
+          <FinanceDetailSection title="Estado actual">
+            <FinanceGroupedSurface>
               {hasDefault ? (
-                <View style={styles.currentStateRow}>
-                  <View style={styles.currentStateInfo}>
-                    <AppText variant="bodySmall" weight="700">
-                      Sugerencia activa: {currentDefault?.poolName ?? 'Desconocido'}
-                    </AppText>
-                    <AppText variant="caption" tone="tertiary">
-                      {isCurrentPool ? 'Este pozo' : 'Otro pozo'}
-                    </AppText>
-                  </View>
-                  {!isCurrentPool && (
-                    <AppButton
-                      variant="secondary"
-                      title={isCurrentPool ? 'Ya configurado' : 'Usar este pozo'}
-                      onPress={handleSetDefault}
-                      disabled={saving || isCurrentPool}
-                      style={styles.actionButton}
-                    />
-                  )}
-                  {isCurrentPool && (
-                    <AppButton
-                      variant="ghost"
-                      title="Quitar sugerencia"
-                      onPress={handleClearDefault}
-                      disabled={saving}
-                      style={styles.actionButton}
-                    />
-                  )}
-                </View>
+                <FinanceListRow
+                  title={`Sugerencia activa: ${currentDefault?.poolName ?? 'Desconocido'}`}
+                  titleNumberOfLines={2}
+                  subtitle={isCurrentPool ? 'Este pozo' : 'Otro pozo'}
+                  divider={false}
+                />
               ) : (
-                <View style={styles.currentStateRow}>
-                  <View style={styles.currentStateInfo}>
-                    <AppText variant="bodySmall" weight="700" tone="tertiary">Sin sugerencia configurada</AppText>
-                  </View>
-                  <AppButton
-                    title="Sugerir este pozo"
-                    onPress={handleSetDefault}
-                    disabled={saving}
-                    style={styles.actionButton}
-                  />
-                </View>
+                <FinanceListRow
+                  title="Sin sugerencia configurada"
+                  divider={false}
+                />
               )}
-            </View>
-          </View>
+            </FinanceGroupedSurface>
+            {!hasDefault && (
+              <AppButton
+                title="Sugerir este pozo"
+                onPress={handleSetDefault}
+                disabled={saving}
+              />
+            )}
+            {hasDefault && !isCurrentPool && (
+              <AppButton
+                title="Usar este pozo"
+                variant="secondary"
+                onPress={handleSetDefault}
+                disabled={saving}
+              />
+            )}
+            {hasDefault && isCurrentPool && (
+              <AppButton
+                title="Quitar sugerencia"
+                variant="ghost"
+                onPress={handleClearDefault}
+                disabled={saving}
+              />
+            )}
+          </FinanceDetailSection>
         )}
 
         {error && (
-          <View style={styles.errorBox}>
-            <HomePlusIcon name="alert-circle-outline" size={18} color={colors.danger.strong} />
-            <AppText variant="bodySmall" tone="danger">{error}</AppText>
-          </View>
+          <FinanceErrorState level="form" message={error} />
         )}
       </View>
     </ActionSheet>
   );
 }
-
-const styles = StyleSheet.create({
-  content: {
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[2],
-    paddingBottom: spacing[4],
-    gap: spacing[3],
-  },
-  infoCard: {
-    backgroundColor: colors.info.soft,
-    borderColor: colors.info.text,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    gap: spacing[2],
-    alignItems: 'flex-start',
-  },
-  fieldGroup: {
-    gap: spacing[2],
-  },
-  categoryPicker: {
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface.card,
-    padding: spacing[2],
-    gap: spacing[1],
-    maxHeight: 300,
-  },
-  categoryOption: {
-    minHeight: 44,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  categoryOptionSelected: {
-    backgroundColor: colors.terracotta[50],
-  },
-  categoryLabel: {
-    flex: 1,
-    minWidth: 0,
-  },
-  currentState: {
-    gap: spacing[2],
-  },
-  currentStateCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.card,
-    padding: spacing[3],
-  },
-  currentStateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing[3],
-  },
-  currentStateInfo: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing[0],
-  },
-  actionButton: {
-    minWidth: 120,
-  },
-  errorBox: {
-    borderRadius: radius.lg,
-    backgroundColor: colors.danger.soft,
-    padding: spacing[3],
-    flexDirection: 'row',
-    gap: spacing[2],
-    alignItems: 'center',
-  },
-});

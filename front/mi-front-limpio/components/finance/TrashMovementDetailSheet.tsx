@@ -1,18 +1,26 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError, generateMutationId, createIdempotencyKey } from '../../services/api';
 import { formatFinanceAmount } from '../../services/finance/financeDisplay';
 import type { FinanceTrashMovementDto } from '../../services/finance/financeMovements';
 import type { FinanceContextType } from '../../services/finance/financeContext';
 import {
   ActionSheet,
-  AppButton,
   AppText,
-  InteractivePressable,
 } from '../ui';
+import {
+  FinanceDetailHeader,
+  FinanceDetailMetaRow,
+  FinanceErrorState,
+  FinanceFormFooter,
+  FinanceIconBox,
+  FinanceListRow,
+} from './ui';
+import { getFinanceCategoryPresentationByLabel } from '../../services/finance/financeCategories';
 
 type TrashMovementDetailSheetProps = {
   visible: boolean;
@@ -39,6 +47,9 @@ export function TrashMovementDetailSheet({
   onRequestClose,
   onRestoreSuccess,
 }: TrashMovementDetailSheetProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const [step, setStep] = useState<RestoreFlowStep>('detail');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,13 +69,15 @@ export function TrashMovementDetailSheet({
   useEffect(() => {
     if (step === 'confirm' && !restoreMutationId) {
       setRestoreMutationId(generateMutationId());
-      setRestoreIdempotencyKey(createIdempotencyKey('finance.transaction.restore'));
+      setRestoreIdempotencyKey(createIdempotencyKey(
+        movement?.kind === 'TRANSFER' ? 'finance.transfer.restore' : 'finance.transaction.restore',
+      ));
     }
     if (step !== 'confirm') {
       setRestoreMutationId(null);
       setRestoreIdempotencyKey(null);
     }
-  }, [step, restoreMutationId]);
+  }, [movement?.kind, step, restoreMutationId]);
 
   const close = () => {
     if (submitting) return;
@@ -87,6 +100,19 @@ export function TrashMovementDetailSheet({
     setError(null);
 
     try {
+      if (movement.kind === 'TRANSFER') {
+        const { restoreFinanceTransfer } = await import('../../services/finance/financeMovements');
+        await restoreFinanceTransfer({
+          accessToken,
+          contextType,
+          personId,
+          householdId,
+          transferId: movement.id,
+        });
+        onRestoreSuccess();
+        close();
+        return;
+      }
       const { restoreFinanceTransaction } = await import('../../services/finance/financeMovements');
       await restoreFinanceTransaction({
         accessToken,
@@ -124,144 +150,196 @@ export function TrashMovementDetailSheet({
 
   if (!visible || !movement) return null;
 
+  const isTransfer = movement.kind === 'TRANSFER';
+  if (isTransfer) {
+    const isCrossCurrency = movement.sourceCurrency !== movement.destinationCurrency;
+    const headerAmount = isCrossCurrency
+      ? `${formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' })} → ${formatFinanceAmount(movement.destinationAmount, movement.destinationCurrency, { sign: 'none' })}`
+      : formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' });
+    return (
+      <ActionSheet
+        visible={visible}
+        title={step === 'confirm' ? '¿Restaurar transferencia?' : 'Transferencia'}
+        subtitle={`Finanzas de ${contextLabel}`}
+        onRequestClose={close}
+        closeDisabled={submitting}
+        size="content"
+        footer={step === 'confirm' ? (
+          <FinanceFormFooter
+            primaryTitle="Restaurar"
+            onPrimary={handleConfirmRestore}
+            onCancel={() => setStep('detail')}
+            primaryDisabled={submitting}
+            loading={submitting}
+            divided={false}
+          />
+        ) : undefined}
+      >
+        <View style={styles.content}>
+          {step === 'detail' ? (
+            <View style={styles.detailView}>
+              <FinanceDetailHeader
+                title="Transferencia"
+                subtitle={`${movement.sourceAccount.name} → ${movement.destinationAccount.name}`}
+                amount={headerAmount}
+                icon={<HomePlusIcon name="swap-horizontal-outline" size={18} color={colors.text.tertiary} />}
+              />
+              <FinanceDetailMetaRow label="Desde" value={movement.sourceAccount.name} />
+              <FinanceDetailMetaRow label="Hacia" value={movement.destinationAccount.name} />
+              {isCrossCurrency ? (
+                <>
+                  <FinanceDetailMetaRow label="Monto" value={formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' })} />
+                  <FinanceDetailMetaRow label="Llega" value={formatFinanceAmount(movement.destinationAmount, movement.destinationCurrency, { sign: 'none' })} />
+                </>
+              ) : (
+                <FinanceDetailMetaRow label="Monto" value={formatFinanceAmount(movement.sourceAmount, movement.sourceCurrency, { sign: 'none' })} />
+              )}
+              {movement.commission?.amount ? (
+                <FinanceDetailMetaRow
+                  label="Comisión"
+                  value={formatFinanceAmount(movement.commission.amount, movement.commission.currency ?? movement.sourceCurrency, { sign: 'none' })}
+                />
+              ) : null}
+              <FinanceDetailMetaRow
+                label="Fecha"
+                value={new Date(`${movement.date}T00:00:00`).toLocaleDateString('es-AR', {
+                  weekday: 'long', day: 'numeric', month: 'long',
+                })}
+              />
+              {movement.description ? <FinanceDetailMetaRow label="Descripción" value={movement.description} /> : null}
+              {movement.trashedAt ? (
+                <FinanceDetailMetaRow label="Enviado a Papelera" value={new Date(movement.trashedAt).toLocaleString('es-AR')} />
+              ) : null}
+              <View style={styles.divider} />
+              <FinanceListRow
+                title="Restaurar transferencia"
+                icon={<FinanceIconBox><HomePlusIcon name="refresh-outline" size={18} color={colors.success.strong} /></FinanceIconBox>}
+                chevron
+                divider={false}
+                onPress={submitting ? undefined : handleRestore}
+                disabled={submitting}
+                accessibilityLabel="Restaurar transferencia"
+              />
+            </View>
+          ) : (
+            <View style={styles.confirmView}>
+              <AppText variant="bodySmall" tone="secondary" style={styles.confirmMessage}>
+                La transferencia volverá a afectar tus finanzas.
+              </AppText>
+              {error ? <FinanceErrorState level="form" message={error} /> : null}
+            </View>
+          )}
+        </View>
+      </ActionSheet>
+    );
+  }
+
   const isExpense = movement.transactionType === 'expense';
+  const typeLabel = isExpense ? 'Gasto' : 'Ingreso';
+  const categoryPresentation = getFinanceCategoryPresentationByLabel(movement.categoryLabelSnapshot);
+  const categoryToneColor =
+    categoryPresentation.tone === 'terracotta' ? colors.terracotta[600]
+    : categoryPresentation.tone === 'sage' ? colors.sage[600]
+    : categoryPresentation.tone === 'sand' ? colors.sand[600]
+    : categoryPresentation.tone === 'info' ? colors.info.text
+    : colors.text.tertiary;
 
   return (
     <ActionSheet
       visible={visible}
-      title="Detalle del movimiento"
+      title={step === 'confirm' ? '¿Restaurar movimiento?' : 'Detalle del movimiento'}
       subtitle={`Finanzas de ${contextLabel}`}
       onRequestClose={close}
       closeDisabled={submitting}
       size="content"
+      footer={step === 'confirm' ? (
+        <FinanceFormFooter
+          primaryTitle="Restaurar"
+          onPrimary={handleConfirmRestore}
+          onCancel={() => setStep('detail')}
+          primaryDisabled={submitting}
+          loading={submitting}
+          divided={false}
+        />
+      ) : undefined}
     >
       <View style={styles.content}>
         {step === 'detail' && (
           <View style={styles.detailView}>
-            <View style={styles.detailRow}>
-              <AppText variant="caption" tone="secondary" weight="700">
-                Tipo
-              </AppText>
-              <AppText variant="body" weight="800">
-                {isExpense ? 'Gasto' : 'Ingreso'}
-              </AppText>
-            </View>
-
-            <View style={styles.detailRow}>
-              <AppText variant="caption" tone="secondary" weight="700">
-                Monto
-              </AppText>
-              <AppText variant="title2" weight="800" tone={isExpense ? 'danger' : 'success'}>
-                {formatFinanceAmount(movement.amount, movement.currency, {
-                  sign: 'transaction',
-                  transactionType: movement.transactionType,
-                })}
-              </AppText>
-            </View>
+            <FinanceDetailHeader
+              title={typeLabel}
+              subtitle={movement.categoryLabelSnapshot ?? undefined}
+              amount={formatFinanceAmount(movement.amount, movement.currency, {
+                sign: 'transaction',
+                transactionType: movement.transactionType,
+              })}
+              amountTone={isExpense ? 'danger' : 'success'}
+              icon={
+                <HomePlusIcon
+                  name={categoryPresentation.iconKey}
+                  size={18}
+                  color={categoryToneColor}
+                />
+              }
+            />
 
             {movement.description ? (
-              <View style={styles.detailRow}>
-                <AppText variant="caption" tone="secondary" weight="700">
-                  Descripción
-                </AppText>
-                <AppText variant="body" numberOfLines={2}>{movement.description}</AppText>
-              </View>
+              <FinanceDetailMetaRow label="Descripción" value={movement.description} />
             ) : null}
 
             {movement.categoryLabelSnapshot ? (
-              <View style={styles.detailRow}>
-                <AppText variant="caption" tone="secondary" weight="700">
-                  Categoría
-                </AppText>
-                <AppText variant="body" numberOfLines={1}>{movement.categoryLabelSnapshot}</AppText>
-              </View>
+              <FinanceDetailMetaRow label="Categoría" value={movement.categoryLabelSnapshot} />
             ) : null}
 
-            <View style={styles.detailRow}>
-              <AppText variant="caption" tone="secondary" weight="700">
-                Fecha
-              </AppText>
-              <AppText variant="body" numberOfLines={1}>
-                {new Date(movement.transactionDate).toLocaleDateString('es-AR', {
+            <FinanceDetailMetaRow
+              label="Fecha"
+              value={new Date(movement.transactionDate).toLocaleDateString('es-AR', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+              })}
+            />
+
+            {movement.trashedAt && (
+              <FinanceDetailMetaRow
+                label="Enviado a Papelera"
+                value={new Date(movement.trashedAt).toLocaleDateString('es-AR', {
                   weekday: 'long',
                   day: 'numeric',
                   month: 'long',
+                  hour: '2-digit',
+                  minute: '2-digit',
                 })}
-              </AppText>
-            </View>
-
-            {movement.trashedAt && (
-              <View style={styles.detailRow}>
-                <AppText variant="caption" tone="secondary" weight="700">
-                  Enviado a Papelera
-                </AppText>
-                <AppText variant="body" numberOfLines={1}>
-                  {new Date(movement.trashedAt).toLocaleDateString('es-AR', {
-                    weekday: 'long',
-                    day: 'numeric',
-                    month: 'long',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </AppText>
-              </View>
+              />
             )}
 
             <View style={styles.divider} />
 
-            <InteractivePressable
-              onPress={handleRestore}
+            <FinanceListRow
+              title="Restaurar movimiento"
+              icon={
+                <FinanceIconBox>
+                  <HomePlusIcon name="refresh-outline" size={18} color={colors.success.strong} />
+                </FinanceIconBox>
+              }
+              chevron
+              divider={false}
+              onPress={submitting ? undefined : handleRestore}
               disabled={submitting}
-              haptic="light"
-              pressScale={motion.scale.card}
-              style={styles.restoreEntry}
-              accessibilityRole="button"
               accessibilityLabel="Restaurar movimiento"
-            >
-              <HomePlusIcon name="refresh-outline" size={20} color={colors.success.strong} />
-              <AppText variant="body" weight="800" style={{ flex: 1 }}>
-                Restaurar movimiento
-              </AppText>
-              <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
-            </InteractivePressable>
+            />
           </View>
         )}
 
         {step === 'confirm' && (
           <View style={styles.confirmView}>
-            <AppText variant="body" style={styles.confirmTitle}>
-              ¿Restaurar movimiento?
-            </AppText>
             <AppText variant="bodySmall" tone="secondary" style={styles.confirmMessage}>
               El movimiento volverá a afectar tus finanzas.
             </AppText>
 
             {error ? (
-              <View style={styles.errorBox}>
-                <HomePlusIcon name="alert-circle-outline" size={18} color={colors.danger.strong} />
-                <AppText variant="bodySmall" tone="danger" style={styles.errorText}>
-                  {error}
-                </AppText>
-              </View>
+              <FinanceErrorState level="form" message={error} />
             ) : null}
-
-            <View style={styles.confirmActions}>
-              <AppButton
-                variant="ghost"
-                title="Cancelar"
-                onPress={() => setStep('detail')}
-                disabled={submitting}
-                style={styles.confirmButton}
-              />
-              <AppButton
-                variant="primary"
-                title="Restaurar"
-                onPress={handleConfirmRestore}
-                loading={submitting}
-                disabled={submitting}
-                style={styles.confirmButton}
-              />
-            </View>
           </View>
         )}
       </View>
@@ -269,7 +347,10 @@ export function TrashMovementDetailSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, spacing } = theme;
+
+  return StyleSheet.create({
   content: {
     gap: spacing[4],
     paddingBottom: spacing[2],
@@ -277,58 +358,18 @@ const styles = StyleSheet.create({
   detailView: {
     gap: spacing[3],
   },
-  detailRow: {
-    gap: spacing[1],
-  },
   divider: {
     height: 1,
     backgroundColor: colors.border.subtle,
     marginVertical: spacing[1],
   },
-  restoreEntry: {
-    minHeight: 56,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.success.base,
-    backgroundColor: colors.success.soft,
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    marginTop: spacing[2],
-  },
   confirmView: {
     gap: spacing[3],
     alignItems: 'center',
-  },
-  confirmTitle: {
-    fontWeight: '800',
-    textAlign: 'center',
   },
   confirmMessage: {
     textAlign: 'center',
     marginTop: spacing[1],
   },
-  errorBox: {
-    borderRadius: radius.lg,
-    backgroundColor: colors.danger.soft,
-    padding: spacing[3],
-    flexDirection: 'row',
-    gap: spacing[2],
-    alignItems: 'flex-start',
-    width: '100%',
-  },
-  errorText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  confirmActions: {
-    flexDirection: 'row',
-    gap: spacing[2],
-    width: '100%',
-    marginTop: spacing[2],
-  },
-  confirmButton: {
-    flex: 1,
-  },
-});
+  });
+}

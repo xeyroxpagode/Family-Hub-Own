@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { ApiError } from '../front/mi-front-limpio/services/api';
 import {
   normalizeFinanceTransactionDetailPayload,
@@ -21,6 +23,11 @@ import {
 
 let passCount = 0;
 let failCount = 0;
+const repositoryRoot = process.cwd();
+
+function read(rel: string): string {
+  return fs.readFileSync(path.join(repositoryRoot, rel), 'utf8');
+}
 
 function assert(condition: boolean, message: string): void {
   if (condition) {
@@ -265,6 +272,13 @@ await runTest('R50 - retry clears error and can reach form', async () => {
 });
 
 await runTest('A - normal opening with resolved prefetch reaches form without fallback GET', async () => {
+  const financeScreen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
+  assert(
+    financeScreen.includes('key={correctionTransactionId ?? \'none\'}') &&
+      !financeScreen.includes('key={`${correctionTransactionId') &&
+      !financeScreen.includes('fallback'),
+    'A correction sheet key stays stable across late prefetch updates',
+  );
   let fallbackGetCount = 0;
   const dto = detail();
   const loaded = await loadTransactionCorrectionDetail({
@@ -287,7 +301,7 @@ await runTest('A - normal opening with resolved prefetch reaches form without fa
   assertEqual(fallbackGetCount, 0, 'A resolved prefetch skips fallback detail GET');
   assertEqual(result.step, 'form', 'A Lo anoté mal can render form from prefetched detail');
   if (result.step === 'form') {
-    assertEqual(result.draft.amountText, '5000.0000', 'A form receives prefetched amount immediately');
+    assertEqual(result.draft.amountText, '5.000', 'A form receives prefetched amount normalized for editing immediately');
   }
 });
 
@@ -420,9 +434,9 @@ await runTest('E - amount-only review preserves original category/account labels
     selectedAccountLabel: null,
   });
 
-  assertEqual(categoryLabel, 'Alimentación', 'E unchanged category reuses original snapshot instead of showing Sin categoria');
+  assertEqual(categoryLabel, 'Alimentación', 'E unchanged category reuses original snapshot instead of showing Sin categoría');
   assertEqual(accountLabel, 'Fin 4J-R Account · ARS', 'E unchanged account reuses original account snapshot instead of showing Sin cuenta');
-  assertEqual(clearedCategory, 'Sin categoria', 'E explicit category clear still displays Sin categoria');
+  assertEqual(clearedCategory, 'Sin categoría', 'E explicit category clear still displays Sin categoría');
   assertEqual(clearedAccount, 'Sin cuenta', 'E explicit account clear still displays Sin cuenta');
 });
 
@@ -528,7 +542,7 @@ await runTest('FIELD CATEGORY - ID based diff does not disappear when selected l
   );
   assertEqual(changes.map((change) => change.field), ['categoryId'], 'FIELD CATEGORY category-only diff is detected by ID');
   assertEqual(changes[0]?.oldValue, 'Alimentación', 'FIELD CATEGORY review old label uses original snapshot');
-  assertEqual(changes[0]?.newValue, 'Categoria seleccionada', 'FIELD CATEGORY unresolved new label still shows an explicit change');
+  assertEqual(changes[0]?.newValue, 'Categoría seleccionada', 'FIELD CATEGORY unresolved new label still shows an explicit change');
 });
 
 await runTest('FIELD CATEGORY - loaded label and explicit clear are represented separately', () => {
@@ -542,7 +556,7 @@ await runTest('FIELD CATEGORY - loaded label and explicit clear are represented 
 
   assertEqual(changed[0]?.newValue, 'Transporte', 'FIELD CATEGORY loaded category label appears in review');
   assertEqual(cleared.map((change) => change.field), ['categoryId'], 'FIELD CATEGORY clear creates category diff');
-  assertEqual(cleared[0]?.newValue, 'Sin categoria', 'FIELD CATEGORY clear displays Sin categoria');
+  assertEqual(cleared[0]?.newValue, 'Sin categoría', 'FIELD CATEGORY clear displays Sin categoría');
   assertEqual(clearPayload.categoryId, null, 'FIELD CATEGORY clear payload sends categoryId null');
   assertEqual(clearPayload.clearCategory, true, 'FIELD CATEGORY clear payload sends clearCategory true');
 });
@@ -647,7 +661,7 @@ await runTest('S04 SAVE PIPELINE - selected category label wins over unresolved 
   });
 
   assertEqual(reviewLabel, 'Transporte', 'S04 loaded selected label is shown in review');
-  assertEqual(fallbackLabel, 'Categoria seleccionada', 'S04 generic label remains fallback only');
+  assertEqual(fallbackLabel, 'Categoría seleccionada', 'S04 generic label remains fallback only');
 });
 
 await runTest('S05 SAVE PIPELINE - category-only payload has semantic category diff and no clear', () => {

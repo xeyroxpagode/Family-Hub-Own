@@ -35,19 +35,11 @@ export function isFinanceContextType(value: unknown): value is FinanceContextTyp
   return value === FINANCE_CONTEXT_TYPES.PERSONAL || value === FINANCE_CONTEXT_TYPES.HOUSEHOLD;
 }
 
-export function financeSelectorOptions(activeHousehold: FinanceActiveHousehold): FinanceSelectorOption[] {
-  const options: FinanceSelectorOption[] = [
+export function financeSelectorOptions(_activeHousehold: FinanceActiveHousehold): FinanceSelectorOption[] {
+  return [
     { contextType: FINANCE_CONTEXT_TYPES.PERSONAL, label: 'Personal' },
+    { contextType: FINANCE_CONTEXT_TYPES.HOUSEHOLD, label: 'Hogar' },
   ];
-
-  if (activeHousehold) {
-    options.push({
-      contextType: FINANCE_CONTEXT_TYPES.HOUSEHOLD,
-      label: activeHousehold.name,
-    });
-  }
-
-  return options;
 }
 
 export function financeContextLabel(

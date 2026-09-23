@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+/* eslint-disable react-hooks/set-state-in-effect */
+import React, { useEffect, useMemo, useState } from 'react';
 import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
-import { HomePlusIcon } from '../../constants/icons';
 import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError } from '../../services/api';
 import type { FinanceContextType, FinanceContextViewState, FinanceActiveHousehold } from '../../services/finance/financeContext';
@@ -26,16 +26,20 @@ import {
 } from '../../services/finance/moneyInputValue';
 import {
   ActionSheet,
-  AppButton,
   AppText,
   DatePickerSheet,
-  FormActionRow,
-  InteractivePressable,
   formatHumanDate,
 } from '../ui';
+import {
+  FinanceErrorState,
+  FinanceFormFooter,
+  FinanceSelectionRow,
+  FINANCE_SHEET_SIZE_POLICY,
+} from './ui';
 import { todayDateOnly } from '../../services/finance/financeDate';
 import { MoneyInput } from './MoneyInput';
 import { AccountSelector } from './AccountSelector';
+import { CategorySelectorSheet } from './CategorySelectorSheet';
 
 type RegisterPaymentSheetProps = {
   visible: boolean;
@@ -61,7 +65,6 @@ export function RegisterPaymentSheet({
   onSuccess,
 }: RegisterPaymentSheetProps) {
   const theme = useAppTheme();
-  const { colors, motion } = theme;
   const styles = createStyles(theme);
   const [amountText, setAmountText] = useState('');
   const [amount, setAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', 'ARS'));
@@ -76,7 +79,6 @@ export function RegisterPaymentSheet({
   const [submitting, setSubmitting] = useState(false);
   const [accountSelectorVisible, setAccountSelectorVisible] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const contextKeyRef = useRef(`${contextType}:${payment?.id}`);
 
   const isNormal = payment?.kind === PAYMENT_KINDS.NORMAL;
   const expectedAmountText = useMemo(
@@ -237,10 +239,14 @@ export function RegisterPaymentSheet({
   };
 
   const footer = (
-    <View style={styles.footer}>
-      <AppButton title="Cancelar" variant="ghost" onPress={close} disabled={submitting} style={styles.footerButton} />
-      <AppButton title="Registrar pago" onPress={submit} loading={submitting} disabled={!canSubmit} style={styles.footerButton} />
-    </View>
+    <FinanceFormFooter
+      primaryTitle="Registrar"
+      onPrimary={submit}
+      onCancel={close}
+      primaryDisabled={!canSubmit}
+      loading={submitting}
+      divided={false}
+    />
   );
 
   if (!visible || !payment) return null;
@@ -252,156 +258,97 @@ export function RegisterPaymentSheet({
       subtitle={payment.title}
       onRequestClose={close}
       closeDisabled={submitting}
+      size={FINANCE_SHEET_SIZE_POLICY.MEDIUM_FORM}
       footer={footer}
     >
-      <View style={styles.sheetBody}>
-        <KeyboardAwareScrollView
-          enableOnAndroid
-          extraScrollHeight={40}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.form}
-        >
-          <View style={styles.fieldGroup}>
-            <AppText variant="body" weight="800" style={styles.paymentTitle}>
-              {payment.title}
+      <KeyboardAwareScrollView
+        enableOnAndroid
+        extraScrollHeight={40}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.form}
+      >
+        <View style={styles.fieldGroup}>
+          <AppText variant="body" weight="800" style={styles.paymentTitle}>
+            {payment.title}
+          </AppText>
+          <View style={styles.expectedAmountRow}>
+            <AppText variant="caption" tone="secondary">
+              Esperado:
             </AppText>
-            <View style={styles.expectedAmountRow}>
-              <AppText variant="caption" tone="secondary">
-                Esperado:
-              </AppText>
-              <AppText variant="body" weight="800" tone={payment.expectedAmountKnown ? 'primary' : 'secondary'}>
-                {expectedAmountText}
-              </AppText>
-            </View>
-            {payment.paymentSeriesId && (
-              <AppText variant="caption" tone="secondary" style={styles.recurrenceHint}>
-                Parte de una serie recurrente
-              </AppText>
-            )}
+            <AppText variant="body" weight="800" tone={payment.expectedAmountKnown ? 'primary' : 'secondary'}>
+              {expectedAmountText}
+            </AppText>
           </View>
+        </View>
 
-          <View style={styles.fieldGroup}>
-            <MoneyInput
-              value={amountText}
-              currency={currency}
-              onValueChange={handleAmountChange}
-              onCurrencyChange={handleCurrencyChange}
-              availableCurrencies={DEFAULT_MONEY_INPUT_CURRENCY_OPTIONS}
-              label="Monto real"
-              helperText="Magnitud positiva. Podés ajustar respecto al esperado."
-              disabled={submitting}
-              errorText={amount.status === 'invalid' ? 'Revisá el monto.' : undefined}
-            />
-          </View>
+        <View style={styles.fieldGroup}>
+          <MoneyInput
+            value={amountText}
+            currency={currency}
+            onValueChange={handleAmountChange}
+            onCurrencyChange={handleCurrencyChange}
+            availableCurrencies={DEFAULT_MONEY_INPUT_CURRENCY_OPTIONS}
+            label="Monto pagado"
+            helperText="Podés ajustar el monto respecto al esperado."
+            disabled={submitting}
+            errorText={amount.status === 'invalid' ? 'Revisá el monto.' : undefined}
+          />
+        </View>
 
-          <View style={styles.fieldGroup}>
-            <FormActionRow
-              label="Fecha"
-              value={formatHumanDate(date)}
-              onPress={() => setActivePicker('date')}
-              disabled={submitting}
-              accessibilityLabel={`Fecha de pago ${formatHumanDate(date)}`}
-            />
-          </View>
+        <FinanceSelectionRow
+          label="Fecha"
+          value={formatHumanDate(date)}
+          onPress={() => setActivePicker('date')}
+          disabled={submitting}
+          accessibilityLabel={`Fecha de pago ${formatHumanDate(date)}`}
+        />
 
-          {isNormal && (
-            <>
-              <View style={styles.fieldGroup}>
-                <FormActionRow
-                  label="Categoría"
-                  value={categories.find((c) => c.id === selectedCategoryId)?.label ?? payment.categoryId ? 'Categoría del pago' : 'Sin categoría'}
-                  onPress={() => setActivePicker((current) => current === 'category' ? null : 'category')}
-                  disabled={submitting || categoriesLoading}
-                  accessibilityLabel="Elegir categoría del gasto real"
-                />
-                {categoriesError ? (
-                  <AppText variant="caption" tone="warning">{categoriesError}</AppText>
-                ) : categoriesLoading ? (
-                  <AppText variant="caption" tone="tertiary">Cargando categorías</AppText>
-                ) : null}
-                {activePicker === 'category' && (
-                  <View style={styles.categoryPicker} accessibilityLabel="Categorías de gasto">
-                    <InteractivePressable
-                      onPress={() => { setSelectedCategoryId(null); setActivePicker(null); }}
-                      haptic="light"
-                      pressScale={motion.scale.card}
-                      style={[styles.categoryOption, selectedCategoryId === null && styles.categoryOptionSelected]}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: selectedCategoryId === null }}
-                      accessibilityLabel="Sin categoría"
-                    >
-                      <HomePlusIcon
-                        name={selectedCategoryId === null ? 'radio-button-on' : 'radio-button-off'}
-                        size={18}
-                        color={selectedCategoryId === null ? colors.terracotta[700] : colors.text.tertiary}
-                      />
-                      <AppText variant="bodySmall" weight="800">Sin categoría</AppText>
-                    </InteractivePressable>
-                    {categories.map((category) => {
-                      const selected = category.id === selectedCategoryId;
-                      return (
-                        <InteractivePressable
-                          key={category.id}
-                          onPress={() => { setSelectedCategoryId(category.id); setActivePicker(null); }}
-                          haptic="light"
-                          pressScale={motion.scale.card}
-                          style={[styles.categoryOption, selected && styles.categoryOptionSelected]}
-                          accessibilityRole="radio"
-                          accessibilityState={{ selected }}
-                          accessibilityLabel={category.label}
-                        >
-                          <HomePlusIcon
-                            name={selected ? 'radio-button-on' : 'radio-button-off'}
-                            size={18}
-                            color={selected ? colors.terracotta[700] : colors.text.tertiary}
-                          />
-                          <AppText variant="bodySmall" weight="800" numberOfLines={1} style={styles.categoryLabel}>
-                            {category.label}
-                          </AppText>
-                        </InteractivePressable>
-                      );
-                    })}
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.fieldGroup}>
-                <FormActionRow
-                  label="Cuenta"
-                  value={selectedAccount ? `${selectedAccount.name} · ${selectedAccount.currency}` : 'Sin cuenta'}
-                  onPress={handleOpenAccountSelector}
-                  disabled={submitting || eligibleAccounts.loading}
-                  accessibilityLabel="Elegir cuenta para el gasto"
-                />
-                {eligibleAccounts.error && (
-                  <AppText variant="caption" tone="warning">{eligibleAccounts.error}</AppText>
-                )}
-              </View>
-            </>
-          )}
-
-          {!isNormal && (
+        {isNormal && (
+          <>
             <View style={styles.fieldGroup}>
-              <AppText variant="caption" tone="warning" weight="700">
-                Pago de tarjeta de crédito
-              </AppText>
-              <AppText variant="caption" tone="tertiary">
-                Se liquida desde Pagar tarjeta para registrar transferencias y pagos parciales correctamente.
-              </AppText>
+              {categoriesError ? (
+                <AppText variant="caption" tone="warning">{categoriesError}</AppText>
+              ) : categoriesLoading ? (
+                <AppText variant="caption" tone="tertiary">Cargando categorías</AppText>
+              ) : null}
+              <FinanceSelectionRow
+                label="Categoría"
+                value={categories.find((c) => c.id === selectedCategoryId)?.label ?? 'Sin categoría'}
+                onPress={() => setActivePicker('category')}
+                disabled={submitting || categoriesLoading}
+                accessibilityLabel="Elegir categoría del gasto real"
+              />
             </View>
-          )}
 
-          {submitError ? (
-            <View style={styles.errorBox}>
-              <HomePlusIcon name="alert-circle-outline" size={18} color={colors.danger.strong} />
-              <AppText variant="bodySmall" tone="danger" style={styles.errorText}>
-                {submitError}
-              </AppText>
+            <View style={styles.fieldGroup}>
+              <FinanceSelectionRow
+                label="Cuenta"
+                value={selectedAccount ? `${selectedAccount.name} · ${selectedAccount.currency}` : 'Sin cuenta'}
+                onPress={handleOpenAccountSelector}
+                disabled={submitting || eligibleAccounts.loading}
+                accessibilityLabel="Elegir cuenta para el gasto"
+              />
+              {eligibleAccounts.error ? (
+                <AppText variant="caption" tone="warning">{eligibleAccounts.error}</AppText>
+              ) : null}
             </View>
-          ) : null}
-        </KeyboardAwareScrollView>
+          </>
+        )}
+
+        {!isNormal && (
+          <View style={styles.fieldGroup}>
+            <AppText variant="caption" tone="secondary">
+              Usá Pagar tarjeta para abonar este resumen.
+            </AppText>
+          </View>
+        )}
+
+        {submitError ? (
+          <FinanceErrorState level="form" message={submitError} />
+        ) : null}
+      </KeyboardAwareScrollView>
 
         <DatePickerSheet
           visible={activePicker === 'date'}
@@ -426,19 +373,32 @@ export function RegisterPaymentSheet({
           onRequestClose={() => setAccountSelectorVisible(false)}
           onSelect={handleSelectAccount}
         />
-      </View>
+
+        {isNormal ? (
+          <CategorySelectorSheet
+            visible={activePicker === 'category'}
+            accessToken={accessToken}
+            contextType={contextType}
+            mode="expense"
+            selectedCategoryId={selectedCategoryId}
+            onSelect={(category) => {
+              setSelectedCategoryId(category?.id ?? null);
+              if (category && !categories.some((candidate) => candidate.id === category.id)) {
+                setCategories((current) => [...current, category]);
+              }
+              setActivePicker(null);
+            }}
+            onRequestClose={() => setActivePicker(null)}
+          />
+        ) : null}
     </ActionSheet>
   );
 }
 
 function createStyles(theme: ReturnType<typeof useAppTheme>) {
-  const { colors, radius, spacing } = theme;
+  const { spacing } = theme;
 
   return StyleSheet.create({
-    sheetBody: {
-      flex: 1,
-      position: 'relative',
-    },
     form: {
       gap: spacing[4],
       paddingBottom: spacing[4],
@@ -453,50 +413,6 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing[2],
-    },
-    recurrenceHint: {
-      marginTop: spacing[1],
-    },
-    categoryPicker: {
-      borderWidth: 1,
-      borderColor: colors.border.subtle,
-      borderRadius: radius.xl,
-      backgroundColor: colors.surface.card,
-      padding: spacing[2],
-      gap: spacing[1],
-    },
-    categoryOption: {
-      minHeight: 44,
-      borderRadius: radius.lg,
-      paddingHorizontal: spacing[3],
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing[2],
-    },
-    categoryOptionSelected: {
-      backgroundColor: colors.terracotta[50],
-    },
-    categoryLabel: {
-      flex: 1,
-      minWidth: 0,
-    },
-    errorBox: {
-      borderRadius: radius.lg,
-      backgroundColor: colors.danger.soft,
-      padding: spacing[3],
-      flexDirection: 'row',
-      gap: spacing[2],
-    },
-    errorText: {
-      flex: 1,
-      minWidth: 0,
-    },
-    footer: {
-      flexDirection: 'row',
-      gap: spacing[2],
-    },
-    footerButton: {
-      flex: 1,
     },
   });
 }

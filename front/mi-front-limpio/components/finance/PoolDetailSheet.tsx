@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 
 import {
-  AppText,
+  AppButton,
   ActionSheet,
-  InteractivePressable,
 } from '../ui';
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { HomePlusIcon } from '../../constants/icons';
 import { formatFinanceAmount, isZeroDecimalString } from '../../services/finance/financeDisplay';
 import {
@@ -19,6 +18,16 @@ import { RenamePoolSheet } from './RenamePoolSheet';
 import { ArchivePoolSheet } from './ArchivePoolSheet';
 import { TransferBetweenPoolsSheet } from './TransferBetweenPoolsSheet';
 import { CategoryPoolDefaultSheet } from './CategoryPoolDefaultSheet';
+import {
+  FINANCE_ACTION_ICON_SIZE,
+  FinanceDetailHeader,
+  FinanceDetailSection,
+  FinanceGroupedSurface,
+  FinanceIconBox,
+  FinanceListRow,
+  FINANCE_SHEET_SIZE_POLICY,
+  financeSpacing,
+} from './ui';
 
 type PoolDetailSheetProps = {
   visible: boolean;
@@ -47,6 +56,8 @@ export function PoolDetailSheet({
   onSuccess,
   onArchiveSuccess,
 }: PoolDetailSheetProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
   const [allocateVisible, setAllocateVisible] = useState(false);
   const [releaseVisible, setReleaseVisible] = useState(false);
   const [renameVisible, setRenameVisible] = useState(false);
@@ -56,12 +67,14 @@ export function PoolDetailSheet({
 
   React.useEffect(() => {
     if (visible) return;
-    setAllocateVisible(false);
-    setReleaseVisible(false);
-    setRenameVisible(false);
-    setArchiveVisible(false);
-    setTransferVisible(false);
-    setCategoryDefaultVisible(false);
+    void Promise.resolve().then(() => {
+      setAllocateVisible(false);
+      setReleaseVisible(false);
+      setRenameVisible(false);
+      setArchiveVisible(false);
+      setTransferVisible(false);
+      setCategoryDefaultVisible(false);
+    });
   }, [visible]);
 
   if (!visible || !pool) return null;
@@ -166,111 +179,86 @@ export function PoolDetailSheet({
       <ActionSheet
         visible={!nestedSheetVisible}
         title={pool.name}
+        subtitle={`Pozo · ${contextLabel}`}
         onRequestClose={handleActionSheetClose}
+        size={FINANCE_SHEET_SIZE_POLICY.DETAIL}
       >
-        <View style={styles.actionContent}>
-          <View style={styles.balancePreview}>
-            <AppText variant="caption" tone="secondary" weight="700">Saldo actual</AppText>
-            <AppText
-              variant="title2"
-              weight="800"
-              tone={isBalanceZero ? 'primary' : isBalanceNegative ? 'danger' : 'success'}
-            >
-              {formatFinanceAmount(pool.balance, currency, { sign: isBalanceNegative ? 'net' : 'none' })}
-            </AppText>
-          </View>
+        <View style={{ gap: financeSpacing.sectionGap, paddingBottom: financeSpacing.contentActionGap }}>
+          <FinanceDetailHeader
+            title={pool.name}
+            subtitle={`Pozo · ${contextLabel} · ${currency}`}
+            amount={formatFinanceAmount(pool.balance, currency, { sign: isBalanceNegative ? 'net' : 'none' })}
+            amountTone={isBalanceZero ? 'primary' : isBalanceNegative ? 'danger' : 'success'}
+            supporting="Saldo actual"
+            icon={
+              <HomePlusIcon name="wallet-outline" size={FINANCE_ACTION_ICON_SIZE} color={colors.text.secondary} />
+            }
+          />
 
-          <InteractivePressable
+          <AppButton
+            title="Agregar dinero"
             onPress={handleAllocatePress}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={styles.actionItem}
-            accessibilityRole="button"
-          >
-            <HomePlusIcon name="arrow-down-circle-outline" size={24} color={colors.terracotta[700]} />
-            <AppText variant="body" weight="700">Agregar dinero</AppText>
-            <AppText variant="caption" tone="secondary">Sin asignar → Pozo</AppText>
-          </InteractivePressable>
+            leftSlot={<HomePlusIcon name="add" size={18} color={colors.text.inverse} />}
+          />
 
-          {canRelease && (
-            <InteractivePressable
+          <FinanceGroupedSurface title="Acciones">
+            <FinanceListRow
+              title="Liberar dinero"
+              subtitle={canRelease ? 'Pozo a sin asignar' : 'No hay saldo positivo para liberar'}
+              icon={
+                <FinanceIconBox>
+                  <HomePlusIcon name="arrow-up-circle-outline" size={FINANCE_ACTION_ICON_SIZE} color={colors.text.secondary} />
+                </FinanceIconBox>
+              }
+              chevron={canRelease}
               onPress={handleReleasePress}
-              haptic="light"
-              pressScale={motion.scale.card}
-              style={styles.actionItem}
-              accessibilityRole="button"
-            >
-              <HomePlusIcon name="arrow-up-circle-outline" size={24} color={colors.success.strong} />
-              <AppText variant="body" weight="700">Liberar dinero</AppText>
-              <AppText variant="caption" tone="secondary">Pozo → Sin asignar</AppText>
-            </InteractivePressable>
-          )}
-
-          {!canRelease && (
-            <View style={styles.disabledAction}>
-              <HomePlusIcon name="arrow-up-circle-outline" size={24} color={colors.text.tertiary} />
-              <AppText variant="body" weight="700" tone="tertiary">Liberar dinero</AppText>
-              <AppText variant="caption" tone="tertiary">No hay saldo positivo para liberar</AppText>
-            </View>
-          )}
-
-          {canTransfer && (
-            <InteractivePressable
+              disabled={!canRelease}
+            />
+            <FinanceListRow
+              title="Mover dinero"
+              subtitle={canTransfer ? 'Entre pozos' : 'No hay otros pozos activos'}
+              icon={
+                <FinanceIconBox>
+                  <HomePlusIcon name="swap-horizontal-outline" size={FINANCE_ACTION_ICON_SIZE} color={colors.text.secondary} />
+                </FinanceIconBox>
+              }
+              chevron={canTransfer}
               onPress={handleTransferPress}
-              haptic="light"
-              pressScale={motion.scale.card}
-              style={styles.actionItem}
-              accessibilityRole="button"
-            >
-              <HomePlusIcon name="swap-horizontal-outline" size={24} color={colors.info.text} />
-              <AppText variant="body" weight="700">Mover dinero</AppText>
-              <AppText variant="caption" tone="secondary">Pozo → Pozo</AppText>
-            </InteractivePressable>
-          )}
+              disabled={!canTransfer}
+            />
+            <FinanceListRow
+              title="Renombrar"
+              subtitle="Cambiar nombre del pozo"
+              icon={
+                <FinanceIconBox>
+                  <HomePlusIcon name="pencil-outline" size={FINANCE_ACTION_ICON_SIZE} color={colors.text.secondary} />
+                </FinanceIconBox>
+              }
+              chevron
+              onPress={handleRenamePress}
+            />
+            <FinanceListRow
+              title="Pozo sugerido por categoría"
+              subtitle="Configurar sugerencia para nuevos gastos"
+              icon={
+                <FinanceIconBox>
+                  <HomePlusIcon name="link-outline" size={FINANCE_ACTION_ICON_SIZE} color={colors.text.secondary} />
+                </FinanceIconBox>
+              }
+              chevron
+              onPress={handleCategoryDefaultPress}
+              divider={false}
+            />
+          </FinanceGroupedSurface>
 
-          {!canTransfer && (
-            <View style={styles.disabledAction}>
-              <HomePlusIcon name="swap-horizontal-outline" size={24} color={colors.text.tertiary} />
-              <AppText variant="body" weight="700" tone="tertiary">Mover dinero</AppText>
-              <AppText variant="caption" tone="tertiary">No hay otros pozos activos</AppText>
-            </View>
-          )}
-
-          <InteractivePressable
-            onPress={handleRenamePress}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={styles.actionItem}
-            accessibilityRole="button"
-          >
-            <HomePlusIcon name="pencil-outline" size={24} color={colors.text.secondary} />
-            <AppText variant="body" weight="700">Renombrar</AppText>
-            <AppText variant="caption" tone="secondary">Cambiar nombre del pozo</AppText>
-          </InteractivePressable>
-
-          <InteractivePressable
-            onPress={handleArchivePress}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={[styles.actionItem, styles.archiveAction]}
-            accessibilityRole="button"
-          >
-            <HomePlusIcon name="archive-outline" size={24} color={colors.danger.strong} />
-            <AppText variant="body" weight="700" tone="danger">Archivar pozo</AppText>
-            <AppText variant="caption" tone="secondary">El historial se conserva</AppText>
-          </InteractivePressable>
-
-          <InteractivePressable
-            onPress={handleCategoryDefaultPress}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={styles.actionItem}
-            accessibilityRole="button"
-          >
-            <HomePlusIcon name="link-outline" size={24} color={colors.info.text} />
-            <AppText variant="body" weight="700">Pozo sugerido por categoria</AppText>
-            <AppText variant="caption" tone="secondary">Configurar sugerencia para nuevos gastos</AppText>
-          </InteractivePressable>
+          <FinanceDetailSection title="Ciclo de vida">
+            <AppButton
+              title="Archivar pozo"
+              variant="danger"
+              onPress={handleArchivePress}
+              leftSlot={<HomePlusIcon name="archive-outline" size={18} color={colors.text.inverse} />}
+            />
+          </FinanceDetailSection>
         </View>
       </ActionSheet>
 
@@ -345,45 +333,3 @@ export function PoolDetailSheet({
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  actionContent: {
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[2],
-    paddingBottom: spacing[4],
-    gap: spacing[2],
-  },
-  balancePreview: {
-    alignItems: 'center',
-    gap: spacing[1],
-    paddingVertical: spacing[3],
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border.subtle,
-  },
-  actionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    paddingVertical: spacing[3],
-    paddingHorizontal: spacing[2],
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.card,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-  },
-  disabledAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    paddingVertical: spacing[3],
-    paddingHorizontal: spacing[2],
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.muted,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-  },
-  archiveAction: {
-    borderColor: colors.danger.soft,
-    backgroundColor: colors.danger.soft,
-  },
-});

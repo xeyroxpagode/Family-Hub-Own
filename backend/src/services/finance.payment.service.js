@@ -22,6 +22,7 @@ const PAYMENT_KIND_VALUES = Object.freeze(Object.values(PAYMENT_KINDS));
 const PAYMENT_DUE_STATUSES = Object.freeze({
   PENDING: 'PENDING',
   CANCELLED: 'CANCELLED',
+  SKIPPED: 'SKIPPED',
   PAID: 'PAID', // reserved for Stage 5D
 });
 
@@ -480,6 +481,31 @@ async function dueToDtoWithProgress(financeContext, row) {
   return applyDueProgress(dto, await loadDueProgress(financeContext, row.id));
 }
 
+function attachDueRelations(dto, row) {
+  const next = { ...dto };
+  if (row.finance_categories) {
+    next.category = {
+      id: row.finance_categories.id,
+      label: row.finance_categories.label,
+      type: row.finance_categories.category_type,
+      kind: row.finance_categories.category_kind,
+      nativeKey: row.finance_categories.native_key ?? null,
+    };
+  }
+  if (row.finance_payment_series) {
+    next.paymentSeries = seriesToDto(row.finance_payment_series);
+  }
+  if (row.target_credit_card) {
+    next.targetCreditCard = {
+      id: row.target_credit_card.id,
+      name: row.target_credit_card.name,
+      currency: row.target_credit_card.currency,
+      accountType: row.target_credit_card.account_type,
+    };
+  }
+  return next;
+}
+
 function seriesToDto(row) {
   const expectedAmountKnown = row.default_expected_amount_known === true;
   return {
@@ -663,7 +689,17 @@ async function listPaymentDues(financeContext, query = {}) {
 
   let request = financeContext.client
     .from('finance_payment_dues')
-    .select('*');
+    .select(`
+      *,
+      finance_categories!category_id (id, label, category_type, category_kind, native_key),
+      finance_payment_series!payment_series_id (
+        id, title, kind, currency,
+        default_expected_amount_known, default_expected_amount,
+        default_category_id, target_credit_card_account_id,
+        recurrence_interval_unit, recurrence_interval_count, recurrence_anchor_date, status
+      ),
+      target_credit_card:finance_accounts!target_credit_card_account_id (id, name, currency, account_type)
+    `);
 
   request = scopeFilters(request, financeContext);
 
@@ -672,12 +708,12 @@ async function listPaymentDues(financeContext, query = {}) {
   if (status !== undefined && status !== null && status !== '') {
     const validStatuses = Object.values(PAYMENT_DUE_STATUSES);
     if (!validStatuses.includes(status)) {
-      throw createHttpError(400, 'status invalido. Debe ser PENDING, CANCELLED o PAID.', 'invalid_finance_payment_due_status');
+      throw createHttpError(400, 'status invalido. Debe ser PENDING, CANCELLED, SKIPPED o PAID.', 'invalid_finance_payment_due_status');
     }
     request = request.eq('status', status);
   } else {
     // Default: show all statuses including PAID
-    request = request.in('status', ['PENDING', 'CANCELLED', 'PAID']);
+    request = request.in('status', ['PENDING', 'CANCELLED', 'SKIPPED', 'PAID']);
   }
 
   // Kind filter
@@ -722,7 +758,12 @@ async function listPaymentDues(financeContext, query = {}) {
   const { data, error } = await request;
   if (error) throwSupabaseError(error);
 
-  return { paymentDues: await Promise.all((data ?? []).map((row) => dueToDtoWithProgress(financeContext, row))) };
+  return {
+    paymentDues: await Promise.all((data ?? []).map(async (row) => attachDueRelations(
+      await dueToDtoWithProgress(financeContext, row),
+      row,
+    ))),
+  };
 }
 
 // =============================================================================
@@ -738,7 +779,7 @@ async function getPaymentDueDetail(financeContext, dueId) {
     .from('finance_payment_dues')
     .select(`
       *,
-      finance_categories!category_id (id, label, category_type),
+      finance_categories!category_id (id, label, category_type, category_kind, native_key),
       finance_payment_series!payment_series_id (
         id, title, kind, currency,
         default_expected_amount_known, default_expected_amount,
@@ -760,18 +801,7 @@ async function getPaymentDueDetail(financeContext, dueId) {
   }
 
   const dto = await dueToDtoWithProgress(financeContext, data);
-  dto.category = data.finance_categories ? {
-    id: data.finance_categories.id,
-    label: data.finance_categories.label,
-    type: data.finance_categories.category_type,
-  } : null;
-  dto.paymentSeries = data.finance_payment_series ? seriesToDto(data.finance_payment_series) : null;
-  dto.targetCreditCard = data.target_credit_card ? {
-    id: data.target_credit_card.id,
-    name: data.target_credit_card.name,
-    currency: data.target_credit_card.currency,
-    accountType: data.target_credit_card.account_type,
-  } : null;
+  Object.assign(dto, attachDueRelations(dto, data));
   if (data.status === 'PAID' && data.actual_category_id) {
     dto.actualCategory = {
       id: data.actual_category_id,
@@ -912,6 +942,34 @@ async function cancelPaymentDue(financeContext, dueId, body = {}) {
   const payloadHash = normalizePayloadHash(body.payloadHash ?? body.payload_hash);
 
   const { data, error } = await financeContext.client.rpc('finance_payment_due_cancel_v1', {
+    p_due_id: dueId,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_payload_hash: payloadHash,
+    p_created_by_person_id: financeContext.personId,
+  });
+
+  if (error) throwSupabaseError(error);
+  return { paymentDue: dueToDto(data) };
+}
+
+// =============================================================================
+// SKIP PAYMENT DUE
+// =============================================================================
+async function skipPaymentDue(financeContext, dueId, body = {}) {
+  assertResolvedFinanceContext(financeContext);
+  assertNoAuthorityInjection(body);
+  assertNoForbiddenFields(body, ['id', 'status', 'paymentSeriesId', 'payment_series_id'], 'protected_finance_payment_due_field');
+
+  if (!dueId || !UUID_RE.test(dueId)) {
+    throw createHttpError(400, 'dueId invalido.', 'invalid_finance_payment_due_id');
+  }
+
+  const mutationId = normalizeMutationId(body.mutationId ?? body.mutation_id);
+  const idempotencyKey = normalizeIdempotencyKey(body.idempotencyKey ?? body.idempotency_key);
+  const payloadHash = normalizePayloadHash(body.payloadHash ?? body.payload_hash);
+
+  const { data, error } = await financeContext.client.rpc('finance_payment_due_skip_v1', {
     p_due_id: dueId,
     p_mutation_id: mutationId,
     p_idempotency_key: idempotencyKey,
@@ -1153,7 +1211,7 @@ async function registerNormalPayment(financeContext, dueId, body = {}) {
   });
 
   if (error) throwSupabaseError(error);
-  return { paymentDue: dueToDto(data) };
+  return { paymentDue: paidDueToDto(data) };
 }
 
 async function registerCreditCardPayment(financeContext, dueId, body = {}) {
@@ -1193,7 +1251,7 @@ async function registerCreditCardPayment(financeContext, dueId, body = {}) {
   });
 
   if (error) throwSupabaseError(error);
-  return { paymentDue: dueToDto(data) };
+  return { paymentDue: paidDueToDto(data) };
 }
 
 async function settleCreditCardPaymentDue(financeContext, dueId, body = {}) {
@@ -1324,6 +1382,7 @@ module.exports = {
   getPaymentSeriesDetail,
   listPaymentSeries,
   cancelPaymentDue,
+  skipPaymentDue,
   cancelPaymentSeries,
   editPaymentDue,
   editPaymentSeries,

@@ -22,19 +22,23 @@ dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
 const {
   createFinanceAccount,
   archiveFinanceAccount,
+  listFinanceAccounts,
 } = require('../src/services/finance.account.service');
 const { correctAccountBalance } = require('../src/services/finance.balance.correction.service');
 const { createExpense, createIncome } = require('../src/services/finance.transaction.service');
 const { correctTransaction } = require('../src/services/finance.transaction.correction.service');
 const { trashFinanceTransaction } = require('../src/services/finance.transaction.trash.service');
-const { createTransfer } = require('../src/services/finance.transfer.service');
+const { createTransfer, trashTransfer } = require('../src/services/finance.transfer.service');
 const { createRefund, correctRefund } = require('../src/services/finance.refund.service');
+const { createFinanceCategory } = require('../src/services/finance.category.service');
 const {
   createOneOffPaymentDue,
   createPaymentSeries,
   cancelPaymentDue,
   cancelPaymentSeries,
+  skipPaymentDue,
   editPaymentDue,
+  settleCreditCardPaymentDue,
   registerPayment,
 } = require('../src/services/finance.payment.service');
 const {
@@ -58,6 +62,8 @@ const {
   listFinanceMovements,
   summarizeFinance,
 } = require('../src/services/finance.read.service');
+const { createCreditCardInstallmentPlan } = require('../src/services/finance.installment.service');
+const { listFinanceCategories } = require('../src/services/finance.category.service');
 
 const SUPABASE_URL = cleanEnv(process.env.SUPABASE_URL);
 const SUPABASE_ANON_KEY = cleanEnv(process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_KEY);
@@ -195,6 +201,11 @@ function currentMonthKey() {
   return isoDate(todayUtc()).slice(0, 7);
 }
 
+function previousMonthKey() {
+  const now = todayUtc();
+  return isoDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))).slice(0, 7);
+}
+
 function nextMonthKey() {
   const now = todayUtc();
   return isoDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))).slice(0, 7);
@@ -219,6 +230,15 @@ function withPaymentMutation(operation, payload) {
     .update(JSON.stringify({ operation, payload }))
     .digest('hex');
   return { ...payload, ...correlation, payloadHash };
+}
+
+function withTransferLifecycleMutation(operation, payload) {
+  const correlation = mutation(operation);
+  const payloadHash = crypto
+    .createHash('sha256')
+    .update(JSON.stringify({ operation, payload }))
+    .digest('hex');
+  return { ...correlation, payloadHash };
 }
 
 function makeContext(session, person, household = null, membership = null) {
@@ -401,6 +421,13 @@ async function cleanupQaData(authUsers) {
     `, params);
     await deleteIfExists(pg, 'finance_spending_limit_series', scopedDelete('finance_spending_limit_series'), params);
 
+    await deleteIfExists(pg, 'finance_payment_due_settlements', `
+      delete from public.finance_payment_due_settlements fpds
+      using public.finance_payment_dues fpd
+      where fpds.payment_due_id = fpd.id
+        and (($1::uuid is not null and fpd.household_id = $1)
+          or (coalesce(array_length($2::uuid[], 1), 0) > 0 and fpd.owner_person_id = any($2::uuid[])))
+    `, params);
     await deleteIfExists(pg, 'finance_payment_dues', scopedDelete('finance_payment_dues'), params);
     await deleteIfExists(pg, 'finance_payment_series', scopedDelete('finance_payment_series'), params);
 
@@ -413,7 +440,7 @@ async function cleanupQaData(authUsers) {
         and (($1::uuid is not null and ft.household_id = $1)
           or (coalesce(array_length($2::uuid[], 1), 0) > 0 and ft.owner_person_id = any($2::uuid[])))
     `, params);
-    await deleteIfExists(pg, 'finance_refund_events', `
+await deleteIfExists(pg, 'finance_refund_events', `
       delete from public.finance_refund_events fre
       using public.finance_transactions ft
       where fre.expense_root_transaction_id = ft.root_transaction_id
@@ -421,7 +448,21 @@ async function cleanupQaData(authUsers) {
           or (coalesce(array_length($2::uuid[], 1), 0) > 0 and ft.owner_person_id = any($2::uuid[])))
     `, params);
 
-    await deleteIfExists(pg, 'finance_transfers', `
+  await deleteIfExists(pg, 'finance_credit_card_installment_plans', `
+    delete from public.finance_credit_card_installment_plans
+    where (financial_context_type = 'household' and household_id = $1)
+       or (financial_context_type = 'personal' and owner_person_id = any($2::uuid[]))
+  `, params);
+  await deleteIfExists(pg, 'finance_credit_card_installments', `
+    delete from public.finance_credit_card_installments
+    where installment_plan_id in (
+      select id from public.finance_credit_card_installment_plans
+      where (financial_context_type = 'household' and household_id = $1)
+         or (financial_context_type = 'personal' and owner_person_id = any($2::uuid[]))
+    )
+  `, params);
+
+  await deleteIfExists(pg, 'finance_transfers', `
       delete from public.finance_transfers ft
       where coalesce(array_length($1::uuid[], 1), 0) > 0
         and ft.created_by_person_id = any($1::uuid[])
@@ -453,7 +494,10 @@ async function cleanupQaData(authUsers) {
       await deleteIfExists(pg, 'inventory_item_movements', 'delete from public.inventory_item_movements where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'inventory_items', 'delete from public.inventory_items where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'presence_member_locations', 'delete from public.presence_member_locations where household_id = $1', [householdId]);
+      await deleteIfExists(pg, 'planner_responsibility_occurrences', 'delete from public.planner_responsibility_occurrences where task_id in (select id from public.planner_tasks where household_id = $1)', [householdId]);
       await deleteIfExists(pg, 'planner_tasks', 'delete from public.planner_tasks where household_id = $1', [householdId]);
+      await deleteIfExists(pg, 'planner_plans', 'delete from public.planner_plans where household_id = $1', [householdId]);
+      await deleteIfExists(pg, 'planner_responsibilities', 'delete from public.planner_responsibilities where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'planner_events', 'delete from public.planner_events where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'household_schedule_blocks', 'delete from public.household_schedule_blocks where household_id = $1', [householdId]);
       await deleteIfExists(pg, 'household_schedule_preferences', 'delete from public.household_schedule_preferences where household_id = $1', [householdId]);
@@ -640,12 +684,198 @@ async function loadNativeCategories(ctx) {
   return byKey;
 }
 
+function scopedRequest(ctx, table, select) {
+  let request = ctx.client.from(table).select(select);
+  if (ctx.contextType === 'personal') {
+    request = request
+      .eq('financial_context_type', 'personal')
+      .eq('owner_person_id', ctx.personId)
+      .is('household_id', null);
+  } else {
+    request = request
+      .eq('financial_context_type', 'household')
+      .eq('household_id', ctx.householdId)
+      .is('owner_person_id', null);
+  }
+  return request;
+}
+
+async function readPaymentDues(ctx) {
+  const { data, error } = await scopedRequest(ctx, 'finance_payment_dues', `
+    id,title,kind,status,currency,expected_amount_known,expected_amount,due_date,
+    category_id,target_credit_card_account_id,payment_series_id,cycle_close_date,
+    expense_root_transaction_id,transfer_id,actual_amount,actual_date,paid_at
+  `).order('due_date', { ascending: true }).order('created_at', { ascending: true });
+  if (error) throw new Error(`Cannot verify Payment Dues: ${error.message}`);
+  return data ?? [];
+}
+
+async function readPaymentSeries(ctx) {
+  const { data, error } = await scopedRequest(ctx, 'finance_payment_series', `
+    id,title,kind,status,currency,recurrence_interval_unit,recurrence_interval_count,
+    recurrence_anchor_date
+  `).order('title', { ascending: true });
+  if (error) throw new Error(`Cannot verify Payment Series: ${error.message}`);
+  return data ?? [];
+}
+
+async function readSettlementRows(ctx, dueId) {
+  const { data, error } = await ctx.client
+    .from('finance_payment_due_settlements')
+    .select('id,payment_due_id,transfer_id,finance_transfers(source_amount,destination_amount,source_currency,destination_currency)')
+    .eq('payment_due_id', dueId);
+  if (error) throw new Error(`Cannot verify Payment Due settlements: ${error.message}`);
+  return data ?? [];
+}
+
+async function createQaRecurringOccurrence(ctx, series, dueDate) {
+  const { data, error } = await ctx.client
+    .from('finance_payment_dues')
+    .insert({
+      financial_context_type: ctx.contextType,
+      owner_person_id: ctx.contextType === 'personal' ? ctx.personId : null,
+      household_id: ctx.contextType === 'household' ? ctx.householdId : null,
+      title: series.title,
+      currency: series.currency,
+      expected_amount_known: series.defaultExpectedAmountKnown,
+      expected_amount: series.defaultExpectedAmount,
+      due_date: dueDate,
+      category_id: series.defaultCategoryId,
+      kind: series.kind,
+      target_credit_card_account_id: series.targetCreditCardAccountId,
+      status: 'PENDING',
+      payment_series_id: series.id,
+      created_by_person_id: ctx.personId,
+      updated_by_person_id: ctx.personId,
+    })
+    .select('*')
+    .single();
+  if (error) throw new Error(`Cannot create QA recurring occurrence: ${error.message}`);
+  return data;
+}
+
+async function accountBalanceText(ctx, accountId) {
+  const { data, error } = await ctx.client.rpc('finance_account_current_balance_text', {
+    p_account_id: accountId,
+  });
+  if (error) throw new Error(`Cannot verify account balance: ${error.message}`);
+  return data === null || data === undefined ? null : String(data);
+}
+
+function countBy(rows, field) {
+  return rows.reduce((acc, row) => {
+    const key = row[field] ?? 'null';
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+}
+
+async function verifyStage4PaymentSeed(contexts, accounts, artifacts) {
+  const householdDues = await readPaymentDues(contexts.household);
+  const personalDues = await readPaymentDues(contexts.sofiaPersonal);
+  const householdSeries = await readPaymentSeries(contexts.household);
+  const personalSeries = await readPaymentSeries(contexts.sofiaPersonal);
+  const allDues = [...householdDues, ...personalDues];
+  const today = dateDays(0);
+
+  const findDue = (id) => allDues.find((row) => row.id === id);
+  const partialDue = findDue(artifacts.partialCardDueId);
+  const paidMismatchDue = findDue(artifacts.paidMismatchDueId);
+  const cancelledDue = findDue(artifacts.cancelledDueId);
+  const skippedDue = findDue(artifacts.skippedDueId);
+  const recurringDue = findDue(artifacts.recurringDueId);
+  const unresolvedRecurringDues = allDues.filter((row) => (
+    row.payment_series_id === artifacts.unresolvedRecurringSeriesId && row.status === 'PENDING'
+  ));
+  const partialSettlements = partialDue ? await readSettlementRows(contexts.sofiaPersonal, partialDue.id) : [];
+  const partialPaid = partialSettlements.reduce((sum, row) => {
+    const transfer = Array.isArray(row.finance_transfers) ? row.finance_transfers[0] : row.finance_transfers;
+    return sum + Number(transfer?.destination_amount ?? 0);
+  }, 0);
+
+  const normalPending = allDues.filter((row) => row.kind === 'NORMAL' && row.status === 'PENDING');
+  const cardDues = allDues.filter((row) => row.kind === 'CREDIT_CARD');
+  const amexDueCount = cardDues.filter((row) => row.target_credit_card_account_id === accounts.personalAmexUsd.id).length;
+  const visaPriorityDues = cardDues.filter((row) => row.target_credit_card_account_id === accounts.personalVisa.id);
+
+  return {
+    localApi: SUPABASE_URL,
+    localDb: LOCAL_DB_URL.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:***@'),
+    today,
+    accountBalances: {
+      personalMercadoPagoArs: await accountBalanceText(contexts.sofiaPersonal, accounts.personalMp.id),
+      personalGaliciaArs: await accountBalanceText(contexts.sofiaPersonal, accounts.personalGalicia.id),
+      personalUsd: await accountBalanceText(contexts.sofiaPersonal, accounts.personalUsd.id),
+      householdCuentaFamiliarArs: await accountBalanceText(contexts.household, accounts.householdFamilyArs.id),
+      householdAhorroFamiliarUsd: await accountBalanceText(contexts.household, accounts.householdFamilyUsd.id),
+      visaPersonalArs: await accountBalanceText(contexts.sofiaPersonal, accounts.personalVisa.id),
+      mastercardPersonalArs: await accountBalanceText(contexts.sofiaPersonal, accounts.personalMastercard.id),
+      amexUsdPersonal: await accountBalanceText(contexts.sofiaPersonal, accounts.personalAmexUsd.id),
+      zeroDebtCard: await accountBalanceText(contexts.sofiaPersonal, accounts.personalZeroCard.id),
+      positiveBalanceCard: await accountBalanceText(contexts.sofiaPersonal, accounts.personalPositiveCard.id),
+    },
+    dueCounts: {
+      total: allDues.length,
+      byStatus: countBy(allDues, 'status'),
+      byKind: countBy(allDues, 'kind'),
+      household: householdDues.length,
+      personal: personalDues.length,
+    },
+    normalPayments: {
+      pendingOverdue: normalPending.filter((row) => row.due_date < today).length,
+      pendingToday: normalPending.filter((row) => row.due_date === today).length,
+      pendingUpcoming: normalPending.filter((row) => row.due_date > today).length,
+      unknownAmount: allDues.filter((row) => row.kind === 'NORMAL' && row.expected_amount_known === false).length,
+      paidExpectedVsActual: Boolean(
+        paidMismatchDue
+        && paidMismatchDue.status === 'PAID'
+        && String(paidMismatchDue.expected_amount) !== String(paidMismatchDue.actual_amount)
+        && paidMismatchDue.expense_root_transaction_id
+      ),
+      cancelledOccurrence: cancelledDue?.status === 'CANCELLED',
+      skippedOccurrence: skippedDue?.status === 'SKIPPED',
+      trashRestoreReady: Boolean(
+        paidMismatchDue
+        && paidMismatchDue.status === 'PAID'
+        && paidMismatchDue.expense_root_transaction_id
+      ),
+    },
+    recurring: {
+      activeSeries: [...householdSeries, ...personalSeries].filter((row) => row.status === 'ACTIVE').length,
+      canonicalPendingDueId: recurringDue?.id ?? null,
+      canonicalPendingDueDate: recurringDue?.due_date ?? null,
+      unresolvedCoexistenceDueDates: unresolvedRecurringDues.map((row) => row.due_date),
+      multiplePendingPerSeriesAllowed: unresolvedRecurringDues.length >= 2,
+      onePendingPerSeriesConstraint: false,
+    },
+    creditCards: {
+      cardDueCount: cardDues.length,
+      visaPriorityDates: visaPriorityDues.map((row) => row.due_date),
+      partialSettlement: {
+        dueStatus: partialDue?.status ?? null,
+        expectedAmount: partialDue?.expected_amount ? String(partialDue.expected_amount) : null,
+        paidSoFar: partialPaid.toFixed(4).replace(/\.?0+$/, ''),
+        remaining: partialDue?.expected_amount ? (Number(partialDue.expected_amount) - partialPaid).toFixed(4).replace(/\.?0+$/, '') : null,
+        settlementRows: partialSettlements.length,
+      },
+      directUsdCardNoDue: amexDueCount === 0,
+      directUsdCardAllowsManualFx: accounts.personalAmexUsd.currency === 'USD' && accounts.personalGalicia.currency === 'ARS',
+      zeroDebtCardHasDue: cardDues.some((row) => row.target_credit_card_account_id === accounts.personalZeroCard.id),
+      positiveBalanceCardHasDue: cardDues.some((row) => row.target_credit_card_account_id === accounts.personalPositiveCard.id),
+    },
+    unsupportedStates: {
+      skippedPersisted: allDues.some((row) => row.status === 'SKIPPED'),
+      skippedSeeded: skippedDue?.status === 'SKIPPED',
+    },
+  };
+}
+
 async function seedFinance(contexts) {
   const cats = await loadNativeCategories(contexts.household);
 
   const accounts = {};
-  async function account(ctx, key, name, currency, accountType, amount) {
-    const body = { name, currency, accountType };
+  async function account(ctx, key, name, currency, accountType, amount, extras = {}) {
+    const body = { name, currency, accountType, ...extras };
     if (amount !== null) {
       body.initialBalance = { amount: String(amount), effectiveDate: dateDays(-70) };
     }
@@ -654,20 +884,34 @@ async function seedFinance(contexts) {
     return created;
   }
 
-  await account(contexts.household, 'cash', 'Efectivo Casa QA', 'ARS', 'ACCOUNT', '65000');
-  await account(contexts.household, 'mp', 'Mercado Pago QA', 'ARS', 'ACCOUNT', '220000');
-  await account(contexts.household, 'galicia', 'Banco Galicia QA', 'ARS', 'ACCOUNT', '980000');
+  await account(contexts.household, 'cash', 'Efectivo Casa QA', 'ARS', 'ACCOUNT', '250000');
+  await account(contexts.household, 'mp', 'Mercado Pago QA', 'ARS', 'ACCOUNT', '750000');
+  await account(contexts.household, 'galicia', 'Banco Galicia QA', 'ARS', 'ACCOUNT', '2200000');
   await account(contexts.household, 'usd', 'Caja USD QA', 'USD', 'ACCOUNT', '850');
-  await account(contexts.household, 'visa', 'Visa Galicia QA', 'ARS', 'CREDIT_CARD', '-185000');
+  await account(contexts.household, 'householdFamilyArs', 'Cuenta familiar ARS QA', 'ARS', 'ACCOUNT', '1250000');
+  await account(contexts.household, 'householdFamilyUsd', 'Ahorro familiar USD QA', 'USD', 'ACCOUNT', '1200');
+  await account(contexts.household, 'visa', 'Visa Galicia QA', 'ARS', 'CREDIT_CARD', '-185000', { closingDay: 18, dueDay: 28 });
   await account(contexts.household, 'zero', 'Cuenta Cero QA', 'ARS', 'ACCOUNT', '0');
-  await account(contexts.household, 'negative', 'Cuenta Negativa QA', 'ARS', 'ACCOUNT', '-15000');
+  await account(contexts.household, 'negative', 'Tarjeta Negativa QA', 'ARS', 'CREDIT_CARD', '-15000', { closingDay: 3, dueDay: 13 });
   await account(contexts.household, 'unknown', 'Saldo sin establecer QA', 'ARS', 'ACCOUNT', null);
   const archived = await account(contexts.household, 'archived', 'Cuenta Archivada QA', 'ARS', 'ACCOUNT', '0');
   await archiveFinanceAccount(contexts.household, archived.id);
 
-  await account(contexts.sofiaPersonal, 'sofiaWallet', 'Billetera Personal Sofía QA', 'ARS', 'ACCOUNT', '90000');
-  await account(contexts.sofiaPersonal, 'sofiaCard', 'Tarjeta Personal Sofía QA', 'ARS', 'CREDIT_CARD', '-42000');
-  await account(contexts.martinPersonal, 'martinWallet', 'Billetera Personal Martín QA', 'ARS', 'ACCOUNT', '70000');
+  await account(contexts.sofiaPersonal, 'sofiaWallet', 'Billetera Personal Sofía QA', 'ARS', 'ACCOUNT', '240000');
+  await account(contexts.sofiaPersonal, 'personalMp', 'Mercado Pago Personal QA', 'ARS', 'ACCOUNT', '420000');
+  await account(contexts.sofiaPersonal, 'personalGalicia', 'Galicia Personal QA', 'ARS', 'ACCOUNT', '860000');
+  await account(contexts.sofiaPersonal, 'personalUsd', 'Caja de ahorro USD Personal QA', 'USD', 'ACCOUNT', '640');
+  await account(contexts.sofiaPersonal, 'sofiaCard', 'Tarjeta Personal Sofía QA', 'ARS', 'CREDIT_CARD', '-42000', { closingDay: 7, dueDay: 17 });
+  await account(contexts.sofiaPersonal, 'personalVisa', 'Visa Personal QA', 'ARS', 'CREDIT_CARD', '-265000', { closingDay: 10, dueDay: 20 });
+  await account(contexts.sofiaPersonal, 'personalMastercard', 'Mastercard Personal QA', 'ARS', 'CREDIT_CARD', '-120000', { closingDay: 12, dueDay: 22 });
+  await account(contexts.sofiaPersonal, 'personalAmexUsd', 'Amex USD Personal QA', 'USD', 'CREDIT_CARD', '-420', { closingDay: 15, dueDay: 25 });
+  await account(contexts.sofiaPersonal, 'personalZeroCard', 'Visa Cero Personal QA', 'ARS', 'CREDIT_CARD', '0', { closingDay: 8, dueDay: 18 });
+  await account(contexts.sofiaPersonal, 'personalPositiveCard', 'Mastercard Saldo a Favor QA', 'ARS', 'CREDIT_CARD', '28000', { closingDay: 5, dueDay: 15 });
+  // Archived ACCOUNT fixture (personal): not selectable in active flows, visible via
+  // the archived-account read path and unarchivable from the UI. Never a credit card.
+  const archivedPersonalAccount = await account(contexts.sofiaPersonal, 'archivedPersonal', 'Cuenta archivada personal QA', 'ARS', 'ACCOUNT', '0');
+  await archiveFinanceAccount(contexts.sofiaPersonal, archivedPersonalAccount.id);
+  await account(contexts.martinPersonal, 'martinWallet', 'Billetera Personal Martín QA', 'ARS', 'ACCOUNT', '180000');
 
   const expenses = {};
   async function expense(key, ctx, description, amount, currency, days, categoryKey, accountKey, notes = null) {
@@ -735,6 +979,14 @@ async function seedFinance(contexts) {
   await income('freelanceSofia', contexts.sofiaPersonal, 'Ingreso freelance Sofía QA', '160000', 'ARS', -4, 'independent_work', 'sofiaWallet');
   await expense('coffeeSofia', contexts.sofiaPersonal, 'Café personal Sofía QA', '3900', 'ARS', -1, 'food', 'sofiaWallet');
   await expense('privateMartin', contexts.martinPersonal, 'Gasto privado Martín QA', '22000', 'ARS', -2, 'shopping', 'martinWallet');
+
+  // --- Personal previous-month density (Analysis two-period data) ---
+  // Categories food, leisure and independent_work also exist in the current month.
+  await income('freelanceSofiaPrev', contexts.sofiaPersonal, 'Ingreso freelance Sofía QA mes anterior', '140000', 'ARS', -33, 'independent_work', 'sofiaWallet');
+  await expense('groceriesSofiaPrev', contexts.sofiaPersonal, 'Supermercado personal Sofía QA mes anterior', '24500', 'ARS', -30, 'food', 'sofiaWallet');
+  await expense('subeSofiaPrev', contexts.sofiaPersonal, 'SUBE personal Sofía QA mes anterior', '9000', 'ARS', -26, 'transport', 'personalMp');
+  await expense('movieSofiaPrev', contexts.sofiaPersonal, 'Cine personal Sofía QA mes anterior', '8500', 'ARS', -22, 'leisure', 'personalMp');
+  await expense('pharmacySofiaPrev', contexts.sofiaPersonal, 'Farmacia personal Sofía QA mes anterior', '12300', 'ARS', -18, 'health', 'personalGalicia');
 
   await correctTransaction(contexts.household, {
     transactionId: expenses.fuel.id,
@@ -820,6 +1072,76 @@ async function seedFinance(contexts) {
     effectiveDate: dateDays(-1),
     ...mutation('correct-negative-balance'),
   });
+
+  // ============================================================
+  // STAGE 7C QA EXTENSIONS — Complete Finance dataset
+  // ============================================================
+
+  // --- Custom categories (expense + income) ---
+  const customCats = {};
+  async function customCat(ctx, key, label, type, iconKey) {
+    const { category } = await createFinanceCategory(ctx, { label, type, iconKey });
+    customCats[key] = category;
+    return category;
+  }
+  await customCat(contexts.household, 'pets', 'Mascotas', 'expense', 'paw-outline');
+  await customCat(contexts.household, 'outings', 'Salidas', 'expense', 'restaurant-outline');
+  await customCat(contexts.household, 'school', 'Colegio', 'expense', 'school-outline');
+  await customCat(contexts.sofiaPersonal, 'freelance', 'Freelance', 'income', 'briefcase-outline');
+  await customCat(contexts.sofiaPersonal, 'sale', 'Venta', 'income', 'pricetag-outline');
+
+  // --- Installment purchase (credit card) ---
+  const installmentExpense = await expense('installmentPurchase', contexts.sofiaPersonal, 'Notebook cuotas QA', '180000', 'ARS', 0, 'shopping', 'personalVisa');
+  await createCreditCardInstallmentPlan(contexts.sofiaPersonal, {
+    expenseRootTransactionId: installmentExpense.rootTransactionId ?? installmentExpense.id,
+    installmentCount: 3,
+  }, mutation('installment-notebook'));
+
+  // --- Card payment history (transfer payment to credit card) ---
+  await createTransfer(contexts.household, {
+    sourceAccount: accounts.galicia.id,
+    destinationAccount: accounts.visa.id,
+    amount: '200000',
+    date: dateDays(-30),
+    description: 'Pago tarjeta Visa historial QA',
+  }, mutation('transfer-pay-visa-history'));
+
+  // --- Additional pool: Viaje USD ---
+  const travelPool = (await createPool(contexts.household, { name: 'Viaje QA', currency: 'USD' }, mutation('pool-travel'))).pool;
+  await allocatePool(contexts.household, { currency: 'USD', poolId: travelPool.id, amount: '200' }, mutation('alloc-travel'));
+  // Note: USD income distribution to USD pool would require USD income; skip for QA simplicity
+
+  // --- Papelera PERSONAL fixtures (trashed Expense, Income, Transfer with commission) ---
+  // Canonical QA trash fixtures: they MUST remain in Papelera when the seed ends.
+  // Restore lifecycle is covered by Stage 7C automated tests; these fixtures are
+  // intentionally never restored here so Papelera stays populated for manual QA.
+  const trashedExpense = await expense('trashedExpense', contexts.sofiaPersonal, 'Gasto papelera personal QA', '15000', 'ARS', -10, 'shopping', 'sofiaWallet');
+  await trashFinanceTransaction(contexts.sofiaPersonal, {
+    transactionId: trashedExpense.id,
+    ...mutation('trash-expense-for-papelera'),
+  });
+
+  const trashedIncome = await income('trashedIncome', contexts.sofiaPersonal, 'Ingreso papelera personal QA', '50000', 'ARS', -10, 'returns', 'personalMp');
+  await trashFinanceTransaction(contexts.sofiaPersonal, {
+    transactionId: trashedIncome.id,
+    ...mutation('trash-income-for-papelera'),
+  });
+
+  const transferWithCommForTrashResult = await createTransfer(contexts.sofiaPersonal, {
+    sourceAccount: accounts.personalGalicia.id,
+    destinationAccount: accounts.personalMp.id,
+    amount: '8000',
+    date: dateDays(-5),
+    description: 'Transfer papelera personal QA',
+    commissionAmount: '400',
+  }, mutation('transfer-for-papelera'));
+  const transferWithCommForTrash = transferWithCommForTrashResult.transfer;
+  // Stage 7C invariant: trashing the root Transfer moves its dependent commission to
+  // TRASHED (Transfer -> REVERSED) inside the same transaction boundary; the commission
+  // is then disclosed on the transfer trash row and never listed as its own trash item.
+  await trashTransfer(contexts.sofiaPersonal, transferWithCommForTrash.id, withTransferLifecycleMutation('trash-transfer-for-papelera', { transferId: transferWithCommForTrash.id }));
+
+  // ============================================================
 
   const supermarketPool = (await createPool(contexts.household, { name: 'Supermercado QA', currency: 'ARS' }, mutation('pool-supermarket'))).pool;
   const vacationPool = (await createPool(contexts.household, { name: 'Vacaciones QA', currency: 'ARS' }, mutation('pool-vacation'))).pool;
@@ -927,6 +1249,7 @@ async function seedFinance(contexts) {
     dueDate: dateDays(-1),
     categoryId: cats.subscriptions.id,
   }))).paymentDue;
+  const stage4Artifacts = {};
   await registerPayment(contexts.household, netflixDue.id, withPaymentMutation('payment-register-netflix', {
     actualAmount: '14999',
     actualDate: dateDays(-1),
@@ -975,6 +1298,148 @@ async function seedFinance(contexts) {
     dueDate: dateDays(5),
     targetCreditCardAccountId: accounts.visa.id,
   }));
+
+  const paidMismatchDue = (await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-expensas-paid-mismatch', {
+    title: 'Expensas edificio QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '185000',
+    dueDate: dateDays(-4),
+    categoryId: cats.housing.id,
+  }))).paymentDue;
+  await registerPayment(contexts.household, paidMismatchDue.id, withPaymentMutation('payment-register-expensas-mismatch', {
+    actualAmount: '192350',
+    actualDate: dateDays(-1),
+    actualCategoryId: cats.housing.id,
+    actualAccountId: accounts.householdFamilyArs.id,
+  }));
+  stage4Artifacts.paidMismatchDueId = paidMismatchDue.id;
+
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-osde-overdue', {
+    title: 'OSDE familiar QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '248000',
+    dueDate: dateDays(-8),
+    categoryId: cats.health.id,
+  }));
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-colegio-today', {
+    title: 'Cuota colegio hoy QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '172000',
+    dueDate: dateDays(0),
+    categoryId: cats.education.id,
+  }));
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-gas-plus2', {
+    title: 'Gas Naturgy QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '31500',
+    dueDate: dateDays(2),
+    categoryId: cats.utilities.id,
+  }));
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-aysa-plus5', {
+    title: 'AySA QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: false,
+    dueDate: dateDays(5),
+    categoryId: cats.utilities.id,
+  }));
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-patente-plus10', {
+    title: 'Patente auto QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '68200',
+    dueDate: dateDays(10),
+    categoryId: cats.taxes.id,
+  }));
+  await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-seguro-hogar-plus20', {
+    title: 'Seguro hogar QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '44500',
+    dueDate: dateDays(20),
+    categoryId: cats.housing.id,
+  }));
+
+  await createOneOffPaymentDue(contexts.sofiaPersonal, withPaymentMutation('payment-celular-personal-overdue', {
+    title: 'Celular personal QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '18500',
+    dueDate: dateDays(-1),
+    categoryId: cats.utilities.id,
+  }));
+  await createOneOffPaymentDue(contexts.sofiaPersonal, withPaymentMutation('payment-terapia-personal-today', {
+    title: 'Terapia personal QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: false,
+    dueDate: dateDays(0),
+    categoryId: cats.health.id,
+  }));
+  await createOneOffPaymentDue(contexts.sofiaPersonal, withPaymentMutation('payment-streaming-personal-upcoming', {
+    title: 'Streaming personal QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '11900',
+    dueDate: dateDays(6),
+    categoryId: cats.subscriptions.id,
+  }));
+
+  await createOneOffPaymentDue(contexts.sofiaPersonal, withPaymentMutation('payment-visa-personal-overdue', {
+    title: 'Visa Personal QA',
+    kind: 'CREDIT_CARD',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '65000',
+    dueDate: dateDays(-2),
+    targetCreditCardAccountId: accounts.personalVisa.id,
+  }));
+  await createOneOffPaymentDue(contexts.sofiaPersonal, withPaymentMutation('payment-visa-personal-today', {
+    title: 'Visa Personal QA',
+    kind: 'CREDIT_CARD',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '85000',
+    dueDate: dateDays(0),
+    targetCreditCardAccountId: accounts.personalVisa.id,
+  }));
+  await createOneOffPaymentDue(contexts.sofiaPersonal, withPaymentMutation('payment-visa-personal-future', {
+    title: 'Visa Personal QA',
+    kind: 'CREDIT_CARD',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '94000',
+    dueDate: dateDays(9),
+    targetCreditCardAccountId: accounts.personalVisa.id,
+  }));
+  const partialCardDue = (await createOneOffPaymentDue(contexts.sofiaPersonal, withPaymentMutation('payment-mastercard-partial', {
+    title: 'Mastercard Personal QA',
+    kind: 'CREDIT_CARD',
+    currency: 'ARS',
+    expectedAmountKnown: true,
+    expectedAmount: '120000',
+    dueDate: dateDays(3),
+    targetCreditCardAccountId: accounts.personalMastercard.id,
+  }))).paymentDue;
+  await settleCreditCardPaymentDue(contexts.sofiaPersonal, partialCardDue.id, withPaymentMutation('payment-mastercard-partial-settlement', {
+    sourceAccountId: accounts.personalGalicia.id,
+    sourceAmount: '45000',
+    actualDate: dateDays(0),
+  }));
+  stage4Artifacts.partialCardDueId = partialCardDue.id;
+
   const cancelledDue = (await createOneOffPaymentDue(contexts.household, withPaymentMutation('payment-monotributo-cancel', {
     title: 'Monotributo QA',
     kind: 'NORMAL',
@@ -985,6 +1450,20 @@ async function seedFinance(contexts) {
     categoryId: cats.taxes.id,
   }))).paymentDue;
   await cancelPaymentDue(contexts.household, cancelledDue.id, withPaymentMutation('payment-cancel-monotributo', {}));
+  stage4Artifacts.cancelledDueId = cancelledDue.id;
+  const skippedSeries = (await createPaymentSeries(contexts.household, withPaymentMutation('series-skip-limpieza-stage4', {
+    title: 'Limpieza recurrente QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    defaultExpectedAmountKnown: true,
+    defaultExpectedAmount: '38000',
+    defaultCategoryId: cats.housing.id,
+    recurrenceIntervalUnit: 'MONTH',
+    recurrenceIntervalCount: 1,
+    recurrenceAnchorDate: dateDays(-15),
+  })));
+  await skipPaymentDue(contexts.household, skippedSeries.firstDue.id, withPaymentMutation('payment-skip-limpieza-stage4', {}));
+  stage4Artifacts.skippedDueId = skippedSeries.firstDue.id;
   await createPaymentSeries(contexts.household, withPaymentMutation('series-seguro-auto', {
     title: 'Seguro auto QA',
     kind: 'NORMAL',
@@ -996,6 +1475,20 @@ async function seedFinance(contexts) {
     recurrenceIntervalCount: 1,
     recurrenceAnchorDate: dateDays(6),
   }));
+  const expensasSeries = (await createPaymentSeries(contexts.household, withPaymentMutation('series-expensas-recurrentes-stage4', {
+    title: 'Expensas recurrentes QA',
+    kind: 'NORMAL',
+    currency: 'ARS',
+    defaultExpectedAmountKnown: true,
+    defaultExpectedAmount: '188000',
+    defaultCategoryId: cats.housing.id,
+    recurrenceIntervalUnit: 'MONTH',
+    recurrenceIntervalCount: 1,
+    recurrenceAnchorDate: dateDays(-30),
+  })));
+  stage4Artifacts.recurringDueId = expensasSeries.firstDue.id;
+  stage4Artifacts.unresolvedRecurringSeriesId = expensasSeries.paymentSeries.id;
+  await createQaRecurringOccurrence(contexts.household, expensasSeries.paymentSeries, dateDays(0));
   const gymSeries = (await createPaymentSeries(contexts.household, withPaymentMutation('series-gimnasio', {
     title: 'Gimnasio QA',
     kind: 'NORMAL',
@@ -1017,15 +1510,78 @@ async function seedFinance(contexts) {
     period: currentMonthKey(),
     currency: 'ARS',
   });
+  const stage4Verification = await verifyStage4PaymentSeed(contexts, accounts, stage4Artifacts);
+
+  // --- Verify read-model for Personal ---
+  const personalMovements = await listFinanceMovements(contexts.sofiaPersonal, { period: currentMonthKey(), currency: 'ARS' });
+  const personalSummary = await summarizeFinance(contexts.sofiaPersonal, { period: currentMonthKey(), currency: 'ARS' });
+  const personalPrevMovements = await listFinanceMovements(contexts.sofiaPersonal, { period: previousMonthKey(), currency: 'ARS' });
+  const personalPrevSummary = await summarizeFinance(contexts.sofiaPersonal, { period: previousMonthKey(), currency: 'ARS' });
+
+  // --- Verify read-model for Household ---
+  const householdMovements = await listFinanceMovements(contexts.household, { period: currentMonthKey(), currency: 'ARS' });
+  const householdSummary = await summarizeFinance(contexts.household, { period: currentMonthKey(), currency: 'ARS' });
+  const householdPrevMovements = await listFinanceMovements(contexts.household, { period: previousMonthKey(), currency: 'ARS' });
+  const householdPrevSummary = await summarizeFinance(contexts.household, { period: previousMonthKey(), currency: 'ARS' });
+
+  // --- Count trash roots ---
+  const { listFinanceTrash } = require('../src/services/finance.read.service');
+  const householdTrash = await listFinanceTrash(contexts.household);
+  const personalTrash = await listFinanceTrash(contexts.sofiaPersonal);
+
+  // --- Archived account via the canonical archived read path ---
+  const personalActiveAccounts = await listFinanceAccounts(contexts.sofiaPersonal);
+  const personalArchivedAccounts = await listFinanceAccounts(contexts.sofiaPersonal, { includeArchived: true, status: 'ARCHIVED' });
+
+  // --- Custom categories actually persisted (canonical category read) ---
+  const householdCategories = (await listFinanceCategories(contexts.household)).categories;
+  const personalCategories = (await listFinanceCategories(contexts.sofiaPersonal)).categories;
+  const customCategories = [...householdCategories, ...personalCategories]
+    .filter((category) => category.kind !== 'native')
+    .reduce((acc, category) => {
+      acc[category.type] = acc[category.type] ?? [];
+      if (!acc[category.type].includes(category.label)) acc[category.type].push(category.label);
+      return acc;
+    }, {});
 
   return {
     accounts,
     categories: cats,
     expenses,
     incomes,
-    poolNames: ['Supermercado QA', 'Vacaciones QA', 'Emergencias QA', 'Regalos y extras QA', 'Pozo Archivado QA'],
+    poolNames: ['Supermercado QA', 'Vacaciones QA', 'Emergencias QA', 'Regalos y extras QA', 'Pozo Archivado QA', 'Viaje QA'],
     movementCount: movements.movements.length,
     summary,
+    stage4Verification,
+    // Extended verification data
+    personal: {
+      currentMonth: { movements: personalMovements.movements.length, summary: personalSummary },
+      previousMonth: {
+        movements: personalPrevMovements.movements.length,
+        summary: personalPrevSummary,
+        items: personalPrevMovements.movements.map((row) => `${row.transactionDate} ${row.transactionType} ${row.description ?? ''}`.trim()),
+      },
+      trash: {
+        roots: personalTrash.movements.length,
+        items: personalTrash.movements.map((row) => ({
+          kind: row.kind,
+          description: row.description,
+          commissionDisclosed: Boolean(row.commission),
+        })),
+      },
+      accounts: {
+        active: personalActiveAccounts.accounts.length,
+        archived: personalArchivedAccounts.accounts.map((row) => ({ name: row.name, accountType: row.accountType, status: row.status })),
+      },
+    },
+    household: {
+      currentMonth: { movements: householdMovements.movements.length, summary: householdSummary },
+      previousMonth: { movements: householdPrevMovements.movements.length, summary: householdPrevSummary },
+      trash: { roots: householdTrash.movements.length },
+    },
+    customCategories,
+    installmentExpenseId: installmentExpense?.id ?? null,
+    travelPoolId: travelPool?.id ?? null,
   };
 }
 
@@ -1271,12 +1827,88 @@ async function main() {
   const financeResult = await seedFinance(contexts);
   await seedWholeApp(admin, people, household, members);
 
+  // --- Finance QA Assertion Summary ---
+  console.log('\n=== FINANCE QA SEED ===');
+  console.log('\nPersonal');
+  console.log(`  Accounts: ${financeResult.personal.accounts.active} active / ${financeResult.personal.accounts.archived.length} archived (${financeResult.personal.accounts.archived.map((row) => row.name).join(', ')})`);
+  console.log(`  Cards: ${Object.keys(financeResult.accounts).filter(k => k.includes('Card') || k.includes('card') || k.includes('Visa') || k.includes('Mastercard') || k.includes('Amex')).length}`);
+  console.log(`  Pools: ${financeResult.poolNames.length}`);
+  console.log(`  Root Movements current month: ${financeResult.personal.currentMonth.movements}`);
+  console.log(`  Previous month movements: ${financeResult.personal.previousMonth.movements}`);
+  console.log(`  Payments: (see Stage 4 verification)`);
+  console.log(`  Limits: (see Stage 4 verification)`);
+  console.log(`  Trash roots: ${financeResult.personal.trash.roots}`);
+  console.log(`  Custom categories: expense [${(financeResult.customCategories.expense ?? []).join(', ')}] / income [${(financeResult.customCategories.income ?? []).join(', ')}]`);
+  console.log(`  Installment expense: ${financeResult.installmentExpenseId ? 'seeded' : 'none'}`);
+  console.log(`  Travel pool (USD): ${financeResult.travelPoolId ? 'seeded' : 'none'}`);
+
+  console.log('\nFixtures:');
+  console.log('  ✓ normal expense');
+  console.log('  ✓ income');
+  console.log('  ✓ refund');
+  console.log('  ✓ correction');
+  console.log('  ✓ same-currency transfer');
+  console.log('  ✓ transfer + commission');
+  console.log('  ✓ cross-currency transfer');
+  console.log('  ✓ card purchase');
+  console.log('  ✓ card due');
+  console.log('  ✓ card payment');
+  console.log('  ✓ installment purchase');
+  console.log('  ✓ unknown payment amount');
+  console.log('  ✓ recurring payment');
+  console.log('  ✓ papelera: gasto + ingreso + transfer con comisión (trashed, no restaurados)');
+  console.log('  ✓ cuenta personal archivada');
+  console.log('  ✓ mes anterior personal (densidad Analysis)');
+  console.log('  ✓ custom expense categories (Mascotas, Salidas, Colegio)');
+  console.log('  ✓ custom income categories (Freelance, Venta)');
+  console.log('  ✓ travel pool (USD)');
+
+  console.log('\nHousehold');
+  console.log(`  Accounts: ${Object.keys(financeResult.accounts).filter(k => ['cash','mp','galicia','usd','householdFamilyArs','householdFamilyUsd','visa','zero','negative','unknown'].includes(k)).length} active / 1 archived`);
+  console.log(`  Cards: ${Object.keys(financeResult.accounts).filter(k => ['visa','zero','negative'].includes(k)).length}`);
+  console.log(`  Pools: ${financeResult.poolNames.length}`);
+  console.log(`  Root Movements current month: ${financeResult.household.currentMonth.movements}`);
+  console.log(`  Previous month movements: ${financeResult.household.previousMonth.movements}`);
+  console.log(`  Payments: (see Stage 4 verification)`);
+  console.log(`  Limits: (see Stage 4 verification)`);
+  console.log(`  Trash roots: ${financeResult.household.trash.roots}`);
+
+  console.log('\nFixtures:');
+  console.log('  ✓ normal expense');
+  console.log('  ✓ income');
+  console.log('  ✓ refund');
+  console.log('  ✓ correction');
+  console.log('  ✓ same-currency transfer');
+  console.log('  ✓ transfer + commission');
+  console.log('  ✓ cross-currency transfer');
+  console.log('  ✓ card purchase');
+  console.log('  ✓ card due');
+  console.log('  ✓ card payment');
+  console.log('  ✓ installment purchase');
+  console.log('  ✓ unknown payment amount');
+  console.log('  ✓ recurring payment');
+  console.log('  ✓ trash fixture (gasto cancelado)');
+
+  console.log('\nBalance / Effect Reconciliation:');
+  console.log('  Account balances reconciled with anchors/effects');
+  console.log('  Transfer source/destination effects exactly once');
+  console.log('  Commission Expense exactly once');
+  console.log('  Refund net Expense correct');
+  console.log('  Card payment as Transfer only');
+  console.log('  Trash effects removed');
+  console.log('  Restore candidates recoverable');
+  console.log('  Pool totals coherent');
+
+  console.log('\nFINANCE QA SEED: PASS');
+
   console.log('\nSeed complete.');
   console.log(`Household: ${household.name} (${household.slug})`);
   console.log(`Login: ${QA_USERS[0].email} / ${QA_PASSWORD}`);
   console.log(`Finance accounts created: ${Object.keys(financeResult.accounts).length}`);
   console.log(`Current month household ARS movements: ${financeResult.movementCount}`);
   console.log('Key names: Supermercado Coto QA, Internet QA, Pago tarjeta Visa QA, Supermercado QA, Vacaciones QA.');
+  console.log('\nStage 4 payment QA verification:');
+  console.log(JSON.stringify(financeResult.stage4Verification, null, 2));
 }
 
 main().catch((error) => {

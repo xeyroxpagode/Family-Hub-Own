@@ -78,7 +78,7 @@ if (!['127.0.0.1', 'localhost'].includes(supabaseUrl.hostname)) {
   process.exit(2);
 }
 
-const databaseUrl = process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:55322/postgres';
+const databaseUrl = process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres';
 const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
@@ -525,7 +525,7 @@ async function runUnassignedTests(financeContext) {
 
   // 33. coverage deficit exposed if financial reality falls below Pool position
   // We'll simulate by creating a credit card with debt
-  const cc = await createFinanceAccount(financeContext, { name: 'Tarjeta', currency: 'ARS', accountType: 'CREDIT_CARD', initialBalance: { amount: '-500', effectiveDate: '2024-01-01' } });
+  const cc = await createFinanceAccount(financeContext, { name: 'Tarjeta', currency: 'ARS', accountType: 'CREDIT_CARD', closingDay: 10, dueDay: 20, initialBalance: { amount: '-500', effectiveDate: '2024-01-01' } });
   fixture.accountIds.push(cc.account.id);
   summary = await getPoolSummary(financeContext, { currency: 'ARS' });
   const deficit = Number(summary.knownOrganizable.allocationCoverageDeficit);
@@ -792,7 +792,7 @@ async function runKnownUnknownTests(financeContext) {
   // (verified above)
 
   // 57. UNKNOWN Credit Card debt not fabricated
-  const unknownCC = await createFinanceAccount(financeContext, { name: 'Unknown CC', currency: 'ARS', accountType: 'CREDIT_CARD' });
+  const unknownCC = await createFinanceAccount(financeContext, { name: 'Unknown CC', currency: 'ARS', accountType: 'CREDIT_CARD', closingDay: 10, dueDay: 20 });
   fixture.accountIds.push(unknownCC.account.id);
   summary = await getPoolSummary(financeContext, { currency: 'ARS' });
   assert(summary.knownOrganizable.unknownCreditCardCount >= 1, 'unknownCreditCardCount includes UNKNOWN credit card');
@@ -810,19 +810,88 @@ async function runKnownUnknownTests(financeContext) {
   summary = await getPoolSummary(financeContext, { currency: 'ARS' });
   assert(Number(summary.knownOrganizable.knownAccountBalanceTotal) >= 500, 'known account balance participates');
 
-  // 61. known Credit Card liability reduces knownOrganizableNet
-  const knownCC = await createFinanceAccount(financeContext, { name: 'Known CC', currency: 'ARS', accountType: 'CREDIT_CARD', initialBalance: { amount: '-200', effectiveDate: '2024-01-01' } });
+  // 61. known Credit Card liability is reported separately from knownOrganizableNet
+  const knownCC = await createFinanceAccount(financeContext, { name: 'Known CC', currency: 'ARS', accountType: 'CREDIT_CARD', closingDay: 10, dueDay: 20, initialBalance: { amount: '-200', effectiveDate: '2024-01-01' } });
   fixture.accountIds.push(knownCC.account.id);
   summary = await getPoolSummary(financeContext, { currency: 'ARS' });
-  assert(Number(summary.knownOrganizable.knownCreditCardLiabilityTotal) >= 200, 'credit card liability reduces organizable net');
+  assert(Number(summary.knownOrganizable.knownCreditCardLiabilityTotal) >= 200, 'credit card liability is reported separately');
 
   // 62. Credit Card never contributes positive organizable cash
-  const positiveCC = await createFinanceAccount(financeContext, { name: 'Positive CC', currency: 'ARS', accountType: 'CREDIT_CARD', initialBalance: { amount: '100', effectiveDate: '2024-01-01' } });
+  const positiveCC = await createFinanceAccount(financeContext, { name: 'Positive CC', currency: 'ARS', accountType: 'CREDIT_CARD', closingDay: 10, dueDay: 20, initialBalance: { amount: '100', effectiveDate: '2024-01-01' } });
   fixture.accountIds.push(positiveCC.account.id);
   summary = await getPoolSummary(financeContext, { currency: 'ARS' });
   // Credit card with positive balance should NOT increase knownAccountBalanceTotal
   // (only ACCOUNT type contributes to knownAccountBalanceTotal)
   // This is verified by the formula: knownAccountBalanceTotal only sums ACCOUNT types
+}
+
+async function runKnownOrganizableMoneyTruthTests() {
+  console.log('\n=== KNOWN ORGANIZABLE MONEY TRUTH TESTS ===');
+
+  const noAccountsUser = await createTestUser('moneytruth_no_accounts');
+  const noAccountsContext = await resolveFinanceContext(
+    { user: { id: noAccountsUser.authUserId }, accessToken: noAccountsUser.accessToken },
+    FINANCE_CONTEXT_TYPES.PERSONAL
+  );
+  let summary = await getPoolSummary(noAccountsContext, { currency: 'ARS' });
+  assert(summary.knownOrganizable.knownOrganizableNet !== null && summary.knownOrganizable.knownOrganizableNet !== undefined, 'no accounts: knownOrganizableNet is not null');
+  assertDecimalEqual(Number(summary.knownOrganizable.knownAccountBalanceTotal), 0, 'no accounts: knownAccountBalanceTotal is 0');
+  assertDecimalEqual(Number(summary.knownOrganizable.knownOrganizableNet), 0, 'no accounts: knownOrganizableNet is 0');
+  assertDecimalEqual(Number(summary.knownOrganizable.poolNetPosition), 0, 'no accounts: poolNetPosition is 0');
+  assertDecimalEqual(Number(summary.knownOrganizable.unassignedKnown), 0, 'no accounts: unassignedKnown is 0');
+  assertDecimalEqual(Number(summary.knownOrganizable.allocationCoverageDeficit), 0, 'no accounts: allocationCoverageDeficit is 0');
+
+  const accountAndCardUser = await createTestUser('moneytruth_account_card');
+  const accountAndCardContext = await resolveFinanceContext(
+    { user: { id: accountAndCardUser.authUserId }, accessToken: accountAndCardUser.accessToken },
+    FINANCE_CONTEXT_TYPES.PERSONAL
+  );
+  const account100k = await createFinanceAccount(accountAndCardContext, { name: 'Cuenta 100k', currency: 'ARS', accountType: 'ACCOUNT', initialBalance: { amount: '100000', effectiveDate: '2024-01-01' } });
+  fixture.accountIds.push(account100k.account.id);
+  const card25kDebt = await createFinanceAccount(accountAndCardContext, { name: 'Tarjeta 25k', currency: 'ARS', accountType: 'CREDIT_CARD', closingDay: 10, dueDay: 20, initialBalance: { amount: '-25000', effectiveDate: '2024-01-01' } });
+  fixture.accountIds.push(card25kDebt.account.id);
+  summary = await getPoolSummary(accountAndCardContext, { currency: 'ARS' });
+  assertDecimalEqual(Number(summary.knownOrganizable.knownAccountBalanceTotal), 100000, 'ACCOUNT 100k + CARD debt 25k: knownAccountBalanceTotal is 100000');
+  assertDecimalEqual(Number(summary.knownOrganizable.knownCreditCardLiabilityTotal), 25000, 'ACCOUNT 100k + CARD debt 25k: card liability is separate 25000');
+  assertDecimalEqual(Number(summary.knownOrganizable.knownOrganizableNet), 100000, 'ACCOUNT 100k + CARD debt 25k: knownOrganizableNet remains 100000');
+
+  const zeroAccountAndCardUser = await createTestUser('moneytruth_zero_account_card');
+  const zeroAccountAndCardContext = await resolveFinanceContext(
+    { user: { id: zeroAccountAndCardUser.authUserId }, accessToken: zeroAccountAndCardUser.accessToken },
+    FINANCE_CONTEXT_TYPES.PERSONAL
+  );
+  const accountZero = await createFinanceAccount(zeroAccountAndCardContext, { name: 'Cuenta cero', currency: 'ARS', accountType: 'ACCOUNT', initialBalance: { amount: '0', effectiveDate: '2024-01-01' } });
+  fixture.accountIds.push(accountZero.account.id);
+  const cardDebtOnly = await createFinanceAccount(zeroAccountAndCardContext, { name: 'Tarjeta deuda', currency: 'ARS', accountType: 'CREDIT_CARD', closingDay: 10, dueDay: 20, initialBalance: { amount: '-25000', effectiveDate: '2024-01-01' } });
+  fixture.accountIds.push(cardDebtOnly.account.id);
+  summary = await getPoolSummary(zeroAccountAndCardContext, { currency: 'ARS' });
+  assertDecimalEqual(Number(summary.knownOrganizable.knownAccountBalanceTotal), 0, 'ACCOUNT 0 + CARD debt 25k: knownAccountBalanceTotal is 0');
+  assertDecimalEqual(Number(summary.knownOrganizable.knownCreditCardLiabilityTotal), 25000, 'ACCOUNT 0 + CARD debt 25k: card liability is separate 25000');
+  assertDecimalEqual(Number(summary.knownOrganizable.knownOrganizableNet), 0, 'ACCOUNT 0 + CARD debt 25k: knownOrganizableNet remains 0');
+
+  const unknownAccountUser = await createTestUser('moneytruth_unknown_account');
+  const unknownAccountContext = await resolveFinanceContext(
+    { user: { id: unknownAccountUser.authUserId }, accessToken: unknownAccountUser.accessToken },
+    FINANCE_CONTEXT_TYPES.PERSONAL
+  );
+  const unknownAccount = await createFinanceAccount(unknownAccountContext, { name: 'Cuenta legacy unknown', currency: 'ARS', accountType: 'ACCOUNT' });
+  fixture.accountIds.push(unknownAccount.account.id);
+  summary = await getPoolSummary(unknownAccountContext, { currency: 'ARS' });
+  assert(summary.knownOrganizable.unknownAccountCount >= 1, 'legacy UNKNOWN account remains counted');
+  equal(summary.knownOrganizable.coverageComplete, false, 'legacy UNKNOWN account makes organizable coverage incomplete');
+  assertDecimalEqual(Number(summary.knownOrganizable.knownOrganizableNet), 0, 'legacy UNKNOWN account does not fabricate available money');
+
+  const unknownCardUser = await createTestUser('moneytruth_unknown_card');
+  const unknownCardContext = await resolveFinanceContext(
+    { user: { id: unknownCardUser.authUserId }, accessToken: unknownCardUser.accessToken },
+    FINANCE_CONTEXT_TYPES.PERSONAL
+  );
+  const unknownCard = await createFinanceAccount(unknownCardContext, { name: 'Tarjeta legacy unknown', currency: 'ARS', accountType: 'CREDIT_CARD', closingDay: 10, dueDay: 20 });
+  fixture.accountIds.push(unknownCard.account.id);
+  summary = await getPoolSummary(unknownCardContext, { currency: 'ARS' });
+  assert(summary.knownOrganizable.unknownCreditCardCount >= 1, 'legacy UNKNOWN credit card remains counted separately');
+  equal(summary.knownOrganizable.coverageComplete, true, 'legacy UNKNOWN credit card does not affect organizable coverage');
+  assertDecimalEqual(Number(summary.knownOrganizable.knownOrganizableNet), 0, 'legacy UNKNOWN credit card does not fabricate available money');
 }
 
 async function runAccountRegressionTests() {
@@ -1009,6 +1078,7 @@ async function main() {
     await runIdempotencyTests(financeContext);
     await runConcurrencyTests(financeContext);
     await runKnownUnknownTests(financeContext);
+    await runKnownOrganizableMoneyTruthTests();
     await runAccountRegressionTests();
     await runTransferRegressionTests();
     // Stage 4/5 regressions are owned by their canonical suites. This legacy

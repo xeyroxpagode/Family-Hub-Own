@@ -111,7 +111,7 @@ async function main(): Promise<void> {
   equal(formatDueDateHuman(addDays(0), false), 'Vence hoy', '5F-FE-26 due-today copy');
   equal(formatDueDateHuman(addDays(1), false), 'Vence mañana', '5F-FE-27 due-tomorrow copy');
   equal(formatDueDateHuman(addDays(3), false), 'Vence en 3 días', '5F-FE-28 due-in-3-days copy');
-  equal(formatExpectedAmount(false, null, 'ARS'), 'A confirmar', '5F-FE-29 unknown amount is A confirmar');
+  equal(formatExpectedAmount(false, null, 'ARS'), 'Monto por definir', '5F-FE-29 unknown amount is Monto por definir');
   equal(formatExpectedAmount(true, '25000', 'ARS'), '25.000 ARS', '5F-FE-30 known amount is canonically formatted');
   assert(!registerPayment.includes('{expectedAmountText} {payment.currency}'), '5F-FE-30b register form does not suffix unknown amount with currency');
 
@@ -141,7 +141,7 @@ async function main(): Promise<void> {
 
   const paid = due({ status: 'PAID', actualAmount: '25000', actualDate: addDays(0), expenseRootTransactionId: 'tx-paid' });
   const cancelled = due({ status: 'CANCELLED' });
-  assert(paid.status === 'PAID' && paymentDetail.includes('Detalle del pago registrado'), '5F-FE-35 stale PAID handled safely');
+  assert(paid.status === 'PAID' && paymentDetail.includes('Pago registrado'), '5F-FE-35 stale PAID handled safely');
   assert(cancelled.status === 'CANCELLED' && paymentDetail.includes('Este pago fue cancelado'), '5F-FE-36 stale CANCELLED handled safely');
 
   assert(attentionScreen.includes("item.entityType === 'payment'") && attentionScreen.includes('openFinancePaymentFromAttention'), '5F-FE-31d payment has dedicated Finance route');

@@ -1,17 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { StyleSheet, View, Keyboard } from 'react-native';
+import { View, Keyboard } from 'react-native';
 
 import {
-  AppButton,
-  AppCard,
   AppText,
-  AppInput,
   ActionSheet,
-  InteractivePressable,
 } from '../ui';
-import { colors, motion, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
-import { isZeroDecimalString, isValidFinanceAmount } from '../../services/finance/financeDisplay';
+import { useAppTheme } from '../../context/AppThemeContext';
+import { formatFinanceAmount, isZeroDecimalString } from '../../services/finance/financeDisplay';
 import {
   transferFinancePool,
   type FinancePoolDto,
@@ -19,6 +15,15 @@ import {
 import type { FinanceContextType } from '../../services/finance/financeContext';
 import { hashIdempotencyRequestV2 } from '../../services/finance/idempotency';
 import { generateMutationId } from '../../services/api';
+import { parseMoneyInputText, type MoneyInputParseResult } from '../../services/finance/moneyInputValue';
+import { MoneyInput } from './MoneyInput';
+import {
+  FinanceFormFooter,
+  FinanceGroupedSurface,
+  FinanceListRow,
+  FINANCE_SHEET_SIZE_POLICY,
+  financeSpacing,
+} from './ui';
 
 type TransferBetweenPoolsSheetProps = {
   visible: boolean;
@@ -43,9 +48,11 @@ export function TransferBetweenPoolsSheet({
   onRequestClose,
   onSuccess,
 }: TransferBetweenPoolsSheetProps) {
+  const { colors } = useAppTheme();
   const [sourcePoolId, setSourcePoolId] = useState<string>(preselectedSourceId ?? '');
   const [destinationPoolId, setDestinationPoolId] = useState<string>('');
-  const [amount, setAmount] = useState('');
+  const [amountText, setAmountText] = useState('');
+  const [amount, setAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', currency));
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -59,16 +66,23 @@ export function TransferBetweenPoolsSheet({
         setSourcePoolId(activePools[0].id);
       }
       setDestinationPoolId('');
-      setAmount('');
+      setAmountText('');
+      setAmount(parseMoneyInputText('', currency));
       setError(null);
       setSubmitting(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, preselectedSourceId, activePools]);
 
   const sourcePool = activePools.find((p) => p.id === sourcePoolId);
 
   const sourceBalance = sourcePool?.balance ?? '0';
-  const canSubmit = sourcePoolId && destinationPoolId && sourcePoolId !== destinationPoolId && amount.trim() && isValidFinanceAmount(amount.trim()) && Number(amount.trim()) > 0;
+  const canSubmit = Boolean(sourcePoolId && destinationPoolId && sourcePoolId !== destinationPoolId && amount.isValid);
+
+  const handleAmountChange = (next: MoneyInputParseResult) => {
+    setAmountText(next.inputText);
+    setAmount(next);
+  };
 
   const validate = () => {
     if (!sourcePoolId) {
@@ -83,16 +97,16 @@ export function TransferBetweenPoolsSheet({
       setError('Origen y destino deben ser pozos distintos');
       return false;
     }
-    const trimmed = amount.trim();
-    if (!trimmed) {
+    const canonical = amount.technicalValue?.amount ?? amount.canonicalAmount;
+    if (!amountText.trim()) {
       setError('El monto es obligatorio');
       return false;
     }
-    if (!isValidFinanceAmount(trimmed)) {
+    if (!canonical || amount.status === 'invalid') {
       setError('Ingresá un monto válido');
       return false;
     }
-    const amountNum = Number(trimmed);
+    const amountNum = Number(canonical);
     if (amountNum <= 0) {
       setError('El monto debe ser mayor a 0');
       return false;
@@ -109,13 +123,16 @@ export function TransferBetweenPoolsSheet({
   const handleSubmit = async () => {
     if (!validate() || !accessToken || submitting) return;
 
+    const canonical = amount.technicalValue?.amount ?? amount.canonicalAmount;
+    if (!canonical) return;
+
     Keyboard.dismiss();
     setSubmitting(true);
 
     try {
       const mutationId = generateMutationId();
       const idempotencyKey = `pool-transfer-${sourcePoolId}-${destinationPoolId}-${mutationId}`;
-      const payload = { sourcePoolId, destinationPoolId, amount: amount.trim(), currency };
+      const payload = { sourcePoolId, destinationPoolId, amount: canonical, currency };
       const payloadHash = await hashIdempotencyRequestV2({
         operation: 'finance.pool.transfer',
         scopeType: contextType,
@@ -132,7 +149,7 @@ export function TransferBetweenPoolsSheet({
         currency,
         sourcePoolId,
         destinationPoolId,
-        amount: amount.trim(),
+        amount: canonical,
         mutationId,
         idempotencyKey,
         payloadHash,
@@ -159,46 +176,36 @@ export function TransferBetweenPoolsSheet({
   const renderPoolPicker = (label: string, selectedId: string, onSelect: (id: string) => void, excludeId?: string) => {
     const options = activePools.filter((p) => p.id !== excludeId);
     return (
-      <View style={styles.pickerContainer}>
-        <AppText variant="caption" tone="secondary" weight="700" style={styles.pickerLabel}>{label}</AppText>
-        <AppCard variant="quiet" padding="default" style={styles.pickerCard}>
-          {options.map((pool) => (
-            <InteractivePressable
+      <FinanceGroupedSurface title={label}>
+        {options.map((pool, index) => {
+          const selected = selectedId === pool.id;
+          const isNegative = pool.balance.startsWith('-');
+          return (
+            <FinanceListRow
               key={pool.id}
+              title={pool.name}
+              value={formatFinanceAmount(pool.balance, currency, { sign: 'none' })}
+              valueTone={isZeroDecimalString(pool.balance) ? 'primary' : isNegative ? 'danger' : 'success'}
+              icon={
+                <HomePlusIcon
+                  name={selected ? 'radio-button-on' : 'radio-button-off'}
+                  size={20}
+                  color={selected ? colors.terracotta[700] : colors.text.tertiary}
+                />
+              }
               onPress={() => onSelect(pool.id)}
-              haptic="light"
-              pressScale={motion.scale.card}
-              style={[
-                styles.pickerOption,
-                selectedId === pool.id && styles.pickerOptionSelected,
-              ]}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: selectedId === pool.id }}
-            >
-              <View style={styles.pickerOptionContent}>
-                <AppText variant="body" weight={selectedId === pool.id ? '800' : '600'} numberOfLines={1}>
-                  {pool.name}
-                </AppText>
-                <AppText
-                  variant="caption"
-                  tone={isZeroDecimalString(pool.balance) ? 'primary' : pool.balance.startsWith('-') ? 'danger' : 'success'}
-                  style={styles.pickerBalance}
-                >
-                  {pool.balance} {currency}
-                </AppText>
-              </View>
-              {selectedId === pool.id && (
-                <HomePlusIcon name="radio-button-on" size={20} color={colors.terracotta[700]} />
-              )}
-            </InteractivePressable>
-          ))}
-          {options.length === 0 && (
-            <AppText variant="caption" tone="tertiary" style={styles.noOptions}>
-              No hay otros pozos disponibles
-            </AppText>
-          )}
-        </AppCard>
-      </View>
+              disabled={submitting}
+              divider={index < options.length - 1}
+              accessibilityLabel={`${label}: ${pool.name}, saldo ${formatFinanceAmount(pool.balance, currency, { sign: 'none' })}${selected ? ', seleccionado' : ''}`}
+            />
+          );
+        })}
+        {options.length === 0 && (
+          <AppText variant="caption" tone="tertiary" align="center">
+            No hay otros pozos disponibles
+          </AppText>
+        )}
+      </FinanceGroupedSurface>
     );
   };
 
@@ -209,10 +216,10 @@ export function TransferBetweenPoolsSheet({
       visible={true}
       title="Mover entre pozos"
       onRequestClose={onRequestClose}
-      size="content"
+      size={FINANCE_SHEET_SIZE_POLICY.MEDIUM_FORM}
     >
-      <View style={styles.content}>
-        <AppText variant="caption" tone="secondary" style={styles.hint}>
+      <View style={{ gap: financeSpacing.formFieldGap, paddingBottom: financeSpacing.contentActionGap }}>
+        <AppText variant="caption" tone="secondary" align="center">
           Moneda: {currency} · El dinero se mueve entre pozos, no afecta tus cuentas
         </AppText>
 
@@ -220,111 +227,29 @@ export function TransferBetweenPoolsSheet({
 
         {renderPoolPicker('Hacia', destinationPoolId, setDestinationPoolId, sourcePoolId)}
 
-        <AppCard variant="quiet" padding="default" style={styles.formCard}>
-          <AppInput
-            label="Monto a mover"
-            placeholder="0,00"
-            value={amount}
-            onChangeText={setAmount}
-            errorText={error ?? undefined}
-            keyboardType="decimal-pad"
-            maxLength={18}
-            returnKeyType="done"
-            onSubmitEditing={handleSubmit}
-            autoFocus={true}
-          />
-        </AppCard>
+        <MoneyInput
+          value={amountText}
+          currency={currency}
+          onValueChange={handleAmountChange}
+          onCurrencyChange={() => undefined}
+          availableCurrencies={[currency]}
+          label="Monto a mover"
+          errorText={error ?? undefined}
+          disabled={submitting}
+        />
 
-        <AppText variant="caption" tone="tertiary" style={styles.note}>
+        <AppText variant="caption" tone="tertiary" align="center">
           Transferencia interna entre pozos. No es una transferencia bancaria.
         </AppText>
 
-        <View style={styles.buttonRow}>
-          <AppButton
-            title="Cancelar"
-            variant="secondary"
-            onPress={onRequestClose}
-            disabled={submitting}
-            style={styles.cancelButton}
-          />
-          <AppButton
-            title="Mover"
-            onPress={handleSubmit}
-            disabled={submitting || !canSubmit}
-            style={styles.confirmButton}
-          >
-            {submitting && <HomePlusIcon name="refresh" size={20} color={colors.text.inverse} />}
-          </AppButton>
-        </View>
+        <FinanceFormFooter
+          onCancel={onRequestClose}
+          primaryTitle="Mover"
+          onPrimary={handleSubmit}
+          primaryDisabled={!canSubmit}
+          loading={submitting}
+        />
       </View>
     </ActionSheet>
   );
 }
-
-const styles = StyleSheet.create({
-  content: {
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[2],
-    paddingBottom: spacing[4],
-    gap: spacing[3],
-  },
-  hint: {
-    textAlign: 'center',
-    paddingBottom: spacing[2],
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border.subtle,
-  },
-  pickerContainer: {
-    gap: spacing[1],
-  },
-  pickerLabel: {
-    marginLeft: spacing[1],
-  },
-  pickerCard: {
-    gap: 0,
-  },
-  pickerOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing[2],
-    paddingHorizontal: spacing[2],
-    borderTopWidth: 1,
-    borderTopColor: colors.border.subtle,
-  },
-  pickerOptionSelected: {
-    backgroundColor: colors.terracotta[50],
-    borderColor: colors.terracotta[100],
-  },
-  pickerOptionContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing[2],
-  },
-  pickerBalance: {
-    fontSize: 12,
-  },
-  noOptions: {
-    padding: spacing[3],
-    textAlign: 'center',
-  },
-  formCard: {
-    gap: spacing[3],
-  },
-  note: {
-    textAlign: 'center',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: spacing[2],
-    marginTop: spacing[1],
-  },
-  cancelButton: {
-    flex: 1,
-  },
-  confirmButton: {
-    flex: 1,
-  },
-});

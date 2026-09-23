@@ -1,9 +1,10 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError, generateMutationId, createIdempotencyKey } from '../../services/api';
 import { formatFinanceAmount } from '../../services/finance/financeDisplay';
 import type { FinanceContextType } from '../../services/finance/financeContext';
@@ -35,16 +36,24 @@ import {
 } from '../../services/finance/moneyInputValue';
 import {
   ActionSheet,
-  AppButton,
   AppInput,
   AppText,
   DatePickerSheet,
-  FormActionRow,
-  InteractivePressable,
   formatHumanDate,
 } from '../ui';
 import { MoneyInput } from './MoneyInput';
 import { AccountSelector } from './AccountSelector';
+import {
+  FinanceDetailMetaRow,
+  FinanceDetailSection,
+  FinanceDisclosureRow,
+  FinanceErrorState,
+  FinanceFormFooter,
+  FinanceGroupedSurface,
+  FinanceListRow,
+  FinanceSelectionRow,
+  FINANCE_SHEET_SIZE_POLICY,
+} from './ui';
 
 type CorrectionStep = 'loading' | 'form' | 'review' | 'submitting' | 'error';
 
@@ -81,6 +90,9 @@ export function TransactionCorrectionSheet({
   onRequestClose,
   onSuccess,
 }: TransactionCorrectionSheetProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const initialPrefetchedDetail =
     prefetchedDetail?.transactionId === transactionId &&
     prefetchedDetail.contextType === contextType
@@ -169,6 +181,9 @@ export function TransactionCorrectionSheet({
       setOriginalTransaction(null);
       return;
     }
+    if (step !== 'loading' && originalTransaction?.id === transactionId) {
+      return;
+    }
 
     const myFetchId = ++fetchDetailRef.current;
     setError(null);
@@ -202,7 +217,7 @@ export function TransactionCorrectionSheet({
         setError(transactionCorrectionDetailErrorMessage(err));
         setStep('error');
       });
-  }, [visible, accessToken, contextType, transactionId, initialPrefetchedDetail, prefetchedDetail, retryNonce]);
+  }, [visible, accessToken, contextType, transactionId, initialPrefetchedDetail, prefetchedDetail, retryNonce, step, originalTransaction?.id]);
 
   useEffect(() => {
     if (step !== 'form' || !originalTransaction) return;
@@ -378,7 +393,7 @@ export function TransactionCorrectionSheet({
       !correctionMutationId ||
       !correctionIdempotencyKey
     ) {
-      setError('No pudimos preparar la correccion. Volve al formulario e intenta de nuevo.');
+      setError('No pudimos preparar la corrección. Volvé al formulario e intentá de nuevo.');
       return;
     }
 
@@ -410,7 +425,7 @@ export function TransactionCorrectionSheet({
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
-        setError('No pudimos corregir el movimiento. Intenta de nuevo.');
+        setError('No pudimos corregir el movimiento. Intentá de nuevo.');
       }
       setSubmitting(false);
       setStep('form');
@@ -429,52 +444,30 @@ export function TransactionCorrectionSheet({
   const transactionType = originalTransaction?.transactionType ?? 'expense';
 
   const footer = step === 'form' ? (
-    <View style={styles.footer}>
-      <AppButton
-        variant="ghost"
-        title="Cancelar"
-        onPress={handleCancel}
-        style={styles.footerButton}
-      />
-      <AppButton
-        title="Continuar"
-        onPress={submitForm}
-        disabled={!canSubmit || !hasChanges}
-        style={styles.footerButton}
-      />
-    </View>
+    <FinanceFormFooter
+      primaryTitle="Continuar"
+      onPrimary={submitForm}
+      onCancel={handleCancel}
+      primaryDisabled={!canSubmit || !hasChanges}
+      divided={false}
+    />
   ) : step === 'review' ? (
-    <View style={styles.footer}>
-      <AppButton
-        variant="ghost"
-        title="Volver"
-        onPress={handleReviewBack}
-        disabled={submitting}
-        style={styles.footerButton}
-      />
-      <AppButton
-        variant="primary"
-        title="Guardar corrección"
-        onPress={handleConfirm}
-        loading={submitting}
-        disabled={submitting || changes.length === 0}
-        style={styles.footerButton}
-      />
-    </View>
+    <FinanceFormFooter
+      primaryTitle="Guardar corrección"
+      onPrimary={handleConfirm}
+      onCancel={handleReviewBack}
+      cancelLabel="Volver"
+      primaryDisabled={submitting || changes.length === 0}
+      loading={submitting}
+      divided={false}
+    />
   ) : step === 'error' ? (
-    <View style={styles.footer}>
-      <AppButton
-        variant="ghost"
-        title="Cancelar"
-        onPress={handleCancel}
-        style={styles.footerButton}
-      />
-      <AppButton
-        title="Reintentar"
-        onPress={handleRetry}
-        style={styles.footerButton}
-      />
-    </View>
+    <FinanceFormFooter
+      primaryTitle="Reintentar"
+      onPrimary={handleRetry}
+      onCancel={handleCancel}
+      divided={false}
+    />
   ) : null;
 
   const loadingContent = (
@@ -511,23 +504,10 @@ export function TransactionCorrectionSheet({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.form}
       >
-        <View style={styles.typeBadge}>
-          <AppText variant="caption" tone="secondary" weight="700">
-            Tipo
-          </AppText>
-          <AppText variant="body" weight="800">
-            {transactionType === 'expense' ? 'Gasto' : 'Ingreso'}
-          </AppText>
-        </View>
-
-        <View style={styles.contextBadge}>
-          <AppText variant="caption" tone="secondary" weight="700">
-            Contexto financiero
-          </AppText>
-          <AppText variant="body" weight="800" numberOfLines={1}>
-            {contextLabel}
-          </AppText>
-        </View>
+        <FinanceDetailMetaRow
+          label="Tipo"
+          value={transactionType === 'expense' ? 'Gasto' : 'Ingreso'}
+        />
 
         <MoneyInput
           value={amountText}
@@ -536,12 +516,11 @@ export function TransactionCorrectionSheet({
           onCurrencyChange={handleCurrencyChange}
           availableCurrencies={['ARS', 'USD', 'EUR']}
           disabled={false}
-          errorText={amount.status === 'invalid' ? 'Revisa el monto.' : undefined}
-          helperText="Magnitud positiva, sin convertir monedas."
+          errorText={amount.status === 'invalid' ? 'Revisá el monto.' : undefined}
         />
 
         <AppInput
-          label="Descripcion (opcional)"
+          label="Descripción (opcional)"
           value={description}
           onChangeText={(text) => {
             setDescription(text);
@@ -553,16 +532,17 @@ export function TransactionCorrectionSheet({
         />
 
         <View style={styles.fieldGroup}>
-          <FormActionRow
-            label="Categoria"
+          <FinanceSelectionRow
+            label="Categoría"
             value={transactionCorrectionCategoryReviewLabel({
               original: originalTransaction,
               selectedCategoryId,
               selectedCategoryLabel: selectedCategory?.label ?? selectedCategoryLabel,
-            })}
+            }) ?? undefined}
+            placeholder="Sin categoría"
             onPress={() => setActivePicker((current) => current === 'category' ? null : 'category')}
             disabled={categoriesLoading}
-            accessibilityLabel={`Elegir categoria de ${transactionType === 'expense' ? 'gasto' : 'ingreso'}`}
+            accessibilityLabel={`Elegir categoría de ${transactionType === 'expense' ? 'gasto' : 'ingreso'}`}
           />
           {categoriesError ? (
             <AppText variant="caption" tone="warning">
@@ -570,73 +550,64 @@ export function TransactionCorrectionSheet({
             </AppText>
           ) : categoriesLoading ? (
             <AppText variant="caption" tone="tertiary">
-              Cargando categorias
+              Cargando categorías
             </AppText>
           ) : null}
           {activePicker === 'category' ? (
-            <View style={styles.categoryPicker} accessibilityLabel={`Categorias de ${transactionType === 'expense' ? 'gasto' : 'ingreso'}`}>
-              <InteractivePressable
+            <FinanceGroupedSurface testID={`Categorías de ${transactionType === 'expense' ? 'gasto' : 'ingreso'}`}>
+              <FinanceListRow
+                title="Sin categoría"
+                icon={
+                  <HomePlusIcon
+                    name={selectedCategoryId === null ? 'radio-button-on' : 'radio-button-off'}
+                    size={18}
+                    color={selectedCategoryId === null ? colors.terracotta[700] : colors.text.tertiary}
+                  />
+                }
                 onPress={() => {
                   setSelectedCategoryId(null);
                   setSelectedCategoryLabel(null);
                   setActivePicker(null);
                 }}
-                haptic="light"
-                pressScale={motion.scale.card}
-                style={[styles.categoryOption, selectedCategoryId === null && styles.categoryOptionSelected]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: selectedCategoryId === null }}
-                accessibilityLabel="Sin categoria"
-              >
-                <HomePlusIcon
-                  name={selectedCategoryId === null ? 'radio-button-on' : 'radio-button-off'}
-                  size={18}
-                  color={selectedCategoryId === null ? colors.terracotta[700] : colors.text.tertiary}
-                />
-                <AppText variant="bodySmall" weight="800">
-                  Sin categoria
-                </AppText>
-              </InteractivePressable>
-              {categories.map((category) => {
+                accessibilityLabel="Sin categoría"
+              />
+              {categories.map((category, index) => {
                 const selected = category.id === selectedCategoryId;
                 return (
-                  <InteractivePressable
+                  <FinanceListRow
                     key={category.id}
+                    title={category.label}
+                    titleNumberOfLines={2}
+                    icon={
+                      <HomePlusIcon
+                        name={selected ? 'radio-button-on' : 'radio-button-off'}
+                        size={18}
+                        color={selected ? colors.terracotta[700] : colors.text.tertiary}
+                      />
+                    }
                     onPress={() => {
                       setSelectedCategoryId(category.id);
                       setSelectedCategoryLabel(category.label);
                       setActivePicker(null);
                     }}
-                    haptic="light"
-                    pressScale={motion.scale.card}
-                    style={[styles.categoryOption, selected && styles.categoryOptionSelected]}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected }}
+                    divider={index < categories.length - 1}
                     accessibilityLabel={category.label}
-                  >
-                    <HomePlusIcon
-                      name={selected ? 'radio-button-on' : 'radio-button-off'}
-                      size={18}
-                      color={selected ? colors.terracotta[700] : colors.text.tertiary}
-                    />
-                    <AppText variant="bodySmall" weight="800" numberOfLines={1} style={styles.categoryLabel}>
-                      {category.label}
-                    </AppText>
-                  </InteractivePressable>
+                  />
                 );
               })}
-            </View>
+            </FinanceGroupedSurface>
           ) : null}
         </View>
 
         <View style={styles.fieldGroup}>
-          <FormActionRow
+          <FinanceSelectionRow
             label="Cuenta"
             value={transactionCorrectionAccountReviewLabel({
               original: originalTransaction,
               selectedAccountId: canonicalDraft?.accountId ?? null,
               selectedAccountLabel: currentAccount ? `${currentAccount.name} · ${currentAccount.currency}` : null,
-            })}
+            }) ?? undefined}
+            placeholder="Sin cuenta"
             onPress={() => setActivePicker('account')}
             disabled={transactionType === 'expense' ? expenseAccountsState.loading : incomeAccountsState.loading}
             accessibilityLabel={`Elegir cuenta para ${transactionType === 'expense' ? 'gasto' : 'ingreso'}`}
@@ -652,7 +623,7 @@ export function TransactionCorrectionSheet({
           ) : null}
         </View>
 
-        <FormActionRow
+        <FinanceSelectionRow
           label="Fecha"
           value={formatHumanDate(date)}
           onPress={() => setActivePicker('date')}
@@ -660,46 +631,25 @@ export function TransactionCorrectionSheet({
           accessibilityLabel={`Fecha ${formatHumanDate(date)}`}
         />
 
-        <View style={styles.fieldGroup}>
-          <InteractivePressable
-            onPress={() => setNotesExpanded((current) => !current)}
-            disabled={false}
-            haptic="light"
-            pressScale={motion.scale.card}
-            style={styles.moreDetails}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: notesExpanded }}
-            accessibilityLabel="Mas detalles"
-          >
-            <AppText variant="bodySmall" weight="800">
-              Mas detalles
-            </AppText>
-            <HomePlusIcon
-              name={notesExpanded ? 'chevron-up-outline' : 'chevron-down-outline'}
-              size={18}
-              color={colors.text.tertiary}
-            />
-          </InteractivePressable>
-          {notesExpanded ? (
-            <AppInput
-              label="Notas (opcional)"
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Detalle privado del movimiento"
-              variant="multiline"
-              editable={true}
-              multiline
-            />
-          ) : null}
-        </View>
+        <FinanceDisclosureRow
+          label="Más detalles"
+          expanded={notesExpanded}
+          onToggle={() => setNotesExpanded((current) => !current)}
+          accessibilityLabel="Más detalles"
+        >
+          <AppInput
+            label="Notas (opcional)"
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Detalle privado del movimiento"
+            variant="multiline"
+            editable={true}
+            multiline
+          />
+        </FinanceDisclosureRow>
 
         {submitError ? (
-          <View style={styles.errorBox}>
-            <HomePlusIcon name="alert-circle-outline" size={18} color={colors.danger.strong} />
-            <AppText variant="bodySmall" tone="danger" style={styles.errorText}>
-              {submitError}
-            </AppText>
-          </View>
+          <FinanceErrorState level="form" message={submitError} />
         ) : null}
       </KeyboardAwareScrollView>
 
@@ -766,47 +716,19 @@ export function TransactionCorrectionSheet({
           </AppText>
         </View>
       ) : (
-        <>
-          <AppText variant="body" style={styles.reviewTitle}>
-            Se aplicarán los siguientes cambios:
-          </AppText>
-          <View style={styles.changesList}>
-            {changes.map((change, index) => (
-              <View key={index} style={styles.changeRow}>
-                <AppText variant="caption" tone="secondary" weight="700" style={styles.changeLabel}>
-                  {change.label}
-                </AppText>
-                <View style={styles.changeValues}>
-                  <View style={styles.changeValueRow}>
-                    <AppText variant="bodySmall" tone="tertiary" style={styles.changeFromLabel}>
-                      Era
-                    </AppText>
-                    <AppText variant="bodySmall" weight="800" tone="secondary" numberOfLines={1} style={styles.changeOldValue}>
-                      {change.oldValue}
-                    </AppText>
-                  </View>
-                  <View style={styles.changeValueRow}>
-                    <AppText variant="bodySmall" tone="tertiary" style={styles.changeToLabel}>
-                      Será
-                    </AppText>
-                    <AppText variant="bodySmall" weight="800" tone="primary" numberOfLines={1} style={styles.changeNewValue}>
-                      {change.newValue}
-                    </AppText>
-                  </View>
-                </View>
-              </View>
-            ))}
-          </View>
-        </>
+        <FinanceDetailSection title="Se aplicarán los siguientes cambios">
+          {changes.map((change, index) => (
+            <FinanceDetailMetaRow
+              key={index}
+              label={change.label}
+              value={`${change.oldValue} → ${change.newValue}`}
+            />
+          ))}
+        </FinanceDetailSection>
       )}
 
       {error ? (
-        <View style={styles.errorBox}>
-          <HomePlusIcon name="alert-circle-outline" size={18} color={colors.danger.strong} />
-          <AppText variant="bodySmall" tone="danger" style={styles.errorText}>
-            {error}
-          </AppText>
-        </View>
+        <FinanceErrorState level="form" message={error} />
       ) : null}
     </View>
   ) : null;
@@ -828,7 +750,7 @@ export function TransactionCorrectionSheet({
       subtitle={`Finanzas de ${contextLabel}`}
       onRequestClose={handleCancel}
       closeDisabled={submitting}
-      size="full"
+      size={FINANCE_SHEET_SIZE_POLICY.LONG_FORM}
       footer={footer}
     >
       {content}
@@ -836,97 +758,21 @@ export function TransactionCorrectionSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { spacing } = theme;
+
+  return StyleSheet.create({
   sheetBody: {
-    flex: 1,
+    flexShrink: 1,
+    minHeight: 0,
     position: 'relative',
   },
   form: {
     gap: spacing[4],
     paddingBottom: spacing[4],
   },
-  typeBadge: {
-    minHeight: 44,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.soft,
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  contextBadge: {
-    minHeight: 44,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.sage[50],
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
   fieldGroup: {
     gap: spacing[2],
-  },
-  categoryPicker: {
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface.card,
-    padding: spacing[2],
-    gap: spacing[1],
-  },
-  categoryOption: {
-    minHeight: 44,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  categoryOptionSelected: {
-    backgroundColor: colors.terracotta[50],
-  },
-  categoryLabel: {
-    flex: 1,
-    minWidth: 0,
-  },
-  moreDetails: {
-    minHeight: touchTargets.normal,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.soft,
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  errorBox: {
-    borderRadius: radius.lg,
-    backgroundColor: colors.danger.soft,
-    padding: spacing[3],
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  errorText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  footer: {
-    flexDirection: 'row',
-    gap: spacing[2],
-    width: '100%',
-    paddingTop: spacing[3],
-    borderTopWidth: 1,
-    borderTopColor: colors.border.subtle,
-  },
-  footerButton: {
-    flex: 1,
   },
   loadingView: {
     alignItems: 'center',
@@ -966,43 +812,5 @@ const styles = StyleSheet.create({
   noChangesMessage: {
     textAlign: 'center',
   },
-  reviewTitle: {
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  changesList: {
-    gap: spacing[3],
-  },
-  changeRow: {
-    gap: spacing[2],
-  },
-  changeLabel: {
-    textAlign: 'center',
-  },
-  changeValues: {
-    gap: spacing[1],
-  },
-  changeValueRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  changeFromLabel: {
-    textAlign: 'right',
-    minWidth: 40,
-  },
-  changeToLabel: {
-    textAlign: 'right',
-    minWidth: 40,
-  },
-  changeOldValue: {
-    textDecorationLine: 'line-through',
-    textAlign: 'left',
-    flex: 1,
-  },
-  changeNewValue: {
-    textAlign: 'left',
-    flex: 1,
-  },
-});
+  });
+}

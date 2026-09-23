@@ -62,6 +62,7 @@ router.get('/payments/dues/:dueId', paymentController.getPaymentDueDetail);
 router.get('/payments/series', paymentController.listPaymentSeries);
 router.get('/payments/series/:seriesId', paymentController.getPaymentSeriesDetail);
 router.post('/payments/dues/:dueId/cancel', paymentController.cancelPaymentDue);
+router.post('/payments/dues/:dueId/skip', paymentController.skipPaymentDue);
 router.post('/payments/series/:seriesId/cancel', paymentController.cancelPaymentSeries);
 router.patch('/payments/dues/:dueId', paymentController.editPaymentDue);
 router.patch('/payments/series/:seriesId', paymentController.editPaymentSeries);

@@ -45,6 +45,10 @@ export type MoreStackParamList = {
     currency: string;
     period: string;
   };
+  FinanceCategoryManagement: {
+    contextType: import('../services/finance/financeContext').FinanceContextType;
+    currency: string;
+  };
   FinanceAnalysisDetail: {
     contextType: import('../services/finance/financeContext').FinanceContextType;
     currency: string;

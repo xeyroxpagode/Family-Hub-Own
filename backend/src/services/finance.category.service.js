@@ -41,6 +41,35 @@ const FORBIDDEN_CREATE_FIELDS = Object.freeze([
   'restored_at',
 ]);
 
+const FINANCE_CATEGORY_ICON_KEYS = Object.freeze([
+  'home-outline',
+  'paw-outline',
+  'car-outline',
+  'restaurant-outline',
+  'school-outline',
+  'medkit-outline',
+  'bag-outline',
+  'ticket-outline',
+  'hammer-outline',
+  'gift-outline',
+  'document-text-outline',
+  'repeat-outline',
+  'barbell-outline',
+  'airplane-outline',
+  'briefcase-outline',
+  'storefront-outline',
+  'card-outline',
+  'receipt-outline',
+  'cash-outline',
+  'wallet-outline',
+  'sparkles-outline',
+  'book-outline',
+  'phone-portrait-outline',
+  'pricetag-outline',
+]);
+
+const FINANCE_CATEGORY_ICON_KEY_SET = new Set(FINANCE_CATEGORY_ICON_KEYS);
+
 const FORBIDDEN_UPDATE_FIELDS = Object.freeze([
   ...FORBIDDEN_CREATE_FIELDS,
   'type',
@@ -119,6 +148,15 @@ function normalizeLabel(value) {
   return label;
 }
 
+function normalizeIconKey(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const iconKey = normalizeString(value);
+  if (!FINANCE_CATEGORY_ICON_KEY_SET.has(iconKey)) {
+    throw createHttpError(400, 'Icono de categoria invalido.', 'invalid_finance_category_icon_key');
+  }
+  return iconKey;
+}
+
 function assertResolvedFinanceContext(financeContext) {
   if (!financeContext || typeof financeContext !== 'object') {
     throw createHttpError(400, 'Financial Context resuelto requerido.', 'invalid_finance_context');
@@ -159,6 +197,7 @@ function toDto(row) {
     kind: row.category_kind,
     type: row.category_type,
     nativeKey: row.native_key ?? null,
+    iconKey: row.icon_key ?? null,
     label: row.label,
     contextType: row.context_type ?? null,
     selectable: row.deleted_at === null,
@@ -235,10 +274,12 @@ async function createFinanceCategory(financeContext, body = {}) {
 
   const type = normalizeCategoryType(body.type ?? body.category_type);
   const label = normalizeLabel(body.label);
+  const iconKey = normalizeIconKey(body.iconKey ?? body.icon_key);
   const payload = {
     category_kind: FINANCE_CATEGORY_KINDS.CUSTOM,
     category_type: type,
     label,
+    icon_key: iconKey,
     context_type: financeContext.contextType,
     owner_person_id: financeContext.contextType === FINANCE_CONTEXT_TYPES.PERSONAL
       ? financeContext.personId
@@ -268,17 +309,22 @@ async function updateFinanceCategory(financeContext, categoryId, body = {}) {
   const current = await getCategoryForMutation(financeContext, categoryId);
   assertCustomMutable(current, 'editarse');
 
-  if (!hasOwn(body, 'label')) {
+  const hasLabel = hasOwn(body, 'label');
+  const hasIconKey = hasOwn(body, 'iconKey') || hasOwn(body, 'icon_key');
+  if (!hasLabel && !hasIconKey) {
     return { category: toDto(current), outcome: 'noop' };
   }
 
-  const label = normalizeLabel(body.label);
+  const updatePayload = {
+    updated_by_person_id: financeContext.personId,
+  };
+
+  if (hasLabel) updatePayload.label = normalizeLabel(body.label);
+  if (hasIconKey) updatePayload.icon_key = normalizeIconKey(body.iconKey ?? body.icon_key);
+
   const { data, error } = await financeContext.client
     .from('finance_categories')
-    .update({
-      label,
-      updated_by_person_id: financeContext.personId,
-    })
+    .update(updatePayload)
     .eq('id', current.id)
     .eq('category_kind', FINANCE_CATEGORY_KINDS.CUSTOM)
     .is('deleted_at', null)
@@ -330,4 +376,5 @@ module.exports = {
   updateFinanceCategory,
   deleteFinanceCategory,
   FINANCE_CATEGORY_TYPES,
+  FINANCE_CATEGORY_ICON_KEYS,
 };

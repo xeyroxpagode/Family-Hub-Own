@@ -1,16 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Keyboard } from 'react-native';
+import { View, Keyboard } from 'react-native';
 
 import {
-  AppButton,
-  AppCard,
   AppText,
-  AppInput,
   ActionSheet,
 } from '../ui';
-import { colors, radius, spacing } from '../../constants/theme';
-import { HomePlusIcon } from '../../constants/icons';
-import { formatFinanceAmount, isValidFinanceAmount } from '../../services/finance/financeDisplay';
+import { formatFinanceAmount } from '../../services/finance/financeDisplay';
 import {
   allocateFinancePool,
   type FinancePoolDto,
@@ -18,6 +13,14 @@ import {
 import type { FinanceContextType } from '../../services/finance/financeContext';
 import { hashIdempotencyRequestV2 } from '../../services/finance/idempotency';
 import { generateMutationId } from '../../services/api';
+import { parseMoneyInputText, type MoneyInputParseResult } from '../../services/finance/moneyInputValue';
+import { MoneyInput } from './MoneyInput';
+import {
+  FinanceDetailMetaRow,
+  FinanceFormFooter,
+  FINANCE_SHEET_SIZE_POLICY,
+  financeSpacing,
+} from './ui';
 
 type AllocatePoolSheetProps = {
   visible: boolean;
@@ -42,29 +45,37 @@ export function AllocatePoolSheet({
   onRequestClose,
   onSuccess,
 }: AllocatePoolSheetProps) {
-  const [amount, setAmount] = useState('');
+  const [amountText, setAmountText] = useState('');
+  const [amount, setAmount] = useState<MoneyInputParseResult>(() => parseMoneyInputText('', currency));
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (visible) {
-      setAmount('');
+      setAmountText('');
+      setAmount(parseMoneyInputText('', currency));
       setError(null);
       setSubmitting(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
+  const handleAmountChange = (next: MoneyInputParseResult) => {
+    setAmountText(next.inputText);
+    setAmount(next);
+  };
+
   const validate = () => {
-    const trimmed = amount.trim();
-    if (!trimmed) {
+    const canonical = amount.technicalValue?.amount ?? amount.canonicalAmount;
+    if (!amountText.trim()) {
       setError('El monto es obligatorio');
       return false;
     }
-    if (!isValidFinanceAmount(trimmed)) {
+    if (!canonical || amount.status === 'invalid') {
       setError('Ingresá un monto válido');
       return false;
     }
-    const amountNum = Number(trimmed);
+    const amountNum = Number(canonical);
     if (amountNum <= 0) {
       setError('El monto debe ser mayor a 0');
       return false;
@@ -82,13 +93,16 @@ export function AllocatePoolSheet({
   const handleSubmit = async () => {
     if (!validate() || !accessToken || !pool || submitting) return;
 
+    const canonical = amount.technicalValue?.amount ?? amount.canonicalAmount;
+    if (!canonical) return;
+
     Keyboard.dismiss();
     setSubmitting(true);
 
     try {
       const mutationId = generateMutationId();
       const idempotencyKey = `pool-allocate-${pool.id}-${mutationId}`;
-      const payload = { poolId: pool.id, amount: amount.trim(), currency };
+      const payload = { poolId: pool.id, amount: canonical, currency };
       const payloadHash = await hashIdempotencyRequestV2({
         operation: 'finance.pool.allocate',
         scopeType: contextType,
@@ -104,7 +118,7 @@ export function AllocatePoolSheet({
         contextType,
         currency,
         poolId: pool.id,
-        amount: amount.trim(),
+        amount: canonical,
         mutationId,
         idempotencyKey,
         payloadHash,
@@ -131,91 +145,37 @@ export function AllocatePoolSheet({
       visible={true}
       title={`Agregar a ${pool.name}`}
       onRequestClose={onRequestClose}
-      size="content"
+      size={FINANCE_SHEET_SIZE_POLICY.SHORT_FORM}
     >
-      <View style={styles.content}>
-        <View style={styles.contextCard}>
-          <AppText variant="caption" tone="secondary" weight="700">Sin asignar disponible</AppText>
-          <AppText variant="title3" weight="800" style={styles.unassignedAmount}>
-            {formatFinanceAmount(unassignedKnown, currency, { sign: 'net' })}
-          </AppText>
-        </View>
+      <View style={{ gap: financeSpacing.formFieldGap, paddingBottom: financeSpacing.contentActionGap }}>
+        <FinanceDetailMetaRow
+          label="Sin asignar disponible"
+          value={formatFinanceAmount(unassignedKnown, currency, { sign: 'net' })}
+        />
 
-        <AppCard variant="quiet" padding="default" style={styles.formCard}>
-          <AppInput
-            label="Monto a agregar"
-            placeholder="0,00"
-            value={amount}
-            onChangeText={setAmount}
-            errorText={error ?? undefined}
-            keyboardType="decimal-pad"
-            maxLength={18}
-            returnKeyType="done"
-            onSubmitEditing={handleSubmit}
-            autoFocus={true}
-          />
-        </AppCard>
+        <MoneyInput
+          value={amountText}
+          currency={currency}
+          onValueChange={handleAmountChange}
+          onCurrencyChange={() => undefined}
+          availableCurrencies={[currency]}
+          label="Monto a agregar"
+          errorText={error ?? undefined}
+          disabled={submitting}
+        />
 
-        <AppText variant="caption" tone="tertiary" style={styles.note}>
+        <AppText variant="caption" tone="tertiary" align="center">
           El dinero sale de &quot;Sin asignar&quot; y entra a este pozo. No afecta tus cuentas bancarias.
         </AppText>
 
-        <View style={styles.buttonRow}>
-          <AppButton
-            title="Cancelar"
-            variant="secondary"
-            onPress={onRequestClose}
-            disabled={submitting}
-            style={styles.cancelButton}
-          />
-          <AppButton
-            title="Agregar"
-            onPress={handleSubmit}
-            disabled={submitting || !amount.trim() || !isValidFinanceAmount(amount.trim()) || Number(amount.trim()) <= 0}
-            style={styles.confirmButton}
-          >
-            {submitting && <HomePlusIcon name="refresh" size={20} color={colors.text.inverse} />}
-          </AppButton>
-        </View>
+        <FinanceFormFooter
+          onCancel={onRequestClose}
+          primaryTitle="Agregar"
+          onPrimary={handleSubmit}
+          primaryDisabled={!amount.isValid}
+          loading={submitting}
+        />
       </View>
     </ActionSheet>
   );
 }
-
-const styles = StyleSheet.create({
-  content: {
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[2],
-    paddingBottom: spacing[4],
-    gap: spacing[3],
-  },
-  contextCard: {
-    alignItems: 'center',
-    gap: spacing[1],
-    paddingVertical: spacing[3],
-    borderRadius: radius.lg,
-    backgroundColor: colors.terracotta[50],
-    borderWidth: 1,
-    borderColor: colors.terracotta[100],
-  },
-  unassignedAmount: {
-    color: colors.terracotta[700],
-  },
-  formCard: {
-    gap: spacing[3],
-  },
-  note: {
-    textAlign: 'center',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: spacing[2],
-    marginTop: spacing[1],
-  },
-  cancelButton: {
-    flex: 1,
-  },
-  confirmButton: {
-    flex: 1,
-  },
-});

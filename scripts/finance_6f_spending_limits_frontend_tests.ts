@@ -1,6 +1,8 @@
 // Finance Stage 6F — Spending Limits Frontend Tests
 // Tests inspect meaningful frontend contracts for the new spending limits management
 
+import fs from 'node:fs';
+import path from 'node:path';
 import type { FinanceSpendingLimitProgressDto } from '../front/mi-front-limpio/services/finance/financeSpendingLimits';
 import type { FinanceSpendingLimitScopeType } from '../front/mi-front-limpio/services/finance/financeSpendingLimits';
 import type { FinanceSpendingLimitPeriodType } from '../front/mi-front-limpio/services/finance/financeSpendingLimits';
@@ -11,6 +13,7 @@ import type { CancelFinanceSpendingLimitInput } from '../front/mi-front-limpio/s
 
 let passCount = 0;
 let failCount = 0;
+const repositoryRoot = process.cwd();
 
 function assert(condition: boolean, message: string): void {
   if (condition) {
@@ -384,6 +387,14 @@ function runTests(): void {
     assert(true, '32. SpendingLimitSheet component exists - verified by TypeScript');
     assert(true, '33. SpendingLimitDetailSheet component exists - verified by TypeScript');
     assert(true, '34. FinanceSpendingLimitSummary has onManage prop - verified by TypeScript');
+    const summarySource = fs.readFileSync(path.join(repositoryRoot, 'front/mi-front-limpio/components/finance/FinanceSpendingLimitSummary.tsx'), 'utf8');
+    assert(summarySource.includes('Sin límites configurados'), '34a. empty limits summary states no configured limits');
+    assert(/>\s*Administrar\s*<\/AppText>/.test(summarySource), '34b. limits summary uses short universal Administrar entry');
+    assert(!summarySource.includes('title="Configurar"'), '34c. empty limits summary no longer says Configurar');
+    assert(!summarySource.includes('title="Administrar límites"'), '34d. limits summary action is borderless text instead of AppButton pill');
+    assert(summarySource.includes('style={styles.manageButton}'), '34e. limits summary action uses secondary section-action grammar');
+    assert(!summarySource.includes('manageButtonInline'), '34f. old inline AppButton style removed');
+    assert(summarySource.includes('useAppTheme'), '34g. limits summary uses resolved app theme');
   }
 
   // Architecture - no new Finance tab

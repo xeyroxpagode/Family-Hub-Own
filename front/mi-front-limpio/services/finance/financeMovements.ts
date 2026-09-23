@@ -51,6 +51,7 @@ export type FinanceCategoryDto = {
   kind: string;
   type: FinanceTransactionKind;
   nativeKey: string | null;
+  iconKey: string | null;
   label: string;
   contextType: FinanceContextType | null;
   selectable: boolean;
@@ -197,9 +198,11 @@ export type ListFinanceMovementsResponse = {
   movements: FinanceUnifiedMovementDto[];
 };
 
-export type FinanceTrashMovementDto = {
+export type FinanceTransactionTrashMovementDto = {
+  kind: 'EXPENSE' | 'INCOME';
   id: string;
   transactionType: FinanceTransactionKind;
+  transferId: string | null;
   amount: string;
   currency: string;
   transactionDate: string;
@@ -210,6 +213,29 @@ export type FinanceTrashMovementDto = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type FinanceTransferTrashMovementDto = {
+  kind: 'TRANSFER';
+  id: string;
+  transactionType: 'transfer';
+  date: string;
+  transactionDate: string;
+  description: string | null;
+  notes: string | null;
+  sourceAccount: FinanceTransferAccountDto;
+  destinationAccount: FinanceTransferAccountDto;
+  sourceAmount: string;
+  sourceCurrency: string;
+  destinationAmount: string;
+  destinationCurrency: string;
+  commission: FinanceTransferCommissionDto | null;
+  trashedAt: string | null;
+  createdAt: string;
+};
+
+export type FinanceTrashMovementDto =
+  | FinanceTransactionTrashMovementDto
+  | FinanceTransferTrashMovementDto;
 
 export type ListFinanceTrashResponse = {
   contextType: FinanceContextType;
@@ -357,7 +383,17 @@ export const listFinanceMovements = ({
     },
   ).then((response) => ({
     ...response,
-    movements: response.movements.map((movement) => mapBackendMovementToUnified(movement, response.contextType)),
+    // Defensive root semantics (backend is primary authority): a dependent
+    // Transfer commission (transferId IS NOT NULL) is a real Expense
+    // financially but never a root Movimientos row.
+    movements: response.movements
+      .map((movement) => mapBackendMovementToUnified(movement, response.contextType))
+      .filter((movement) => {
+        if (movement.kind === 'EXPENSE' || movement.kind === 'INCOME') {
+          return !movement.transferId;
+        }
+        return true;
+      }),
   }));
 
 function mapBackendMovementToUnified(movement: any, contextType: FinanceContextType): FinanceUnifiedMovementDto {
@@ -473,6 +509,10 @@ export const listFinanceTrash = ({
   signal,
   contextScope,
 }: FinanceTrashOptions) =>
+  // Defensive root semantics (backend is primary authority): Papelera
+  // represents ROOT financial units only. A dependent commission never
+  // renders as a standalone trash row; it is disclosed inside its root
+  // Transfer via the additive `commission` field.
   requestJson<ListFinanceTrashResponse>(
     `/api/finance/trash?${encodeQuery({ contextType })}`,
     {
@@ -481,7 +521,15 @@ export const listFinanceTrash = ({
       contextScope,
       operationKind: OPERATION_KINDS.READ_ONLY,
     },
-  );
+  ).then((response) => ({
+    ...response,
+    movements: response.movements.filter((movement) => {
+      if (movement.kind === 'EXPENSE' || movement.kind === 'INCOME') {
+        return !(movement as FinanceTransactionTrashMovementDto).transferId;
+      }
+      return true;
+    }),
+  }));
 
 export const getFinanceSummary = ({
   accessToken,
