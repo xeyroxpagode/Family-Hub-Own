@@ -49,9 +49,21 @@ const getTransactionDetail = async (req, res) => {
   }
 };
 
+const getTransferDetail = async (req, res) => {
+  try {
+    const financeContext = await resolveFinanceContext(req, contextTypeFrom(req));
+    const transferId = req.params?.transferId ?? req.query?.transferId;
+    const payload = await readService.getTransferDetail(financeContext, transferId);
+    return res.status(200).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
 module.exports = {
   getMovements,
   getSummary,
   getTrash,
   getTransactionDetail,
+  getTransferDetail,
 };

@@ -1,13 +1,15 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import { colors, radius, spacing, typography } from '../../constants/theme';
-import { AppCard, AppText, Skeleton, InteractivePressable } from '../../components/ui';
+import { AppButton, AppText, Skeleton } from '../../components/ui';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { formatFinanceAmount, isZeroDecimalString } from '../../services/finance/financeDisplay';
-import { HomePlusIcon } from '../../constants/icons';
 import type { FinanceSpendingLimitProgressDto } from '../../services/finance/financeSpendingLimits';
+import { FinanceSection, FinanceSemanticSurface } from './ui';
 
 function ProgressBar({ percent, status }: { percent: number; status: 'UNDER' | 'AT' | 'OVER' }) {
-  const trackColor = colors.border.default;
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   let fillColor: string = colors.terracotta[600];
 
   if (status === 'AT') fillColor = colors.warning.strong;
@@ -28,6 +30,7 @@ function ProgressBar({ percent, status }: { percent: number; status: 'UNDER' | '
 }
 
 function LimitRow({ limit, currency }: { limit: FinanceSpendingLimitProgressDto; currency: string }) {
+  const styles = createStyles(useAppTheme());
   const spent = limit.spent;
   const limitAmount = limit.amount;
   const percentUsed = Number(limit.percentUsed);
@@ -85,6 +88,14 @@ function sortLimitsForDashboard(limits: FinanceSpendingLimitProgressDto[]): Fina
   });
 }
 
+function getGeneralLimit(limits: FinanceSpendingLimitProgressDto[]): FinanceSpendingLimitProgressDto | null {
+  return limits.find((l) => l.scopeType === 'OVERALL') ?? null;
+}
+
+function getCategoryLimits(limits: FinanceSpendingLimitProgressDto[]): FinanceSpendingLimitProgressDto[] {
+  return limits.filter((l) => l.scopeType === 'CATEGORY');
+}
+
 export function FinanceSpendingLimitSummary({
   progress,
   loading,
@@ -98,129 +109,266 @@ export function FinanceSpendingLimitSummary({
   onRetry?: () => void;
   onManage?: () => void;
 }) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
+
   if (loading && !progress) {
     return (
-      <AppCard variant="quiet" padding="generous">
+      <View style={styles.loadingBlock}>
         <Skeleton width="50%" height={14} />
-        <Skeleton width="80%" height={40} />
+        <Skeleton width="80%" height={50} />
         <Skeleton width="60%" height={12} />
-      </AppCard>
+      </View>
     );
   }
 
   if (error && !progress) {
     return (
-      <AppCard variant="warning" padding="generous">
+      <View style={styles.warningState}>
         <AppText variant="body" weight="800" tone="warning">
           No pudimos cargar los límites
         </AppText>
         <AppText variant="caption" tone="secondary" style={styles.errorText}>
           {error}
         </AppText>
-      </AppCard>
+        {onRetry ? (
+          <AppButton
+            title="Reintentar"
+            variant="secondary"
+            size="sm"
+            onPress={onRetry}
+            style={styles.retryButton}
+          />
+        ) : null}
+      </View>
     );
   }
 
-  if (!progress || progress.length === 0) {
+  const allLimits = progress ?? [];
+  const generalLimit = getGeneralLimit(allLimits);
+  const categoryLimits = getCategoryLimits(allLimits);
+  const sortedCategoryLimits = sortLimitsForDashboard(categoryLimits);
+  const displayCategoryLimits = sortedCategoryLimits.slice(0, 2);
+  const currency = generalLimit?.currency ?? displayCategoryLimits[0]?.currency ?? 'ARS';
+  const hasAnyLimits = allLimits.length > 0;
+
+  // Stage 7B.1 (P3) — "Límites de gasto" is a permanent Resumen section:
+  // the title exists whether limits exist or not.
+  if (!hasAnyLimits) {
     return (
-      <AppCard variant="quiet" padding="generous">
+      <FinanceSection
+        title="Límites de gasto"
+        actionLabel={onManage ? 'Administrar' : undefined}
+        onAction={onManage}
+        actionAccessibilityLabel="Administrar límites de gasto"
+      >
         <View style={styles.emptyState}>
-          <AppText variant="body" weight="700" style={styles.emptyTitle}>
-            Todavía no configuraste límites de gasto.
+          <AppText variant="body" tone="secondary" style={styles.emptyText}>
+            No definiste límites de gasto todavía.
+          </AppText>
+          <AppText variant="caption" tone="secondary" style={styles.emptySubtext}>
+            Usalos para tener una referencia de cuánto querés gastar, sin bloquear tus movimientos.
           </AppText>
         </View>
-      </AppCard>
+      </FinanceSection>
     );
   }
 
-  const sortedLimits = sortLimitsForDashboard(progress);
-  const displayLimits = sortedLimits.slice(0, 3);
-
-  const currency = displayLimits[0]?.currency || 'ARS';
+  const generalTone = generalLimit?.status === 'OVER' ? 'danger' : generalLimit?.status === 'AT' ? 'warning' : 'neutral';
 
   return (
-    <AppCard variant="quiet" padding="generous">
-      <View style={styles.sectionHeader}>
-        <AppText variant="title3" weight="800">
-          Control de gastos
-        </AppText>
-        {onManage && (
-          <InteractivePressable
-            onPress={onManage}
-            haptic="light"
-            pressScale={1}
-            style={styles.manageButton}
-            accessibilityRole="button"
-            accessibilityLabel="Administrar límites de gasto"
-          >
-            <AppText variant="caption" weight="800" tone="primary">
-              Administrar
+    <FinanceSection
+      title="Límites de gasto"
+      actionLabel={onManage ? 'Administrar' : undefined}
+      onAction={onManage}
+      actionAccessibilityLabel="Administrar límites de gasto"
+    >
+      {generalLimit && (
+        <FinanceSemanticSurface tone={generalTone}>
+          <View style={styles.generalProgress}>
+            {generalLimit.status !== 'OVER' ? (
+              <>
+                <View style={styles.generalValues}>
+                  <View style={styles.generalValue}>
+                    <AppText variant="caption" tone="secondary" weight="700">
+                      Gastaste
+                    </AppText>
+                    <AppText variant="title3" weight="800">
+                      {formatFinanceAmount(generalLimit.spent, currency)}
+                    </AppText>
+                  </View>
+                  <View style={styles.generalDivider} />
+                  <View style={styles.generalValue}>
+                    <AppText variant="caption" tone="secondary" weight="700">
+                      de
+                    </AppText>
+                    <AppText variant="title3" weight="800">
+                      {formatFinanceAmount(generalLimit.amount, currency)}
+                    </AppText>
+                  </View>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${Math.min(Number(generalLimit.percentUsed), 100)}%`, backgroundColor: generalLimit.status === 'AT' ? colors.warning.strong : colors.terracotta[600] },
+                    ]}
+                  />
+                </View>
+                <View style={styles.generalRemaining}>
+                  <AppText variant="body" weight="700" tone={generalLimit.status === 'AT' ? 'warning' : 'success'}>
+                    Te quedan {formatFinanceAmount(generalLimit.remaining, currency, { sign: 'none' })}
+                  </AppText>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.generalValues}>
+                  <View style={styles.generalValue}>
+                    <AppText variant="caption" tone="secondary" weight="700">
+                      Gastaste
+                    </AppText>
+                    <AppText variant="title3" weight="800" tone="danger">
+                      {formatFinanceAmount(generalLimit.spent, currency)}
+                    </AppText>
+                  </View>
+                  <View style={styles.generalDivider} />
+                  <View style={styles.generalValue}>
+                    <AppText variant="caption" tone="secondary" weight="700">
+                      Límite
+                    </AppText>
+                    <AppText variant="title3" weight="800">
+                      {formatFinanceAmount(generalLimit.amount, currency)}
+                    </AppText>
+                  </View>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: '100%', backgroundColor: colors.danger.strong },
+                    ]}
+                  />
+                </View>
+                <View style={styles.generalRemaining}>
+                  <AppText variant="body" weight="700" tone="danger">
+                    Superaste el límite por {formatFinanceAmount(generalLimit.overBy, currency, { sign: 'none' })}
+                  </AppText>
+                </View>
+              </>
+            )}
+          </View>
+        </FinanceSemanticSurface>
+      )}
+
+      {displayCategoryLimits.length > 0 && (
+        <View style={styles.categorySection}>
+          {displayCategoryLimits.map((limit) => (
+            <LimitRow key={limit.id} limit={limit} currency={currency} />
+          ))}
+          {categoryLimits.length > 2 && (
+            <AppText variant="caption" tone="tertiary" style={styles.moreText}>
+              +{categoryLimits.length - 2} más
             </AppText>
-            <HomePlusIcon name="chevron-forward-outline" size={14} color={colors.terracotta[600]} />
-          </InteractivePressable>
-        )}
-      </View>
-      <View style={styles.limitsList}>
-        {displayLimits.map((limit) => (
-          <LimitRow key={limit.id} limit={limit} currency={currency} />
-        ))}
-      </View>
-    </AppCard>
+          )}
+        </View>
+      )}
+    </FinanceSection>
   );
 }
 
-const styles = StyleSheet.create({
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing[3],
-  },
-  limitsList: {
-    gap: spacing[3],
-  },
-  limitRow: {
-    gap: spacing[2],
-  },
-  limitHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  limitProgress: {
-    gap: spacing[2],
-  },
-  limitValues: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  progressTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.border.default,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  overText: {
-    marginTop: spacing[1],
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: spacing[2],
-  },
-  emptyTitle: {
-    textAlign: 'center',
-    color: colors.text.secondary,
-  },
-  errorText: {
-    marginTop: spacing[2],
-  },
-  manageButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[1],
-  },
-});
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
+    loadingBlock: {
+      gap: spacing[3],
+      paddingVertical: spacing[2],
+    },
+    warningState: {
+      borderRadius: radius.lg,
+      backgroundColor: colors.warning.soft,
+      padding: spacing[3],
+    },
+    generalProgress: {
+      gap: spacing[2],
+    },
+    generalValues: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'center',
+      gap: spacing[3],
+    },
+    generalValue: {
+      flex: 1,
+      alignItems: 'center',
+      gap: spacing[1],
+    },
+    generalDivider: {
+      width: 1,
+      height: 28,
+      backgroundColor: colors.border.subtle,
+    },
+    progressTrack: {
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.border.default,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      borderRadius: 3,
+    },
+    generalRemaining: {
+      paddingTop: spacing[1],
+      textAlign: 'center',
+    },
+    categorySection: {
+      gap: spacing[3],
+    },
+    limitsList: {
+      gap: spacing[3],
+    },
+    limitRow: {
+      gap: spacing[2],
+    },
+    limitHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    limitProgress: {
+      gap: spacing[2],
+    },
+    limitValues: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    overText: {
+      marginTop: spacing[1],
+    },
+    errorText: {
+      marginTop: spacing[2],
+    },
+    retryButton: {
+      alignSelf: 'flex-start',
+      marginTop: spacing[3],
+    },
+    emptyState: {
+      alignItems: 'center',
+      gap: spacing[1],
+      paddingVertical: spacing[3],
+    },
+    emptyText: {
+      textAlign: 'center',
+    },
+    emptySubtext: {
+      textAlign: 'center',
+    },
+    moreText: {
+      textAlign: 'center',
+      marginTop: spacing[1],
+    },
+  });
+}

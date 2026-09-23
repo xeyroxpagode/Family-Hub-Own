@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+﻿import { Platform } from 'react-native';
 
 export const palette = {
   brand: '#E7643F',
@@ -121,15 +121,41 @@ export const colors = {
   },
 } as const;
 
+type WidenTokenValues<T> = {
+  readonly [K in keyof T]: T[K] extends string
+    ? string
+    : T[K] extends number
+      ? number
+      : WidenTokenValues<T[K]>;
+};
+
+export type ColorTokens = WidenTokenValues<typeof colors>;
+
 export const darkColors = {
+  brand: '#DFA98F',
+  brandPressed: '#D18662',
+  brandSoft: 'rgba(201,107,69,0.18)',
+  canvas: '#1A1816',
+  ink: '#F7F5F2',
+  ink2: '#DFDAD3',
+  ink3: '#B8B1AA',
+  ink4: '#9E9B96',
+  ink5: 'rgba(247,245,242,0.34)',
   background: {
     base: '#1A1816',
+    soft: '#25221F',
     alt: '#25221F',
+    cream: 'rgba(201,107,69,0.18)',
   },
   surface: {
     card: '#2A2622',
+    soft: '#25221F',
     elevated: '#312D29',
+    raised: '#312D29',
+    muted: '#25221F',
+    glass: 'rgba(42,38,34,0.86)',
     overlay: 'rgba(0,0,0,0.65)',
+    overlayStrong: 'rgba(0,0,0,0.82)',
   },
   text: {
     primary: '#F7F5F2',
@@ -137,21 +163,87 @@ export const darkColors = {
     tertiary: '#B8B1AA',
     muted: '#9E9B96',
     inverse: palette.ink,
+    disabled: 'rgba(247,245,242,0.38)',
+  },
+  terracotta: {
+    50: 'rgba(201,107,69,0.18)',
+    100: 'rgba(201,107,69,0.28)',
+    300: '#DFA98F',
+    400: '#D18662',
+    500: '#DFA98F',
+    600: '#D18662',
+    700: '#F0C6B1',
+  },
+  sage: {
+    50: 'rgba(45,122,81,0.18)',
+    100: 'rgba(45,122,81,0.28)',
+    300: '#9EC5AE',
+    400: '#6FA381',
+    500: '#6FA381',
+    600: '#9EC5AE',
+    700: '#D8E8DE',
+  },
+  sand: {
+    50: 'rgba(181,122,26,0.18)',
+    100: 'rgba(181,122,26,0.30)',
+    300: '#D7B66B',
+    400: '#C6963A',
+    500: '#D7B66B',
+    600: '#E7CB86',
+  },
+  warning: {
+    base: '#D7B66B',
+    soft: 'rgba(181,122,26,0.18)',
+    text: '#E7CB86',
+    strong: '#F3DFB9',
+  },
+  danger: {
+    base: '#E06E66',
+    soft: 'rgba(194,58,48,0.18)',
+    text: '#F2AAA5',
+    strong: '#F2AAA5',
+  },
+  success: {
+    base: '#6FA381',
+    soft: 'rgba(45,122,81,0.18)',
+    text: '#BFE1CB',
+    strong: '#D8E8DE',
+  },
+  info: {
+    base: '#76B7DD',
+    soft: 'rgba(26,111,168,0.18)',
+    text: '#B7D9EF',
   },
   border: {
+    subtle: 'rgba(247,245,242,0.08)',
     default: 'rgba(247,245,242,0.12)',
     strong: 'rgba(247,245,242,0.22)',
+    seniorStrong: 'rgba(247,245,242,0.30)',
   },
-} as const;
+  shadow: {
+    soft: 'rgba(0,0,0,0.24)',
+    default: 'rgba(0,0,0,0.32)',
+    floating: 'rgba(0,0,0,0.42)',
+  },
+} as const satisfies ColorTokens;
 
 const fontSans = Platform.select({
-  ios: 'System',
-  android: 'sans-serif',
-  default: 'system-ui',
+  ios: 'DMSans_500Medium',
+  android: 'DMSans_500Medium',
+  default: 'DMSans_500Medium',
 });
 
-const fontSansSemiBold = fontSans;
-const fontSerif = fontSans;
+const fontSansSemiBold = Platform.select({
+  ios: 'DMSans_600SemiBold',
+  android: 'DMSans_600SemiBold',
+  default: 'DMSans_600SemiBold',
+});
+
+const fontSerif = Platform.select({
+  ios: 'DMSerifDisplay_400Regular',
+  android: 'DMSerifDisplay_400Regular',
+  default: 'DMSerifDisplay_400Regular',
+});
 
 const systemMono = Platform.select({
   ios: 'Menlo',
@@ -290,6 +382,8 @@ export const borders = {
   },
 } as const;
 
+export type BorderTokens = WidenTokenValues<typeof borders>;
+
 const shadowColor = palette.ink;
 
 export const shadows = {
@@ -299,54 +393,114 @@ export const shadows = {
   },
   shadow1: {
     shadowColor,
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
+    shadowOpacity: 0.07,
+    shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
-    elevation: 0,
+    elevation: 1,
   },
   shadow2: {
     shadowColor,
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   shadow3: {
     shadowColor,
-    shadowOpacity: 0.09,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 3,
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
   card: {
     shadowColor,
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
+    shadowOpacity: 0.07,
+    shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
-    elevation: 0,
+    elevation: 1,
   },
   elevated: {
     shadowColor,
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   floating: {
     shadowColor,
-    shadowOpacity: 0.09,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 3,
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
   sheet: {
     shadowColor,
-    shadowOpacity: 0.10,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 4,
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: -8 },
+    elevation: 12,
   },
 } as const;
+
+export type ShadowTokens = WidenTokenValues<typeof shadows>;
+
+const darkShadowColor = '#000000';
+
+export const darkShadows = {
+  none: {
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  shadow1: {
+    shadowColor: darkShadowColor,
+    shadowOpacity: 0.24,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  shadow2: {
+    shadowColor: darkShadowColor,
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  shadow3: {
+    shadowColor: darkShadowColor,
+    shadowOpacity: 0.36,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  card: {
+    shadowColor: darkShadowColor,
+    shadowOpacity: 0.24,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  elevated: {
+    shadowColor: darkShadowColor,
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  floating: {
+    shadowColor: darkShadowColor,
+    shadowOpacity: 0.36,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  sheet: {
+    shadowColor: darkShadowColor,
+    shadowOpacity: 0.42,
+    shadowRadius: 26,
+    shadowOffset: { width: 0, height: -8 },
+    elevation: 12,
+  },
+} as const satisfies ShadowTokens;
 
 export const componentSizes = {
   primaryButtonHeight: 52,
@@ -354,8 +508,8 @@ export const componentSizes = {
   textFieldHeight: 50,
   searchFieldHeight: 52,
   filterChipHeight: 36,
-  bottomNavHeight: 76,
-  bottomNavActiveItem: 40,
+  bottomNavHeight: 68,
+  bottomNavActiveItem: 44,
   fab: 56,
   toggleWidth: 51,
   toggleHeight: 31,
@@ -429,6 +583,7 @@ export const theme = {
   radius,
   borders,
   shadows,
+  darkShadows,
   componentSizes,
   iconSizes,
   glass,
@@ -437,8 +592,27 @@ export const theme = {
 } as const;
 
 export type AppTheme = typeof theme;
-export type ColorTokens = typeof colors;
 export type TypographyVariant = keyof typeof typography;
 export type RadiusToken = keyof typeof radius;
 export type SpacingToken = keyof typeof spacing;
 export type ShadowToken = keyof typeof shadows;
+export type ThemePreference = 'system' | 'light' | 'dark';
+export type ResolvedColorScheme = 'light' | 'dark';
+export type AppResolvedTheme = {
+  mode: ThemePreference;
+  preference: ThemePreference;
+  resolvedScheme: ResolvedColorScheme;
+  colors: ColorTokens;
+  typography: typeof typography;
+  seniorTypography: typeof seniorTypography;
+  spacing: typeof spacing;
+  radius: typeof radius;
+  borders: BorderTokens;
+  shadows: ShadowTokens;
+  elevation: ShadowTokens;
+  componentSizes: typeof componentSizes;
+  iconSizes: typeof iconSizes;
+  glass: typeof glass;
+  motion: typeof motion;
+  touchTargets: typeof touchTargets;
+};

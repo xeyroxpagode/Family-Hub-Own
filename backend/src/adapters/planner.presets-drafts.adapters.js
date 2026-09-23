@@ -21,6 +21,9 @@ const FORBIDDEN_TASK_PRESET_FIELDS = new Set([
   'due_date',
   'dueTime',
   'due_time',
+  'time',
+  'goal_id',
+  'plan_id',
   'assignee',
   'assignees',
   'assigned_to_member_id',
@@ -196,9 +199,41 @@ const taskAdapter = createAdapter({
   requiredField: 'title',
   presetForbidden: FORBIDDEN_TASK_PRESET_FIELDS,
   draftForbidden: FORBIDDEN_DRAFT_FIELDS,
-  normalize(payload) {
-    const normalized = normalizeTextFields(payload, ['title', 'instructions', 'category']);
+  normalize(payload, kind) {
+    const normalized = normalizeTextFields(payload, ['title', 'instructions', 'note', 'category', 'template_key']);
     if (!isPlainObject(normalized.visual ?? {})) normalized.visual = {};
+    // P2.2A: canonical Task preset stable fields (payload v2, additive).
+    if (normalized.priority !== undefined) {
+      const priority = normalizeString(normalized.priority);
+      normalized.priority = ['low', 'normal', 'high'].includes(priority) ? priority : undefined;
+    }
+    if (normalized.estimated_duration_minutes !== undefined) {
+      const duration = Number(normalized.estimated_duration_minutes);
+      if (!Number.isFinite(duration) || duration <= 0) {
+        normalized.estimated_duration_minutes = undefined;
+      } else {
+        normalized.estimated_duration_minutes = Math.floor(duration);
+      }
+    }
+    if (normalized.requires_verification !== undefined) {
+      normalized.requires_verification = Boolean(normalized.requires_verification);
+    }
+    if (normalized.requires_evidence !== undefined) {
+      normalized.requires_evidence = Boolean(normalized.requires_evidence);
+    }
+    if (normalized.checklist !== undefined || kind === 'preset') {
+      // Checklist template stores labels/order only (contract §23):
+      // completion state never survives to storage.
+      const items = Array.isArray(normalized.checklist) ? normalized.checklist : [];
+      const template = [];
+      for (const item of items) {
+        const rawText = isPlainObject(item) ? item.text : item;
+        const text = normalizeString(rawText);
+        if (!text) continue;
+        template.push({ text });
+      }
+      normalized.checklist = template;
+    }
     return normalized;
   },
 });

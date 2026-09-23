@@ -1,42 +1,41 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { StyleSheet, View, ScrollView, RefreshControl } from 'react-native';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import {
   AppScreen,
-  AppCard,
   AppText,
-  AppButton,
   Skeleton,
   ErrorState,
-  EmptyState,
-  InteractivePressable,
 } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { AbortError, ApiError } from '../../services/api';
 import { formatFinanceAmount, isZeroDecimalString } from '../../services/finance/financeDisplay';
 import {
   FINANCE_CONTEXT_TYPES,
-  type FinanceContextType,
 } from '../../services/finance/financeContext';
 import {
   getFinanceAnalysis,
+  type FinanceAnalysisChangeDto,
   type FinanceAnalysisResponse,
-  type FinanceAnalysisPeriodType,
 } from '../../services/finance/financeAnalysis';
-import { shiftFinanceMonth, formatFinancePeriodLabel, financeMonthFromLocalDate } from '../../services/finance/financePeriod';
-import { FinanceAnalysisHighlights } from '../../components/finance/FinanceAnalysisHighlights';
+import { shiftFinanceMonth, formatFinancePeriodLabel } from '../../services/finance/financePeriod';
+import {
+  FinanceSegmented,
+  FinanceIconAction,
+  FinancePeriodNavigator,
+  FinanceListRow,
+  FinanceIconBox,
+  FinanceSection,
+  FinanceEmptyState,
+  financeSpacing,
+} from '../../components/finance/ui';
 
-type FinanceAnalysisDetailRouteParams = {
-  contextType: FinanceContextType;
-  currency: string;
-  periodType: FinanceAnalysisPeriodType;
-  period: string;
-};
+type AnalysisTab = 'expenses' | 'income' | 'evolution';
 
 type FinanceAnalysisDetailScreenRouteProp = RouteProp<import('../../navigation/types').MoreStackParamList, 'FinanceAnalysisDetail'>;
 
@@ -45,103 +44,241 @@ function safeFinanceReadError(error: unknown): string {
   return 'No pudimos cargar el análisis. Intenta de nuevo.';
 }
 
-function formatPercent(value: string | null): string {
-  if (!value) return '—';
-  const num = Number(value);
-  if (!isFinite(num)) return '—';
-  return `${num.toFixed(1)}%`;
+function AnalysisCategoryRow({
+  iconKey,
+  iconColor,
+  label,
+  amountText,
+  percentText,
+  percentValue,
+  barColor,
+  divider,
+}: {
+  iconKey: string;
+  iconColor: string;
+  label: string;
+  amountText: string;
+  percentText: string;
+  percentValue: number;
+  barColor: string;
+  divider: boolean;
+}) {
+  const theme = useAppTheme();
+  const { colors, radius } = theme;
+  const barWidth = Math.min(Math.max(percentValue, 0), 100);
+  return (
+    <FinanceListRow
+      title={label}
+      subtitle={percentText}
+      icon={
+        <FinanceIconBox>
+          <HomePlusIcon name={iconKey as any} size={20} color={iconColor} />
+        </FinanceIconBox>
+      }
+      divider={divider}
+      value={
+        <View style={{ alignItems: 'flex-end', flexShrink: 1, minWidth: 0, gap: 4 }}>
+          <AppText variant="bodySmall" weight="700" numberOfLines={1} ellipsizeMode="tail" style={{ textAlign: 'right' }}>
+            {amountText}
+          </AppText>
+          <View
+            style={{
+              width: 72,
+              height: 4,
+              borderRadius: radius.sm,
+              backgroundColor: colors.border.default,
+              overflow: 'hidden',
+            }}
+          >
+            <View style={{ width: `${barWidth}%`, height: '100%', borderRadius: radius.sm, backgroundColor: barColor }} />
+          </View>
+        </View>
+      }
+    />
+  );
 }
 
-function CategoryBreakdownRow({
-  label,
-  amount,
+/** Sign-aware backend percent formatting. Never divides; trusts percentChange DTO. */
+function formatSignedPercent(percentChange: string | null): string {
+  if (percentChange == null) return '';
+  const num = Number(percentChange);
+  const sign = num > 0 ? '+' : '';
+  return `${sign}${num.toFixed(0)}%`;
+}
+
+function comparisonDeltaCopy(
+  change: FinanceAnalysisChangeDto,
+  currency: string,
+  previousMonthLower: string,
+): string {
+  if (isZeroDecimalString(change.delta)) return 'Sin cambios';
+  if (change.percentChange != null && !isZeroDecimalString(change.previous)) {
+    const num = Number(change.percentChange);
+    const sign = num > 0 ? '+' : '';
+    return `${sign}${num.toFixed(1)}% vs mes anterior`;
+  }
+  return `${formatFinanceAmount(change.delta, currency, { sign: 'none' })} más que ${previousMonthLower}`;
+}
+
+function PeriodComparisonBlock({
+  title,
+  change,
   currency,
-  percent,
-  tone = 'danger',
+  period,
+  previousPeriod,
+  barColor,
+  increaseTone,
+  decreaseTone,
 }: {
-  label: string;
-  amount: string;
+  title: string;
+  change: FinanceAnalysisChangeDto;
   currency: string;
-  percent: string;
-  tone?: 'danger' | 'success';
+  period: string;
+  previousPeriod: string;
+  barColor: string;
+  increaseTone: 'success' | 'danger';
+  decreaseTone: 'success' | 'danger';
 }) {
-  const barWidth = Math.min(Math.max(Number(percent.replace('%', '')), 0), 100);
+  const theme = useAppTheme();
+  const { colors, radius } = theme;
+  const styles = comparisonStyles(theme);
+
+  const currentLabel = formatFinancePeriodLabel(period);
+  const previousLabel = previousPeriod ? formatFinancePeriodLabel(previousPeriod) : 'Período anterior';
+  const previousMonthLower = previousPeriod
+    ? formatFinancePeriodLabel(previousPeriod).split(' ')[0]?.toLowerCase() || 'mes anterior'
+    : 'mes anterior';
+
+  const currentValue = Number(change.current);
+  const previousValue = Number(change.previous);
+  const maxValue = Math.max(currentValue, previousValue, 0);
+  const currentWidth = maxValue > 0 ? (Math.max(currentValue, 0) / maxValue) * 100 : 0;
+  const previousWidth = maxValue > 0 ? (Math.max(previousValue, 0) / maxValue) * 100 : 0;
+
+  const deltaCopy = comparisonDeltaCopy(change, currency, previousMonthLower);
+  const deltaTone = isZeroDecimalString(change.delta)
+    ? 'secondary'
+    : Number(change.delta) >= 0
+      ? increaseTone
+      : decreaseTone;
+
   return (
-    <View style={styles.categoryRow}>
-      <View style={[styles.categoryLeft, { flex: 1, minWidth: 0 }]}>
-        <AppText variant="body" weight="700" numberOfLines={1} style={styles.categoryLabel}>
-          {label}
-        </AppText>
-        <View style={styles.barTrack}>
-          <View
-            style={[
-              styles.barFill,
-              { width: `${barWidth}%`, backgroundColor: tone === 'danger' ? colors.danger.strong : colors.success.strong },
-            ]}
-          />
+    <View style={styles.block}>
+      <AppText variant="bodySmall" tone="secondary" weight="700">
+        {title}
+      </AppText>
+      <View style={styles.row}>
+        <View style={styles.rowHeader}>
+          <AppText variant="caption" tone="secondary" weight="700" numberOfLines={1} style={styles.monthLabel}>
+            {previousLabel}
+          </AppText>
+          <AppText variant="bodySmall" weight="700" numberOfLines={1} ellipsizeMode="tail" style={styles.rowAmount}>
+            {formatFinanceAmount(change.previous, currency, { sign: 'none' })}
+          </AppText>
+        </View>
+        <View style={[styles.track, { borderRadius: radius.sm, backgroundColor: colors.border.default }]}>
+          <View style={{ width: `${previousWidth}%`, height: '100%', borderRadius: radius.sm, backgroundColor: barColor, opacity: 0.55 }} />
         </View>
       </View>
-      <View style={[styles.categoryRight, { flexShrink: 0, marginLeft: spacing[3] }]}>
-        <AppText variant="body" tone={tone} weight="800" numberOfLines={1} style={styles.categoryAmount}>
-          {formatFinanceAmount(amount, currency, { sign: 'none' })}
-        </AppText>
-        <AppText variant="caption" tone="tertiary" numberOfLines={1} style={styles.categoryPercent}>
-          {percent}
-        </AppText>
+      <View style={styles.row}>
+        <View style={styles.rowHeader}>
+          <AppText variant="caption" tone="secondary" weight="700" numberOfLines={1} style={styles.monthLabel}>
+            {currentLabel}
+          </AppText>
+          <AppText variant="bodySmall" weight="700" numberOfLines={1} ellipsizeMode="tail" style={styles.rowAmount}>
+            {formatFinanceAmount(change.current, currency, { sign: 'none' })}
+          </AppText>
+        </View>
+        <View style={[styles.track, { borderRadius: radius.sm, backgroundColor: colors.border.default }]}>
+          <View style={{ width: `${currentWidth}%`, height: '100%', borderRadius: radius.sm, backgroundColor: barColor }} />
+        </View>
       </View>
-    </View>
-  );
-}
-
-function IncomeCategoryRow({
-  label,
-  amount,
-  currency,
-}: {
-  label: string;
-  amount: string;
-  currency: string;
-}) {
-  return (
-    <View style={styles.incomeCategoryRow}>
-      <View style={[styles.categoryLeft, { flex: 1, minWidth: 0 }]}>
-        <AppText variant="body" weight="700" numberOfLines={1} style={styles.categoryLabel}>
-          {label}
-        </AppText>
-      </View>
-      <AppText variant="body" tone="success" weight="800" numberOfLines={1} style={styles.categoryAmount}>
-        {formatFinanceAmount(amount, currency, { sign: 'none' })}
+      <AppText variant="caption" tone={deltaTone} weight="700">
+        {deltaCopy}
       </AppText>
     </View>
   );
 }
 
-function SummaryCard({
-  label,
-  value,
-  currency,
-  tone = 'primary',
-  sign: signMode = 'none',
-}: {
-  label: string;
-  value: string;
-  currency: string;
-  tone?: 'primary' | 'danger' | 'success';
-  sign?: 'none' | 'net';
-}) {
-  return (
-    <View style={styles.summaryCard}>
-      <AppText variant="caption" tone="secondary" weight="700">
-        {label}
-      </AppText>
-      <AppText variant="title2" tone={tone} weight="800" numberOfLines={1}>
-        {formatFinanceAmount(value, currency, { sign: signMode })}
-      </AppText>
-    </View>
-  );
+function comparisonStyles(theme: ReturnType<typeof useAppTheme>) {
+  return StyleSheet.create({
+    block: {
+      gap: financeSpacing.contentActionGap,
+    },
+    row: {
+      gap: 4,
+    },
+    rowHeader: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+      gap: theme.spacing[3],
+    },
+    monthLabel: {
+      flex: 1,
+    },
+    rowAmount: {
+      flexShrink: 1,
+      textAlign: 'right',
+    },
+    track: {
+      height: 6,
+      overflow: 'hidden',
+    },
+  });
+}
+
+function getCategoryPresentation(label: string, colors: ReturnType<typeof useAppTheme>['colors']) {
+  const slug = label
+    .trim()
+    .toLocaleLowerCase('es-AR')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  const LABEL_PRESENTATION: Record<string, { iconKey: string; tone: string }> = {
+    alimentacion: { iconKey: 'restaurant-outline', tone: 'terracotta' },
+    vivienda: { iconKey: 'home-outline', tone: 'sand' },
+    servicios_y_facturas: { iconKey: 'receipt-outline', tone: 'info' },
+    transporte: { iconKey: 'car-outline', tone: 'info' },
+    salud: { iconKey: 'medkit-outline', tone: 'sage' },
+    educacion: { iconKey: 'school-outline', tone: 'sand' },
+    compras: { iconKey: 'bag-outline', tone: 'terracotta' },
+    ocio: { iconKey: 'ticket-outline', tone: 'terracotta' },
+    suscripciones: { iconKey: 'repeat-outline', tone: 'info' },
+    mascotas: { iconKey: 'paw-outline', tone: 'sand' },
+    impuestos_y_tasas: { iconKey: 'document-text-outline', tone: 'sand' },
+    comisiones_e_intereses: { iconKey: 'card-outline', tone: 'info' },
+    sueldo: { iconKey: 'briefcase-outline', tone: 'sage' },
+    trabajo_independiente: { iconKey: 'hammer-outline', tone: 'sage' },
+    ventas: { iconKey: 'storefront-outline', tone: 'sage' },
+    rendimientos: { iconKey: 'trending-up-outline', tone: 'sage' },
+    sin_categoria: { iconKey: 'help-circle-outline', tone: 'neutral' },
+    sin_categoría: { iconKey: 'help-circle-outline', tone: 'neutral' },
+  };
+
+  const matched = LABEL_PRESENTATION[slug];
+  const iconKey = matched?.iconKey ?? 'pricetag-outline';
+  const tone = matched?.tone ?? 'neutral';
+
+  const getToneColor = (t: string) => {
+    switch (t) {
+      case 'terracotta': return colors.terracotta[600];
+      case 'sage': return colors.sage[600];
+      case 'sand': return colors.sand[600];
+      case 'info': return colors.info.text;
+      default: return colors.text.tertiary;
+    }
+  };
+
+  return { iconKey, iconColor: getToneColor(tone) };
 }
 
 export function FinanceAnalysisDetailScreen() {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const navigation = useNavigation<any>();
   const route = useRoute<FinanceAnalysisDetailScreenRouteProp>();
   const { session } = useAuth();
@@ -157,6 +294,7 @@ export function FinanceAnalysisDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedTab, setSelectedTab] = useState<AnalysisTab>('expenses');
 
   const activeHousehold = currentHousehold ? { id: currentHousehold.id, name: currentHousehold.nombre } : null;
   const contextLabel = contextType === FINANCE_CONTEXT_TYPES.PERSONAL ? 'Personal' : activeHousehold?.name ?? 'Hogar';
@@ -166,7 +304,7 @@ export function FinanceAnalysisDetailScreen() {
     (contextType === FINANCE_CONTEXT_TYPES.PERSONAL) || (contextType === FINANCE_CONTEXT_TYPES.HOUSEHOLD && activeHousehold)
   );
 
-  const fetchAnalysis = React.useCallback(async (signal?: AbortSignal, isRefresh = false) => {
+  const fetchAnalysis = useCallback(async (signal?: AbortSignal, isRefresh = false) => {
     if (!readReady || !session?.access_token) return;
     if (!isRefresh) setLoading(true);
     setError(null);
@@ -201,7 +339,7 @@ export function FinanceAnalysisDetailScreen() {
   }, [fetchAnalysis]);
 
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
       const controller = new AbortController();
       fetchAnalysis(controller.signal, true);
       return () => controller.abort();
@@ -235,50 +373,84 @@ export function FinanceAnalysisDetailScreen() {
     }
   };
 
-  const switchPeriodType = () => {
-    if (periodType === 'MONTHLY') {
-      const year = period.split('-')[0];
-      navigation.navigate('FinanceAnalysisDetail', {
-        contextType,
-        currency,
-        periodType: 'YEARLY',
-        period: year,
-      });
-    } else {
-      const currentMonth = financeMonthFromLocalDate();
-      navigation.navigate('FinanceAnalysisDetail', {
-        contextType,
-        currency,
-        periodType: 'MONTHLY',
-        period: currentMonth,
-      });
-    }
+  const { totals, categoryExpenses, categoryIncome, comparison, rankings } = analysis ?? {
+    totals: { netExpense: '0', income: '0', netResult: '0', grossExpense: '0', refundedAmount: '0', totalRefunded: '0' },
+    categoryExpenses: [],
+    categoryIncome: [],
+    comparison: { previousPeriod: '', netExpense: { current: '0', previous: '0', delta: '0', percentChange: null, comparisonKind: 'NONE' }, income: { current: '0', previous: '0', delta: '0', percentChange: null, comparisonKind: 'NONE' }, netResult: { current: '0', previous: '0', delta: '0', percentChange: null, comparisonKind: 'NONE' } },
+    rankings: { topExpenseCategories: [], largestCategoryIncrease: null, largestCategoryDecrease: null, newExpenseCategories: [] },
   };
+
+  const netExpense = totals.netExpense;
+  const income = totals.income;
+
+  const filteredExpenses = useMemo(() =>
+    categoryExpenses
+      .filter((cat) => !isZeroDecimalString(cat.netExpense) && Number(cat.netExpense) > 0)
+      .sort((a, b) => Number(b.netExpense) - Number(a.netExpense)),
+    [categoryExpenses]
+  );
+
+  const filteredIncome = useMemo(() =>
+    categoryIncome
+      .filter((cat) => !isZeroDecimalString(cat.income) && Number(cat.income) > 0)
+      .sort((a, b) => Number(b.income) - Number(a.income)),
+    [categoryIncome]
+  );
+
+  const expenseRows = useMemo(() => {
+    const total = Number(netExpense);
+    return filteredExpenses.map((cat, index) => {
+      const amount = Number(cat.netExpense);
+      const percentValue = total > 0 ? (amount / total) * 100 : 0;
+      const presentation = getCategoryPresentation(cat.label, colors);
+      return {
+        ...cat,
+        ...presentation,
+        percent: `${percentValue.toFixed(1)}%`,
+        percentValue,
+        isLast: index === filteredExpenses.length - 1,
+      };
+    });
+  }, [filteredExpenses, netExpense, colors]);
+
+  const incomeRows = useMemo(() => {
+    const total = Number(income);
+    return filteredIncome.map((cat, index) => {
+      const amount = Number(cat.income);
+      const percentValue = total > 0 ? (amount / total) * 100 : 0;
+      const presentation = getCategoryPresentation(cat.label, colors);
+      return {
+        ...cat,
+        ...presentation,
+        percent: `${percentValue.toFixed(1)}%`,
+        percentValue,
+        isLast: index === filteredIncome.length - 1,
+      };
+    });
+  }, [filteredIncome, income, colors]);
 
   if (loading && !analysis) {
     return (
       <AppScreen style={styles.screen} background="base">
         <View style={styles.header}>
-          <InteractivePressable
+          <FinanceIconAction
             onPress={() => navigation.goBack()}
             haptic="light"
-            pressScale={motion.scale.icon}
-            style={styles.backButton}
             accessibilityRole="button"
             accessibilityLabel="Volver"
-            hitSlop={8}
           >
             <HomePlusIcon name="chevron-back-outline" size={22} color={colors.text.primary} />
-          </InteractivePressable>
+          </FinanceIconAction>
           <AppText variant="title1" style={styles.headerTitle}>
             Análisis
           </AppText>
-          <View style={{ width: touchTargets.normal }} />
+          <View style={{ width: theme.touchTargets.normal }} />
         </View>
         <ScrollView contentContainerStyle={styles.loadingContent}>
+          <Skeleton style={styles.skeletonCard} width="100%" height={120} />
           <Skeleton style={styles.skeletonCard} width="100%" height={200} />
-          <Skeleton style={styles.skeletonCard} width="100%" height={300} />
-          <Skeleton style={styles.skeletonCard} width="100%" height={200} />
+          <Skeleton style={styles.skeletonCard} width="100%" height={120} />
         </ScrollView>
       </AppScreen>
     );
@@ -288,21 +460,18 @@ export function FinanceAnalysisDetailScreen() {
     return (
       <AppScreen style={styles.screen} background="base">
         <View style={styles.header}>
-          <InteractivePressable
+          <FinanceIconAction
             onPress={() => navigation.goBack()}
             haptic="light"
-            pressScale={motion.scale.icon}
-            style={styles.backButton}
             accessibilityRole="button"
             accessibilityLabel="Volver"
-            hitSlop={8}
           >
             <HomePlusIcon name="chevron-back-outline" size={22} color={colors.text.primary} />
-          </InteractivePressable>
+          </FinanceIconAction>
           <AppText variant="title1" style={styles.headerTitle}>
             Análisis
           </AppText>
-          <View style={{ width: touchTargets.normal }} />
+          <View style={{ width: theme.touchTargets.normal }} />
         </View>
         <ErrorState
           title="No pudimos cargar el análisis"
@@ -318,43 +487,23 @@ export function FinanceAnalysisDetailScreen() {
     return (
       <AppScreen style={styles.screen} background="base">
         <View style={styles.header}>
-          <InteractivePressable
+          <FinanceIconAction
             onPress={() => navigation.goBack()}
             haptic="light"
-            pressScale={motion.scale.icon}
-            style={styles.backButton}
             accessibilityRole="button"
             accessibilityLabel="Volver"
-            hitSlop={8}
           >
             <HomePlusIcon name="chevron-back-outline" size={22} color={colors.text.primary} />
-          </InteractivePressable>
+          </FinanceIconAction>
           <AppText variant="title1" style={styles.headerTitle}>
             Análisis
           </AppText>
-          <View style={{ width: touchTargets.normal }} />
+          <View style={{ width: theme.touchTargets.normal }} />
         </View>
-        <EmptyState
-          title="Sin datos de análisis"
-          description="No hay información disponible para este período."
-          illustration={<HomePlusIcon name="pie-chart-outline" size={30} color={colors.terracotta[600]} />}
-          style={styles.emptyContainer}
-        />
+        <FinanceEmptyState level="inline" description="No hay información disponible para este período." />
       </AppScreen>
     );
   }
-
-  const { totals, categoryExpenses, categoryIncome, rankings } = analysis;
-  const hasExpense = categoryExpenses.length > 0;
-  const hasIncome = categoryIncome.length > 0;
-
-  const netExpense = totals.netExpense;
-  const income = totals.income;
-  const netResult = totals.netResult;
-  const grossExpense = totals.grossExpense;
-  const refundedAmount = totals.refundedAmount;
-
-  const netExpenseTone = isZeroDecimalString(netResult) ? 'primary' : netResult.startsWith('-') ? 'danger' : 'success';
 
   return (
     <AppScreen
@@ -366,331 +515,238 @@ export function FinanceAnalysisDetailScreen() {
       }}
     >
       <View style={styles.header}>
-        <InteractivePressable
+        <FinanceIconAction
           onPress={() => navigation.goBack()}
           haptic="light"
-          pressScale={motion.scale.icon}
-          style={styles.backButton}
           accessibilityRole="button"
           accessibilityLabel="Volver"
-          hitSlop={8}
         >
           <HomePlusIcon name="chevron-back-outline" size={22} color={colors.text.primary} />
-        </InteractivePressable>
+        </FinanceIconAction>
         <AppText variant="title1" style={styles.headerTitle}>
           Análisis
         </AppText>
-        <View style={{ width: touchTargets.normal }} />
+        <View style={{ width: theme.touchTargets.normal }} />
       </View>
 
-      <View style={styles.contextBar}>
-        <View style={styles.contextInfo}>
-          <AppText variant="caption" tone="secondary" weight="700">
-            {contextLabel} · {currency}
-          </AppText>
-        </View>
-        <View style={styles.periodControl}>
-          <InteractivePressable
-            onPress={() => movePeriod('previous')}
-            haptic="light"
-            pressScale={motion.scale.icon}
-            style={styles.periodButton}
-            accessibilityRole="button"
-            accessibilityLabel={periodType === 'MONTHLY' ? 'Mes anterior' : 'Año anterior'}
-            disabled={!readReady}
-          >
-            <HomePlusIcon name="chevron-back-outline" size={20} color={readReady ? colors.text.secondary : colors.text.tertiary} />
-          </InteractivePressable>
-          <AppText variant="bodySmall" weight="800" style={styles.periodLabel} numberOfLines={1}>
-            {periodLabel}
-          </AppText>
-          <InteractivePressable
-            onPress={() => movePeriod('next')}
-            haptic="light"
-            pressScale={motion.scale.icon}
-            style={styles.periodButton}
-            accessibilityRole="button"
-            accessibilityLabel={periodType === 'MONTHLY' ? 'Mes siguiente' : 'Año siguiente'}
-            disabled={!readReady}
-          >
-            <HomePlusIcon name="chevron-forward-outline" size={20} color={readReady ? colors.text.secondary : colors.text.tertiary} />
-          </InteractivePressable>
-        </View>
-        <InteractivePressable
-          onPress={switchPeriodType}
-          haptic="light"
-          pressScale={motion.scale.card}
-          style={styles.periodTypeButton}
-          accessibilityRole="button"
-          accessibilityLabel={periodType === 'MONTHLY' ? 'Cambiar a vista anual' : 'Cambiar a vista mensual'}
+      <View style={styles.contextBlock}>
+        <AppText variant="caption" tone="secondary" weight="700">
+          {contextLabel} · {currency}
+        </AppText>
+        <FinancePeriodNavigator
+          label={periodLabel}
+          onPrevious={() => movePeriod('previous')}
+          onNext={() => movePeriod('next')}
+          previousAccessibilityLabel={periodType === 'MONTHLY' ? 'Mes anterior' : 'Año anterior'}
+          nextAccessibilityLabel={periodType === 'MONTHLY' ? 'Mes siguiente' : 'Año siguiente'}
           disabled={!readReady}
-        >
-          <AppText variant="caption" weight="800" tone={readReady ? 'primary' : 'tertiary'}>
-            {periodType === 'MONTHLY' ? 'Anual' : 'Mensual'}
-          </AppText>
-        </InteractivePressable>
+        />
       </View>
 
-      <AppCard variant="quiet" padding="generous" style={styles.summarySection}>
-        <View style={styles.summaryCards}>
-          <SummaryCard
-            label="Ingresó"
-            value={income}
-            currency={currency}
-            tone="success"
-          />
-          <SummaryCard
-            label="Gastaste"
-            value={netExpense}
-            currency={currency}
-            tone="danger"
-          />
-          <SummaryCard
-            label="Neto"
-            value={netResult}
-            currency={currency}
-            tone={netExpenseTone}
-            sign="net"
-          />
-        </View>
+      <FinanceSegmented<AnalysisTab>
+        variant="standard"
+        distribution="equal"
+        value={selectedTab}
+        onChange={setSelectedTab}
+        options={[
+          { value: 'expenses', label: 'Gastos' },
+          { value: 'income', label: 'Ingresos' },
+          { value: 'evolution', label: 'Evolución' },
+        ]}
+        style={styles.segmented}
+      />
 
-        {!isZeroDecimalString(grossExpense) && !isZeroDecimalString(refundedAmount) && Number(refundedAmount) > 0 && (
-          <View style={styles.refundNote}>
-            <AppText variant="caption" tone="info" weight="700">
-              Gasto bruto: {formatFinanceAmount(grossExpense, currency, { sign: 'none' })} · Devoluciones: {formatFinanceAmount(refundedAmount, currency, { sign: 'none' })}
+      {selectedTab === 'expenses' && (
+        <View style={styles.content}>
+          <View style={styles.totalRow}>
+            <AppText variant="title3" weight="800" style={styles.totalLabel}>
+              Gastos
+            </AppText>
+            <AppText variant="title2" tone="danger" weight="800" style={styles.totalAmount}>
+              {formatFinanceAmount(netExpense, currency)}
             </AppText>
           </View>
-        )}
-      </AppCard>
 
-      {hasExpense ? (
-        <AppCard variant="quiet" padding="generous" style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <AppText variant="title3" weight="800">
-              Gasto por categoría
-            </AppText>
-          </View>
-          <View style={styles.categoryList}>
-            {categoryExpenses
-              .filter((cat) => !isZeroDecimalString(cat.netExpense) && Number(cat.netExpense) > 0)
-              .map((cat) => (
-                <CategoryBreakdownRow
-                  key={cat.categoryId ?? cat.label}
-                  label={cat.label}
-                  amount={cat.netExpense}
-                  currency={currency}
-                  percent={cat.shareOfNetExpense ? `${Number(cat.shareOfNetExpense).toFixed(1)}%` : '—'}
-                  tone="danger"
-                />
-              ))}
-          </View>
-          {categoryExpenses.filter((cat) => !isZeroDecimalString(cat.netExpense) && Number(cat.netExpense) > 0).length === 0 && (
-            <AppText variant="body" tone="secondary" style={styles.emptyCategoryText}>
-              Todavía no hay gastos en este período.
-            </AppText>
+          {expenseRows.length > 0 ? (
+            <FinanceSection
+              title="Por categoría"
+              divided={false}
+              contentStyle={styles.sectionContent}
+            >
+              <View>
+                {expenseRows.map((row) => (
+                  <AnalysisCategoryRow
+                    key={row.categoryId ?? row.label}
+                    iconKey={row.iconKey}
+                    iconColor={row.iconColor}
+                    label={row.label}
+                    amountText={formatFinanceAmount(row.netExpense, currency, { sign: 'none' })}
+                    percentText={row.percent}
+                    percentValue={row.percentValue}
+                    barColor={colors.terracotta[600]}
+                    divider={!row.isLast}
+                  />
+                ))}
+              </View>
+              {rankings?.largestCategoryIncrease && (
+                <AppText variant="caption" tone="secondary" weight="700">
+                  Mayor aumento: {rankings.largestCategoryIncrease.label} ({formatSignedPercent(rankings.largestCategoryIncrease.percentChange)})
+                </AppText>
+              )}
+              {rankings?.largestCategoryDecrease && (
+                <AppText variant="caption" tone="secondary" weight="700">
+                  Mayor baja: {rankings.largestCategoryDecrease.label} ({formatSignedPercent(rankings.largestCategoryDecrease.percentChange)})
+                </AppText>
+              )}
+            </FinanceSection>
+          ) : (
+            <FinanceEmptyState level="inline" description="Todavía no hay gastos para este período." />
           )}
-        </AppCard>
-      ) : (
-        <AppCard variant="quiet" padding="generous" style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <AppText variant="title3" weight="800">
-              Gasto por categoría
-            </AppText>
-          </View>
-          <AppText variant="body" tone="secondary" style={styles.emptyCategoryText}>
-            Todavía no hay gastos en este período.
-          </AppText>
-        </AppCard>
+        </View>
       )}
 
-      {hasIncome && (
-        <AppCard variant="quiet" padding="generous" style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <AppText variant="title3" weight="800">
+      {selectedTab === 'income' && (
+        <View style={styles.content}>
+          <View style={styles.totalRow}>
+            <AppText variant="title3" weight="800" style={styles.totalLabel}>
               Ingresos
             </AppText>
-          </View>
-          <View style={styles.incomeCategoryList}>
-            {categoryIncome
-              .filter((cat) => !isZeroDecimalString(cat.income) && Number(cat.income) > 0)
-              .map((cat) => (
-                <IncomeCategoryRow
-                  key={cat.categoryId ?? cat.label}
-                  label={cat.label}
-                  amount={cat.income}
-                  currency={currency}
-                />
-              ))}
-          </View>
-          {categoryIncome.filter((cat) => !isZeroDecimalString(cat.income) && Number(cat.income) > 0).length === 0 && (
-            <AppText variant="body" tone="secondary" style={styles.emptyCategoryText}>
-              Sin ingresos categorizados en este período.
+            <AppText variant="title2" tone="success" weight="800" style={styles.totalAmount}>
+              {formatFinanceAmount(income, currency)}
             </AppText>
+          </View>
+
+          {incomeRows.length > 0 ? (
+            <FinanceSection
+              title="Por categoría"
+              divided={false}
+              contentStyle={styles.sectionContent}
+            >
+              <View>
+                {incomeRows.map((row) => (
+                  <AnalysisCategoryRow
+                    key={row.categoryId ?? row.label}
+                    iconKey={row.iconKey}
+                    iconColor={row.iconColor}
+                    label={row.label}
+                    amountText={formatFinanceAmount(row.income, currency, { sign: 'none' })}
+                    percentText={row.percent}
+                    percentValue={row.percentValue}
+                    barColor={colors.success.strong}
+                    divider={!row.isLast}
+                  />
+                ))}
+              </View>
+            </FinanceSection>
+          ) : (
+            <FinanceEmptyState level="inline" description="Todavía no hay ingresos para este período." />
           )}
-        </AppCard>
+        </View>
       )}
 
-      <FinanceAnalysisHighlights
-        analysis={analysis}
-        currency={currency}
-      />
+      {selectedTab === 'evolution' && (
+        <View style={styles.content}>
+          {periodType === 'MONTHLY' ? (
+            <FinanceSection
+              title="Evolución"
+              divided={false}
+              contentStyle={styles.sectionContent}
+            >
+              <PeriodComparisonBlock
+                title="Gastos"
+                change={comparison.netExpense}
+                currency={currency}
+                period={period}
+                previousPeriod={comparison.previousPeriod}
+                barColor={colors.danger.strong}
+                increaseTone="danger"
+                decreaseTone="success"
+              />
+              <PeriodComparisonBlock
+                title="Ingresos"
+                change={comparison.income}
+                currency={currency}
+                period={period}
+                previousPeriod={comparison.previousPeriod}
+                barColor={colors.success.strong}
+                increaseTone="success"
+                decreaseTone="danger"
+              />
+            </FinanceSection>
+          ) : (
+            <FinanceEmptyState level="inline" description="La evolución está disponible solo en vista mensual." />
+          )}
+        </View>
+      )}
     </AppScreen>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[3],
-    paddingBottom: spacing[2],
-  },
-  backButton: {
-    width: touchTargets.normal,
-    height: touchTargets.normal,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-  },
-  contextBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[2],
-    gap: spacing[3],
-  },
-  contextInfo: {
-    flex: 1,
-  },
-  periodControl: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  periodButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  periodLabel: {
-    minWidth: 100,
-    textAlign: 'center',
-  },
-  periodTypeButton: {
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[1],
-    borderRadius: radius.md,
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-  },
-  summarySection: {
-    marginHorizontal: spacing[4],
-    marginTop: spacing[2],
-  },
-  summaryCards: {
-    flexDirection: 'row',
-    gap: spacing[3],
-  },
-  summaryCard: {
-    flex: 1,
-    gap: 2,
-  },
-  refundNote: {
-    marginTop: spacing[3],
-    paddingTop: spacing[3],
-    borderTopWidth: 1,
-    borderTopColor: colors.border.subtle,
-  },
-  sectionCard: {
-    marginHorizontal: spacing[4],
-    marginTop: spacing[3],
-  },
-  sectionHeader: {
-    marginBottom: spacing[3],
-  },
-  categoryList: {
-    gap: spacing[3],
-  },
-  incomeCategoryList: {
-    gap: spacing[2],
-  },
-  categoryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-  },
-  incomeCategoryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing[3],
-  },
-  categoryLeft: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing[1],
-  },
-  categoryRight: {
-    flexDirection: 'column',
-    alignItems: 'flex-end',
-    gap: 1,
-  },
-  categoryLabel: {
-    flex: 1,
-  },
-  categoryAmount: {
-    textAlign: 'right',
-  },
-  categoryPercent: {
-    textAlign: 'right',
-  },
-  barTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.surface.muted,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  emptyCategoryText: {
-    textAlign: 'center',
-    paddingVertical: spacing[2],
-  },
-  loadingContent: {
-    flexGrow: 1,
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[4],
-    gap: spacing[4],
-  },
-  skeletonCard: {
-    borderRadius: radius.xl,
-  },
-  errorContainer: {
-    flex: 1,
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[6],
-  },
-  emptyContainer: {
-    flex: 1,
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[6],
-  },
-});
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[3],
+      paddingHorizontal: spacing[4],
+      paddingTop: spacing[3],
+      paddingBottom: spacing[2],
+    },
+    headerTitle: {
+      flex: 1,
+      textAlign: 'center',
+    },
+    contextBlock: {
+      paddingHorizontal: spacing[4],
+      paddingTop: spacing[1],
+      gap: spacing[1],
+    },
+    segmented: {
+      marginHorizontal: spacing[4],
+      marginTop: spacing[3],
+    },
+    content: {
+      paddingHorizontal: spacing[4],
+      paddingTop: spacing[3],
+      paddingBottom: spacing[6],
+      gap: financeSpacing.sectionGap,
+    },
+    totalRow: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+      gap: spacing[3],
+      paddingBottom: spacing[2],
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border.subtle,
+    },
+    totalLabel: {
+      flex: 1,
+    },
+    totalAmount: {
+      flexShrink: 1,
+      textAlign: 'right',
+    },
+    sectionContent: {
+      gap: financeSpacing.titleContentGap,
+    },
+    loadingContent: {
+      flexGrow: 1,
+      paddingHorizontal: spacing[4],
+      paddingTop: spacing[4],
+      gap: spacing[4],
+    },
+    skeletonCard: {
+      borderRadius: radius.xl,
+    },
+    errorContainer: {
+      flex: 1,
+      paddingHorizontal: spacing[4],
+      paddingTop: spacing[6],
+    },
+  });
+}

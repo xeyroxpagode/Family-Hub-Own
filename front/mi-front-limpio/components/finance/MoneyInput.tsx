@@ -2,7 +2,7 @@ import React, { memo, useMemo, useState } from 'react';
 import { StyleSheet, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets, typography } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { AppText, InteractivePressable } from '../ui';
 import {
   DEFAULT_MONEY_INPUT_CURRENCY_OPTIONS,
@@ -22,6 +22,9 @@ export type MoneyInputProps = {
   errorText?: string;
   disabled?: boolean;
   availableCurrencies?: readonly MoneyInputCurrencyCode[];
+  allowZero?: boolean;
+  allowNegative?: boolean;
+  forceValidation?: boolean;
   containerStyle?: StyleProp<ViewStyle>;
   testID?: string;
 };
@@ -36,11 +39,19 @@ export const MoneyInput = memo(function MoneyInput({
   errorText,
   disabled = false,
   availableCurrencies = DEFAULT_MONEY_INPUT_CURRENCY_OPTIONS,
+  allowZero = false,
+  allowNegative = false,
+  forceValidation = false,
   containerStyle,
   testID,
 }: MoneyInputProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createMoneyInputStyles(theme);
   const [currencyExpanded, setCurrencyExpanded] = useState(false);
-  const parsed = useMemo(() => parseMoneyInputText(value, currency), [currency, value]);
+  const [touched, setTouched] = useState(false);
+  const parseOptions = useMemo(() => ({ allowNegative }), [allowNegative]);
+  const parsed = useMemo(() => parseMoneyInputText(value, currency, parseOptions), [currency, value, parseOptions]);
   const visibleCurrencies = useMemo(
     () => {
       const filtered = availableCurrencies.filter((candidate) => isMoneyInputCurrency(candidate));
@@ -51,11 +62,17 @@ export const MoneyInput = memo(function MoneyInput({
     },
     [availableCurrencies, currency],
   );
-  const hasError = Boolean(errorText) || parsed.status === 'invalid' || parsed.status === 'zero';
-  const helper = errorText ?? (parsed.status === 'zero' ? 'El monto debe ser mayor que cero.' : helperText);
+  const parsedIsZero = parsed.status === 'zero';
+  const parsedValid = parsed.isValid || (parsedIsZero && allowZero);
+  const shouldValidate = touched || forceValidation || Boolean(errorText);
+  const hasError = shouldValidate && (Boolean(errorText) || parsed.status === 'invalid' || (parsedIsZero && !allowZero));
+  const helper = hasError
+    ? errorText ?? (parsedIsZero && !allowZero ? 'El monto debe ser mayor que cero.' : 'Revisá el monto.')
+    : helperText;
+  const statusLabel = parsedValid ? parsed.displayText : '';
 
   const handleTextChange = (nextText: string) => {
-    onValueChange(parseMoneyInputText(nextText, currency));
+    onValueChange(parseMoneyInputText(nextText, currency, parseOptions));
   };
 
   const chooseCurrency = (nextCurrency: MoneyInputCurrencyCode) => {
@@ -70,8 +87,8 @@ export const MoneyInput = memo(function MoneyInput({
         <AppText variant="caption" tone="secondary" weight="700">
           {label}
         </AppText>
-        <AppText variant="caption" tone={parsed.isValid ? 'success' : 'tertiary'}>
-          {parsed.isValid ? parsed.displayText : 'Sin monto valido'}
+        <AppText variant="caption" tone={parsedValid ? 'success' : 'tertiary'}>
+          {statusLabel}
         </AppText>
       </View>
 
@@ -80,15 +97,16 @@ export const MoneyInput = memo(function MoneyInput({
           value={value}
           onChangeText={handleTextChange}
           editable={!disabled}
-          keyboardType="decimal-pad"
+          keyboardType={allowNegative ? 'numbers-and-punctuation' : 'decimal-pad'}
           inputMode="decimal"
           returnKeyType="done"
+          onBlur={() => setTouched(true)}
           placeholder="0"
           placeholderTextColor={colors.text.muted}
           selectionColor={colors.terracotta[500]}
           style={styles.amountInput}
           accessibilityLabel="Monto de dinero"
-          accessibilityHint="Ingresa una magnitud positiva. Usa coma o punto para decimales."
+          accessibilityHint="Ingresá un monto. Usá coma o punto para decimales."
         />
         <InteractivePressable
           onPress={() => setCurrencyExpanded((current) => !current)}
@@ -145,7 +163,10 @@ export const MoneyInput = memo(function MoneyInput({
   );
 });
 
-const styles = StyleSheet.create({
+function createMoneyInputStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing, touchTargets, typography } = theme;
+
+  return StyleSheet.create({
   container: {
     gap: spacing[2],
   },
@@ -217,4 +238,5 @@ const styles = StyleSheet.create({
   currencyOptionSelected: {
     backgroundColor: colors.terracotta[600],
   },
-});
+  });
+}

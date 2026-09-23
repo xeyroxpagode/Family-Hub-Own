@@ -1,68 +1,10 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import { HomePlusIcon } from '../../constants/icons';
-import { colors, radius, spacing, typography } from '../../constants/theme';
-import { AppButton, AppCard, AppText, Skeleton } from '../../components/ui';
-import { formatFinanceAmount, isZeroDecimalString } from '../../services/finance/financeDisplay';
+import { AppButton, AppText, Skeleton } from '../../components/ui';
+import { useAppTheme } from '../../context/AppThemeContext';
+import { formatFinanceAmount } from '../../services/finance/financeDisplay';
 import type { FinancePoolSummaryResponse } from '../../services/finance/financePools';
-
-type PoolRowProps = {
-  name: string;
-  balance: string;
-  currency: string;
-};
-
-function PoolRow({ name, balance, currency }: PoolRowProps) {
-  const isNegative = balance.startsWith('-');
-  const isZero = isZeroDecimalString(balance);
-
-  return (
-    <View style={styles.poolRow}>
-      <AppText variant="body" weight="800" numberOfLines={1}>
-        {name}
-      </AppText>
-      <View style={styles.poolAmountContainer}>
-        <AppText
-          variant="body"
-          weight="800"
-          tone={isZero ? 'primary' : isNegative ? 'danger' : 'success'}
-          numberOfLines={1}
-        >
-          {formatFinanceAmount(balance, currency, { sign: isNegative ? 'net' : 'none' })}
-        </AppText>
-        {isNegative && (
-          <AppText variant="caption" tone="danger" weight="700" style={styles.exceededLabel}>
-            Te excediste de lo reservado
-          </AppText>
-        )}
-      </View>
-    </View>
-  );
-}
-
-function UnknownCoverageNotice({ count }: { count: number }) {
-  if (count === 0) return null;
-  return (
-    <View style={styles.coverageNotice}>
-      <HomePlusIcon name="information-circle-outline" size={14} color={colors.warning.strong} />
-      <AppText variant="caption" tone="secondary" style={styles.coverageText}>
-        Hay {count} cuenta{count > 1 ? 's' : ''} con saldo sin establecer.
-      </AppText>
-    </View>
-  );
-}
-
-function CoverageDeficitWarning({ deficit }: { deficit: string }) {
-  if (deficit === '0' || isZeroDecimalString(deficit)) return null;
-  return (
-    <View style={styles.deficitWarning}>
-      <HomePlusIcon name="alert-circle-outline" size={14} color={colors.warning.strong} />
-      <AppText variant="caption" tone="secondary" style={styles.deficitText}>
-        Tenés {formatFinanceAmount(deficit, '', { sign: 'none' })} organizados por encima del respaldo conocido.
-      </AppText>
-    </View>
-  );
-}
+import { FinanceSection } from './ui';
 
 export function FinancePoolSummary({
   summary,
@@ -77,26 +19,38 @@ export function FinancePoolSummary({
   onRetry?: () => void;
   onOrganize?: () => void;
 }) {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
+
   if (loading && !summary) {
     return (
-      <AppCard variant="quiet" padding="generous">
+      <View style={styles.loadingBlock}>
         <Skeleton width="40%" height={14} />
         <Skeleton width="80%" height={40} />
         <Skeleton width="60%" height={12} />
-      </AppCard>
+      </View>
     );
   }
 
   if (error && !summary) {
     return (
-      <AppCard variant="warning" padding="generous">
+      <View style={[styles.sectionShell, styles.warningState]}>
         <AppText variant="body" weight="800" tone="warning">
           No pudimos cargar tus pozos
         </AppText>
         <AppText variant="caption" tone="secondary" style={styles.errorText}>
           {error}
         </AppText>
-      </AppCard>
+        {onRetry ? (
+          <AppButton
+            title="Reintentar"
+            variant="secondary"
+            size="sm"
+            onPress={onRetry}
+            style={styles.retryButton}
+          />
+        ) : null}
+      </View>
     );
   }
 
@@ -105,154 +59,112 @@ export function FinancePoolSummary({
   const {
     knownOrganizableNet,
     unassignedKnown,
-    allocationCoverageDeficit,
-    unknownAccountCount,
-    pools,
     currency,
+    poolNetPosition,
   } = summary;
 
-  const hasPools = pools.length > 0;
-
+  // Stage 7B.1 — "Tu dinero" as a Resumen FinanceSection with the shared
+  // value-row rhythm (same grammar as "Este mes").
   return (
-    <AppCard variant="quiet" padding="generous">
-      <View style={styles.sectionHeader}>
-        <AppText variant="title3" weight="800">
-          Tu dinero
-        </AppText>
-        {onOrganize && (
-          <AppButton
-            title="Organizar"
-            variant="secondary"
-            size="sm"
-            onPress={onOrganize}
-            accessibilityLabel="Organizar pozos"
-          />
-        )}
-      </View>
-
+    <FinanceSection
+      title="Tu dinero"
+      actionLabel={onOrganize ? 'Organizar' : undefined}
+      onAction={onOrganize}
+      actionAccessibilityLabel="Organizar dinero"
+    >
       <View style={styles.moneyOverview}>
-        <View style={styles.moneyRow}>
-          <AppText variant="caption" tone="secondary" weight="700">
-            Disponible conocido
-          </AppText>
-          <AppText variant="title3" weight="800">
-            {formatFinanceAmount(knownOrganizableNet, currency, { sign: 'net' })}
-          </AppText>
-        </View>
-        <View style={styles.moneyRow}>
-          <AppText variant="caption" tone="secondary" weight="700">
-            Sin asignar
-          </AppText>
-          <AppText variant="title3" weight="800">
-            {formatFinanceAmount(unassignedKnown, currency, { sign: 'net' })}
-          </AppText>
-        </View>
-
-        <UnknownCoverageNotice count={unknownAccountCount} />
-        <CoverageDeficitWarning deficit={allocationCoverageDeficit} />
+        <MoneyRow
+          label="Disponible"
+          value={formatFinanceAmount(knownOrganizableNet, currency, { sign: 'net' })}
+        />
+        <MoneyRow
+          label="Organizado"
+          value={formatFinanceAmount(poolNetPosition, currency, { sign: 'net' })}
+        />
+        <MoneyRow
+          label="Sin organizar"
+          value={formatFinanceAmount(unassignedKnown, currency, { sign: 'net' })}
+          showDivider={false}
+        />
       </View>
-
-      {hasPools ? (
-        <View style={styles.poolsList}>
-          {pools
-            .filter((p) => p.status === 'ACTIVE')
-            .slice(0, 3)
-            .map((pool) => (
-              <PoolRow key={pool.id} name={pool.name} balance={pool.balance} currency={currency} />
-            ))}
-        </View>
-      ) : (
-        <View style={styles.emptyPools}>
-          <HomePlusIcon name="wallet-outline" size={28} color={colors.terracotta[600]} />
-          <AppText variant="body" weight="700" style={styles.emptyTitle}>
-            Todavía no organizaste tu dinero en pozos.
-          </AppText>
-          {onOrganize && (
-            <AppButton
-              title="Crear pozo"
-              variant="secondary"
-              size="sm"
-              onPress={onOrganize}
-              style={styles.emptyCta}
-            />
-          )}
-        </View>
-      )}
-    </AppCard>
+    </FinanceSection>
   );
 }
 
-const styles = StyleSheet.create({
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing[3],
-  },
-  moneyOverview: {
-    gap: spacing[2],
-    marginBottom: spacing[4],
-  },
-  moneyRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  poolsList: {
-    gap: spacing[2],
-  },
-  poolRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing[2],
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border.subtle,
-  },
-  poolAmountContainer: {
-    alignItems: 'flex-end',
-    gap: spacing[1],
-  },
-  exceededLabel: {
-    fontSize: typography.caption.fontSize,
-  },
-  coverageNotice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-    marginTop: spacing[2],
-    padding: spacing[3],
-    borderRadius: radius.md,
-    backgroundColor: colors.warning.soft,
-  },
-  coverageText: {
-    flex: 1,
-  },
-  deficitWarning: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-    marginTop: spacing[2],
-    padding: spacing[3],
-    borderRadius: radius.md,
-    backgroundColor: colors.warning.soft,
-  },
-  deficitText: {
-    flex: 1,
-  },
-  emptyPools: {
-    alignItems: 'center',
-    gap: spacing[2],
-    paddingVertical: spacing[4],
-  },
-  emptyTitle: {
-    textAlign: 'center',
-    color: colors.text.secondary,
-  },
-  emptyCta: {
-    marginTop: spacing[2],
-  },
-  errorText: {
-    marginTop: spacing[2],
-  },
-});
+function MoneyRow({
+  label,
+  value,
+  showDivider = true,
+}: {
+  label: string;
+  value: string;
+  showDivider?: boolean;
+}) {
+  const styles = createStyles(useAppTheme());
+
+  return (
+    <View style={[styles.moneyRow, showDivider && styles.moneyRowDivider]}>
+      <AppText variant="bodySmall" tone="secondary" weight="600" numberOfLines={1} ellipsizeMode="tail">
+        {label}
+      </AppText>
+      <AppText
+        variant="title3"
+        weight="800"
+        style={styles.moneyAmount}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.78}
+      >
+        {value}
+      </AppText>
+    </View>
+  );
+}
+
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
+    sectionShell: {
+      gap: spacing[3],
+      paddingVertical: spacing[2],
+    },
+    loadingBlock: {
+      gap: spacing[3],
+      paddingVertical: spacing[2],
+    },
+    warningState: {
+      borderRadius: radius.lg,
+      backgroundColor: colors.warning.soft,
+      padding: spacing[3],
+    },
+    moneyOverview: {
+      gap: 0,
+    },
+    moneyRow: {
+      minHeight: 52,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: spacing[3],
+      paddingVertical: spacing[2],
+    },
+    moneyRowDivider: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border.subtle,
+    },
+    moneyAmount: {
+      flexShrink: 1,
+      maxWidth: '66%',
+      textAlign: 'right',
+      fontVariant: ['tabular-nums'],
+    },
+    errorText: {
+      marginTop: spacing[2],
+    },
+    retryButton: {
+      alignSelf: 'flex-start',
+      marginTop: spacing[3],
+    },
+  });
+}

@@ -4,6 +4,7 @@
 -- The Due remains an operational snapshot; Transfers are the financial facts.
 
 create extension if not exists "pgcrypto";
+
 create table if not exists public.finance_payment_due_settlements (
   id uuid primary key default gen_random_uuid(),
   payment_due_id uuid not null references public.finance_payment_dues(id) on delete restrict,
@@ -11,14 +12,18 @@ create table if not exists public.finance_payment_due_settlements (
   created_by_person_id uuid not null references public.people(id) on delete restrict,
   created_at timestamptz not null default now()
 );
+
 comment on table public.finance_payment_due_settlements is
   'Finance V1.1 Stage 8D.6 append-only link between a CREDIT_CARD PaymentDue and each canonical Transfer settlement.';
+
 alter table public.finance_payment_due_settlements
   drop constraint if exists finance_payment_due_settlements_transfer_uidx;
 alter table public.finance_payment_due_settlements
   add constraint finance_payment_due_settlements_transfer_uidx unique (transfer_id);
+
 create index if not exists finance_payment_due_settlements_due_idx
   on public.finance_payment_due_settlements (payment_due_id, created_at, id);
+
 create or replace function public.finance_current_user_can_read_payment_due(p_due_id uuid)
 returns boolean
 language sql
@@ -43,9 +48,12 @@ as $$
       )
   );
 $$;
+
 grant execute on function public.finance_current_user_can_read_payment_due(uuid) to authenticated;
+
 alter table public.finance_payment_due_settlements enable row level security;
 grant select on public.finance_payment_due_settlements to authenticated;
+
 drop policy if exists "finance_payment_due_settlements_select_authorized" on public.finance_payment_due_settlements;
 create policy "finance_payment_due_settlements_select_authorized"
   on public.finance_payment_due_settlements for select to authenticated
@@ -53,19 +61,23 @@ create policy "finance_payment_due_settlements_select_authorized"
     public.finance_current_user_can_read_payment_due(payment_due_id)
     and public.finance_current_user_can_read_transfer(transfer_id)
   );
+
 drop policy if exists "finance_payment_due_settlements_insert_blocked" on public.finance_payment_due_settlements;
 create policy "finance_payment_due_settlements_insert_blocked"
   on public.finance_payment_due_settlements for insert to authenticated
   with check (false);
+
 drop policy if exists "finance_payment_due_settlements_update_blocked" on public.finance_payment_due_settlements;
 create policy "finance_payment_due_settlements_update_blocked"
   on public.finance_payment_due_settlements for update to authenticated
   using (false)
   with check (false);
+
 drop policy if exists "finance_payment_due_settlements_delete_blocked" on public.finance_payment_due_settlements;
 create policy "finance_payment_due_settlements_delete_blocked"
   on public.finance_payment_due_settlements for delete to authenticated
   using (false);
+
 create or replace function public.finance_payment_due_paid_so_far_v1(p_due_id uuid)
 returns numeric
 language sql
@@ -83,6 +95,7 @@ as $$
    and e.account_id = d.target_credit_card_account_id
   where s.payment_due_id = p_due_id;
 $$;
+
 create or replace function public.finance_payment_due_progress_v1(p_due_id uuid)
 returns table (paid_so_far numeric, remaining numeric, is_partially_paid boolean)
 language sql
@@ -98,8 +111,10 @@ as $$
   ) paid
   where d.id = p_due_id;
 $$;
+
 grant execute on function public.finance_payment_due_paid_so_far_v1(uuid) to authenticated;
 grant execute on function public.finance_payment_due_progress_v1(uuid) to authenticated;
+
 insert into public.finance_payment_due_settlements (payment_due_id, transfer_id, created_by_person_id, created_at)
 select
   d.id,
@@ -116,6 +131,7 @@ where d.kind = 'CREDIT_CARD'
     from public.finance_payment_due_settlements s
     where s.transfer_id = d.transfer_id
   );
+
 alter table public.finance_payment_dues
   drop constraint if exists finance_payment_dues_paid_integrity_check;
 alter table public.finance_payment_dues
@@ -133,6 +149,7 @@ alter table public.finance_payment_dues
       )
     )
   );
+
 create or replace function public.finance_payment_due_settlement_guard_v1()
 returns trigger
 language plpgsql
@@ -185,10 +202,12 @@ begin
   return new;
 end;
 $$;
+
 drop trigger if exists trg_finance_payment_due_settlement_guard_v1 on public.finance_payment_dues;
 create trigger trg_finance_payment_due_settlement_guard_v1
   before update on public.finance_payment_dues
   for each row execute function public.finance_payment_due_settlement_guard_v1();
+
 create or replace function public.finance_payment_due_legacy_register_link_v1()
 returns trigger
 language plpgsql
@@ -212,10 +231,12 @@ begin
   return new;
 end;
 $$;
+
 drop trigger if exists trg_finance_payment_due_legacy_register_link_v1 on public.finance_payment_dues;
 create trigger trg_finance_payment_due_legacy_register_link_v1
   after update on public.finance_payment_dues
   for each row execute function public.finance_payment_due_legacy_register_link_v1();
+
 create or replace function public.finance_payment_settle_credit_card_due_v1(
   p_due_id uuid,
   p_mutation_id text,
@@ -448,7 +469,9 @@ begin
   return v_body;
 end;
 $$;
+
 grant execute on function public.finance_payment_settle_credit_card_due_v1(
   uuid, text, text, text, uuid, uuid, numeric, numeric, date
 ) to authenticated;
+
 notify pgrst, 'reload schema';

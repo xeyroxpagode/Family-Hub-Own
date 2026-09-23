@@ -63,7 +63,7 @@ if (!['127.0.0.1', 'localhost'].includes(supabaseUrl.hostname)) {
   process.exit(2);
 }
 
-const databaseUrl = process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:55322/postgres';
+const databaseUrl = process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres';
 const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
@@ -184,6 +184,9 @@ async function makeAccount(ctx, overrides = {}) {
     name: `Cuenta ${crypto.randomBytes(3).toString('hex')}`,
     currency: overrides.currency ?? 'ARS',
     accountType: overrides.accountType ?? 'ACCOUNT',
+    ...((overrides.accountType ?? 'ACCOUNT') === 'CREDIT_CARD'
+      ? { closingDay: overrides.closingDay ?? 10, dueDay: overrides.dueDay ?? 20 }
+      : {}),
     ...(overrides.initialBalance !== undefined
       ? { initialBalance: { amount: overrides.initialBalance, effectiveDate: '2026-08-01' } }
       : {}),

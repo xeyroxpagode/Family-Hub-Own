@@ -20,16 +20,20 @@
 --       instead of iterating every card in the database.
 
 create extension if not exists "pgcrypto";
+
 -- ---------------------------------------------------------------------------
 -- 1) Freeze one-time card purchase cycle at creation (column + snapshot).
 -- ---------------------------------------------------------------------------
 alter table public.finance_transactions
   add column if not exists card_cycle_close_date date null;
+
 comment on column public.finance_transactions.card_cycle_close_date is
   'Frozen card-cycle close date assigned to a one-time CREDIT_CARD purchase at creation. NULL for ACCOUNT/income/installment-expense (installments carry their own cycle dates).';
+
 create index if not exists finance_transactions_card_cycle_close_idx
   on public.finance_transactions (card_cycle_close_date)
   where card_cycle_close_date is not null;
+
 -- Rewrite the canonical transaction RPC to snapshot the card cycle at creation.
 create or replace function public.finance_create_transaction_with_optional_account_effect_v1(
   p_transaction_type text,
@@ -148,7 +152,9 @@ begin
   return v_transaction;
 end;
 $$;
+
 grant execute on function public.finance_create_transaction_with_optional_account_effect_v1(text, numeric, text, text, uuid, uuid, date, text, text, uuid, text, uuid, uuid, numeric) to authenticated;
+
 -- Rewrite the atomic installment-purchase RPC to also snapshot the card cycle.
 create or replace function public.finance_create_card_installment_purchase_v1(
   p_actor_account_id uuid,
@@ -310,13 +316,16 @@ exception
     raise exception 'finance_credit_card_installment_plan_exists' using errcode = '23505';
 end;
 $$;
+
 grant execute on function public.finance_create_card_installment_purchase_v1(
   uuid, uuid, text, text, text, numeric, text, text, uuid, uuid, date, text, text, uuid, text, uuid, integer
 ) to authenticated;
+
 -- ---------------------------------------------------------------------------
 -- 2) Corrected compute helper: future commitments + seeded-due formula.
 -- ---------------------------------------------------------------------------
 drop function if exists public.finance_compute_card_cycle_due_v1(uuid, date, integer);
+
 create or replace function public.finance_compute_card_cycle_due_v1(
   p_card_id uuid,
   p_cycle_close_date date,
@@ -437,6 +446,7 @@ as $$
     )
   from computed;
 $$;
+
 -- ---------------------------------------------------------------------------
 -- 3) Corrected catch-up: user scoping + snapshot-aware one-time cycles.
 -- ---------------------------------------------------------------------------
@@ -562,6 +572,8 @@ begin
   return jsonb_build_object('created', v_created, 'considered_cycles', v_cycles);
 end;
 $$;
+
 grant execute on function public.finance_compute_card_cycle_due_v1(uuid, date, integer) to authenticated;
 grant execute on function public.finance_ensure_closed_credit_card_payment_dues_v1(date) to authenticated;
+
 notify pgrst, 'reload schema';

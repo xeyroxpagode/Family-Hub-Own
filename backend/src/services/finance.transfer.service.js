@@ -76,11 +76,15 @@ const SAFE_TRANSFER_ERROR_MESSAGES = Object.freeze({
   invalid_finance_transfer_destination_type: 'La cuenta de destino no es válida para transferencias.',
   finance_transfer_same_currency_amount_mismatch_3f: 'En la misma moneda, el monto de origen y destino debe coincidir.',
   finance_transfer_source_insufficient_funds: 'Saldo insuficiente para cubrir la transferencia y la comision.',
+  finance_account_insufficient_funds: 'No tenés saldo suficiente en la cuenta de origen.',
   finance_transfer_commission_negative: 'La comisión debe ser una magnitud positiva.',
   invalid_finance_transfer_commission_amount: 'Revisá la comisión.',
   finance_commission_category_not_found: 'No encontramos la categoría de comisiones e intereses.',
   finance_transfer_source_not_found: 'No tenés permiso para usar la cuenta de origen.',
   finance_transfer_destination_not_found: 'No tenés permiso para usar la cuenta de destino.',
+  invalid_transfer_state_for_trash: 'La transferencia no está en estado ACTIVA.',
+  invalid_transfer_state_for_restore: 'La transferencia no está en estado REVERTIDA.',
+  finance_payment_settlement_exceeds_remaining: 'El monto no puede superar lo que resta pagar.',
 });
 
 function hasOwn(object, key) {
@@ -202,21 +206,30 @@ function normalizeTransferAmounts(body = {}) {
 function normalizeTransferDto(raw) {
   const transfer = raw?.transfer ?? raw;
   const commission = raw?.commission ?? null;
+  const sourceAccountId = transfer.sourceAccountId ?? transfer.source_account_id;
+  const destinationAccountId = transfer.destinationAccountId ?? transfer.destination_account_id;
+  const sourceAmount = transfer.sourceAmount ?? transfer.source_amount ?? transfer.amount;
+  const destinationAmount = transfer.destinationAmount ?? transfer.destination_amount ?? transfer.amount;
+  const sourceCurrency = transfer.sourceCurrency ?? transfer.source_currency ?? transfer.currency;
+  const destinationCurrency = transfer.destinationCurrency ?? transfer.destination_currency ?? transfer.currency;
+  const date = transfer.date ?? transfer.transfer_date;
+  const createdAt = transfer.createdAt ?? transfer.created_at;
   return {
     id: transfer.id,
     type: 'transfer',
-    sourceAccountId: transfer.sourceAccountId,
-    destinationAccountId: transfer.destinationAccountId,
-    amount: normalizeDecimalForDto(transfer.amount),
-    sourceAmount: normalizeDecimalForDto(transfer.sourceAmount ?? transfer.amount),
-    destinationAmount: normalizeDecimalForDto(transfer.destinationAmount ?? transfer.amount),
+    sourceAccountId,
+    destinationAccountId,
+    amount: normalizeDecimalForDto(transfer.amount ?? sourceAmount),
+    sourceAmount: normalizeDecimalForDto(sourceAmount),
+    destinationAmount: normalizeDecimalForDto(destinationAmount),
     currency: transfer.currency,
-    sourceCurrency: transfer.sourceCurrency ?? transfer.currency,
-    destinationCurrency: transfer.destinationCurrency ?? transfer.currency,
-    date: transfer.date,
+    sourceCurrency,
+    destinationCurrency,
+    date,
     description: transfer.description ?? null,
     notes: transfer.notes ?? null,
-    createdAt: transfer.createdAt,
+    status: transfer.status ?? 'ACTIVE',
+    createdAt,
     commission: commission
       ? {
         expenseId: commission.expenseId,
@@ -228,7 +241,7 @@ function normalizeTransferDto(raw) {
         financialContextType: commission.financialContextType,
       }
       : null,
-    sourceTotalDebit: normalizeDecimalForDto(raw?.sourceTotalDebit ?? transfer.sourceAmount ?? transfer.amount),
+    sourceTotalDebit: normalizeDecimalForDto(raw?.sourceTotalDebit ?? sourceAmount),
   };
 }
 
@@ -244,6 +257,79 @@ function normalizeCorrelation(correlation = {}) {
 
 function correlationFromRequest(req) {
   return requireMutationContract(req, OPERATION_KINDS.CREATE_IDEMPOTENT);
+}
+
+function normalizeTransferId(value, field) {
+  if (typeof value !== 'string' || !UUID_RE.test(value)) {
+    throw createHttpError(400, `${field} invalido.`, 'validation_error');
+  }
+  return value;
+}
+
+function normalizeMutationPayload(correlation = {}) {
+  const mutationId = correlation.mutationId ?? correlation.mutation_id ?? null;
+  const idempotencyKey = correlation.idempotencyKey ?? correlation.idempotency_key ?? null;
+  const payloadHash = correlation.payloadHash ?? correlation.payload_hash ?? null;
+  if (!mutationId || !idempotencyKey || !payloadHash) {
+    throw createHttpError(422, 'Transfer lifecycle requiere mutationId, idempotencyKey y payloadHash.', 'idempotency_key_required');
+  }
+  return { mutationId, idempotencyKey, payloadHash };
+}
+
+async function trashTransfer(financeContext, transferId, correlation = {}) {
+  assertResolvedFinanceContext(financeContext);
+  const tid = normalizeTransferId(transferId, 'transferId');
+  const { mutationId, idempotencyKey, payloadHash } = normalizeMutationPayload(correlation);
+
+  const { data, error } = await financeContext.client.rpc('finance_trash_transfer_v1', {
+    p_transfer_id: tid,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_payload_hash: payloadHash,
+    p_created_by_person_id: financeContext.personId,
+  });
+
+  if (error) {
+    if (['P0008', 'P0009'].includes(error.code)) {
+      throw mapV2RpcError(error, 'finance.transfer.trash');
+    }
+    const code = String(error.message ?? '').match(/(?:invalid_)?finance_[a-z0-9_]+/)?.[0] ?? error.code ?? 'internal_error';
+    const status = error.code === '42501' ? 403 : code.includes('insufficient') ? 409 : 400;
+    throw createHttpError(status, SAFE_TRANSFER_ERROR_MESSAGES[code] ?? 'No pudimos mover la transferencia a papelera.', code);
+  }
+
+  return {
+    transfer: normalizeTransferDto(data),
+    outcome: data.outcome === 'replay' ? 'replay' : 'trashed',
+  };
+}
+
+async function restoreTransfer(financeContext, transferId, correlation = {}) {
+  assertResolvedFinanceContext(financeContext);
+  const tid = normalizeTransferId(transferId, 'transferId');
+  const { mutationId, idempotencyKey, payloadHash } = normalizeMutationPayload(correlation);
+
+  const { data, error } = await financeContext.client.rpc('finance_restore_transfer_v1', {
+    p_transfer_id: tid,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_payload_hash: payloadHash,
+    p_created_by_person_id: financeContext.personId,
+  });
+
+  if (error) {
+    if (['P0008', 'P0009'].includes(error.code)) {
+      throw mapV2RpcError(error, 'finance.transfer.restore');
+    }
+    const code = String(error.message ?? '').match(/(?:invalid_)?finance_[a-z0-9_]+/)?.[0] ?? error.code ?? 'internal_error';
+    const status = error.code === '42501' ? 403 : code.includes('insufficient') || code.includes('exceeds') ? 409 : 400;
+    throw createHttpError(status, SAFE_TRANSFER_ERROR_MESSAGES[code] ?? 'No pudimos restaurar la transferencia.', code);
+  }
+
+  return {
+    transfer: normalizeTransferDto(data),
+    outcome: data.outcome === 'replay' ? 'replay' : 'restored',
+  };
 }
 
 async function createTransfer(financeContext, body = {}, correlation = {}) {
@@ -309,7 +395,7 @@ async function createTransfer(financeContext, body = {}, correlation = {}) {
     const code = String(error.message ?? '').match(/(?:invalid_)?finance_[a-z0-9_]+/)?.[0] ?? error.code ?? 'internal_error';
     const status = error.code === '42501'
       ? 403
-      : code.includes('archived') || code.includes('cross_currency') || code.includes('credit_card_source')
+      : code.includes('archived') || code.includes('cross_currency') || code.includes('credit_card_source') || code.includes('insufficient')
         ? 409
         : 400;
     throw createHttpError(status, SAFE_TRANSFER_ERROR_MESSAGES[code] ?? 'No pudimos registrar la transferencia.', code);
@@ -324,5 +410,7 @@ async function createTransfer(financeContext, body = {}, correlation = {}) {
 
 module.exports = {
   createTransfer,
+  trashTransfer,
+  restoreTransfer,
   correlationFromRequest,
 };

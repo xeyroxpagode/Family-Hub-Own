@@ -16,6 +16,9 @@ const {
   getDefaultAdapter,
   validateEnvelopeForUse,
 } = require('../adapters/planner.presets-drafts.adapters');
+const {
+  toPresetDto,
+} = require('../domain/planner.presets.domain');
 
 const RETENTION_DAYS = 30;
 const nowIso = () => new Date().toISOString();
@@ -113,6 +116,47 @@ function assertPresetWritableByContext(context, preset) {
   }
 }
 
+/**
+ * P2.2A — Duplicate HomePlus → Household (contract §14):
+ * server-side copy of the active revision payload. New id, household scope,
+ * editable afterward. No live sync relationship and no provenance field (the
+ * CURRENT schema has no safe concept for it). Copy stable fields only: the
+ * payload is re-validated through the published adapter contract.
+ */
+function buildDuplicateToHouseholdData(context, preset, options = {}) {
+  if (!preset) throw createHttpError(404, 'Preset no encontrado.', 'not_found');
+  if (preset.source !== 'homeplus') {
+    throw createHttpError(403, 'Solo los presets de HomePlus se duplican al hogar.', 'forbidden');
+  }
+  if (preset.trashed_at) throw createHttpError(409, 'Preset en papelera.', 'preset_trashed');
+  if (!context.householdId) {
+    throw createHttpError(403, 'Household incorrecto.', 'wrong_household');
+  }
+  const revisions = Array.isArray(preset.planner_preset_revisions) ? preset.planner_preset_revisions : [];
+  const revision = revisions.find((candidate) => candidate.id === preset.active_revision_id)
+    ?? revisions.find((candidate) => candidate.revision_state === 'published')
+    ?? revisions[0];
+  if (!revision || !revision.payload) throw createHttpError(404, 'Revision no encontrada.', 'not_found');
+  const name = normalizeString(options.name) || normalizeString(preset.name);
+  if (!name) throw createHttpError(400, 'name es obligatorio.', 'validation_error');
+  // P2.2A: caller MAY supply edited stable fields; the override replaces the
+  // copied revision payload and is re-validated through the same adapter
+  // contract as any other create.
+  const adapterKey = revision.adapter_key;
+  const sourcePayload = options.payload && typeof options.payload === 'object'
+    ? options.payload
+    : revision.payload;
+  return {
+    entity_type: preset.entity_type,
+    source: 'household',
+    owner_person_id: null,
+    household_id: context.householdId,
+    name,
+    envelope: buildPayloadEnvelope(preset.entity_type, adapterKey, sourcePayload, revision.payload_version ?? 1),
+    fingerprint: null,
+  };
+}
+
 class SupabasePresetRepository {
   constructor(client) {
     this.client = client;
@@ -121,7 +165,9 @@ class SupabasePresetRepository {
   async list(context, filters = {}) {
     let query = this.client
       .from('planner_presets')
-      .select('*, planner_preset_revisions(*)')
+      // PGRST201: two relationships exist between presets and revisions
+      // (preset_id + active_revision_id); the embed must name the FK.
+      .select('*, planner_preset_revisions!planner_preset_revisions_preset_id_fkey(*)')
       .order('updated_at', { ascending: false })
       .limit(Number(filters.limit) || 100);
     if (!filters.include_trashed) query = query.is('trashed_at', null);
@@ -134,7 +180,7 @@ class SupabasePresetRepository {
   async get(id) {
     const { data, error } = await this.client
       .from('planner_presets')
-      .select('*, planner_preset_revisions(*)')
+      .select('*, planner_preset_revisions!planner_preset_revisions_preset_id_fkey(*)')
       .eq('id', id)
       .maybeSingle();
     if (error) throw createHttpError(500, 'Error interno.', 'internal_error');
@@ -428,7 +474,8 @@ function createPlannerPresetsService(repositoryFactory = (context) => new Supaba
 
   return {
     async listPresets(context, filters = {}) {
-      return { presets: await getRepository(context).list(context, filters) };
+      const presets = await getRepository(context).list(context, filters);
+      return { presets: presets.map((preset) => toPresetDto(preset, context)) };
     },
 
     async getPreset(context, presetId) {
@@ -440,7 +487,19 @@ function createPlannerPresetsService(repositoryFactory = (context) => new Supaba
       if (preset.source === 'household' && preset.household_id !== context.householdId) {
         throw createHttpError(403, 'Household incorrecto.', 'wrong_household');
       }
-      return { preset };
+      return { preset: toPresetDto(preset, context) };
+    },
+
+    async duplicateHomeplusToHousehold(context, presetId, options = {}, correlation = {}) {
+      const preset = await getRepository(context).get(presetId);
+      const data = buildDuplicateToHouseholdData(context, preset, options);
+      return this.createPreset(context, {
+        entity_type: data.entity_type,
+        source: data.source,
+        household_id: data.household_id,
+        name: data.name,
+        payload_envelope: data.envelope,
+      }, correlation);
     },
 
     async createPreset(context, body, correlation = {}) {

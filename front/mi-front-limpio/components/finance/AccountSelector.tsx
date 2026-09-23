@@ -1,14 +1,12 @@
-import React, { Fragment, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import {
   ActionSheet,
   AppButton,
   AppText,
-  EmptyState,
-  InteractivePressable,
   Skeleton,
 } from '../ui';
 import {
@@ -22,6 +20,13 @@ import type {
 import { groupAccountsByContext } from '../../services/finance/financeAccountEligibility';
 import type { FinanceAccountDto } from '../../services/finance/financeAccounts';
 import type { FinanceActiveHousehold } from '../../services/finance/financeContext';
+import {
+  FinanceEmptyState,
+  FinanceErrorState,
+  FinanceGroupedSurface,
+  FinanceListRow,
+  FINANCE_SHEET_SIZE_POLICY,
+} from './ui';
 
 export type AccountSelectorProps = {
   visible: boolean;
@@ -68,8 +73,10 @@ export function AccountSelector({
   onSelect,
   onCreateAccount,
   createAccountLabel = 'Agregar cuenta',
-  operationHint,
 }: AccountSelectorProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const groups: AccountSelectorGroup[] = useMemo(
     () => groupAccountsByContext(accounts, activeHousehold),
     [accounts, activeHousehold],
@@ -79,6 +86,14 @@ export function AccountSelector({
     if (disabled) return;
     onSelect(account);
   };
+
+  const renderRadioIcon = (selected: boolean) => (
+    <HomePlusIcon
+      name={selected ? 'radio-button-on' : 'radio-button-off'}
+      size={20}
+      color={selected ? colors.terracotta[700] : colors.text.tertiary}
+    />
+  );
 
   const footer = (
     <View style={styles.footer}>
@@ -92,6 +107,8 @@ export function AccountSelector({
     </View>
   );
 
+  const showList = !loading && !error && (accounts.length > 0 || allowNone);
+
   return (
     <ActionSheet
       visible={visible}
@@ -99,6 +116,7 @@ export function AccountSelector({
       subtitle={subtitle}
       onRequestClose={onRequestClose}
       closeDisabled={disabled}
+      size={FINANCE_SHEET_SIZE_POLICY.PICKER_CATALOG}
       footer={footer}
     >
       <View style={styles.body}>
@@ -109,41 +127,40 @@ export function AccountSelector({
             <Skeleton width="74%" height={14} />
           </View>
         ) : error ? (
-          <EmptyState
-            title="No pudimos cargar las cuentas"
-            description={error}
-          />
+          <FinanceErrorState level="full" message={error} />
         ) : accounts.length === 0 && !allowNone ? (
           <View style={styles.empty}>
-            <EmptyState
+            <FinanceEmptyState
+              level="section"
               title="No hay cuentas disponibles"
               description="Agregá una cuenta para usar esta operación."
-              illustration={<HomePlusIcon name="wallet-outline" size={28} color={colors.terracotta[600]} />}
+              icon={<HomePlusIcon name="wallet-outline" size={20} color={colors.text.tertiary} />}
             />
             {onCreateAccount ? (
-              <AppButton
+              <FinanceListRow
                 title={createAccountLabel}
-                onPress={onCreateAccount}
+                icon={<HomePlusIcon name="add-circle-outline" size={20} color={colors.terracotta[700]} />}
+                onPress={disabled ? undefined : onCreateAccount}
                 disabled={disabled}
-                style={styles.emptyCta}
+                divider={false}
+                accessibilityLabel={createAccountLabel}
               />
             ) : null}
           </View>
-        ) : (
+        ) : showList ? (
           <View style={styles.list} accessibilityRole="list">
             {allowNone ? (
-              <Fragment>
-                <SelectorRow
-                  accessibilityLabel={noneLabel}
-                  accessibilityHint={operationHint ? `Sin cuenta para ${operationHint}` : undefined}
-                  selected={selectedAccountId === null}
+              <FinanceGroupedSurface>
+                <FinanceListRow
                   title={noneLabel}
                   subtitle="La operación se registra sin afectar saldos"
-                  disabled={disabled}
+                  icon={renderRadioIcon(selectedAccountId === null)}
                   onPress={() => handleChoose(null)}
+                  disabled={disabled}
+                  divider={false}
+                  accessibilityLabel={noneLabel}
                 />
-                <View style={styles.separator} />
-              </Fragment>
+              </FinanceGroupedSurface>
             ) : null}
 
             {groups.length === 0 && allowNone ? (
@@ -155,118 +172,51 @@ export function AccountSelector({
             ) : null}
 
             {groups.map((group) => (
-              <View key={group.key} style={styles.group}>
-                <AppText
-                  variant="caption"
-                  tone="secondary"
-                  weight="800"
-                  style={styles.groupHeader}
-                  accessibilityRole="header"
-                >
-                  {group.contextLabel}
-                </AppText>
-                <View style={styles.groupList}>
-                  {group.accounts.map((account) => (
-                    <AccountRow
+              <FinanceGroupedSurface key={group.key} title={group.contextLabel}>
+                {group.accounts.map((account, index) => {
+                  const presentation = getAccountBalancePresentation(account);
+                  const subtitle = presentation.isUnknown
+                    ? presentation.unknownLabel
+                    : `${presentation.label} ${presentation.currency ?? ''} ${formatAccountPresentationAmount(presentation)}`.trim();
+                  return (
+                    <FinanceListRow
                       key={account.id}
-                      account={account}
-                      selected={account.id === selectedAccountId}
-                      disabled={disabled}
+                      title={account.name}
+                      subtitle={subtitle}
+                      value={account.currency}
+                      valueTone="secondary"
+                      icon={renderRadioIcon(account.id === selectedAccountId)}
                       onPress={() => handleChoose(account)}
+                      disabled={disabled}
+                      divider={index < group.accounts.length - 1}
+                      accessibilityLabel={`${account.name}, ${account.currency}, ${subtitle}${account.id === selectedAccountId ? ', seleccionada' : ''}`}
                     />
-                  ))}
-                </View>
-              </View>
+                  );
+                })}
+              </FinanceGroupedSurface>
             ))}
+
+            {onCreateAccount ? (
+              <FinanceListRow
+                title={createAccountLabel}
+                icon={<HomePlusIcon name="add-circle-outline" size={20} color={colors.terracotta[700]} />}
+                onPress={disabled ? undefined : onCreateAccount}
+                disabled={disabled}
+                divider={false}
+                accessibilityLabel={createAccountLabel}
+              />
+            ) : null}
           </View>
-        )}
+        ) : null}
       </View>
     </ActionSheet>
   );
 }
 
-function AccountRow({
-  account,
-  selected,
-  disabled,
-  onPress,
-}: {
-  account: FinanceAccountDto;
-  selected: boolean;
-  disabled: boolean;
-  onPress: () => void;
-}) {
-  const presentation = getAccountBalancePresentation(account);
-  const subtitle = presentation.isUnknown
-    ? presentation.unknownLabel
-    : `${presentation.label} ${presentation.currency ?? ''} ${formatAccountPresentationAmount(presentation)}`.trim();
-  return (
-    <SelectorRow
-      accessibilityLabel={`${account.name}, ${account.currency}, ${subtitle}`}
-      selected={selected}
-      title={account.name}
-      subtitle={subtitle}
-      rightLabel={account.currency}
-      disabled={disabled}
-      onPress={onPress}
-    />
-  );
-}
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { spacing } = theme;
 
-function SelectorRow({
-  accessibilityLabel,
-  accessibilityHint,
-  selected,
-  title,
-  subtitle,
-  rightLabel,
-  disabled,
-  onPress,
-}: {
-  accessibilityLabel: string;
-  accessibilityHint?: string;
-  selected: boolean;
-  title: string;
-  subtitle: string;
-  rightLabel?: string;
-  disabled: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <InteractivePressable
-      onPress={onPress}
-      disabled={disabled}
-      haptic="light"
-      pressScale={motion.scale.card}
-      style={[styles.row, selected && styles.rowSelected]}
-      accessibilityRole="radio"
-      accessibilityState={{ selected }}
-      accessibilityLabel={accessibilityLabel}
-      accessibilityHint={accessibilityHint}
-    >
-      <HomePlusIcon
-        name={selected ? 'radio-button-on' : 'radio-button-off'}
-        size={20}
-        color={selected ? colors.terracotta[700] : colors.text.tertiary}
-      />
-      <View style={styles.rowText}>
-        <AppText variant="body" weight="800" numberOfLines={1}>
-          {rightLabel ? `${title}` : title}
-        </AppText>
-        <AppText variant="caption" tone="secondary" numberOfLines={1}>
-          {subtitle}
-        </AppText>
-      </View>
-      {rightLabel ? (
-        <AppText variant="bodySmall" weight="800" tone="secondary" style={styles.rowRightLabel} numberOfLines={1}>
-          {rightLabel}
-        </AppText>
-      ) : null}
-    </InteractivePressable>
-  );
-}
-
-const styles = StyleSheet.create({
+  return StyleSheet.create({
   body: {
     flex: 1,
   },
@@ -278,52 +228,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[4],
     gap: spacing[3],
   },
-  emptyCta: {
-    alignSelf: 'flex-start',
-  },
   list: {
     gap: spacing[3],
     paddingBottom: spacing[4],
-  },
-  group: {
-    gap: spacing[2],
-  },
-  groupHeader: {
-    paddingHorizontal: spacing[1],
-    paddingTop: spacing[1],
-  },
-  groupList: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.card,
-    overflow: 'hidden',
-  },
-  row: {
-    minHeight: touchTargets.normal + 6,
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-  },
-  rowSelected: {
-    backgroundColor: colors.terracotta[50],
-  },
-  rowText: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing[1],
-  },
-  rowRightLabel: {
-    maxWidth: '24%',
-    textAlign: 'right',
-  },
-  separator: {
-    height: 1,
-    marginVertical: spacing[2],
-    marginHorizontal: spacing[2],
-    backgroundColor: colors.border.subtle,
   },
   noAccountsHint: {
     paddingHorizontal: spacing[2],
@@ -335,4 +242,5 @@ const styles = StyleSheet.create({
   footerButton: {
     flex: 1,
   },
-});
+  });
+}

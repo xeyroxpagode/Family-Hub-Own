@@ -13,7 +13,9 @@ const trashController = require('../controllers/planner.trash.controller')
 const activityController = require('../controllers/planner.activity.controller')
 const capabilitiesController = require('../controllers/planner.capabilities.controller')
 const schedulesController = require('../controllers/planner.schedules.controller')
+const responsibilitiesController = require('../controllers/planner.responsibilities.controller')
 const presetsDraftsRouter = require('./planner.presets-drafts')
+const plansV1Router = require('./planner.v1')
 const { plannerObservabilityMiddleware } = require('../lib/plannerObservability')
 
 const router = express.Router()
@@ -33,6 +35,18 @@ const plannerCacheMiddleware = (req, res, next) => {
 
 router.use(plannerCacheMiddleware)
 router.use(plannerObservabilityMiddleware)
+
+router.get('/responsibilities', responsibilitiesController.list)
+router.post('/responsibilities', responsibilitiesController.create)
+router.get('/responsibilities/:id', responsibilitiesController.get)
+router.patch('/responsibilities/:id', responsibilitiesController.update)
+router.post('/responsibilities/:id/pause', responsibilitiesController.pause)
+router.post('/responsibilities/:id/resume', responsibilitiesController.resume)
+router.post('/responsibilities/:id/archive', responsibilitiesController.archive)
+router.post('/responsibilities/:id/unarchive', responsibilitiesController.unarchive)
+router.post('/responsibilities/:id/trash', responsibilitiesController.trash)
+router.post('/responsibilities/:id/restore', responsibilitiesController.restore)
+router.post('/responsibilities/:id/current-task/replace-assignee', responsibilitiesController.replaceCurrentAssignee)
 
 // G0.2: capability projection for the active member+household.
 // Read-only, scoped server-side.
@@ -62,12 +76,19 @@ router.post('/plans/:id/mutations', plansController.writePlanGraph)
 router.get('/v1/tasks/:taskId/fulfillment', tasksController.getTaskFulfillmentV1)
 router.put('/v1/tasks/:taskId/assignment', tasksController.updateTaskAssignmentV1)
 router.post('/v1/tasks/:taskId/claim', tasksController.claimTaskV1)
+router.post('/v1/tasks/:taskId/release', tasksController.releaseTaskV1)
+router.post('/v1/tasks/:taskId/archive', tasksController.archiveTaskV1)
+router.post('/v1/tasks/:taskId/unarchive', tasksController.unarchiveTaskV1)
 router.post('/v1/tasks/:taskId/fulfillments/:fulfillmentId/complete', tasksController.completeTaskFulfillmentV1)
 router.post('/v1/tasks/:taskId/fulfillments/:fulfillmentId/verify', tasksController.verifyTaskFulfillmentV1)
 router.post('/v1/tasks/:taskId/fulfillments/:fulfillmentId/request-correction', tasksController.requestTaskCorrectionV1)
 router.post('/v1/tasks/:taskId/fulfillments/:fulfillmentId/resubmit', tasksController.resubmitTaskFulfillmentV1)
 router.post('/v1/tasks/:taskId/fulfillments/:fulfillmentId/revert', tasksController.revertTaskFulfillmentV1)
 router.post('/v1/tasks/:taskId/fulfillments/:fulfillmentId/reopen', tasksController.reopenTaskFulfillmentV1)
+
+router.post('/tasks/:id/evidence/:fulfillmentId', tasksController.submitTaskEvidence)
+router.get('/tasks/:id/evidence', tasksController.getTaskEvidenceHistory)
+router.get('/tasks/:id/audit', tasksController.getTaskAuditHistory)
 
 router.get('/tasks/:id', tasksController.getTaskById)
 router.get('/tasks', tasksController.listTasks)
@@ -119,5 +140,6 @@ router.post('/goals/:goalId/milestones/:milestoneId/trash', goalsController.tras
 router.post('/goals/:goalId/milestones/:milestoneId/restore', goalsController.restoreMilestone)
 
 router.use(presetsDraftsRouter)
+router.use('/v1', plansV1Router)
 
 module.exports = router

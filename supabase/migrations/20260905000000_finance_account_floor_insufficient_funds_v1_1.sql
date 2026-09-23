@@ -75,8 +75,10 @@ begin
   return new;
 end;
 $$;
+
 drop trigger if exists trg_finance_account_effects_debit_floor_v1 on public.finance_account_effects;
 create trigger trg_finance_account_effects_debit_floor_v1
   before insert on public.finance_account_effects
   for each row execute function public.finance_account_effects_debit_floor_guard_fn();
+
 notify pgrst, 'reload schema';

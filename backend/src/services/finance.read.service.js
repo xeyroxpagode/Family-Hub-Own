@@ -41,6 +41,7 @@ const {
 } = require('../constants/finance.constants');
 
 const PERIOD_MONTH_RE = /^\d{4}-\d{2}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TEN_THOUSAND = 10000n;
 
 /**
@@ -75,7 +76,7 @@ function assertNoCallerOwnerSelectors(query = {}) {
   }
 }
 
-const SELECT_COLUMNS = [
+const TRASH_SELECT_COLUMNS = [
   'id',
   'root_transaction_id',
   'transfer_id',
@@ -86,23 +87,25 @@ const SELECT_COLUMNS = [
   'description',
   'category_id',
   'category_label_snapshot',
+  'trashed_at',
   'created_at',
   'updated_at',
 ].join(', ');
 
-const TRASH_SELECT_COLUMNS = [
+const TRANSFER_TRASH_SELECT_COLUMNS = [
   'id',
-  'root_transaction_id',
-  'transaction_type',
-  'amount:amount::text',
-  'currency',
-  'transaction_date',
+  'source_account_id',
+  'destination_account_id',
+  'source_amount:source_amount::text',
+  'destination_amount:destination_amount::text',
+  'source_currency',
+  'destination_currency',
+  'transfer_date',
   'description',
-  'category_id',
-  'category_label_snapshot',
-  'trashed_at',
+  'notes',
   'created_at',
-  'updated_at',
+  'source_account:finance_accounts!finance_transfers_source_account_id_fkey(id, name, account_type, currency)',
+  'destination_account:finance_accounts!finance_transfers_destination_account_id_fkey(id, name, account_type, currency)',
 ].join(', ');
 
 function throwSupabaseError(error) {
@@ -298,33 +301,107 @@ function scopeFilters(query, financeContext) {
   return query;
 }
 
-function movementToDto(row) {
-  const refundComposition = refundCompositionForRow(row);
+function unifiedRefundCompositionForRow(row) {
+  const composition = row.refund_composition ?? {};
+  const refundEvents = Array.isArray(composition.refundEvents) ? composition.refundEvents : [];
+  const total = refundEvents.reduce((sum, event) => sum + toScaledBigInt(event.amount), 0n);
+  const net = toScaledBigInt(row.amount) - total;
+  return {
+    totalRefunded: fromScaledBigInt(total),
+    netAmount: fromScaledBigInt(net),
+    refundCount: refundEvents.length,
+    refundEvents,
+  };
+}
+
+function unifiedTransferMovementToDto(row) {
+  const detail = row.transfer_detail ?? {};
+  const refundComposition = unifiedRefundCompositionForRow(row);
+  const sourceAccount = detail.sourceAccount ?? {};
+  const destinationAccount = detail.destinationAccount ?? {};
+  const commission = detail.commission ?? null;
   return {
     id: row.id,
     rootTransactionId: row.root_transaction_id ?? row.id,
     transferId: row.transfer_id ?? null,
-    transactionType: row.transaction_type,
+    kind: FINANCE_TRANSACTION_TYPES.TRANSFER,
+    transactionType: FINANCE_TRANSACTION_TYPES.TRANSFER,
+    date: row.occurrence_date ?? detail.transfer_date ?? detail.date,
+    transactionDate: row.occurrence_date ?? detail.transfer_date ?? detail.date,
     amount: String(row.amount),
-    grossAmount: String(row.amount),
+    grossAmount: String(row.gross_amount ?? row.amount),
     totalRefunded: refundComposition.totalRefunded,
     netAmount: refundComposition.netAmount,
     refundCount: refundComposition.refundCount,
     refundEvents: refundComposition.refundEvents,
     currency: row.currency,
-    transactionDate: row.transaction_date,
+    description: row.description ?? null,
+    notes: detail.notes ?? null,
+    categoryId: null,
+    categoryLabelSnapshot: null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at ?? row.created_at,
+    sourceAccount: {
+      id: sourceAccount.id ?? null,
+      name: sourceAccount.name ?? null,
+      accountType: sourceAccount.accountType ?? null,
+      currency: sourceAccount.currency ?? null,
+    },
+    destinationAccount: {
+      id: destinationAccount.id ?? null,
+      name: destinationAccount.name ?? null,
+      accountType: destinationAccount.accountType ?? null,
+      currency: destinationAccount.currency ?? null,
+    },
+    sourceAmount: String(detail.sourceAmount ?? row.amount),
+    sourceCurrency: detail.sourceCurrency ?? row.currency,
+    destinationAmount: String(detail.destinationAmount ?? row.amount),
+    destinationCurrency: detail.destinationCurrency ?? row.currency,
+    commission: commission
+      ? {
+          expenseRootTransactionId: commission.expenseRootTransactionId ?? null,
+          amount: commission.amount ?? null,
+          currency: commission.currency ?? null,
+        }
+      : null,
+  };
+}
+
+function unifiedRowToDto(row) {
+  if (row.kind === FINANCE_TRANSACTION_TYPES.TRANSFER) {
+    return unifiedTransferMovementToDto(row);
+  }
+
+  const refundComposition = unifiedRefundCompositionForRow(row);
+  return {
+    id: row.id,
+    rootTransactionId: row.root_transaction_id ?? row.id,
+    transferId: row.transfer_id ?? null,
+    kind: row.kind,
+    transactionType: row.kind,
+    date: row.occurrence_date,
+    transactionDate: row.occurrence_date,
+    amount: String(row.amount),
+    grossAmount: String(row.gross_amount ?? row.amount),
+    totalRefunded: refundComposition.totalRefunded,
+    netAmount: refundComposition.netAmount,
+    refundCount: refundComposition.refundCount,
+    refundEvents: refundComposition.refundEvents,
+    currency: row.currency,
     description: row.description ?? null,
     categoryId: row.category_id ?? null,
     categoryLabelSnapshot: row.category_label_snapshot ?? null,
     createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    updatedAt: row.updated_at ?? row.created_at,
   };
 }
 
 function movementToTrashDto(row) {
   return {
+    kind: String(row.transaction_type).toUpperCase(),
     id: row.id,
     transactionType: row.transaction_type,
+    transferId: row.transfer_id ?? null,
     amount: String(row.amount),
     currency: row.currency,
     transactionDate: row.transaction_date,
@@ -334,6 +411,50 @@ function movementToTrashDto(row) {
     trashedAt: row.trashed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function transferAccountToDto(account, fallbackId, fallbackCurrency) {
+  const value = Array.isArray(account) ? account[0] : account;
+  return {
+    id: value?.id ?? fallbackId,
+    name: value?.name ?? null,
+    accountType: value?.account_type ?? null,
+    currency: value?.currency ?? fallbackCurrency,
+  };
+}
+
+function transferToTrashDto(row, commissionRow = null) {
+  return {
+    kind: FINANCE_TRANSACTION_TYPES.TRANSFER.toUpperCase(),
+    id: row.id,
+    transactionType: FINANCE_TRANSACTION_TYPES.TRANSFER,
+    date: row.transfer_date,
+    transactionDate: row.transfer_date,
+    description: row.description ?? null,
+    notes: row.notes ?? null,
+    sourceAccount: transferAccountToDto(row.source_account, row.source_account_id, row.source_currency),
+    destinationAccount: transferAccountToDto(
+      row.destination_account,
+      row.destination_account_id,
+      row.destination_currency,
+    ),
+    sourceAmount: String(row.source_amount),
+    sourceCurrency: row.source_currency,
+    destinationAmount: String(row.destination_amount),
+    destinationCurrency: row.destination_currency,
+    // Additive disclosure of the dependent commission (deterministic relation:
+    // finance_transactions.transfer_id = transfer.id, transaction_type = expense).
+    // Never a second trash item: the commission follows its root Transfer.
+    commission: commissionRow
+      ? {
+          expenseRootTransactionId: commissionRow.root_transaction_id ?? null,
+          amount: commissionRow.amount ?? null,
+          currency: commissionRow.currency ?? null,
+        }
+      : null,
+    trashedAt: null,
+    createdAt: row.created_at,
   };
 }
 
@@ -424,30 +545,42 @@ async function getFinanceTransactionDetail(financeContext, transactionId) {
   return transactionToDetailDto(enriched);
 }
 
+async function getTransferDetail(financeContext, transferId) {
+  assertNoCallerOwnerSelectors({});
+  assertResolvedFinanceContext(financeContext);
+
+  if (!transferId || typeof transferId !== 'string' || !UUID_RE.test(transferId)) {
+    throw createHttpError(400, 'transferId invalido.', 'validation_error');
+  }
+
+  const { data, error } = await financeContext.client.rpc('finance_get_transfer_detail_v1', {
+    p_transfer_id: transferId,
+  });
+
+  if (error) throwSupabaseError(error);
+
+  if (!data) {
+    throw createHttpError(404, 'Transferencia no encontrada.', 'finance_transfer_not_found');
+  }
+
+  return data;
+}
+
 async function listFinanceMovements(financeContext, query = {}) {
   assertNoCallerOwnerSelectors(query);
   assertResolvedFinanceContext(financeContext);
   const month = normalizePeriodMonth(query.month ?? query.period);
-  const { start, endExclusive } = periodRange(month);
 
-  let request = financeContext.client
-    .from('finance_transactions')
-    .select(SELECT_COLUMNS);
+  const { data, error } = await financeContext.client.rpc('finance_list_unified_movements_v1', {
+    p_financial_context_type: financeContext.contextType,
+    p_owner_person_id: financeContext.contextType === FINANCE_CONTEXT_TYPES.PERSONAL ? financeContext.personId : null,
+    p_household_id: financeContext.contextType === FINANCE_CONTEXT_TYPES.HOUSEHOLD ? financeContext.householdId : null,
+    p_period: month,
+  });
 
-  request = scopeFilters(request, financeContext);
-  request = request
-    .eq('status', 'ACTIVE')
-    .gte('transaction_date', start)
-    .lt('transaction_date', endExclusive)
-    .order('transaction_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false });
-
-  const { data, error } = await request;
   if (error) throwSupabaseError(error);
 
-  const enriched = await attachRefundCompositions(financeContext, data ?? []);
-  const movements = enriched.map(movementToDto);
+  const movements = (Array.isArray(data) ? data : []).map(unifiedRowToDto);
   return { period: month, contextType: financeContext.contextType, movements };
 }
 
@@ -463,13 +596,55 @@ async function listFinanceTrash(financeContext, query = {}) {
   request = request
     .eq('status', 'TRASHED')
     .in('transaction_type', [FINANCE_TRANSACTION_TYPES.EXPENSE, FINANCE_TRANSACTION_TYPES.INCOME])
+    // Papelera is a ROOT model: a dependent commission (transfer_id IS NOT NULL)
+    // follows its root Transfer and never renders as a standalone trash item.
+    .is('transfer_id', null)
     .order('trashed_at', { ascending: false })
     .order('id', { ascending: false });
 
-  const { data, error } = await request;
-  if (error) throwSupabaseError(error);
+  const transferRequest = financeContext.client
+    .from('finance_transfers')
+    .select(TRANSFER_TRASH_SELECT_COLUMNS)
+    .eq('status', 'REVERSED')
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
 
-  const movements = (data ?? []).map(movementToTrashDto);
+  const [transactionResult, transferResult] = await Promise.all([request, transferRequest]);
+  if (transactionResult.error) throwSupabaseError(transactionResult.error);
+  if (transferResult.error) throwSupabaseError(transferResult.error);
+
+  // Dependent commissions for trashed roots (deterministic relation:
+  // finance_transactions.transfer_id = transfer.id, transaction_type = expense).
+  // A trashed root expects its commission TRASHED; legacy rows may vary, so we
+  // accept any lifecycle state here and disclose it without creating a row.
+  const transferRows = transferResult.data ?? [];
+  const commissionsByTransferId = new Map();
+  const transferIds = transferRows.map((row) => row.id).filter(Boolean);
+  if (transferIds.length > 0) {
+    const { data: commissionRows, error: commissionError } = await financeContext.client
+      .from('finance_transactions')
+      .select('id, root_transaction_id, transfer_id, amount:amount::text, currency, status')
+      .in('transfer_id', transferIds)
+      .eq('transaction_type', FINANCE_TRANSACTION_TYPES.EXPENSE)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (commissionError) throwSupabaseError(commissionError);
+    for (const commissionRow of commissionRows ?? []) {
+      if (commissionRow?.transfer_id && !commissionsByTransferId.has(commissionRow.transfer_id)) {
+        commissionsByTransferId.set(commissionRow.transfer_id, commissionRow);
+      }
+    }
+  }
+
+  const movements = [
+    ...(transactionResult.data ?? []).map(movementToTrashDto),
+    ...transferRows.map((row) => transferToTrashDto(row, commissionsByTransferId.get(row.id) ?? null)),
+  ].sort((left, right) => {
+    const leftTime = Date.parse(left.trashedAt ?? left.createdAt ?? left.transactionDate);
+    const rightTime = Date.parse(right.trashedAt ?? right.createdAt ?? right.transactionDate);
+    if (leftTime !== rightTime) return rightTime - leftTime;
+    return right.id.localeCompare(left.id);
+  });
   return { contextType: financeContext.contextType, movements };
 }
 
@@ -526,6 +701,7 @@ module.exports = {
   listFinanceTrash,
   summarizeFinance,
   getFinanceTransactionDetail,
+  getTransferDetail,
   normalizePeriodMonth,
   periodRange,
   assertNoCallerOwnerSelectors,

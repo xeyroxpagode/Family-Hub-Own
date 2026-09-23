@@ -9,7 +9,9 @@ function contextTypeFrom(req) {
 }
 
 function bodyWithoutContextRoutingFields(body = {}) {
-  const { contextType, context_type, ...rest } = body ?? {};
+  const rest = { ...(body ?? {}) };
+  delete rest.contextType;
+  delete rest.context_type;
   return rest;
 }
 
@@ -86,6 +88,17 @@ const cancelPaymentDue = async (req, res) => {
   }
 };
 
+const skipPaymentDue = async (req, res) => {
+  try {
+    const financeContext = await resolveFinanceContext(req, contextTypeFrom(req));
+    const dueId = req.params?.dueId ?? req.query?.dueId;
+    const payload = await paymentService.skipPaymentDue(financeContext, dueId, req.body ?? {});
+    return res.status(200).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
 const cancelPaymentSeries = async (req, res) => {
   try {
     const financeContext = await resolveFinanceContext(req, contextTypeFrom(req));
@@ -130,6 +143,17 @@ const registerPayment = async (req, res) => {
   }
 };
 
+const settleCreditCardPaymentDue = async (req, res) => {
+  try {
+    const financeContext = await resolveFinanceContext(req, contextTypeFrom(req));
+    const dueId = req.params?.dueId ?? req.query?.dueId;
+    const payload = await paymentService.settleCreditCardPaymentDue(financeContext, dueId, req.body ?? {});
+    return res.status(201).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
 module.exports = {
   createOneOffPaymentDue,
   createPaymentSeries,
@@ -138,8 +162,10 @@ module.exports = {
   listPaymentSeries,
   getPaymentSeriesDetail,
   cancelPaymentDue,
+  skipPaymentDue,
   cancelPaymentSeries,
   editPaymentDue,
   editPaymentSeries,
   registerPayment,
+  settleCreditCardPaymentDue,
 };

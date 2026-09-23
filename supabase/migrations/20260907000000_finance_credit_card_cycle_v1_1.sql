@@ -53,6 +53,7 @@ as $$
     )
   );
 $$;
+
 -- Effective card cycle close date for a given year/month and closing day.
 create or replace function public.finance_card_close_in_month_v1(
   p_year integer,
@@ -65,6 +66,7 @@ immutable
 as $$
   select public.finance_card_day_in_month_v1(p_year, p_month, p_closing_day);
 $$;
+
 -- First cycle close date for a purchase (8D.3C first-cycle rule).
 create or replace function public.finance_card_first_close_date_v1(
   p_purchase_date date,
@@ -92,6 +94,7 @@ as $$
         )
   end;
 $$;
+
 -- Cycle close date for installment ordinal N given the plan's first close.
 -- Ordinal N is N-1 consecutive card cycles after the first cycle. Each cycle
 -- independently clamps the closing day to its own month (e.g. closing 31 ->
@@ -112,6 +115,7 @@ as $$
   )
   from (select (p_first_close + make_interval(months => p_ordinal - 1))::date as d) d;
 $$;
+
 -- Due date for a cycle (8D.3E): first effective due-day STRICTLY AFTER close.
 create or replace function public.finance_card_due_date_for_close_v1(
   p_cycle_close_date date,
@@ -139,6 +143,7 @@ as $$
         )
   end;
 $$;
+
 -- ---------------------------------------------------------------------------
 -- 2) Timing snapshot on the plan + cycle dates on the schedule rows.
 -- ---------------------------------------------------------------------------
@@ -146,19 +151,24 @@ $$;
 alter table public.finance_credit_card_installment_plans
   add column if not exists closing_day_snapshot integer null,
   add column if not exists due_day_snapshot integer null;
+
 comment on column public.finance_credit_card_installment_plans.closing_day_snapshot is
   'Closing day captured at installment-plan creation. Editing the card later does NOT move existing plans.';
 comment on column public.finance_credit_card_installment_plans.due_day_snapshot is
   'Due day captured at installment-plan creation. Editing the card later does NOT move existing plans.';
+
 alter table public.finance_credit_card_installments
   add column if not exists cycle_close_date date null,
   add column if not exists cycle_due_date date null;
+
 comment on column public.finance_credit_card_installments.cycle_close_date is
   'Computed card-cycle close date for this installment. Impact period (8D.3G) is the month of this date.';
 comment on column public.finance_credit_card_installments.cycle_due_date is
   'Computed card-cycle due date for this installment (first effective due-day strictly after close).';
+
 create index if not exists finance_credit_card_installments_cycle_close_idx
   on public.finance_credit_card_installments (cycle_close_date);
+
 -- ---------------------------------------------------------------------------
 -- 3) Rewrite the create-plan RPC to snapshot timing and compute cycle dates.
 --    Historical cards (NULL timing) are now rejected for NEW plans.
@@ -330,10 +340,13 @@ exception
     raise exception 'finance_credit_card_installment_plan_exists' using errcode = '23505';
 end;
 $$;
+
 grant execute on function public.finance_create_credit_card_installment_plan_v1(uuid, integer, uuid) to authenticated;
+
 grant execute on function public.finance_card_day_in_month_v1(integer, integer, integer) to authenticated;
 grant execute on function public.finance_card_close_in_month_v1(integer, integer, integer) to authenticated;
 grant execute on function public.finance_card_first_close_date_v1(date, integer) to authenticated;
 grant execute on function public.finance_card_cycle_close_date_v1(date, integer, integer) to authenticated;
 grant execute on function public.finance_card_due_date_for_close_v1(date, integer) to authenticated;
+
 notify pgrst, 'reload schema';

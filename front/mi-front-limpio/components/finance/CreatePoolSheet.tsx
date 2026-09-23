@@ -1,21 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Keyboard } from 'react-native';
+import { View, Keyboard } from 'react-native';
 
 import {
-  AppButton,
-  AppCard,
   AppText,
   AppInput,
   ActionSheet,
 } from '../ui';
-import { colors, spacing } from '../../constants/theme';
-import { HomePlusIcon } from '../../constants/icons';
 import {
   createFinancePool,
 } from '../../services/finance/financePools';
 import type { FinanceContextType } from '../../services/finance/financeContext';
 import { hashIdempotencyRequestV2 } from '../../services/finance/idempotency';
 import { generateMutationId } from '../../services/api';
+import {
+  FinanceDetailMetaRow,
+  FinanceFormFooter,
+  FINANCE_SHEET_SIZE_POLICY,
+  financeSpacing,
+} from './ui';
 
 type CreatePoolSheetProps = {
   visible: boolean;
@@ -111,79 +113,36 @@ export function CreatePoolSheet({
       visible={true}
       title="Crear pozo"
       onRequestClose={onRequestClose}
-      size="content"
+      size={FINANCE_SHEET_SIZE_POLICY.SHORT_FORM}
     >
-      <View style={styles.content}>
-        <AppText variant="caption" tone="secondary" style={styles.hint}>
-          Moneda: {currency}
-        </AppText>
+      <View style={{ gap: financeSpacing.formFieldGap, paddingBottom: financeSpacing.contentActionGap }}>
+        <FinanceDetailMetaRow label="Moneda" value={currency} />
 
-        <AppCard variant="quiet" padding="default" style={styles.formCard}>
-          <AppInput
-            label="Nombre del pozo"
-            placeholder="Ej: Ahorro Emergencia, Vacaciones, Impuestos"
-            value={name}
-            onChangeText={setName}
-            errorText={error ?? undefined}
-            autoCapitalize="words"
-            maxLength={50}
-            returnKeyType="done"
-            onSubmitEditing={handleSubmit}
-            autoFocus={true}
-          />
-        </AppCard>
+        <AppInput
+          label="Nombre del pozo"
+          placeholder="Ej: Ahorro Emergencia, Vacaciones, Impuestos"
+          value={name}
+          onChangeText={setName}
+          errorText={error ?? undefined}
+          autoCapitalize="words"
+          maxLength={50}
+          returnKeyType="done"
+          onSubmitEditing={handleSubmit}
+          autoFocus={true}
+        />
 
-        <AppText variant="caption" tone="tertiary" style={styles.note}>
+        <AppText variant="caption" tone="tertiary" align="center">
           El pozo se crea con saldo 0. Podrás agregarle dinero después.
         </AppText>
 
-        <View style={styles.buttonRow}>
-          <AppButton
-            title="Cancelar"
-            variant="secondary"
-            onPress={onRequestClose}
-            disabled={submitting}
-            style={styles.cancelButton}
-          />
-          <AppButton
-            title="Crear pozo"
-            onPress={handleSubmit}
-            disabled={submitting || !name.trim()}
-            style={styles.createButton}
-          >
-            {submitting && <HomePlusIcon name="refresh" size={20} color={colors.text.inverse} />}
-          </AppButton>
-        </View>
+        <FinanceFormFooter
+          onCancel={onRequestClose}
+          primaryTitle="Crear pozo"
+          onPrimary={handleSubmit}
+          primaryDisabled={!name.trim()}
+          loading={submitting}
+        />
       </View>
     </ActionSheet>
   );
 }
-
-const styles = StyleSheet.create({
-  content: {
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[2],
-    paddingBottom: spacing[4],
-    gap: spacing[3],
-  },
-  hint: {
-    color: colors.text.tertiary,
-  },
-  formCard: {
-    gap: spacing[3],
-  },
-  note: {
-    textAlign: 'center',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: spacing[2],
-    marginTop: spacing[1],
-  },
-  cancelButton: {
-    flex: 1,
-  },
-  createButton: {
-    flex: 1,
-  },
-});

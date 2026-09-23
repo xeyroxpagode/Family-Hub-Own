@@ -1,7 +1,10 @@
 'use strict';
 
 const { createHttpError } = require('../lib/httpErrors');
+const { requireMutationContract, OPERATION_KINDS } = require('../lib/mutationContracts');
+const { hashIdempotencyRequestV2 } = require('../lib/plannerIdempotencyAdapter');
 const {
+  FINANCE_ACCOUNT_TYPES,
   FINANCE_CATEGORY_KINDS,
   FINANCE_CONTEXT_TYPES,
   FINANCE_TRANSACTION_TYPES,
@@ -55,6 +58,10 @@ function throwSupabaseError(error) {
 
   if (isRlsViolation) {
     throw createHttpError(403, 'No tenes permiso para crear esta transaccion Finance.', 'finance_transaction_forbidden');
+  }
+
+  if (typeof error?.message === 'string' && error.message.includes('finance_account_insufficient_funds')) {
+    throw createHttpError(409, 'No tenés saldo suficiente en la cuenta.', 'finance_account_insufficient_funds');
   }
 
   if (['23514', '23502', '23503', '22P02', '22007'].includes(error?.code)) {
@@ -248,8 +255,199 @@ function createIncome(financeContext, body = {}) {
   return createFinanceTransaction(financeContext, body, FINANCE_TRANSACTION_TYPES.INCOME);
 }
 
+const INSTALLMENT_PURCHASE_ERROR_CODES = Object.freeze([
+  'finance_transaction_owner_authority_forbidden',
+  'invalid_finance_installment_count',
+  'finance_installment_requires_credit_card',
+  'credit_card_timing_required',
+  'invalid_finance_transaction_amount',
+  'invalid_finance_transaction_category',
+  'finance_credit_card_installment_plan_exists',
+]);
+
+function extractInstallmentPurchaseDomainCode(message) {
+  if (typeof message !== 'string') return null;
+  for (const code of INSTALLMENT_PURCHASE_ERROR_CODES) {
+    if (message.includes(code)) return code;
+  }
+  return null;
+}
+
+function throwInstallmentPurchaseError(error) {
+  const domainCode = extractInstallmentPurchaseDomainCode(error?.message);
+
+  if (domainCode === 'finance_credit_card_installment_plan_exists') {
+    throw createHttpError(409, 'La compra ya tiene un plan de cuotas.', domainCode);
+  }
+  if (domainCode === 'credit_card_timing_required') {
+    throw createHttpError(409, 'Configurá el cierre y vencimiento de esta tarjeta antes de usar cuotas.', domainCode);
+  }
+  if (domainCode === 'finance_installment_requires_credit_card') {
+    throw createHttpError(400, 'Elegí una tarjeta de crédito para usar cuotas.', domainCode);
+  }
+  if (domainCode === 'invalid_finance_installment_count') {
+    throw createHttpError(400, 'Ingresá entre 2 y 60 cuotas.', domainCode);
+  }
+  if (domainCode === 'finance_transaction_owner_authority_forbidden') {
+    throw createHttpError(403, 'No tenes permiso para registrar esta compra.', 'finance_transaction_forbidden');
+  }
+  if (domainCode) {
+    throw createHttpError(400, 'Compra en cuotas invalida.', domainCode);
+  }
+
+  const isRlsViolation =
+    error?.code === '42501' ||
+    error?.code === 'PGRST301' ||
+    (typeof error?.message === 'string' && error.message.toLowerCase().includes('row-level security'));
+  if (isRlsViolation) {
+    throw createHttpError(403, 'No tenes permiso para registrar esta compra.', 'finance_transaction_forbidden');
+  }
+
+  if (error?.code === 'P0008') {
+    throw createHttpError(409, 'La operacion ya fue procesada con otros datos.', 'idempotency_conflict');
+  }
+  if (error?.code === 'P0009') {
+    throw createHttpError(409, 'La operacion ya se esta procesando. Reintentá en unos segundos.', 'idempotency_in_flight');
+  }
+
+  if (['23514', '23502', '23503', '22P02', '22007'].includes(error?.code)) {
+    throw createHttpError(400, 'Compra en cuotas invalida.', 'validation_error');
+  }
+
+  // Unknown/unexpected Supabase/Postgres error: NEVER expose raw message/code
+  // details or hint to the client. Log internally, surface generic human copy.
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('[finance.installment_purchase] unexpected error', {
+      code: error?.code ?? null,
+      message: error?.message ?? null,
+      details: error?.details ?? null,
+      hint: error?.hint ?? null,
+    });
+  }
+  throw createHttpError(500, 'No pudimos registrar la compra en cuotas. Intenta de nuevo.', 'internal_error');
+}
+
+function normalizeInstallmentCount(value) {
+  if (value === undefined || value === null || value === '') {
+    throw createHttpError(400, 'Elegí la cantidad de cuotas.', 'invalid_finance_installment_count');
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < 2 || parsed > 60) {
+    throw createHttpError(400, 'Ingresá entre 2 y 60 cuotas.', 'invalid_finance_installment_count');
+  }
+  return parsed;
+}
+
+function correlationFromRequest(req) {
+  return requireMutationContract(req, OPERATION_KINDS.CREATE_IDEMPOTENT);
+}
+
+async function createCardInstallmentPurchase(financeContext, body = {}, correlation = {}) {
+  assertNoForbiddenCreateFields(body);
+
+  const installmentCount = normalizeInstallmentCount(body.installmentCount ?? body.installment_count);
+  const mutationId = correlation.mutationId ?? correlation.mutation_id;
+  const idempotencyKey = correlation.idempotencyKey ?? correlation.idempotency_key;
+  if (!mutationId || !idempotencyKey) {
+    throw createHttpError(422, 'Compra en cuotas requiere X-Mutation-Id e Idempotency-Key.', 'idempotency_key_required');
+  }
+
+  const contract = normalizeFinanceTransactionContract({
+    ...body,
+    type: FINANCE_TRANSACTION_TYPES.EXPENSE,
+    financialContext: financeContext,
+    source: undefined,
+  });
+  const category = await resolveSelectableCategoryForTransaction(
+    financeContext,
+    contract.type,
+    normalizeRequestedCategoryId(body),
+  );
+  const amountText = normalizePositiveAmountText(body.amount);
+  const account = await resolveAccountForTransaction(financeContext, body, contract.type, contract.currency);
+
+  if (!account || account.account_type !== FINANCE_ACCOUNT_TYPES.CREDIT_CARD) {
+    throw createHttpError(400, 'Elegí una tarjeta de crédito para usar cuotas.', 'finance_installment_requires_credit_card');
+  }
+
+  const description = normalizeOptionalText(body.description);
+  const notes = normalizeOptionalText(body.notes);
+  const categoryId = category?.id ?? null;
+
+  // The payload hash must represent EVERY normalized field that is actually
+  // persisted by the mutation, so a retry with a materially different payload
+  // cannot replay as if it were the same purchase.
+  const payloadForHash = {
+    accountId: account.id,
+    amount: amountText,
+    currency: contract.currency,
+    transactionDate: contract.date,
+    description,
+    notes,
+    categoryId,
+    installmentCount,
+  };
+  const scopeType = financeContext.contextType === FINANCE_CONTEXT_TYPES.PERSONAL
+    ? FINANCE_CONTEXT_TYPES.PERSONAL
+    : FINANCE_CONTEXT_TYPES.HOUSEHOLD;
+  const scopeId = financeContext.contextType === FINANCE_CONTEXT_TYPES.PERSONAL
+    ? financeContext.personId
+    : financeContext.householdId;
+
+  const payloadHash = hashIdempotencyRequestV2({
+    operation: 'finance.installment_purchase.create',
+    scopeType,
+    scopeId,
+    targetId: null,
+    payload: payloadForHash,
+    expectedVersion: null,
+    mutationId,
+  });
+
+  const ownerPersonId = financeContext.contextType === FINANCE_CONTEXT_TYPES.PERSONAL
+    ? financeContext.personId
+    : null;
+  const householdId = financeContext.contextType === FINANCE_CONTEXT_TYPES.HOUSEHOLD
+    ? financeContext.householdId
+    : null;
+
+  const { data, error } = await financeContext.client.rpc('finance_create_card_installment_purchase_v1', {
+    p_actor_account_id: financeContext.accountId,
+    p_actor_person_id: financeContext.personId,
+    p_mutation_id: mutationId,
+    p_idempotency_key: idempotencyKey,
+    p_payload_hash: payloadHash,
+    p_amount: amountText,
+    p_currency: contract.currency,
+    p_financial_context_type: financeContext.contextType,
+    p_owner_person_id: ownerPersonId,
+    p_household_id: householdId,
+    p_transaction_date: contract.date,
+    p_description: description,
+    p_notes: notes,
+    p_category_id: categoryId,
+    p_category_label_snapshot: category?.label ?? null,
+    p_account_id: account.id,
+    p_installment_count: installmentCount,
+  });
+
+  if (error) throwInstallmentPurchaseError(error);
+
+  const outcome = data?.outcome === 'created' ? 'created' : 'replay';
+  return {
+    transactionId: data.transactionId,
+    rootTransactionId: data.rootTransactionId,
+    installmentCount,
+    totalAmount: data.plan?.totalAmount ?? amountText,
+    currency: contract.currency,
+    outcome,
+  };
+}
+
 module.exports = {
   createFinanceTransaction,
   createExpense,
   createIncome,
+  createCardInstallmentPurchase,
+  correlationFromRequest,
 };

@@ -44,6 +44,15 @@ const ACTION_LABELS: Record<PresetDetailAction, string> = {
   restore: 'Restaurar',
 };
 
+/**
+ * P2.2A: on HomePlus originals the duplicate action reads "Duplicar al hogar"
+ * (it materializes a NEW editable household copy; the original stays intact).
+ */
+function actionLabel(action: PresetDetailAction, preset: PlannerPreset): string {
+  if (action === 'duplicate' && preset.source === 'homeplus') return 'Duplicar al hogar';
+  return ACTION_LABELS[action];
+}
+
 export function PlannerPresetDetailScreen({ preset, capabilities, onAction }: Props) {
   const interaction = describePresetDetailInteraction(preset, capabilities);
   const placeholderCount = preset.planner_preset_revisions
@@ -85,7 +94,7 @@ export function PlannerPresetDetailScreen({ preset, capabilities, onAction }: Pr
             key={action}
             onPress={() => onAction?.(action, preset)}
             accessibilityRole="button"
-            accessibilityLabel={ACTION_LABELS[action]}
+            accessibilityLabel={actionLabel(action, preset)}
             style={{
               paddingHorizontal: 14,
               paddingVertical: 8,
@@ -97,7 +106,7 @@ export function PlannerPresetDetailScreen({ preset, capabilities, onAction }: Pr
             }}
           >
             <AppText variant="bodySmall" weight="700" tone="primary">
-              {ACTION_LABELS[action]}
+              {actionLabel(action, preset)}
             </AppText>
           </TouchableOpacity>
         ))}

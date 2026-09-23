@@ -21,6 +21,7 @@
 -- is only the "En cuotas" (2..60) entry point.
 
 create extension if not exists "pgcrypto";
+
 create or replace function public.finance_create_card_installment_purchase_v1(
   p_actor_account_id uuid,
   p_actor_person_id uuid,
@@ -230,7 +231,9 @@ exception
     raise exception 'finance_credit_card_installment_plan_exists' using errcode = '23505';
 end;
 $$;
+
 grant execute on function public.finance_create_card_installment_purchase_v1(
   uuid, uuid, text, text, text, numeric, text, text, uuid, uuid, date, text, text, uuid, text, uuid, integer
 ) to authenticated;
+
 notify pgrst, 'reload schema';

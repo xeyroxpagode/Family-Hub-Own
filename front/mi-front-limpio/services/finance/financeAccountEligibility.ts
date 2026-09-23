@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AbortError, ApiError } from '../api';
 import {
+  FINANCE_ACCOUNT_BALANCE_STATES,
   FINANCE_ACCOUNT_STATUSES,
   FINANCE_ACCOUNT_TYPES,
   listFinanceAccounts,
@@ -83,6 +84,18 @@ export function filterEligibleAccounts(
 
     if (!accountTypeAllowed) {
       continue;
+    }
+
+    if (
+      operation === 'transfer-source' ||
+      (operation === 'expense' && account.accountType === FINANCE_ACCOUNT_TYPES.ACCOUNT)
+    ) {
+      const negative = account.currentBalance !== null &&
+        account.currentBalance.startsWith('-') &&
+        /[1-9]/.test(account.currentBalance.slice(1).replace('.', ''));
+      if (account.balanceState !== FINANCE_ACCOUNT_BALANCE_STATES.KNOWN || negative) {
+        continue;
+      }
     }
 
     const relationships = computeRelationships(account, options);

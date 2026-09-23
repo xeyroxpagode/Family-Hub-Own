@@ -1,16 +1,23 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import {
   AppButton,
-  AppCard,
   AppText,
   ActionSheet,
   InteractivePressable,
 } from '../ui';
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
+import {
+  FinanceDetailHeader,
+  FinanceDetailMetaRow,
+  FinanceDetailSection,
+  FinanceFormFooter,
+  FinanceIconBox,
+  FINANCE_ACTION_ICON_SIZE,
+} from './ui';
 import { HomePlusIcon } from '../../constants/icons';
-import { formatFinanceAmount, isZeroDecimalString } from '../../services/finance/financeDisplay';
+import { formatFinanceAmount } from '../../services/finance/financeDisplay';
 import type { FinanceSpendingLimitProgressDto } from '../../services/finance/financeSpendingLimits';
 
 type SpendingLimitDetailSheetProps = {
@@ -19,7 +26,7 @@ type SpendingLimitDetailSheetProps = {
   currency: string;
   onRequestClose: () => void;
   onEdit: (limit: FinanceSpendingLimitProgressDto) => void;
-  onCancel: (limit: FinanceSpendingLimitProgressDto) => Promise<void>;
+  onCancel: (limit: FinanceSpendingLimitProgressDto, scope: 'ONE_OFF' | 'THIS_PERIOD' | 'THIS_AND_FOLLOWING') => Promise<void>;
   cancelError?: string | null;
   isCancelling?: boolean;
 };
@@ -36,20 +43,21 @@ const STATUS_TONES: Record<'UNDER' | 'AT' | 'OVER', 'success' | 'warning' | 'dan
   OVER: 'danger',
 };
 
-const SCOPE_LABELS = {
-  OVERALL: 'General',
-  CATEGORY: 'Categoría',
-};
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
 
-const PERIOD_LABELS = {
-  MONTHLY: 'Mensual',
-  YEARLY: 'Anual',
-};
-
-const RECURRENCE_LABELS = {
-  ONE_OFF: 'Una vez',
-  RECURRING: 'Recurrente',
-};
+function formatPeriodHuman(periodType: string, period: string): string {
+  if (periodType === 'MONTHLY') {
+    const [year, month] = period.split('-').map(Number);
+    if (year && month && month >= 1 && month <= 12) {
+      return `${MONTH_NAMES[month - 1]} ${year}`;
+    }
+    return period;
+  }
+  return period;
+}
 
 export function SpendingLimitDetailSheet({
   visible,
@@ -61,109 +69,176 @@ export function SpendingLimitDetailSheet({
   cancelError,
   isCancelling,
 }: SpendingLimitDetailSheetProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const [cancelMode, setCancelMode] = useState(false);
   if (!visible || !limit) return null;
+  const styles = createStyles(theme);
 
   const isOver = limit.status === 'OVER';
   const isAt = limit.status === 'AT';
   const statusTone = STATUS_TONES[limit.status];
+  const isGeneral = limit.scopeType !== 'CATEGORY';
 
   return (
     <ActionSheet
       visible={true}
-      title="Detalle del límite"
-      onRequestClose={onRequestClose}
+      title={cancelMode ? 'Cancelar límite' : limit.categoryLabelSnapshot ?? 'General'}
+      onRequestClose={() => {
+        if (cancelMode) {
+          setCancelMode(false);
+          return;
+        }
+        onRequestClose();
+      }}
       size="content"
     >
       <View style={styles.content}>
-        <AppCard variant="quiet" padding="default" style={styles.detailCard}>
-          <View style={styles.detailHeader}>
-            <AppText variant="title3" weight="800">{limit.categoryLabelSnapshot ?? 'General'}</AppText>
-            <View style={styles.statusBadge}>
-              <AppText variant="caption" weight="800" tone={statusTone}>
-                {STATUS_LABELS[limit.status]}
-              </AppText>
-            </View>
-          </View>
-
-          <View style={styles.detailRow}>
-            <AppText variant="caption" tone="secondary" weight="700">Alcance</AppText>
-            <AppText variant="body">{SCOPE_LABELS[limit.scopeType]}</AppText>
-          </View>
-
-          {limit.scopeType === 'CATEGORY' && limit.categoryId && (
-            <View style={styles.detailRow}>
-              <AppText variant="caption" tone="secondary" weight="700">Categoría</AppText>
-              <AppText variant="body">{limit.categoryLabelSnapshot}</AppText>
-            </View>
-          )}
-
-          <View style={styles.detailRow}>
-            <AppText variant="caption" tone="secondary" weight="700">Período</AppText>
-            <AppText variant="body">{PERIOD_LABELS[limit.periodType]} ({limit.period})</AppText>
-          </View>
-
-          <View style={styles.detailRow}>
-            <AppText variant="caption" tone="secondary" weight="700">Repetición</AppText>
-            <AppText variant="body">{RECURRENCE_LABELS[limit.recurrenceType]}</AppText>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.progressSection}>
-            <View style={styles.progressRow}>
-              <View style={styles.progressLabel}>
-                <AppText variant="caption" tone="secondary" weight="700">Gastado</AppText>
-                <AppText variant="title3" weight="800" tone={isOver ? 'danger' : isAt ? 'warning' : 'primary'}>
-                  {formatFinanceAmount(limit.spent, currency)}
-                </AppText>
-              </View>
-              <View style={styles.progressLabel}>
-                <AppText variant="caption" tone="secondary" weight="700">Límite</AppText>
-                <AppText variant="title3" weight="800">{formatFinanceAmount(limit.amount, currency)}</AppText>
-              </View>
-            </View>
-
-            <View style={styles.progressRow}>
-              <View style={styles.progressLabel}>
-                <AppText variant="caption" tone="secondary" weight="700">
-                  {isOver ? 'Excedido por' : 'Disponible'}
-                </AppText>
-                <AppText
-                  variant="title3"
-                  weight="800"
-                  tone={isOver ? 'danger' : isAt ? 'warning' : 'success'}
-                >
-                  {formatFinanceAmount(isOver ? limit.overBy : limit.remaining, currency, { sign: 'none' })}
-                </AppText>
-              </View>
-              <View style={styles.progressLabel}>
-                <AppText variant="caption" tone="secondary" weight="700">Uso</AppText>
-                <AppText
-                  variant="title3"
-                  weight="800"
-                  tone={isOver ? 'danger' : isAt ? 'warning' : 'secondary'}
-                >
-                  {Number(limit.percentUsed).toFixed(0)}%
-                </AppText>
-              </View>
-            </View>
-
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  { width: `${Math.min(Number(limit.percentUsed), 100)}%`, backgroundColor: isOver ? colors.danger.strong : isAt ? colors.warning.strong : colors.terracotta[600] },
-                ]}
+        {cancelMode ? (
+          <>
+            <AppText variant="body" tone="secondary">
+              {limit.recurrenceType === 'ONE_OFF'
+                ? `Este límite dejará de aplicarse en ${formatPeriodHuman(limit.periodType, limit.period).toLocaleLowerCase('es-AR')}. Tus movimientos existentes no cambian.`
+                : 'Preservaremos el historial. Elegí desde cuándo deja de aplicarse.'}
+            </AppText>
+            {limit.recurrenceType === 'ONE_OFF' ? (
+              <FinanceFormFooter
+                primaryTitle="Cancelar límite"
+                destructive
+                onPrimary={() => onCancel(limit, 'ONE_OFF')}
+                loading={isCancelling}
+                onCancel={() => setCancelMode(false)}
+                cancelLabel="Volver"
+                divided={false}
               />
-            </View>
-
-            {isOver && limit.overBy !== '0' && !isZeroDecimalString(limit.overBy) && (
-              <AppText variant="body" tone="danger" weight="700" style={styles.overText}>
-                Superaste el límite por {formatFinanceAmount(limit.overBy, currency, { sign: 'none' })}
-              </AppText>
+            ) : (
+              <View style={styles.choiceList}>
+                <InteractivePressable
+                  onPress={() => onCancel(limit, 'THIS_PERIOD')}
+                  disabled={isCancelling}
+                  haptic="light"
+                  pressScale={motion.scale.card}
+                  style={styles.choiceRow}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Solo ${formatPeriodHuman(limit.periodType, limit.period)}`}
+                >
+                  <AppText variant="body" weight="800">
+                    Solo {formatPeriodHuman(limit.periodType, limit.period).toLocaleLowerCase('es-AR')}
+                  </AppText>
+                </InteractivePressable>
+                <InteractivePressable
+                  onPress={() => onCancel(limit, 'THIS_AND_FOLLOWING')}
+                  disabled={isCancelling}
+                  haptic="light"
+                  pressScale={motion.scale.card}
+                  style={styles.choiceRow}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${formatPeriodHuman(limit.periodType, limit.period)} y los próximos`}
+                >
+                  <AppText variant="body" weight="800">
+                    {formatPeriodHuman(limit.periodType, limit.period)} y los próximos
+                  </AppText>
+                </InteractivePressable>
+              </View>
             )}
-          </View>
-        </AppCard>
+            {cancelError ? (
+              <AppText variant="caption" tone="danger" style={styles.cancelErrorText}>
+                {cancelError}
+              </AppText>
+            ) : null}
+          </>
+        ) : (
+          <>
+        <FinanceDetailHeader
+          title={limit.categoryLabelSnapshot ?? 'General'}
+          subtitle={`Límite · ${limit.currency}`}
+          amount={formatFinanceAmount(limit.amount, currency)}
+          amountTone={statusTone}
+          supporting={STATUS_LABELS[limit.status]}
+          icon={
+            <FinanceIconBox>
+              <HomePlusIcon
+                name={isGeneral ? 'wallet-outline' : 'pricetag-outline'}
+                size={FINANCE_ACTION_ICON_SIZE}
+                color={isOver ? colors.danger.strong : isAt ? colors.warning.strong : colors.terracotta[600]}
+              />
+            </FinanceIconBox>
+          }
+        />
+
+        <View style={styles.progressSection}>
+          {!isOver ? (
+            <>
+              <View style={styles.progressRow}>
+                <View style={styles.progressLabel}>
+                  <AppText variant="caption" tone="secondary" weight="700">Gastaste</AppText>
+                  <AppText variant="title3" weight="800">{formatFinanceAmount(limit.spent, currency)}</AppText>
+                </View>
+                <View style={styles.progressLabel}>
+                  <AppText variant="caption" tone="secondary" weight="700">de</AppText>
+                  <AppText variant="title3" weight="800">{formatFinanceAmount(limit.amount, currency)}</AppText>
+                </View>
+              </View>
+
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: `${Math.min(Number(limit.percentUsed), 100)}%`, backgroundColor: isAt ? colors.warning.strong : colors.terracotta[600] },
+                  ]}
+                />
+              </View>
+
+              <View style={styles.remainingRow}>
+                <AppText variant="body" weight="700" tone={isAt ? 'warning' : 'success'}>
+                  Te quedan {formatFinanceAmount(limit.remaining, currency, { sign: 'none' })}
+                </AppText>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.progressRow}>
+                <View style={styles.progressLabel}>
+                  <AppText variant="caption" tone="secondary" weight="700">Gastaste</AppText>
+                  <AppText variant="title3" weight="800" tone="danger">{formatFinanceAmount(limit.spent, currency)}</AppText>
+                </View>
+                <View style={styles.progressLabel}>
+                  <AppText variant="caption" tone="secondary" weight="700">Límite</AppText>
+                  <AppText variant="title3" weight="800">{formatFinanceAmount(limit.amount, currency)}</AppText>
+                </View>
+              </View>
+
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: '100%', backgroundColor: colors.danger.strong },
+                  ]}
+                />
+              </View>
+
+              <View style={styles.remainingRow}>
+                <AppText variant="body" weight="700" tone="danger">
+                  Superaste el límite por {formatFinanceAmount(limit.overBy, currency, { sign: 'none' })}
+                </AppText>
+              </View>
+            </>
+          )}
+        </View>
+
+        {/* P27: gastado/restante viven en el progreso; Alcance/Categoría no se
+            restauran porque la identidad del header ya lo dice. */}
+        <FinanceDetailSection title="Detalle">
+          <FinanceDetailMetaRow label="Período" value={formatPeriodHuman(limit.periodType, limit.period)} />
+          <FinanceDetailMetaRow
+            label="Se repite"
+            value={
+              limit.recurrenceType === 'RECURRING'
+                ? limit.periodType === 'MONTHLY' ? 'Mensualmente' : 'Anualmente'
+                : 'No'
+            }
+          />
+        </FinanceDetailSection>
 
         <View style={styles.buttonGroup}>
           <AppButton
@@ -175,12 +250,10 @@ export function SpendingLimitDetailSheet({
           <AppButton
             title="Cancelar límite"
             variant="danger"
-            onPress={() => onCancel(limit)}
+            onPress={() => setCancelMode(true)}
             disabled={isCancelling}
             style={styles.dangerButton}
-          >
-            {isCancelling && <HomePlusIcon name="refresh" size={20} color={colors.text.inverse} />}
-          </AppButton>
+          />
         </View>
 
         {cancelError && (
@@ -188,55 +261,35 @@ export function SpendingLimitDetailSheet({
             {cancelError}
           </AppText>
         )}
+          </>
+        )}
       </View>
     </ActionSheet>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, spacing } = theme;
+  return StyleSheet.create({
   content: {
     paddingHorizontal: spacing[4],
     paddingTop: spacing[2],
     paddingBottom: spacing[4],
     gap: spacing[3],
   },
-  detailCard: {
-    gap: spacing[3],
-  },
-  detailHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  statusBadge: {
-    minHeight: 24,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing[2],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    minHeight: 24,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: colors.border.subtle,
-    marginVertical: spacing[1],
-  },
   progressSection: {
     gap: spacing[2],
   },
   progressRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    justifyContent: 'center',
     gap: spacing[3],
   },
   progressLabel: {
     flex: 1,
     minWidth: 0,
+    alignItems: 'center',
     gap: spacing[1],
   },
   progressTrack: {
@@ -244,20 +297,28 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: colors.border.default,
     overflow: 'hidden',
-    marginTop: spacing[1],
   },
   progressFill: {
     height: '100%',
     borderRadius: 4,
   },
-  overText: {
-    marginTop: spacing[1],
-    textAlign: 'center',
+  remainingRow: {
+    paddingTop: spacing[1],
   },
   buttonGroup: {
     flexDirection: 'row',
     gap: spacing[2],
     marginTop: spacing[1],
+  },
+  choiceList: {
+    gap: spacing[1],
+  },
+  choiceRow: {
+    minHeight: 52,
+    justifyContent: 'center',
+    paddingVertical: spacing[2],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.subtle,
   },
   actionButton: {
     flex: 1,
@@ -270,3 +331,4 @@ const styles = StyleSheet.create({
     marginTop: spacing[2],
   },
 });
+}

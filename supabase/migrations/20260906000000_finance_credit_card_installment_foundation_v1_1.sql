@@ -26,6 +26,7 @@
 -- Existing non-installment Expenses remain completely valid and untouched.
 
 create extension if not exists "pgcrypto";
+
 -- ---------------------------------------------------------------------------
 -- 1) Installment Plan authority.
 --    One plan per logical Expense root. Context fields are denormalized from
@@ -45,37 +46,44 @@ create table if not exists public.finance_credit_card_installment_plans (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
 comment on table public.finance_credit_card_installment_plans is
   'Credit-card installment plan contract for ONE logical Expense root. total_amount is the factual purchase total; installments are derived schedule facts.';
 comment on column public.finance_credit_card_installment_plans.expense_root_transaction_id is
   'Stable logical Expense root (finance_transactions.root_transaction_id). Unique: a purchase can never own two active installment plans.';
 comment on column public.finance_credit_card_installment_plans.total_amount is
   'Factual purchase total (numeric(18,4)). Installment amounts must sum exactly to this value.';
+
 alter table public.finance_credit_card_installment_plans
   drop constraint if exists finance_credit_card_installment_plans_root_unique;
 alter table public.finance_credit_card_installment_plans
   add constraint finance_credit_card_installment_plans_root_unique
   unique (expense_root_transaction_id);
+
 alter table public.finance_credit_card_installment_plans
   drop constraint if exists finance_credit_card_installment_plans_count_check;
 alter table public.finance_credit_card_installment_plans
   add constraint finance_credit_card_installment_plans_count_check
   check (installment_count between 2 and 60);
+
 alter table public.finance_credit_card_installment_plans
   drop constraint if exists finance_credit_card_installment_plans_total_positive_check;
 alter table public.finance_credit_card_installment_plans
   add constraint finance_credit_card_installment_plans_total_positive_check
   check (total_amount > 0);
+
 alter table public.finance_credit_card_installment_plans
   drop constraint if exists finance_credit_card_installment_plans_currency_check;
 alter table public.finance_credit_card_installment_plans
   add constraint finance_credit_card_installment_plans_currency_check
   check (currency ~ '^[A-Z]{3}$');
+
 alter table public.finance_credit_card_installment_plans
   drop constraint if exists finance_credit_card_installment_plans_context_type_check;
 alter table public.finance_credit_card_installment_plans
   add constraint finance_credit_card_installment_plans_context_type_check
   check (financial_context_type in ('personal', 'household'));
+
 alter table public.finance_credit_card_installment_plans
   drop constraint if exists finance_credit_card_installment_plans_context_owner_shape_check;
 alter table public.finance_credit_card_installment_plans
@@ -92,13 +100,16 @@ alter table public.finance_credit_card_installment_plans
       and household_id is not null
     )
   );
+
 create index if not exists finance_credit_card_installment_plans_context_idx
   on public.finance_credit_card_installment_plans (financial_context_type, owner_person_id, household_id);
+
 drop trigger if exists trg_finance_credit_card_installment_plans_updated_at on public.finance_credit_card_installment_plans;
 create trigger trg_finance_credit_card_installment_plans_updated_at
   before update on public.finance_credit_card_installment_plans
   for each row
   execute function public.set_updated_at();
+
 -- ---------------------------------------------------------------------------
 -- 2) Installment schedule rows.
 --    Ordinal 1..N, no gaps, amount > 0, EXACT sum == plan.total_amount.
@@ -110,25 +121,31 @@ create table if not exists public.finance_credit_card_installments (
   amount numeric(18, 4) not null,
   created_at timestamptz not null default now()
 );
+
 comment on table public.finance_credit_card_installments is
   'Derived installment schedule rows for a credit-card installment plan. Not finance_transactions and not Finance account effects.';
+
 alter table public.finance_credit_card_installments
   drop constraint if exists finance_credit_card_installments_ordinal_positive_check;
 alter table public.finance_credit_card_installments
   add constraint finance_credit_card_installments_ordinal_positive_check
   check (ordinal >= 1);
+
 alter table public.finance_credit_card_installments
   drop constraint if exists finance_credit_card_installments_amount_positive_check;
 alter table public.finance_credit_card_installments
   add constraint finance_credit_card_installments_amount_positive_check
   check (amount > 0);
+
 alter table public.finance_credit_card_installments
   drop constraint if exists finance_credit_card_installments_plan_ordinal_unique;
 alter table public.finance_credit_card_installments
   add constraint finance_credit_card_installments_plan_ordinal_unique
   unique (installment_plan_id, ordinal);
+
 create index if not exists finance_credit_card_installments_plan_ordinal_idx
   on public.finance_credit_card_installments (installment_plan_id, ordinal);
+
 -- ---------------------------------------------------------------------------
 -- 3) RLS / privacy.
 --    PERSONAL  = owner-only (derived through denormalized context).
@@ -139,8 +156,10 @@ create index if not exists finance_credit_card_installments_plan_ordinal_idx
 -- ---------------------------------------------------------------------------
 alter table public.finance_credit_card_installment_plans enable row level security;
 alter table public.finance_credit_card_installments enable row level security;
+
 grant select on public.finance_credit_card_installment_plans to authenticated;
 grant select on public.finance_credit_card_installments to authenticated;
+
 drop policy if exists "finance_credit_card_installment_plans_select_authorized" on public.finance_credit_card_installment_plans;
 create policy "finance_credit_card_installment_plans_select_authorized"
   on public.finance_credit_card_installment_plans for select to authenticated
@@ -151,19 +170,23 @@ create policy "finance_credit_card_installment_plans_select_authorized"
       household_id
     )
   );
+
 drop policy if exists "finance_credit_card_installment_plans_insert_blocked" on public.finance_credit_card_installment_plans;
 create policy "finance_credit_card_installment_plans_insert_blocked"
   on public.finance_credit_card_installment_plans for insert to authenticated
   with check (false);
+
 drop policy if exists "finance_credit_card_installment_plans_update_blocked" on public.finance_credit_card_installment_plans;
 create policy "finance_credit_card_installment_plans_update_blocked"
   on public.finance_credit_card_installment_plans for update to authenticated
   using (false)
   with check (false);
+
 drop policy if exists "finance_credit_card_installment_plans_delete_blocked" on public.finance_credit_card_installment_plans;
 create policy "finance_credit_card_installment_plans_delete_blocked"
   on public.finance_credit_card_installment_plans for delete to authenticated
   using (false);
+
 drop policy if exists "finance_credit_card_installments_select_authorized" on public.finance_credit_card_installments;
 create policy "finance_credit_card_installments_select_authorized"
   on public.finance_credit_card_installments for select to authenticated
@@ -179,19 +202,23 @@ create policy "finance_credit_card_installments_select_authorized"
         )
     )
   );
+
 drop policy if exists "finance_credit_card_installments_insert_blocked" on public.finance_credit_card_installments;
 create policy "finance_credit_card_installments_insert_blocked"
   on public.finance_credit_card_installments for insert to authenticated
   with check (false);
+
 drop policy if exists "finance_credit_card_installments_update_blocked" on public.finance_credit_card_installments;
 create policy "finance_credit_card_installments_update_blocked"
   on public.finance_credit_card_installments for update to authenticated
   using (false)
   with check (false);
+
 drop policy if exists "finance_credit_card_installments_delete_blocked" on public.finance_credit_card_installments;
 create policy "finance_credit_card_installments_delete_blocked"
   on public.finance_credit_card_installments for delete to authenticated
   using (false);
+
 -- ---------------------------------------------------------------------------
 -- 4) Canonical creation mutation (single domain entry point).
 --    Authority check + card-only invariant + currency invariant + exact
@@ -344,5 +371,7 @@ exception
     raise exception 'finance_credit_card_installment_plan_exists' using errcode = '23505';
 end;
 $$;
+
 grant execute on function public.finance_create_credit_card_installment_plan_v1(uuid, integer, uuid) to authenticated;
+
 notify pgrst, 'reload schema';

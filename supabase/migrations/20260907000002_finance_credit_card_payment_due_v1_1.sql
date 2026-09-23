@@ -18,20 +18,25 @@
 -- catch-up is idempotent.
 
 create extension if not exists "pgcrypto";
+
 -- ---------------------------------------------------------------------------
 -- 1) cycle_close_date on PaymentDue (identifies the closed cycle).
 -- ---------------------------------------------------------------------------
 alter table public.finance_payment_dues
   add column if not exists cycle_close_date date null;
+
 comment on column public.finance_payment_dues.cycle_close_date is
   'CREDIT_CARD closed-cycle date this operational Due represents. NULL for manual/one-off and NORMAL dues.';
+
 create unique index if not exists finance_payment_dues_card_cycle_uidx
   on public.finance_payment_dues (target_credit_card_account_id, cycle_close_date)
   where kind = 'CREDIT_CARD' and cycle_close_date is not null;
+
 -- ---------------------------------------------------------------------------
 -- 2) Cycle charge / seeded-due calculator for one card cycle.
 -- ---------------------------------------------------------------------------
 drop function if exists public.finance_compute_card_cycle_due_v1(uuid, date, integer);
+
 create or replace function public.finance_compute_card_cycle_due_v1(
   p_card_id uuid,
   p_cycle_close_date date,
@@ -126,6 +131,7 @@ as $$
     )
   from computed;
 $$;
+
 -- ---------------------------------------------------------------------------
 -- 3) Idempotent catch-up: ensure one Due per payable closed cycle.
 -- ---------------------------------------------------------------------------
@@ -250,6 +256,8 @@ begin
   return jsonb_build_object('created', v_created, 'considered_cycles', v_cycles);
 end;
 $$;
+
 grant execute on function public.finance_compute_card_cycle_due_v1(uuid, date, integer) to authenticated;
 grant execute on function public.finance_ensure_closed_credit_card_payment_dues_v1(date) to authenticated;
+
 notify pgrst, 'reload schema';

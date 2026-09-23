@@ -1,6 +1,7 @@
 'use strict';
 
 const { FINANCE_CONTEXT_TYPES } = require('../constants/finance.constants');
+const { ensureClosedCreditCardPaymentDuesRaw } = require('./finance.payment.service');
 
 const PAYMENT_ATTENTION_REASONS = Object.freeze({
   OVERDUE: 'payment_overdue',
@@ -98,6 +99,12 @@ async function queryPendingDues(request) {
 
 async function loadPaymentAttention(context, options = {}) {
   const today = currentBackendDateOnly(context, options);
+
+  // 8D.5 catch-up: materialize missed closed card-cycle dues before deriving
+  // Attention, so a Home open after a card close (without opening Finance/
+  // Payments/Card Detail) still surfaces the due. Shared canonical ensure path.
+  await ensureClosedCreditCardPaymentDuesRaw(context.client, today).catch(() => {});
+
   const windowEnd = addCalendarDays(today, 3);
   const selects = 'id,title,currency,expected_amount_known,expected_amount,due_date,status,payment_series_id,financial_context_type,owner_person_id,household_id,created_at,updated_at';
 

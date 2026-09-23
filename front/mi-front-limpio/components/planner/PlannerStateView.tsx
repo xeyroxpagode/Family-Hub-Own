@@ -225,12 +225,14 @@ function recoverableErrorDescription(info: PlannerShellErrorInfo | undefined): s
   }
 }
 
-function sectionLabel(key: 'tasks' | 'events' | 'plans'): string {
+function sectionLabel(key: 'tasks' | 'events' | 'schedules' | 'plans'): string {
   switch (key) {
     case 'tasks':
       return 'Tareas';
     case 'events':
       return 'Eventos';
+    case 'schedules':
+      return 'Horarios';
     case 'plans':
       return 'Planes';
     default:

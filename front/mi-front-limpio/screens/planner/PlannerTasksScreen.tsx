@@ -1,12 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
-import { ErrorState } from '../../components/ui';
+import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+
+import { ActionSheet, AppButton, AppText, EmptyState, ErrorState, FilterChip, InteractivePressable, Skeleton } from '../../components/ui';
+import { APP_ICONS, HomePlusIcon } from '../../constants/icons';
+import { projectPlannerTask } from '../../adapters/planner/plannerTaskAdapters';
+import { useAppRefresh } from '../../context/AppRefreshContext';
+import { useAuth } from '../../context/AuthContext';
+import { useHousehold } from '../../context/HouseholdContext';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError } from '../../services/api';
-import {
-  listPlannerTasks,
-  type PlannerTask,
-  type PlannerTaskPriority,
-} from '../../services/plannerTasks';
+import { createIdempotencyKey } from '../../services/idempotency';
+import { listGoals } from '../../services/plannerGoals';
 import {
   enqueuePlannerTaskCancel,
   enqueuePlannerTaskComplete,
@@ -14,368 +19,185 @@ import {
   enqueuePlannerTaskTrash,
   enqueuePlannerTaskVerify,
 } from '../../services/planner/reliability';
-import { listGoals, type PlannerGoal } from '../../services/plannerGoals';
-import { createIdempotencyKey } from '../../services/idempotency';
-import { projectPlannerTask } from '../../adapters/planner/plannerTaskAdapters';
-import { useAuth } from '../../context/AuthContext';
-import { useHousehold } from '../../context/HouseholdContext';
-import { useAppRefresh } from '../../context/AppRefreshContext';
 import {
-  dateToYMD,
-  formatDate,
-  formatTime,
-  getTypeDotColor,
-  getTypeLabel,
-  plannerStyles as S,
-  priorityLabels,
-  priorityLabelsWithLegacy,
-  statusLabels,
-} from './plannerShared';
+  listPlannerTasks,
+  type PlannerTask,
+  type PlannerTaskPriority,
+  type PlannerTaskTemplateKey,
+} from '../../services/plannerTasks';
 import { lightHaptic } from '../../utils/haptics';
-import { colors, spacing } from '../../constants/theme';
+import { dateToYMD, formatDate, formatTime } from './plannerShared';
 
 type Props = {
   refreshKey?: number;
   onChanged?: () => void;
   onCreateTask: () => void;
-  /**
-   * Historical prop name kept for Planner root compatibility.
-   * The current root wiring opens TaskDetail through this callback.
-   */
   onEditTask: (taskId: string) => void;
   onShowToast?: (message: string) => void;
 };
 
-type FilterKey = 'today' | 'open' | 'mine' | 'attention' | 'done' | 'cancelled';
+type ViewKey = 'pending' | 'done' | 'archived';
+type WhenFilter = 'overdue' | 'today' | 'upcoming' | 'undated';
 
-const filters: Array<{ key: FilterKey; label: string }> = [
-  { key: 'today', label: 'Hoy' },
-  { key: 'open', label: 'Pendientes' },
-  { key: 'mine', label: 'Mías' },
-  { key: 'attention', label: 'Atención' },
+const VIEW_OPTIONS: Array<{ key: ViewKey; label: string }> = [
+  { key: 'pending', label: 'Pendientes' },
   { key: 'done', label: 'Hechas' },
-  { key: 'cancelled', label: 'Canceladas' },
+  { key: 'archived', label: 'Archivadas' },
 ];
 
-const primaryFilters = filters.filter((item) => item.key === 'today' || item.key === 'open' || item.key === 'mine');
-const secondaryFilters = filters.filter((item) => item.key === 'attention' || item.key === 'done' || item.key === 'cancelled');
-
-type TypeFilter = 'all' | 'General' | 'Limpieza' | 'Compras' | 'Mascotas' | 'Pagos' | 'Medicación' | 'Estudios';
-
-const typeFilters: Array<{ key: TypeFilter; label: string }> = [
-  { key: 'all', label: 'Todos' },
-  { key: 'General', label: 'General' },
-  { key: 'Limpieza', label: 'Limpieza' },
-  { key: 'Compras', label: 'Compras' },
-  { key: 'Mascotas', label: 'Mascotas' },
-  { key: 'Pagos', label: 'Pagos' },
-  { key: 'Medicación', label: 'Medicación' },
-  { key: 'Estudios', label: 'Estudios' },
+const TYPE_OPTIONS: Array<{ key: PlannerTaskTemplateKey; label: string }> = [
+  { key: 'cleaning', label: 'Limpieza' },
+  { key: 'shopping', label: 'Compras' },
+  { key: 'pets', label: 'Mascotas' },
+  { key: 'payments', label: 'Pagos' },
+  { key: 'medication', label: 'Medicación' },
+  { key: 'studies', label: 'Estudios' },
 ];
 
-type TaskCardProps = {
-  task: PlannerTask;
-  filter: FilterKey;
-  memberNameById: Map<string, string>;
-  goalTitleById: Map<string, string>;
-  today: string;
-  savingId: string | null;
-  onEditTask: (taskId: string) => void;
-  onComplete: (task: PlannerTask) => void;
-  onVerify: (task: PlannerTask) => void;
-  onCancel: (task: PlannerTask) => void;
-  onTrash: (task: PlannerTask) => void;
-  onReactivate: (task: PlannerTask) => void;
-};
+const PRIORITY_OPTIONS: Array<{ key: PlannerTaskPriority; label: string }> = [
+  { key: 'high', label: 'Alta' },
+  { key: 'normal', label: 'Normal' },
+  { key: 'low', label: 'Baja' },
+];
 
-function TaskCard({
+const WHEN_OPTIONS: Array<{ key: WhenFilter; label: string }> = [
+  { key: 'overdue', label: 'Vencidas' },
+  { key: 'today', label: 'Hoy' },
+  { key: 'upcoming', label: 'Próximas' },
+  { key: 'undated', label: 'Sin fecha' },
+];
+
+const priorityOrder: Record<PlannerTaskPriority, number> = { high: 0, normal: 1, low: 2 };
+
+function sortTasks(a: PlannerTask, b: PlannerTask) {
+  const dateA = a.due_date ?? '9999-12-31';
+  const dateB = b.due_date ?? '9999-12-31';
+  if (dateA !== dateB) return dateA.localeCompare(dateB);
+  const timeA = a.due_time ?? '99:99';
+  const timeB = b.due_time ?? '99:99';
+  if (timeA !== timeB) return timeA.localeCompare(timeB);
+  if (priorityOrder[a.priority] !== priorityOrder[b.priority]) return priorityOrder[a.priority] - priorityOrder[b.priority];
+  return a.title.localeCompare(b.title);
+}
+
+function taskIcon(task: PlannerTask) {
+  switch (task.template_key) {
+    case 'cleaning': return 'sparkles';
+    case 'shopping': return 'cart-outline';
+    case 'pets': return 'paw-outline';
+    case 'payments': return 'card-outline';
+    case 'medication': return 'medical-outline';
+    case 'studies': return 'school-outline';
+    default: return APP_ICONS.planner.todo ?? 'checkbox-outline';
+  }
+}
+
+function TaskRow({
   task,
-  filter,
   memberNameById,
   goalTitleById,
-  today,
   savingId,
-  onEditTask,
+  onOpen,
   onComplete,
   onVerify,
   onCancel,
   onTrash,
   onReactivate,
-}: TaskCardProps) {
+  onOpenMenu,
+}: {
+  task: PlannerTask;
+  memberNameById: Map<string, string>;
+  goalTitleById: Map<string, string>;
+  savingId: string | null;
+  onOpen: (taskId: string) => void;
+  onComplete: (task: PlannerTask) => void;
+  onVerify: (task: PlannerTask) => void;
+  onCancel: (task: PlannerTask) => void;
+  onTrash: (task: PlannerTask) => void;
+  onReactivate: (task: PlannerTask) => void;
+  onOpenMenu: (task: PlannerTask) => void;
+}) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const isSaving = savingId === task.id;
-  const isCompleted = ['completed', 'verified'].includes(task.status);
-  const isOverdue = task.status === 'pending' && Boolean(task.due_date) && task.due_date! < today;
-  const isPending = task.status === 'pending';
-  const isAwaiting = task.status === 'awaiting_verification';
-  const isCancelled = task.status === 'cancelled';
   const projection = projectPlannerTask(task);
+  const owner = task.assigned_to_member_id
+    ? memberNameById.get(task.assigned_to_member_id) || task.assigned_member?.display_name || 'Miembro'
+    : null;
+  const dateText = `${formatDate(task.due_date)}${formatTime(task.due_time) ? `, ${formatTime(task.due_time)}` : ''}`;
+  const metaParts = [
+    dateText,
+    owner,
+    task.goal_id && goalTitleById.has(task.goal_id) ? goalTitleById.get(task.goal_id) : null,
+  ].filter(Boolean);
   const primaryAction = projection.primaryAction;
-
-  const getOwnerLabel = () => {
-    if (task.assigned_to_member_id) {
-      return memberNameById.get(task.assigned_to_member_id) || task.assigned_member?.display_name || 'Miembro';
-    }
-    return null;
-  };
-
-  const getOwnerAvatarUrl = () => {
-    if (task.assigned_to_member_id && task.assigned_member?.avatar_url) {
-      return task.assigned_member.avatar_url;
-    }
-    return null;
-  };
-
-  const getOriginLabel = () => {
-    if (task.origin_module !== 'inventory') return null;
-    if (task.origin_reason === 'low_stock') return 'Inventario · Stock bajo';
-    if (task.origin_reason === 'out_of_stock') return 'Inventario · Sin stock';
-    return 'Inventario';
-  };
-
-  const originLabel = getOriginLabel();
-
-  const getPriorityBorderColor = (priority: PlannerTaskPriority) => {
-    switch (priority) {
-      case 'low': return colors.sage[400];
-      case 'high': return colors.warning.base;
-      default: return colors.sand[400];
-    }
-  };
-
-  const getBadgeStyle = () => {
-    if (isOverdue) return [S.badge, S.taskBadgeOverdue];
-    if (task.status === 'verified') return [S.badge, S.taskBadgeVerified];
-    if (task.status === 'completed') return [S.badge, S.taskBadgeCompleted];
-    if (task.status === 'awaiting_verification') return [S.badge, S.taskBadgeAwaiting];
-    if (task.status === 'cancelled') return [S.badge, S.taskBadgeCancelled];
-    return [S.badge, S.taskBadgePending];
-  };
-
-  const getBadgeText = () => {
-    if (isOverdue) return 'Vencida';
-    const key = task.status as keyof typeof statusLabels;
-    return statusLabels[key] ?? 'Pendiente';
-  };
-
-  const getBadgeTextStyle = () => {
-    if (isOverdue) return [S.badgeText, S.taskBadgeOverdueText];
-    if (task.status === 'verified') return [S.badgeText, S.taskBadgeVerifiedText];
-    if (task.status === 'completed') return [S.badgeText, S.taskBadgeCompletedText];
-    if (task.status === 'awaiting_verification') return [S.badgeText, S.taskBadgeAwaitingText];
-    if (task.status === 'cancelled') return [S.badgeText, S.taskBadgeCancelledText];
-    return [S.badgeText, S.taskBadgePendingText];
-  };
-
-  const ownerLabel = getOwnerLabel();
-  const ownerAvatarUrl = getOwnerAvatarUrl();
-  const typeLabel = getTypeLabel(task.template_key, task.category);
-  const typeDotColor = getTypeDotColor(task.template_key);
-  const typeIcon = task.template_key === 'cleaning' ? 'sparkles' : task.template_key === 'shopping' ? 'cart' : task.template_key === 'pets' ? 'paw' : task.template_key === 'medication' ? 'medical' : task.template_key === 'studies' ? 'school' : task.template_key === 'payments' ? 'card' : undefined;
-
-  const showPriorityText = task.priority === 'high';
-  const priorityLabel = priorityLabelsWithLegacy[task.priority];
-
-  const handlePress = () => {
-    onEditTask(task.id);
-  };
-
-  const openActionMenu = () => {
-    const actions: Array<{ text: string; style?: 'default' | 'destructive' | 'cancel'; onPress?: () => void }> = [];
-
-    if (isCancelled) {
-      actions.push({
-        text: 'Reactivar tarea',
-        onPress: () => onReactivate(task),
-      });
-    } else {
-      if (isPending) {
-        actions.push({
-          text: 'Completar',
-          onPress: () => onComplete(task),
-        });
-      }
-
-      if (isAwaiting) {
-        actions.push({
-          text: 'Verificar',
-          onPress: () => onVerify(task),
-        });
-      }
-
-      actions.push({
-        text: 'Editar',
-        onPress: () => onEditTask(task.id),
-      });
-
-      actions.push({
-        text: 'Cancelar tarea',
-        style: 'destructive' as const,
-        onPress: () => onCancel(task),
-      });
-    }
-
-    actions.push({
-      text: 'Mover a la papelera',
-      style: 'destructive' as const,
-      onPress: () => onTrash(task),
-    });
-
-    actions.push({
-      text: 'Cerrar',
-      style: 'cancel' as const,
-    });
-
-    Alert.alert('Opciones de tarea', task.title, actions);
-  };
+  const showAction = primaryAction && ['verify', 'reactivate', 'submit_for_verification'].includes(primaryAction.key);
 
   return (
-    <View
-      style={[S.card, { borderLeftWidth: 4, borderLeftColor: getPriorityBorderColor(task.priority), marginBottom: 12 }]}
-      accessibilityRole="summary"
-      accessibilityLabel={projection.accessibilityLabel}
+    <TouchableOpacity
+      onPress={() => onOpen(task.id)}
+      disabled={isSaving}
+      style={styles.taskRow}
+      accessibilityRole="button"
+      accessibilityLabel={`Abrir tarea ${task.title}`}
+      accessibilityState={{ busy: isSaving, disabled: isSaving }}
     >
-      <TouchableOpacity
-        onPress={handlePress}
-        disabled={isSaving}
-        accessibilityRole="button"
-        accessibilityLabel={`Abrir detalle de tarea. ${projection.accessibilityLabel}`}
-        accessibilityState={{ busy: isSaving, disabled: isSaving }}
-      >
-        <View style={S.taskCardBody}>
-          <View style={[S.taskTypeDot, { backgroundColor: typeDotColor }]}>
-            {typeIcon ? (
-              <Text style={S.taskTypeDotIcon}>{typeIcon === 'sparkles' ? '✨' : typeIcon === 'cart' ? '🛒' : typeIcon === 'paw' ? '🐾' : typeIcon === 'medical' ? '💊' : typeIcon === 'school' ? '📚' : typeIcon === 'card' ? '💳' : '📝'}</Text>
-            ) : (
-              <Text style={S.taskTypeDotIcon}>📝</Text>
-            )}
-          </View>
-          
-          <View style={S.taskCardContent}>
-            <View style={S.taskCardTitleRow}>
-              <Text style={S.taskCardTitle} numberOfLines={2}>{task.title}</Text>
-            </View>
-            
-            <View style={S.taskDateLine}>
-              {originLabel ? (
-                <View style={S.taskOriginBadge}>
-                  <Text style={S.taskOriginBadgeText}>{originLabel}</Text>
-                </View>
-              ) : null}
-              {task.goal_id && goalTitleById.has(task.goal_id) ? (
-                <View style={S.goalTaskLinkBadge}>
-                  <Text style={S.goalTaskLinkBadgeText}>
-                    {goalTitleById.get(task.goal_id)}
-                  </Text>
-                </View>
-              ) : null}
-              <Text style={[S.taskDateText, isOverdue && S.taskDateOverdue, task.due_date === today && S.taskDateToday]}>
-                {formatDate(task.due_date)} {formatTime(task.due_time)}
-                {task.due_date === today && ' · Para hoy'}
-                {isOverdue && ' · Vencida'}
-              </Text>
-              
-              {showPriorityText && (
-                <View style={S.taskPriorityBadge}>
-                  <Text style={S.taskPriorityBadgeText}>
-                    {priorityLabel}
-                  </Text>
-                </View>
-              )}
-              
-              {(task.status !== 'completed' && task.status !== 'verified') && (
-                <View style={getBadgeStyle()}>
-                  <Text style={getBadgeTextStyle()}>{getBadgeText()}</Text>
-                </View>
-              )}
-            </View>
-
-            {task.description ? (
-              <Text style={S.taskDescription} numberOfLines={1}>{task.description}</Text>
-            ) : null}
-
-            <View style={S.taskOwnerRow}>
-              {ownerAvatarUrl ? (
-                <Image source={{ uri: ownerAvatarUrl }} style={[S.taskOwnerAvatarSm, { backgroundColor: colors.sage[300] }]} resizeMode="cover" />
-              ) : ownerLabel ? (
-                <View style={[S.taskOwnerAvatarSm, { backgroundColor: colors.terracotta[400] }]}>
-                  <Text style={S.taskOwnerAvatarText}>{ownerLabel.slice(0, 2).toUpperCase()}</Text>
-                </View>
-              ) : (
-                <View style={[S.taskOwnerAvatarSm, { backgroundColor: colors.sage[300] }]}>
-                  <Text style={S.taskOwnerAvatarText}>--</Text>
-                </View>
-              )}
-              <Text style={ownerLabel ? S.taskOwnerLabel : S.taskOwnerUnassigned}>
-                {ownerLabel || 'Sin asignar'}
-              </Text>
-            </View>
-
-            {task.requires_verification && isPending && (
-              <Text style={S.taskReviewLabel}>Requiere revisión</Text>
-            )}
-
-            {isAwaiting && (
-              <Text style={S.taskReviewLabel}>Por revisar</Text>
-            )}
-
-            {primaryAction && (isPending || isAwaiting || isCancelled || task.trashed_at) ? (
-              <View style={S.taskActionsRow}>
-                {primaryAction.key === 'complete' || primaryAction.key === 'submit_for_verification' ? (
-                  <TouchableOpacity
-                    style={[S.taskPrimaryAction, isSaving && { opacity: 0.6 }]}
-                    onPress={() => onComplete(task)}
-                    disabled={isSaving}
-                    accessibilityRole="button"
-                    accessibilityLabel={primaryAction.accessibilityLabel}
-                    accessibilityState={{ busy: isSaving, disabled: isSaving }}
-                  >
-                    <Text style={S.taskPrimaryActionText}>{primaryAction.label}</Text>
-                  </TouchableOpacity>
-                ) : null}
-                {primaryAction.key === 'verify' ? (
-                  <TouchableOpacity
-                    style={[S.taskPrimaryAction, isSaving && { opacity: 0.6 }]}
-                    onPress={() => onVerify(task)}
-                    disabled={isSaving}
-                    accessibilityRole="button"
-                    accessibilityLabel={primaryAction.accessibilityLabel}
-                    accessibilityState={{ busy: isSaving, disabled: isSaving }}
-                  >
-                    <Text style={S.taskPrimaryActionText}>{primaryAction.label}</Text>
-                  </TouchableOpacity>
-                ) : null}
-                {primaryAction.key === 'reactivate' ? (
-                  <TouchableOpacity
-                    style={[S.taskPrimaryAction, isSaving && { opacity: 0.6 }]}
-                    onPress={() => onReactivate(task)}
-                    disabled={isSaving}
-                    accessibilityRole="button"
-                    accessibilityLabel={primaryAction.accessibilityLabel}
-                    accessibilityState={{ busy: isSaving, disabled: isSaving }}
-                  >
-                    <Text style={S.taskPrimaryActionText}>{primaryAction.label}</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
+      <View style={styles.rowIcon}>
+        <HomePlusIcon name={taskIcon(task)} size={18} color={colors.text.secondary} />
+      </View>
+      <View style={styles.rowContent}>
+        <View style={styles.rowTitleLine}>
+          <AppText variant="body" weight="700" numberOfLines={2} style={{ flex: 1 }}>{task.title}</AppText>
+          {task.priority === 'high' ? <HomePlusIcon name="flag-outline" size={16} color={colors.warning.base} /> : null}
         </View>
+        <AppText variant="caption" tone="secondary" numberOfLines={1}>
+          {metaParts.length ? metaParts.join(' · ') : 'Sin fecha · Sin responsable'}
+        </AppText>
+      </View>
+      {showAction ? (
+        <AppButton
+          title={primaryAction.key === 'verify' ? 'Revisar' : primaryAction.key === 'reactivate' ? 'Reactivar' : 'Reenviar'}
+          size="sm"
+          variant="ghost"
+          disabled={isSaving}
+          onPress={() => {
+            if (primaryAction.key === 'verify') onVerify(task);
+            else if (primaryAction.key === 'reactivate') onReactivate(task);
+            else onComplete(task);
+          }}
+        />
+      ) : null}
+      <TouchableOpacity style={styles.iconButton} onPress={() => onOpenMenu(task)} accessibilityRole="button" accessibilityLabel="Más opciones">
+        <HomePlusIcon name="ellipsis-horizontal" size={20} color={colors.text.tertiary} />
       </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 }
 
 export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEditTask, onShowToast }: Props) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const { session, authMe, loading: authLoading } = useAuth();
   const { members } = useHousehold();
   const { plannerChangedAt, markPlannerChanged } = useAppRefresh();
   const accessToken = session?.access_token;
+  const navigation = useNavigation<any>();
 
   const [tasks, setTasks] = useState<PlannerTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<FilterKey>('open');
+  const [view, setView] = useState<ViewKey>('pending');
+  const [responsibleFilters, setResponsibleFilters] = useState<string[]>([]);
+  const [typeFilters, setTypeFilters] = useState<PlannerTaskTemplateKey[]>([]);
+  const [priorityFilters, setPriorityFilters] = useState<PlannerTaskPriority[]>([]);
+  const [whenFilters, setWhenFilters] = useState<WhenFilter[]>([]);
+  const [viewSheetVisible, setViewSheetVisible] = useState(false);
+  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
+  const [actionSheetVisible, setActionSheetVisible] = useState(false);
+  const [actionSheetTask, setActionSheetTask] = useState<PlannerTask | null>(null);
 
   const taskCompleteKeyRef = useRef(createIdempotencyKey('planner.tasks.complete'));
   const taskVerifyKeyRef = useRef(createIdempotencyKey('planner.tasks.verify'));
@@ -385,12 +207,10 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
 
   const loadTasks = useCallback(async () => {
     if (!accessToken || authLoading) return;
-
     setLoading(true);
     setError(null);
-
     try {
-      const { tasks: nextTasks } = await listPlannerTasks(accessToken, { include_cancelled: true, limit: 500 });
+      const { tasks: nextTasks } = await listPlannerTasks(accessToken, { include_cancelled: true, include_archived: true, limit: 500 });
       setTasks(nextTasks);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No pudimos cargar las tareas.');
@@ -407,11 +227,17 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
     void loadTasks();
   }, [loadTasks, refreshKey, authLoading, accessToken]);
 
+  // P2.1R: consume cada señal plannerChangedAt una sola vez. El flag global
+  // nunca vuelve a 0, así que reaccionar a `loading` en las deps convertía
+  // cada setLoading(true/false) de loadTasks en un nuevo GET (loop).
+  const lastSeenPlannerChangedAtRef = useRef(0);
+
   useEffect(() => {
-    if (!loading && plannerChangedAt > 0) {
+    if (plannerChangedAt > 0 && plannerChangedAt !== lastSeenPlannerChangedAtRef.current) {
+      lastSeenPlannerChangedAtRef.current = plannerChangedAt;
       void loadTasks();
     }
-  }, [plannerChangedAt]);
+  }, [plannerChangedAt, loadTasks]);
 
   const memberNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -420,32 +246,64 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
   }, [members]);
 
   const [goalTitles, setGoalTitles] = useState<Map<string, string>>(new Map());
-
   useEffect(() => {
     if (!accessToken) return;
-    const loadGoalTitles = async () => {
+    void (async () => {
       try {
         const { goals } = await listGoals(accessToken, {});
-        const map = new Map<string, string>();
-        (goals ?? []).forEach((g) => map.set(g.id, g.title));
-        setGoalTitles(map);
+        setGoalTitles(new Map((goals ?? []).map((goal) => [goal.id, goal.title])));
       } catch {
         setGoalTitles(new Map());
       }
-    };
-    void loadGoalTitles();
+    })();
   }, [accessToken, refreshKey, plannerChangedAt]);
 
   const myMembershipId = useMemo(() => {
     const householdId = authMe?.active_household?.id;
-    return authMe?.memberships.find(
-      (membership) => membership.household_id === householdId && membership.status === 'active',
-    )?.id ?? '';
+    return authMe?.memberships.find((membership) => membership.household_id === householdId && membership.status === 'active')?.id ?? '';
   }, [authMe?.active_household?.id, authMe?.memberships]);
 
   const today = dateToYMD(new Date());
+  const activeFilterCount = responsibleFilters.length + typeFilters.length + priorityFilters.length + whenFilters.length;
+  const currentViewLabel = VIEW_OPTIONS.find((option) => option.key === view)?.label ?? 'Pendientes';
 
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const toggleFilterValue = <T extends string>(current: T[], value: T, setter: (next: T[]) => void) => {
+    setter(current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+  };
+
+  const clearFilters = () => {
+    setResponsibleFilters([]);
+    setTypeFilters([]);
+    setPriorityFilters([]);
+    setWhenFilters([]);
+  };
+
+  const matchesWhen = useCallback((task: PlannerTask, filter: WhenFilter) => {
+    if (filter === 'undated') return !task.due_date;
+    if (!task.due_date) return false;
+    if (filter === 'overdue') return task.due_date < today;
+    if (filter === 'today') return task.due_date === today;
+    return task.due_date > today;
+  }, [today]);
+
+  const isClaimable = (task: PlannerTask) => task.availableActions?.some((action) => action.action === 'claim') ?? false;
+
+  const matchesFilters = useCallback((task: PlannerTask) => {
+    if (responsibleFilters.length > 0) {
+      const matchesResponsible = responsibleFilters.some((filter) => {
+        if (filter === 'mine') return task.assigned_to_member_id === myMembershipId;
+        if (filter === 'unassigned') return !task.assigned_to_member_id;
+        if (filter === 'claimable') return isClaimable(task);
+        if (filter.startsWith('member:')) return task.assigned_to_member_id === filter.slice('member:'.length);
+        return false;
+      });
+      if (!matchesResponsible) return false;
+    }
+    if (typeFilters.length > 0 && (!task.template_key || !typeFilters.includes(task.template_key))) return false;
+    if (priorityFilters.length > 0 && !priorityFilters.includes(task.priority)) return false;
+    if (whenFilters.length > 0 && !whenFilters.some((filter) => matchesWhen(task, filter))) return false;
+    return true;
+  }, [matchesWhen, myMembershipId, priorityFilters, responsibleFilters, typeFilters, whenFilters]);
 
   const isAttention = useCallback((task: PlannerTask) => {
     if (task.status === 'awaiting_verification') return true;
@@ -454,434 +312,374 @@ export function PlannerTasksScreen({ refreshKey, onChanged, onCreateTask, onEdit
     return false;
   }, [today]);
 
-  const isToday = useCallback((task: PlannerTask) => {
-    return task.status !== 'cancelled' && task.due_date === today;
-  }, [today]);
-
-  const isOpen = useCallback((task: PlannerTask) => {
-    return ['pending', 'awaiting_verification'].includes(task.status);
-  }, []);
-
-  const matchesType = useCallback((task: PlannerTask) => {
-    if (typeFilter === 'all') return true;
-    const label = getTypeLabel(task.template_key, task.category);
-    return label === typeFilter;
-  }, [typeFilter]);
-
-  const filterCounts = useMemo(() => {
-    const counts: Record<FilterKey, number> = {
-      today: 0,
-      open: 0,
-      mine: 0,
-      attention: 0,
-      done: 0,
-      cancelled: 0,
-    };
-
-    tasks.forEach((task) => {
-      if (task.status !== 'cancelled' && task.due_date === today) counts.today++;
-      if (isOpen(task) && matchesType(task)) counts.open++;
-      if (isOpen(task) && task.assigned_to_member_id === myMembershipId && matchesType(task)) counts.mine++;
-      if (
-        (task.status === 'pending' && Boolean(task.due_date) && task.due_date! < today) ||
-        task.status === 'awaiting_verification' ||
-        task.priority === 'high'
-      ) {
-        counts.attention++;
-      }
-      if (task.status === 'cancelled') counts.cancelled++;
-      if (['completed', 'verified'].includes(task.status) && matchesType(task)) counts.done++;
-    });
-
-    return counts;
-  }, [tasks, myMembershipId, today, isOpen, matchesType]);
-
   const visibleTasks = useMemo(() => {
-    let filtered = tasks.filter((task) => {
-      if (task.status === 'cancelled' && filter !== 'cancelled') return false;
-      if (filter === 'cancelled') return task.status === 'cancelled' && matchesType(task);
-      if (filter === 'done') return ['completed', 'verified'].includes(task.status) && matchesType(task);
-      if (!matchesType(task)) return false;
+    return tasks
+      .filter((task) => {
+        if (task.trashed_at) return false;
+        if (view === 'pending') return ['pending', 'awaiting_verification'].includes(task.status) && !task.archived_at && matchesFilters(task);
+        if (view === 'done') return ['completed', 'verified'].includes(task.status) && !task.archived_at && matchesFilters(task);
+        if (view === 'archived') return Boolean(task.archived_at) && matchesFilters(task);
+        return false;
+      })
+      .sort(sortTasks);
+  }, [matchesFilters, tasks, view]);
 
-      if (filter === 'today') return task.status !== 'cancelled' && task.due_date === today;
-      if (filter === 'mine') return isOpen(task) && task.assigned_to_member_id === myMembershipId;
-      if (filter === 'attention') {
-        return (
-          (task.status === 'pending' && Boolean(task.due_date) && task.due_date! < today) ||
-          task.status === 'awaiting_verification' ||
-          task.priority === 'high'
-        );
-      }
-      return isOpen(task);
+  const groupedPending = useMemo(() => {
+    const groups = { attention: [] as PlannerTask[], today: [] as PlannerTask[], upcoming: [] as PlannerTask[], undated: [] as PlannerTask[] };
+    visibleTasks.forEach((task) => {
+      if (isAttention(task)) groups.attention.push(task);
+      else if (task.due_date === today) groups.today.push(task);
+      else if (task.due_date && task.due_date > today) groups.upcoming.push(task);
+      else groups.undated.push(task);
     });
-
-    const isAttentionFn = (task: PlannerTask) => {
-      if (task.status === 'awaiting_verification') return true;
-      if (task.status === 'pending' && Boolean(task.due_date) && task.due_date! < today) return true;
-      if (task.priority === 'high') return true;
-      return false;
-    };
-
-    const priorityOrder: Record<PlannerTaskPriority, number> = {
-      high: 0,
-      normal: 1,
-      low: 2,
-    };
-
-    filtered.sort((a, b) => {
-      const scoreA = isAttentionFn(a) ? 0 : a.due_date === today ? 1 : a.due_date && a.due_date > today ? 2 : 3;
-      const scoreB = isAttentionFn(b) ? 0 : b.due_date === today ? 1 : b.due_date && b.due_date > today ? 2 : 3;
-      if (scoreA !== scoreB) return scoreA - scoreB;
-      return priorityOrder[a.priority] - priorityOrder[b.priority];
-    });
-
-    return filtered;
-  }, [filter, myMembershipId, tasks, today, isOpen, matchesType]);
-
-  const useNarrative = filter === 'open' || filter === 'mine';
-
-  const attentionTasks = useMemo(() => {
-    if (!useNarrative) return null;
-    const att = visibleTasks.filter((t) => isAttention(t));
-    return att.length > 0 ? att : null;
-  }, [useNarrative, visibleTasks, isAttention]);
-
-  const todayTasks = useMemo(() => {
-    if (!useNarrative) return null;
-    const att = visibleTasks.filter((t) => isAttention(t));
-    const attIds = new Set(att.map((t) => t.id));
-    const td = visibleTasks.filter((t) => !attIds.has(t.id) && isToday(t));
-    return td.length > 0 ? td : null;
-  }, [useNarrative, visibleTasks, isAttention, isToday]);
-
-  const upcomingTasks = useMemo(() => {
-    if (!useNarrative) return null;
-    const att = visibleTasks.filter((t) => isAttention(t));
-    const attIds = new Set(att.map((t) => t.id));
-    const td = visibleTasks.filter((t) => !attIds.has(t.id) && isToday(t));
-    const tdIds = new Set(td.map((t) => t.id));
-    const up = visibleTasks.filter((t) => !attIds.has(t.id) && !tdIds.has(t.id));
-    return up.length > 0 ? up : null;
-  }, [useNarrative, visibleTasks, isAttention, isToday]);
+    return groups;
+  }, [isAttention, today, visibleTasks]);
 
   const runMutation = async (task: PlannerTask, action: 'complete' | 'verify') => {
     if (!accessToken) return;
-
+    if (savingId !== null) return; // Prevent concurrent mutations
     setSavingId(task.id);
     const previousTasks = tasks;
-
-    if (action === 'complete') {
-      setTasks((current) =>
-        current.map((item) =>
-          item.id === task.id
-            ? {
-                ...item,
-                status: item.requires_verification ? 'awaiting_verification' : 'completed',
-                completed_at: new Date().toISOString(),
-              }
-            : item,
-        ),
-      );
-    }
-
     try {
       let resultTask: PlannerTask | undefined;
       if (action === 'complete') {
         const response = await enqueuePlannerTaskComplete(task.id, task.version, { idempotencyKey: taskCompleteKeyRef.current });
         resultTask = response.task;
         taskCompleteKeyRef.current = createIdempotencyKey('planner.tasks.complete');
-      }
-      if (action === 'verify') {
+      } else {
         const response = await enqueuePlannerTaskVerify(task.id, task.version, { idempotencyKey: taskVerifyKeyRef.current });
         resultTask = response.task;
         taskVerifyKeyRef.current = createIdempotencyKey('planner.tasks.verify');
       }
-      if (resultTask) {
-        setTasks((current) => current.map((item) => (item.id === task.id ? resultTask! : item)));
-      }
+      if (resultTask) setTasks((current) => current.map((item) => (item.id === task.id ? resultTask! : item)));
       markPlannerChanged();
       await loadTasks();
       onChanged?.();
-      
-      if (action === 'complete') {
-        onShowToast?.(task.requires_verification ? 'Tarea enviada a revisión' : 'Tarea completada');
-      } else if (action === 'verify') {
-        onShowToast?.('Tarea verificada');
-      }
+      onShowToast?.(action === 'complete' ? (task.requires_verification ? 'Tarea enviada a revisión' : 'Tarea completada') : 'Tarea verificada');
     } catch (err) {
       setTasks(previousTasks);
-      const message = err instanceof ApiError ? err.message : 'No pudimos actualizar la tarea.';
       if (err instanceof ApiError && err.code === 'version_conflict') {
         Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
         await loadTasks();
       } else {
-        Alert.alert('Planner', message);
+        Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos actualizar la tarea.');
       }
     } finally {
       setSavingId(null);
     }
   };
 
-  const confirmComplete = async (task: PlannerTask) => {
-    await lightHaptic();
-    await runMutation(task, 'complete');
-  };
+  const confirmComplete = async (task: PlannerTask) => { await lightHaptic(); await runMutation(task, 'complete'); };
+  const confirmVerify = async (task: PlannerTask) => { await lightHaptic(); await runMutation(task, 'verify'); };
 
-  const confirmVerify = async (task: PlannerTask) => {
-    await lightHaptic();
-    await runMutation(task, 'verify');
-  };
-
-const confirmCancel = (task: PlannerTask) => {
+  const confirmCancel = (task: PlannerTask) => {
     if (!accessToken) return;
-    Alert.alert(
-      '¿Cancelar esta tarea?',
-      'La tarea dejará de aparecer en tus tareas activas. Podrás verla y reactivarla desde Canceladas.',
-      [
-        { text: 'Conservar', style: 'cancel' },
-        {
-          text: 'Cancelar tarea',
-          style: 'destructive',
-          onPress: async () => {
-            await lightHaptic();
-            setSavingId(task.id);
-            try {
-              await enqueuePlannerTaskCancel(task.id, task.version, { idempotencyKey: taskCancelKeyRef.current });
-              markPlannerChanged();
-              await loadTasks();
-              onChanged?.();
-              onShowToast?.('Tarea cancelada.');
-              taskCancelKeyRef.current = createIdempotencyKey('planner.tasks.cancel');
-            } catch (err) {
-              const message = err instanceof ApiError ? err.message : 'No pudimos cancelar la tarea.';
-              if (err instanceof ApiError && err.code === 'version_conflict') {
-                Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
-                await loadTasks();
-              } else {
-                Alert.alert('Planner', message);
-              }
-            } finally {
-              setSavingId(null);
-            }
-          },
+    if (savingId === task.id) return; // Prevent if already saving this task
+    Alert.alert('¿Cancelar esta tarea?', 'La tarea dejará de aparecer como pendiente.', [
+      { text: 'Conservar', style: 'cancel' },
+      {
+        text: 'Cancelar tarea',
+        style: 'destructive',
+        onPress: async () => {
+          await lightHaptic();
+          if (savingId !== null) return; // Prevent concurrent
+          setSavingId(task.id);
+          try {
+            await enqueuePlannerTaskCancel(task.id, task.version, { idempotencyKey: taskCancelKeyRef.current });
+            taskCancelKeyRef.current = createIdempotencyKey('planner.tasks.cancel');
+            markPlannerChanged();
+            await loadTasks();
+            onChanged?.();
+            onShowToast?.('Tarea cancelada.');
+          } catch (err) {
+            Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos cancelar la tarea.');
+          } finally {
+            setSavingId(null);
+          }
         },
-      ],
-    );
+      },
+    ]);
   };
 
-const confirmReactivate = (task: PlannerTask) => {
+  const confirmReactivate = (task: PlannerTask) => {
     if (!accessToken) return;
-    Alert.alert(
-      '¿Reactivar esta tarea?',
-      'La tarea volverá a aparecer en tus tareas activas.',
-      [
-        { text: 'Conservar', style: 'cancel' },
-        {
-          text: 'Reactivar',
-          onPress: async () => {
-            await lightHaptic();
-            setSavingId(task.id);
-            try {
-              const response = await enqueuePlannerTaskReactivate(task.id, task.version, { idempotencyKey: taskReactivateKeyRef.current });
-              const reactivated = response.task;
-              setTasks((current) => current.map((item) => (item.id === task.id ? reactivated : item)));
-              markPlannerChanged();
-              onChanged?.();
-              onShowToast?.('Tarea reactivada.');
-              taskReactivateKeyRef.current = createIdempotencyKey('planner.tasks.reactivate');
-              await loadTasks();
-            } catch (err) {
-              if (err instanceof ApiError && err.code === 'version_conflict') {
-                Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
-                await loadTasks();
-              } else if (err instanceof ApiError && err.code === 'task_in_trash') {
-                Alert.alert('Planner', 'La tarea está en la papelera. Restáurala desde allí.');
-              } else {
-                Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos reactivar la tarea.');
-              }
-            } finally {
-              setSavingId(null);
-            }
-          },
+    if (savingId === task.id) return;
+    Alert.alert('¿Reactivar esta tarea?', 'La tarea volverá a aparecer en tus tareas activas.', [
+      { text: 'Conservar', style: 'cancel' },
+      {
+        text: 'Reactivar',
+        onPress: async () => {
+          await lightHaptic();
+          if (savingId !== null) return;
+          setSavingId(task.id);
+          try {
+            await enqueuePlannerTaskReactivate(task.id, task.version, { idempotencyKey: taskReactivateKeyRef.current });
+            taskReactivateKeyRef.current = createIdempotencyKey('planner.tasks.reactivate');
+            markPlannerChanged();
+            await loadTasks();
+            onChanged?.();
+            onShowToast?.('Tarea reactivada.');
+          } catch (err) {
+            Alert.alert('Planner', err instanceof ApiError ? err.message : 'No pudimos reactivar la tarea.');
+          } finally {
+            setSavingId(null);
+          }
         },
-      ],
-    );
+      },
+    ]);
   };
 
-const confirmTrash = (task: PlannerTask) => {
+  const confirmTrash = (task: PlannerTask) => {
     if (!accessToken) return;
-    Alert.alert(
-      '¿Mover la tarea a la papelera?',
-      'La tarea dejará de aparecer en Planner. Podrás restaurarla desde Papelera.',
-      [
-        { text: 'Conservar', style: 'cancel' },
-        {
-          text: 'Mover a la papelera',
-          style: 'destructive',
-          onPress: async () => {
-            await lightHaptic();
-            setSavingId(task.id);
-            try {
-              await enqueuePlannerTaskTrash(task.id, task.version, { idempotencyKey: taskTrashKeyRef.current });
-              markPlannerChanged();
-              await loadTasks();
-              onChanged?.();
-              onShowToast?.('Tarea movida a la papelera.');
-              taskTrashKeyRef.current = createIdempotencyKey('planner.tasks.trash');
-            } catch (err) {
-              if (err instanceof ApiError && err.code === 'version_conflict') {
-                Alert.alert('Conflicto', 'Esta tarea cambió en otro dispositivo. Actualizá y volvé a intentar.');
-                await loadTasks();
-              } else {
-                Alert.alert('Error', err instanceof ApiError ? err.message : 'No se pudo mover a la papelera.');
-              }
-            } finally {
-              setSavingId(null);
-            }
-          },
+    if (savingId === task.id) return;
+    Alert.alert('¿Mover la tarea a la papelera?', 'Podrás restaurarla desde Papelera.', [
+      { text: 'Conservar', style: 'cancel' },
+      {
+        text: 'Mover a la papelera',
+        style: 'destructive',
+        onPress: async () => {
+          await lightHaptic();
+          setSavingId(task.id);
+          try {
+            await enqueuePlannerTaskTrash(task.id, task.version, { idempotencyKey: taskTrashKeyRef.current });
+            taskTrashKeyRef.current = createIdempotencyKey('planner.tasks.trash');
+            markPlannerChanged();
+            await loadTasks();
+            onChanged?.();
+            onShowToast?.('Tarea movida a la papelera.');
+          } catch (err) {
+            Alert.alert('Planner', err instanceof ApiError ? err.message : 'No se pudo mover a la papelera.');
+          } finally {
+            setSavingId(null);
+          }
         },
-      ],
-    );
+      },
+    ]);
   };
 
-  const emptyState = useMemo(() => {
-    switch (filter) {
-      case 'today':
-        return { title: 'Día tranquilo', text: 'No hay tareas para hoy.' };
-      case 'open':
-        return { title: 'No hay tareas pendientes', text: 'Cuando creen tareas para el hogar, van a aparecer acá.' };
-      case 'mine':
-        return { title: 'No tenés tareas asignadas', text: 'Las tareas que te asignen van a aparecer acá.' };
-      case 'attention':
-        return { title: 'Nada urgente por ahora', text: 'Las tareas vencidas, urgentes o por revisar van a aparecer acá.' };
-      case 'done':
-        return { title: 'Todavía no hay tareas hechas', text: 'Las tareas que completes o verifiquen van a aparecer acá.' };
-      case 'cancelled':
-        return { title: 'No hay tareas canceladas', text: 'Las tareas que cancelen van a aparecer acá.' };
-      default:
-        return { title: 'No hay tareas pendientes', text: 'Cuando creen tareas para el hogar, van a aparecer acá.' };
+  const openActionMenu = (task: PlannerTask) => {
+    if (savingId === task.id) return; // Don't open menu for task being saved
+    setActionSheetTask(task);
+    setActionSheetVisible(true);
+  };
+
+  const buildActionSheetItems = (task: PlannerTask) => {
+    const items: Array<{ label: string; onPress: () => void; icon: string; destructive?: boolean }> = [];
+    const projection = projectPlannerTask(task);
+    const isAssignedToMe = task.assigned_to_member_id === myMembershipId;
+    const isClaimable = task.availableActions?.some((a) => a.action === 'claim') ?? false;
+    const isCompletedOrVerified = ['completed', 'verified'].includes(task.status);
+    const isCancelled = task.status === 'cancelled';
+    const isTrashed = Boolean(task.trashed_at);
+    const isArchived = Boolean(task.archived_at);
+    const isAwaitingVerification = task.status === 'awaiting_verification';
+    const isPending = task.status === 'pending';
+    const isCompleter = task.completed_by_member_id === myMembershipId;
+    const isResponsibilityGenerated = Boolean(task.responsibility_id);
+
+    if (isCancelled && !isTrashed) {
+      items.push({ label: 'Reactivar', onPress: () => { setActionSheetVisible(false); confirmReactivate(task); }, icon: 'refresh' });
     }
-  }, [filter]);
-
-  const openSecondaryFilters = () => {
-    Alert.alert('Ver tareas', 'Elegí una vista', [
-      ...secondaryFilters.map((item) => ({ text: item.label, onPress: () => setFilter(item.key) })),
-      { text: 'Cancelar', style: 'cancel' as const },
-    ]);
+    if (!isTrashed) {
+      if (isPending) {
+        items.push({ label: 'Completar', onPress: () => { setActionSheetVisible(false); confirmComplete(task); }, icon: 'checkmark-circle' });
+      }
+      if (isAwaitingVerification && !isCompleter) {
+        // Hide Revisar for the person who completed the task (cannot verify own completion)
+        items.push({ label: 'Revisar', onPress: () => { setActionSheetVisible(false); confirmVerify(task); }, icon: 'shield-checkmark' });
+      }
+      if (!isCancelled && !isResponsibilityGenerated) {
+        // Hide Cancel for Responsibility-generated tasks (effect on recurrence undefined)
+        items.push({ label: 'Cancelar tarea', onPress: () => { setActionSheetVisible(false); confirmCancel(task); }, icon: 'close-circle', destructive: true });
+      }
+      items.push({ label: 'Mover a la papelera', onPress: () => { setActionSheetVisible(false); confirmTrash(task); }, icon: 'trash', destructive: true });
+    } else {
+      items.push({ label: 'Restaurar', onPress: () => { setActionSheetVisible(false); /* restore not implemented in list */ }, icon: 'arrow-undo' });
+    }
+    if (isCompletedOrVerified && !isTrashed) {
+      if (isArchived) {
+        items.push({ label: 'Desarchivar', onPress: () => { setActionSheetVisible(false); /* unarchive not implemented in list */ }, icon: 'archive' });
+      } else {
+        items.push({ label: 'Archivar', onPress: () => { setActionSheetVisible(false); /* archive not implemented in list */ }, icon: 'archive' });
+      }
+    }
+    return items;
   };
 
-  const openTypeFilters = () => {
-    Alert.alert('Filtrar por tipo', 'Mostramos sólo las tareas de ese tipo.', [
-      ...typeFilters.map((item) => ({ text: item.label, onPress: () => setTypeFilter(item.key) })),
-      { text: 'Cancelar', style: 'cancel' as const },
-    ]);
-  };
+  const renderRows = (items: PlannerTask[]) => items.map((task) => (
+    <TaskRow
+      key={task.id}
+      task={task}
+      memberNameById={memberNameById}
+      goalTitleById={goalTitles}
+      savingId={savingId}
+      onOpen={onEditTask}
+      onComplete={confirmComplete}
+      onVerify={confirmVerify}
+      onCancel={confirmCancel}
+      onTrash={confirmTrash}
+      onReactivate={confirmReactivate}
+      onOpenMenu={openActionMenu}
+    />
+  ));
 
   if (loading) {
     return (
-      <View style={[S.emptyBox, { minHeight: 160 }]}>
-        <ActivityIndicator color="#E7643F" />
-        <Text style={[S.emptyText, { marginTop: 12 }]}>Cargando tareas...</Text>
+      <View style={styles.loadingRows}>
+        <Skeleton variant="listItem" />
+        <Skeleton variant="listItem" />
+        <Skeleton variant="listItem" />
       </View>
     );
   }
 
   if (error) {
-    return (
-      <ErrorState title="No pudimos cargar las tareas" description={error} retryLabel="Reintentar" onRetry={() => void loadTasks()} />
-    );
+    return <ErrorState title="No pudimos cargar las tareas" description={error} retryLabel="Reintentar" onRetry={() => void loadTasks()} />;
   }
 
-  const renderTasksFlat = (items: PlannerTask[]) => (
-    <>{items.map((task) => (
-      <TaskCard
-        key={task.id}
-        task={task}
-        filter={filter}
-        memberNameById={memberNameById}
-        goalTitleById={goalTitles}
-        today={today}
-        savingId={savingId}
-        onEditTask={onEditTask!}
-        onComplete={confirmComplete}
-        onVerify={confirmVerify}
-        onCancel={confirmCancel}
-        onTrash={confirmTrash}
-        onReactivate={confirmReactivate}
-      />
-    ))}</>
-  );
-
   return (
-    <View>
-      <View style={[S.headerRow, { marginBottom: 12 }]}>
-        <Text style={S.sectionTitle}>Tareas</Text>
-        <TouchableOpacity style={S.primaryBtn} onPress={onCreateTask}>
-          <Text style={S.btnText}>Nueva tarea</Text>
-        </TouchableOpacity>
+    <View style={styles.surface}>
+      <View style={styles.utilityRow}>
+        <InteractivePressable style={styles.viewSelector} onPress={() => setViewSheetVisible(true)} accessibilityRole="button" accessibilityLabel={`Ver ${currentViewLabel}`} haptic="light">
+          <AppText variant="bodySmall" weight="800">{currentViewLabel}</AppText>
+          <HomePlusIcon name="chevron-down" size={18} color={colors.text.secondary} />
+        </InteractivePressable>
+        <View style={styles.utilityActions}>
+          <InteractivePressable style={styles.iconButton} onPress={() => setFilterSheetVisible(true)} accessibilityRole="button" accessibilityLabel="Filtrar tareas" haptic="light">
+            <HomePlusIcon name="options-outline" size={20} color={activeFilterCount > 0 ? colors.terracotta[600] : colors.text.secondary} />
+            {activeFilterCount > 0 ? (
+              <View style={styles.filterDot}><AppText variant="micro" weight="800" tone="inverse">{activeFilterCount}</AppText></View>
+            ) : null}
+          </InteractivePressable>
+          <InteractivePressable style={styles.iconButton} onPress={onCreateTask} accessibilityRole="button" accessibilityLabel="Crear tarea" haptic="light">
+            <HomePlusIcon name="add" size={22} color={colors.terracotta[600]} />
+          </InteractivePressable>
+        </View>
       </View>
 
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing[2], marginBottom: spacing[3] }}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing[2], flexGrow: 1 }}>
-        {primaryFilters.map((item) => {
-          const active = filter === item.key;
-          const count = filterCounts[item.key];
-          return (
-            <TouchableOpacity
-              key={item.key}
-              style={[S.filterChipWithCount, active && S.filterChipCountActive]}
-              onPress={() => setFilter(item.key)}
-            >
-              <Text style={[S.filterChipCountText, active && S.filterChipCountTextActive]}>{item.label}</Text>
-              <View style={[S.filterCountBadge, active && S.filterCountBadgeActive]}>
-                <Text style={[S.filterCountText, active && S.filterCountTextActive]}>{count}</Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-      <TouchableOpacity style={[S.filterChipWithCount, !primaryFilters.some((item) => item.key === filter) && S.filterChipCountActive]} onPress={openSecondaryFilters} accessibilityRole="button" accessibilityLabel="Más vistas de tareas"><Text style={[S.filterChipCountText, !primaryFilters.some((item) => item.key === filter) && S.filterChipCountTextActive]}>Más</Text></TouchableOpacity>
-      <TouchableOpacity style={S.taskTypeFilterChip} onPress={openTypeFilters} accessibilityRole="button" accessibilityLabel="Filtrar tareas por tipo"><Text style={S.taskTypeFilterChipText}>{typeFilter === 'all' ? 'Tipo' : typeFilter}</Text></TouchableOpacity>
-      </View>
+      <InteractivePressable style={styles.responsibilitiesRow} onPress={() => navigation.navigate('Responsibilities')} accessibilityRole="button" accessibilityLabel="Abrir responsabilidades" haptic="light">
+        <View style={{ flex: 1 }}><AppText variant="body" weight="800">Responsabilidades</AppText><AppText variant="caption" tone="secondary">Rutinas y obligaciones de la casa</AppText></View>
+        <HomePlusIcon name="chevron-forward" size={18} color={colors.text.tertiary} />
+      </InteractivePressable>
 
       {visibleTasks.length === 0 ? (
-        <View style={S.emptyBox}>
-          <Text style={S.emptyTitle}>{emptyState.title}</Text>
-          <Text style={S.emptyText}>{emptyState.text}</Text>
-          <TouchableOpacity style={[S.primaryBtn, { marginTop: 14 }]} onPress={onCreateTask}>
-            <Text style={S.btnText}>Crear tarea</Text>
-          </TouchableOpacity>
-        </View>
-      ) : useNarrative && (attentionTasks || todayTasks || upcomingTasks) ? (
+        <EmptyState
+          title={activeFilterCount > 0 ? 'No hay tareas con esos filtros' : view === 'pending' ? 'No hay tareas pendientes' : view === 'done' ? 'Todavía no hay tareas hechas' : 'No hay tareas archivadas'}
+          description={activeFilterCount > 0 ? 'Probá ajustando los filtros.' : view === 'pending' ? 'Cuando aparezca algo por hacer, lo vas a ver acá.' : 'Las tareas que finalices se mostrarán acá.'}
+          actionLabel={activeFilterCount > 0 ? 'Limpiar filtros' : 'Crear tarea'}
+          onAction={activeFilterCount > 0 ? clearFilters : onCreateTask}
+        />
+      ) : view === 'pending' ? (
         <View>
-          {attentionTasks && (
-            <View>
-              <View style={S.taskSectionHeader}>
-                <Text style={S.taskSectionHeaderText}>Atención</Text>
-              </View>
-              {renderTasksFlat(attentionTasks)}
-            </View>
-          )}
-          {todayTasks && (
-            <View>
-              <View style={S.taskSectionHeader}>
-                <Text style={S.taskSectionHeaderText}>Hoy</Text>
-              </View>
-              {renderTasksFlat(todayTasks)}
-            </View>
-          )}
-          {upcomingTasks && (
-            <View>
-              <View style={S.taskSectionHeader}>
-                <Text style={S.taskSectionHeaderText}>Próximas</Text>
-              </View>
-              {renderTasksFlat(upcomingTasks)}
-            </View>
-          )}
+          {groupedPending.attention.length ? <TaskSection title="NECESITA ATENCIÓN">{renderRows(groupedPending.attention)}</TaskSection> : null}
+          {groupedPending.today.length ? <TaskSection title="HOY">{renderRows(groupedPending.today)}</TaskSection> : null}
+          {groupedPending.upcoming.length ? <TaskSection title="PRÓXIMAS">{renderRows(groupedPending.upcoming)}</TaskSection> : null}
+          {groupedPending.undated.length ? <TaskSection title="SIN FECHA">{renderRows(groupedPending.undated)}</TaskSection> : null}
         </View>
       ) : (
-        renderTasksFlat(visibleTasks)
+        <View>{renderRows(visibleTasks)}</View>
       )}
+
+      <ActionSheet visible={viewSheetVisible} title="Ver tareas" onRequestClose={() => setViewSheetVisible(false)} size="content">
+        <View style={styles.sheetOptions}>
+          {VIEW_OPTIONS.map((option) => (
+            <FilterChip key={option.key} label={option.label} selected={view === option.key} onPress={() => { setView(option.key); setViewSheetVisible(false); }} />
+          ))}
+        </View>
+      </ActionSheet>
+
+      <ActionSheet visible={filterSheetVisible} title="Filtros" onRequestClose={() => setFilterSheetVisible(false)} size="content">
+        <View style={styles.filterSheet}>
+          <FilterGroup title="Responsable">
+            <FilterChip label="Yo" selected={responsibleFilters.includes('mine')} onPress={() => toggleFilterValue(responsibleFilters, 'mine', setResponsibleFilters)} />
+            <FilterChip label="Sin responsable" selected={responsibleFilters.includes('unassigned')} onPress={() => toggleFilterValue(responsibleFilters, 'unassigned', setResponsibleFilters)} />
+            <FilterChip label="Disponibles para tomar" selected={responsibleFilters.includes('claimable')} onPress={() => toggleFilterValue(responsibleFilters, 'claimable', setResponsibleFilters)} />
+            {members.map((member) => {
+              const key = `member:${member.id}`;
+              return <FilterChip key={key} label={member.user?.nombre || 'Miembro'} selected={responsibleFilters.includes(key)} onPress={() => toggleFilterValue(responsibleFilters, key, setResponsibleFilters)} />;
+            })}
+          </FilterGroup>
+          <FilterGroup title="Cuándo">
+            {WHEN_OPTIONS.map((option) => <FilterChip key={option.key} label={option.label} selected={whenFilters.includes(option.key)} onPress={() => toggleFilterValue(whenFilters, option.key, setWhenFilters)} />)}
+          </FilterGroup>
+          <FilterGroup title="Tipo">
+            {TYPE_OPTIONS.map((option) => <FilterChip key={option.key} label={option.label} selected={typeFilters.includes(option.key)} onPress={() => toggleFilterValue(typeFilters, option.key, setTypeFilters)} />)}
+          </FilterGroup>
+          <FilterGroup title="Prioridad">
+            {PRIORITY_OPTIONS.map((option) => <FilterChip key={option.key} label={option.label} selected={priorityFilters.includes(option.key)} onPress={() => toggleFilterValue(priorityFilters, option.key, setPriorityFilters)} />)}
+          </FilterGroup>
+          {activeFilterCount > 0 ? (
+            <AppButton title="Limpiar filtros" variant="ghost" onPress={clearFilters} />
+          ) : null}
+        </View>
+      </ActionSheet>
+
+      <ActionSheet
+        visible={actionSheetVisible}
+        onRequestClose={() => { setActionSheetVisible(false); setActionSheetTask(null); }}
+        title="Opciones de tarea"
+        subtitle={actionSheetTask?.title}
+        footer={
+          <AppButton variant="secondary" onPress={() => { setActionSheetVisible(false); setActionSheetTask(null); }}>
+            <AppText variant="body" weight="700">Cerrar</AppText>
+          </AppButton>
+        }
+      >
+        {actionSheetTask && buildActionSheetItems(actionSheetTask).map((action, index) => (
+          <TouchableOpacity
+            key={index}
+            style={styles.actionRow}
+            onPress={() => { setActionSheetVisible(false); setActionSheetTask(null); action.onPress(); }}
+            accessibilityRole="button"
+          >
+            <HomePlusIcon name={action.icon as any} size={20} color={action.destructive ? colors.danger.base : colors.text.primary} style={{ marginRight: 12 }} />
+            <AppText variant="body" weight="600" style={{ flex: 1, color: action.destructive ? colors.danger.base : colors.text.primary }}>{action.label}</AppText>
+          </TouchableOpacity>
+        ))}
+      </ActionSheet>
     </View>
   );
 }
+
+function TaskSection({ title, children }: { title: string; children: React.ReactNode }) {
+  const theme = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  return (
+    <View style={styles.section}>
+      <AppText variant="caption" tone="secondary" weight="800" style={styles.sectionTitle}>{title}</AppText>
+      {children}
+    </View>
+  );
+}
+
+function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  const theme = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  return (
+    <View style={styles.filterGroup}>
+      <AppText variant="caption" tone="secondary" weight="800">{title}</AppText>
+      <View style={styles.sheetOptions}>{children}</View>
+    </View>
+  );
+}
+
+function createStyles({ colors, radius, spacing }: ReturnType<typeof useAppTheme>) { return StyleSheet.create({
+  surface: { gap: spacing[3], paddingBottom: spacing[5] },
+  utilityRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], marginBottom: spacing[1] },
+  viewSelector: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing[1], paddingRight: spacing[2] },
+  utilityActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[1] },
+  responsibilitiesRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing[3], paddingVertical: spacing[2], borderBottomWidth: 1, borderBottomColor: colors.border.subtle, marginBottom: spacing[3] },
+  iconButton: { width: 44, height: 44, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
+  filterDot: { position: 'absolute', top: 6, right: 5, minWidth: 17, height: 17, borderRadius: 9, backgroundColor: colors.terracotta[600], alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  section: { gap: spacing[1], marginBottom: spacing[3] },
+  sectionTitle: { marginTop: spacing[2], marginBottom: spacing[1] },
+  taskRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing[3], paddingVertical: spacing[3], borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border.subtle },
+  rowIcon: { width: 34, height: 34, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface.soft },
+  rowContent: { flex: 1, gap: spacing[1] },
+  rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: spacing[1] },
+  loadingRows: { gap: spacing[5], paddingVertical: spacing[4] },
+  sheetOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing[2] },
+  filterSheet: { gap: spacing[5] },
+  filterGroup: { gap: spacing[2] },
+  actionRow: { minHeight: 56, paddingHorizontal: spacing[4], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.soft, flexDirection: 'row', alignItems: 'center', gap: spacing[2] },
+}); }

@@ -13,7 +13,7 @@ import {
   isZeroDecimalString,
 } from '../front/mi-front-limpio/services/finance/financeDisplay';
 
-const repositoryRoot = path.resolve(__dirname, '..');
+const repositoryRoot = path.resolve(__dirname, '..', '..', '..');
 
 let passCount = 0;
 let failCount = 0;
@@ -83,19 +83,43 @@ runTest('T08-T22 Movimientos read and rendering contract', () => {
   assert(!/supabase\s*\./.test(financeFrontend), 'T09 no direct Supabase read');
   assertEqual(formatFinanceAmount('42000', 'ARS', { sign: 'transaction', transactionType: 'expense' }), '-42.000 ARS', 'T10 Expense amount derives negative visual sign');
   assertEqual(formatFinanceAmount('800000', 'ARS', { sign: 'transaction', transactionType: 'income' }), '+800.000 ARS', 'T11 Income amount derives positive visual sign');
-  assert(!display.includes('Number(') && !display.includes('parseFloat') && !display.includes('parseInt'), 'T12 decimal string formatting does not use lossy Number conversion');
+  const decimalFormatterStart = display.indexOf('export function formatFinanceDecimalString');
+  const decimalFormatterEnd = display.indexOf('export function formatFinanceAmount', decimalFormatterStart);
+  const decimalFormatter = display.slice(decimalFormatterStart, decimalFormatterEnd);
+  assert(!decimalFormatter.includes('Number(') && !decimalFormatter.includes('parseFloat') && !decimalFormatter.includes('parseInt'), 'T12 decimal string formatting does not use lossy Number conversion');
   assertEqual(formatFinanceDecimalString('9007199254740993.5'), '9.007.199.254.740.993,5', 'T12 large decimal string formats without precision loss');
   assert(screen.includes('movement.currency') && screen.includes('formatFinanceAmount(movement.amount, movement.currency'), 'T13 movement native currency preserved');
   assertEqual(financeMovementTitle('expense', 'Supermercado'), 'Supermercado', 'T14 description rendered when present');
   assertEqual(financeMovementTitle('expense', null), 'Gasto', 'T15 null description gets presentation-only Gasto fallback');
   assertEqual(financeMovementTitle('income', '   '), 'Ingreso', 'T15 blank description gets presentation-only Ingreso fallback');
-  assert(screen.includes('movement.categoryLabelSnapshot') && screen.includes('{movement.categoryLabelSnapshot}'), 'T16 categoryLabelSnapshot rendered when present');
+  assert(service.includes('categoryLabelSnapshot: categoryLabel') && screen.includes('movement.categoryLabel') && screen.includes('{movement.categoryLabel}'), 'T16 categoryLabelSnapshot is normalized and rendered when present');
   assert(!/listFinanceExpenseCategories\(.*movement|categoryLabelSnapshot.*listFinanceExpenseCategories/s.test(screen), 'T17 no current Category lookup rewrites snapshot');
-  assert(!screen.includes('Sin categoria') && !screen.includes('Sin categoría'), 'T18 null Category does not create fake category');
-  assert(screen.includes('groupMovementsByTransactionDate') && screen.includes('movement.transactionDate'), 'T19 transactionDate owns grouping');
+  const newMovement = read('front/mi-front-limpio/components/finance/NewMovementSheet.tsx');
+  assert(!screen.includes('Sin categoria') && !screen.includes('Sin categoría') && newMovement.includes('Sin categoría') && !newMovement.includes('Sin categoria'), 'T18 null movement Category does not create fake list fallback, while forms use correct es-AR copy');
+  assert(screen.includes('groupMovementsByTransactionDate') && service.includes('transactionDate: date') && screen.includes('movement.date'), 'T19 transaction date owns normalized grouping');
   assert(!screen.includes('.sort('), 'T20 backend ordering is preserved by the frontend');
-  assert(screen.includes('Sin movimientos en este periodo'), 'T21 empty movement period truthful');
+  assert(screen.includes('Sin movimientos este mes') && screen.includes('No hay movimientos que coincidan con estos filtros'), 'T21 empty movement state adapts to all-selected vs subset filters');
   assert(screen.includes('accessibilityLabel="Nuevo movimiento"') && screen.includes('setNewMovementVisible(true)'), 'T22 local + remains available in empty state');
+  assert(
+    !screen.includes('styles.movementsHeader') &&
+      !screen.includes('MOVIMIENTOS') &&
+      screen.includes('<FinancePeriodControl period={period} onMovePeriod={onMovePeriod} />') &&
+      screen.includes('<FinanceUtilityRow') &&
+      screen.includes('<FinancePeriodNavigator') &&
+      screen.includes('accessibilityLabel="Abrir Papelera"') &&
+      screen.includes('accessibilityLabel="Nuevo movimiento"'),
+    'T22 runtime IA keeps period, Papelera/+ actions, and removes redundant movement title labels',
+  );
+  assert(
+    screen.includes('MovementTypeFilterKey') &&
+      screen.includes('normalizeMovementFilters') &&
+      screen.includes('toggleMovementFilter') &&
+      screen.includes('<FinanceSegmentedMulti') &&
+      screen.includes('testID="finance-movement-filter"') &&
+      !screen.includes('filterPill') &&
+      !screen.includes('styles.connectedFilter'),
+    'T22 runtime IA uses one connected multiselect filter instead of floating chips',
+  );
 });
 
 runTest('T23-T33 Resumen read and currency contract', () => {
@@ -103,7 +127,7 @@ runTest('T23-T33 Resumen read and currency contract', () => {
   const screen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
 
   assert(service.includes("'/api/finance/summary") || service.includes('/api/finance/summary?'), 'T23 real summary service calls 2F-A endpoint');
-  assert(screen.includes('Gastamos') && screen.includes('Ingresó') && screen.includes('Neto'), 'T24 one currency renders Gastamos/Ingresó/Neto');
+  assert(screen.includes('Gastamos') && screen.includes('Ingresó') && screen.includes('Balance'), 'T24 one currency renders Gastamos/Ingresó/Balance');
   assert(screen.includes('currencies.length > 1 ?') && screen.includes('currencySelector'), 'T25 one currency avoids unnecessary selector');
   assert(screen.includes('currencies.map((bucket)') && screen.includes('Resumen ${bucket.currency}'), 'T26 multiple currencies expose compact selector');
   assert(screen.includes('onSelectCurrency(bucket.currency)') && screen.includes('selectedSummaryBucket'), 'T27 currency switch changes displayed bucket only');
@@ -149,31 +173,20 @@ runTest('T45-T53 Negative scope', () => {
   const runJs = read('tests/run.js');
   const financeScreen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
 
-  assert(/accountName|movementAttributionLabel/i.test(financeScreen), 'T45 movement list identifies an associated account when disclosure is allowed');
+  assert(read('front/mi-front-limpio/services/finance/financeMovements.ts').includes('accountName: movement.accountName ?? null'), 'T45 movement DTO preserves associated account when disclosure is allowed');
   assert(!/readFinanceTransfers|getFinanceTransfers|\/api\/finance\/transfers\?/.test(financeFrontend), 'T46 no Transfer read behavior added to 2F movement/summary consumption');
   assert(!/Budget|Presupuesto|budget/i.test(financeFrontend), 'T47 no Budget');
-  assert(!/Expected Payments|Due|Overdue|settlement|payment implementation/i.test(financeFrontend), 'T48 no Payment implementation');
-  assert(!/AnalysisScreen|FinanceAnalysis|Ver analisis|Ver análisis|analysis route/i.test(financeFrontend), 'T49 no Analysis surface or route');
-  assert(!/createFinanceCategory|updateFinanceCategory|deleteFinanceCategory|Category management/i.test(financeFrontend), 'T50 no category management');
+  assert(financeScreen.includes('<PaymentsList') && financeScreen.includes('paymentDetailRefreshNonce'), 'T48 current Finance surface includes accepted Payment implementation without mutating movement/summary reads');
+  assert(financeScreen.includes('FinanceAnalysisDetail') && financeScreen.includes('getFinanceAnalysis'), 'T49 current Finance surface includes accepted Analysis route/read');
+  assert(/createFinanceCategory/.test(financeFrontend) && !/updateFinanceCategory|deleteFinanceCategory|Category management/i.test(financeFrontend), 'T50 contextual category create is allowed; no category manager/edit/delete expansion');
   assert(runJs.includes('finance-2f-ui'), 'T51 frontend-only 2F-B test command is registered');
-  assertEqual(
-    migrationFiles,
-    [
-      '20260813010000_finance_category_authority_v1_1.sql',
-      '20260813020000_finance_expense_income_transactions_v1_1.sql',
-      '20260814010000_finance_account_authority_v1_1.sql',
-      '20260814020000_finance_balance_anchor_account_effects_v1_1.sql',
-      '20260814030000_finance_balance_correction_v1_1.sql',
-      '20260814040000_finance_credit_card_purchase_semantics_v1_1.sql',
-      '20260814050000_finance_canonical_transfer_v1_1.sql',
-      '20260814060000_finance_cross_currency_transfer_v1_1.sql',
-      '20260814070000_finance_transfer_commission_composition_v1_1.sql',
-      '20260814080000_finance_account_effect_status_foundation_v1_1.sql',
-      '20260815020000_finance_transaction_lifecycle_foundation_v1_1.sql',
-      '20260815030000_finance_transaction_trash_mutation_v1_1.sql',
-    ],
-    'T52 only accepted 2B/2C/3A/3B/3C/3D/3E/3F/3G/4B/4C/4D schema migrations exist',
-  );
+  [
+    '20260813010000_finance_category_authority_v1_1.sql',
+    '20260813020000_finance_expense_income_transactions_v1_1.sql',
+    '20260831000003_finance_unified_movements_v1_1.sql',
+  ].forEach((migration) => {
+    assert(migrationFiles.includes(migration), `T52 required accepted Finance read migration exists: ${migration}`);
+  });
   assert(!/FinanceDesignSystem|FinanceNavbar|FinanceAppShell|FinanceToast|FinanceQueryProvider|useFinanceQuery|FinanceReliability/i.test(financeFrontend), 'T53 no Finance design/reliability/API parallel subsystem');
 });
 

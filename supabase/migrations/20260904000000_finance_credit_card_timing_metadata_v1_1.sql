@@ -16,12 +16,15 @@
 
 alter table public.finance_accounts
   add column if not exists closing_day integer null;
+
 alter table public.finance_accounts
   add column if not exists due_day integer null;
+
 comment on column public.finance_accounts.closing_day is
   'CREDIT_CARD day-of-month billing close anchor. NULL for ACCOUNT and for pre-8D.1 historical cards.';
 comment on column public.finance_accounts.due_day is
   'CREDIT_CARD day-of-month payment due anchor. NULL for ACCOUNT and for pre-8D.1 historical cards.';
+
 alter table public.finance_accounts
   drop constraint if exists finance_accounts_account_timing_null_check;
 alter table public.finance_accounts
@@ -30,6 +33,7 @@ alter table public.finance_accounts
     account_type <> 'ACCOUNT'
     or (closing_day is null and due_day is null)
   );
+
 alter table public.finance_accounts
   drop constraint if exists finance_accounts_card_timing_range_check;
 alter table public.finance_accounts
@@ -41,11 +45,13 @@ alter table public.finance_accounts
       or (closing_day between 1 and 31 and due_day between 1 and 31)
     )
   );
+
 -- Replace the create RPC with an 8D.1-aware signature. The old 9-argument
 -- overload is dropped so there is exactly one authoritative create path.
 drop function if exists public.finance_create_account_v1(
   text, uuid, uuid, text, text, text, uuid, numeric, date
 );
+
 create or replace function public.finance_create_account_v1(
   p_financial_context_type text,
   p_owner_person_id uuid,
@@ -134,6 +140,8 @@ begin
   return v_account;
 end;
 $$;
+
 grant execute on function public.finance_create_account_v1(text, uuid, uuid, text, text, text, uuid, numeric, date, integer, integer) to authenticated;
 grant execute on function public.finance_create_account_v1(text, uuid, uuid, text, text, text, uuid, numeric, date, integer, integer) to service_role;
+
 notify pgrst, 'reload schema';

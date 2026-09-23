@@ -197,6 +197,37 @@ const isValidDateOnly = (value) =>
 const isValidTimeOnly = (value) =>
   typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(value)
 
+const isValidDurationMinutes = (value) =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 10080
+
+const validateNullableDuration = (value, fieldName) => {
+  if (value === undefined || value === null || value === '') return null
+  if (!isValidDurationMinutes(value)) {
+    throw createHttpError(400, `${fieldName} debe ser un entero entre 1 y 10080.`, 'validation_error')
+  }
+  return value
+}
+
+const validateNullableChecklist = (value) => {
+  if (value === undefined || value === null || value === '') return '[]'
+  if (!Array.isArray(value)) {
+    throw createHttpError(400, 'checklist debe ser un array.', 'validation_error')
+  }
+  for (const item of value) {
+    if (!item || typeof item !== 'object') {
+      throw createHttpError(400, 'Cada item del checklist debe ser un objeto.', 'validation_error')
+    }
+    const text = String(item.text ?? '').trim()
+    if (!text) {
+      throw createHttpError(400, 'El texto del checklist no puede estar vacío.', 'validation_error')
+    }
+    if (typeof item.checked !== 'boolean') {
+      throw createHttpError(400, 'El campo checked del checklist debe ser booleano.', 'validation_error')
+    }
+  }
+  return JSON.stringify(value)
+}
+
 const isTrueQuery = (value) => value === true || value === 'true' || value === '1'
 
 const parseLimit = (value) => {
@@ -251,13 +282,17 @@ const validateNullableDate = (value, fieldName) => {
   return value
 }
 
-const validateNullableTime = (value, fieldName) => {
+const validateNullableTime = (value, fieldName, dueDate) => {
   if (value === undefined || value === null || value === '') {
     return null
   }
 
   if (!isValidTimeOnly(value)) {
     throw createHttpError(400, `${fieldName} invalido.`, 'validation_error')
+  }
+
+  if (!dueDate) {
+    throw createHttpError(400, 'due_time requiere due_date.', 'validation_error')
   }
 
   return value
@@ -445,6 +480,11 @@ const listTasks = async (context, query) => {
     request = request.neq('status', 'cancelled')
   }
 
+  // Filter out archived tasks by default unless explicitly requested
+  if (!isTrueQuery(query.include_archived)) {
+    request = request.is('archived_at', null)
+  }
+
   if (query.goal_id) {
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     if (!uuidPattern.test(String(query.goal_id))) {
@@ -618,10 +658,12 @@ const createTask = async (context, body, correlation = {}) => {
     template_key: validateTemplateKey(body?.template_key),
     category: hasOwn(body, 'category') ? normalizeString(body.category) || null : null,
     due_date: validateNullableDate(body?.due_date, 'due_date'),
-    due_time: validateNullableTime(body?.due_time, 'due_time'),
+    due_time: validateNullableTime(body?.due_time, 'due_time', body?.due_date ?? null),
+    estimated_duration_minutes: validateNullableDuration(body?.estimated_duration_minutes, 'estimated_duration_minutes'),
     requires_verification: Boolean(body?.requires_verification),
     assigned_to_member_id: normalizeNullableUuid(body?.assigned_to_member_id, 'assigned_to_member_id'),
     goal_id: normalizeNullableUuid(body?.goal_id, 'goal_id'),
+    checklist: validateNullableChecklist(body?.checklist),
   }
 
   const originModule = validateOriginModule(body?.origin_module)
@@ -707,12 +749,25 @@ const buildTaskPatch = async (context, body) => {
     patch.category = normalizeString(body.category) || null
   }
 
+  // Validate due_date and due_time together
+  const newDueDate = hasOwn(body, 'due_date') ? validateNullableDate(body.due_date, 'due_date') : undefined
   if (hasOwn(body, 'due_date')) {
-    patch.due_date = validateNullableDate(body.due_date, 'due_date')
+    patch.due_date = newDueDate
   }
 
   if (hasOwn(body, 'due_time')) {
-    patch.due_time = validateNullableTime(body.due_time, 'due_time')
+    // Use new due_date if provided, otherwise we'd need to fetch current task
+    // For simplicity, we validate against the new due_date if present
+    const dueDateToCheck = newDueDate ?? body.due_date ?? null
+    patch.due_time = validateNullableTime(body.due_time, 'due_time', dueDateToCheck)
+  }
+
+  if (hasOwn(body, 'estimated_duration_minutes')) {
+    patch.estimated_duration_minutes = validateNullableDuration(body.estimated_duration_minutes, 'estimated_duration_minutes')
+  }
+
+  if (hasOwn(body, 'checklist')) {
+    patch.checklist = validateNullableChecklist(body.checklist)
   }
 
   if (hasOwn(body, 'assigned_to_member_id')) {
@@ -1153,6 +1208,96 @@ const claimTaskV1 = async (context, taskId, expectedVersion, correlation = {}) =
   return getTaskFulfillmentV1(context, taskId)
 }
 
+const releaseTaskV1 = async (context, taskId, expectedVersion, correlation = {}) => {
+  assertV1Uuid(taskId, 'taskId')
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+  assertCapability(capabilities, 'task.complete_assigned')
+  const data = await invokeTaskV1AtomicMutation(context, {
+    operation: correlation.operation,
+    targetId: taskId,
+    expectedVersion,
+    payload: null,
+    correlation,
+    rpc: async (call) => {
+      const { data: rpcData, error } = await context.client.rpc('release_planner_task_v1', {
+        p_household_id: context.householdId,
+        p_task_id: taskId,
+        p_expected_version: expectedVersion,
+        p_request_id: correlation.requestId ?? null,
+        p_mutation_id: call.mutationId,
+        p_idempotency_key: call.idempotencyKey,
+        p_operation: call.operation,
+        p_payload_hash: call.payloadHash,
+      })
+      if (error) throwSupabaseError(error)
+      return rpcData
+    },
+  })
+  mapV1Outcome(data, expectedVersion)
+  return getTaskFulfillmentV1(context, taskId)
+}
+
+const archiveTaskV1 = async (context, taskId, expectedVersion, correlation = {}) => {
+  assertV1Uuid(taskId, 'taskId')
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+  assertCapability(capabilities, 'task.archive')
+  const data = await invokeTaskV1AtomicMutation(context, {
+    operation: correlation.operation,
+    targetId: taskId,
+    expectedVersion,
+    payload: null,
+    correlation,
+    rpc: async (call) => {
+      const { data: rpcData, error } = await context.client.rpc('archive_planner_task_v1', {
+        p_household_id: context.householdId,
+        p_task_id: taskId,
+        p_expected_version: expectedVersion,
+        p_request_id: correlation.requestId ?? null,
+        p_mutation_id: call.mutationId,
+        p_idempotency_key: call.idempotencyKey,
+        p_operation: call.operation,
+        p_payload_hash: call.payloadHash,
+      })
+      if (error) throwSupabaseError(error)
+      return rpcData
+    },
+  })
+  mapV1Outcome(data, expectedVersion)
+  return getTaskFulfillmentV1(context, taskId)
+}
+
+const unarchiveTaskV1 = async (context, taskId, expectedVersion, correlation = {}) => {
+  assertV1Uuid(taskId, 'taskId')
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+  assertCapability(capabilities, 'task.archive')
+  const data = await invokeTaskV1AtomicMutation(context, {
+    operation: correlation.operation,
+    targetId: taskId,
+    expectedVersion,
+    payload: null,
+    correlation,
+    rpc: async (call) => {
+      const { data: rpcData, error } = await context.client.rpc('unarchive_planner_task_v1', {
+        p_household_id: context.householdId,
+        p_task_id: taskId,
+        p_expected_version: expectedVersion,
+        p_request_id: correlation.requestId ?? null,
+        p_mutation_id: call.mutationId,
+        p_idempotency_key: call.idempotencyKey,
+        p_operation: call.operation,
+        p_payload_hash: call.payloadHash,
+      })
+      if (error) throwSupabaseError(error)
+      return rpcData
+    },
+  })
+  mapV1Outcome(data, expectedVersion)
+  return getTaskFulfillmentV1(context, taskId)
+}
+
 const assertV1FulfillmentCapability = async (context, taskId, fulfillmentId, action) => {
   const capabilities = resolveContextCapabilities(context)
   assertCapability(capabilities, 'planner.view')
@@ -1218,6 +1363,227 @@ const mutateTaskFulfillmentV1 = async (context, taskId, fulfillmentId, action, b
   return getTaskFulfillmentV1(context, taskId)
 }
 
+const submitTaskEvidence = async (context, taskId, fulfillmentId, body, correlation = {}) => {
+  const { photo_reference, comment } = body ?? {}
+  if (!photo_reference && !comment) {
+    throw createHttpError(400, 'Se requiere al menos una foto o un comentario.', 'validation_error')
+  }
+  if (photo_reference && typeof photo_reference !== 'string') {
+    throw createHttpError(400, 'photo_reference debe ser texto.', 'validation_error')
+  }
+  if (comment && typeof comment !== 'string') {
+    throw createHttpError(400, 'comment debe ser texto.', 'validation_error')
+  }
+  if (photo_reference && photo_reference.trim().length > 255) {
+    throw createHttpError(400, 'photo_reference demasiado largo.', 'validation_error')
+  }
+  if (comment && comment.trim().length > 500) {
+    throw createHttpError(400, 'comment demasiado largo (máx 500).', 'validation_error')
+  }
+
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+  assertCapability(capabilities, 'task.complete_assigned')
+
+const { data: task, error: taskError } = await context.client
+    .from('planner_tasks')
+    .select('id')
+    .eq('id', taskId)
+    .eq('household_id', context.householdId)
+    .maybeSingle()
+    .eq('household_id', context.householdId)
+    .is('trashed_at', null)
+    .maybeSingle()
+  if (taskError) throwSupabaseError(taskError)
+  if (!task) {
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
+  }
+  if (task.status === 'cancelled') {
+    throw createHttpError(409, 'La tarea no está operativa.', 'task_not_operational')
+  }
+
+  let fulfillment = null
+  if (fulfillmentId) {
+    const { data: f, error: fErr } = await context.client
+      .from('planner_task_fulfillments')
+      .select('id, status, responsible_member_id')
+      .eq('id', fulfillmentId)
+      .eq('task_id', taskId)
+      .eq('household_id', context.householdId)
+      .is('retired_at', null)
+      .is('inactive_at', null)
+      .maybeSingle()
+    if (fErr) throwSupabaseError(fErr)
+    if (!f) {
+      throw createHttpError(409, 'El cumplimiento ya no es una obligación actual.', 'fulfillment_not_current')
+    }
+    if (f.status !== 'pending') {
+      throw createHttpError(409, 'Solo se puede enviar evidencia en cumplimientos pendientes.', 'fulfillment_invalid_transition')
+    }
+    if (f.responsible_member_id && f.responsible_member_id !== context.membershipId) {
+      const capabilities = resolveContextCapabilities(context)
+      if (!hasCapability(capabilities, 'task.complete_any')) {
+        throw createHttpError(403, 'No sos responsable de este cumplimiento.', 'fulfillment_not_responsible')
+      }
+    }
+    fulfillment = f
+  } else {
+    const { data: config, error: configError } = await context.client
+      .from('planner_task_assignment_configs')
+      .select('assignment_kind, fulfillment_mode')
+      .eq('task_id', taskId)
+      .eq('household_id', context.householdId)
+      .maybeSingle()
+    if (configError) throwSupabaseError(configError)
+    if (!config) {
+      throw createHttpError(500, 'La tarea no tiene una asignación canónica.', 'task_assignment_missing')
+    }
+
+    const { data: f, error: fErr } = await context.client
+      .from('planner_task_fulfillments')
+      .select('id, status, responsible_member_id, fulfillment_scope')
+      .eq('task_id', taskId)
+      .eq('household_id', context.householdId)
+      .is('retired_at', null)
+      .is('inactive_at', null)
+      .order('created_at', { ascending: true })
+    if (fErr) throwSupabaseError(fErr)
+    if (!f || f.length === 0) {
+      throw createHttpError(409, 'La tarea no tiene cumplimientos actuales.', 'fulfillment_not_current')
+    }
+
+    let candidate = null
+    if (config.assignment_kind === 'anyone') {
+      candidate = f.find(item => item.fulfillment_scope === 'shared' && item.status === 'pending')
+    } else if (config.assignment_kind === 'members') {
+      if (config.fulfillment_mode === 'shared_once') {
+        candidate = f.find(item => item.fulfillment_scope === 'shared' && item.status === 'pending')
+      } else {
+        candidate = f.find(item => item.fulfillment_scope === 'individual' && item.responsible_member_id === context.membershipId && item.status === 'pending')
+      }
+    }
+    if (!candidate) {
+      throw createHttpError(409, 'No hay cumplimiento pendiente para el actor actual.', 'fulfillment_not_current')
+    }
+    fulfillment = candidate
+  }
+
+  const { data: evidence, error: evidenceError } = await context.client
+    .from('planner_task_evidence_attempts')
+    .insert({
+      task_id: taskId,
+      household_id: context.householdId,
+      fulfillment_id: fulfillment.id,
+      submitted_by_member_id: context.membershipId,
+      submitted_by_person_id: context.personId,
+      photo_reference: photo_reference?.trim() || null,
+      comment: comment?.trim() || null,
+    })
+    .select('*')
+    .single()
+  if (evidenceError) throwSupabaseError(evidenceError)
+
+  if (task.requires_verification) {
+    const { data: updated, error: updErr } = await context.client
+      .from('planner_task_fulfillments')
+      .update({ status: 'awaiting_verification' })
+      .eq('id', fulfillment.id)
+      .eq('task_id', taskId)
+      .eq('household_id', context.householdId)
+      .select('*')
+      .single()
+    if (updErr) throwSupabaseError(updErr)
+  } else {
+    const { data: updated, error: updErr } = await context.client
+      .from('planner_task_fulfillments')
+      .update({
+        status: 'completed',
+        completed_by_member_id: context.membershipId,
+        completed_by_person_id: context.personId,
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', fulfillment.id)
+      .eq('task_id', taskId)
+      .eq('household_id', context.householdId)
+      .select('*')
+      .single()
+    if (updErr) throwSupabaseError(updErr)
+  }
+
+  await context.client.rpc('planner_refresh_task_v0_projection', { p_task_id: taskId })
+
+  return { evidence }
+}
+
+const getTaskEvidenceHistory = async (context, taskId) => {
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+
+  const { data: task, error: taskError } = await context.client
+    .from('planner_tasks')
+    .select('id')
+    .eq('id', taskId)
+    .eq('household_id', context.householdId)
+    .maybeSingle()
+  if (taskError) throwSupabaseError(taskError)
+  if (!task) {
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
+  }
+
+  const { data: evidence, error: evidenceError } = await context.client
+    .from('planner_task_evidence_attempts')
+    .select(`
+      *,
+      submitted_member:household_members!planner_task_evidence_attempt_submitter_fkey (
+        id, person_id, role, status, people (id, display_name, avatar_url)
+      ),
+      reviewed_member:household_members!planner_task_evidence_attempt_reviewer_fkey (
+        id, person_id, role, status, people (id, display_name, avatar_url)
+      )
+    `)
+    .eq('task_id', taskId)
+    .eq('household_id', context.householdId)
+    .order('submitted_at', { ascending: false })
+  if (evidenceError) throwSupabaseError(evidenceError)
+
+  return { evidence: evidence ?? [] }
+}
+
+const getTaskAuditHistory = async (context, taskId) => {
+  const capabilities = resolveContextCapabilities(context)
+  assertCapability(capabilities, 'planner.view')
+
+  const { data: task, error: taskError } = await context.client
+    .from('planner_tasks')
+    .select('id')
+    .eq('id', taskId)
+    .eq('household_id', context.householdId)
+    .maybeSingle()
+  if (taskError) throwSupabaseError(taskError)
+  if (!task) {
+    throw createHttpError(404, 'Tarea no encontrada.', 'task_not_found')
+  }
+
+  const { data: audit, error: auditError } = await context.client
+    .from('audit_events')
+    .select(`
+      *,
+      actor_membership:household_members!audit_events_actor_membership_id_fkey (
+        id, person_id, role, status, people (id, display_name, avatar_url)
+      )
+    `)
+    .eq('aggregate_type', 'task')
+    .eq('aggregate_id', taskId)
+    .eq('household_id', context.householdId)
+    // P2.1R: audit_events no tiene columna created_at (canónica: occurred_at).
+    // Ordenar por created_at devolvía 42703 → 500 internal_error en Task Detail.
+    .order('occurred_at', { ascending: false })
+    .limit(100)
+  if (auditError) throwSupabaseError(auditError)
+
+  return { audit: audit ?? [] }
+}
+
 module.exports = {
   assertTaskCompletionCapabilities,
   assertTaskCreateBody,
@@ -1228,13 +1594,19 @@ module.exports = {
   getTaskCompletionAuthorization,
   getTaskById,
   getTaskOrThrow,
+  getTaskEvidenceHistory,
+  getTaskAuditHistory,
   listTasks,
   reactivateTask,
   restoreTask,
+  submitTaskEvidence,
   trashTask,
   updateTask,
   verifyTask: verifyTaskViaFulfillment,
   claimTaskV1,
+  releaseTaskV1,
+  archiveTaskV1,
+  unarchiveTaskV1,
   getTaskFulfillmentV1,
   mutateTaskFulfillmentV1,
   updateTaskAssignmentV1,

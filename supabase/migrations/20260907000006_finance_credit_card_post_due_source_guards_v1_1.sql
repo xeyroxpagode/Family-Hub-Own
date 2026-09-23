@@ -8,6 +8,7 @@
 --                 transfer trash/restore semantics are preserved.
 
 create extension if not exists "pgcrypto";
+
 -- Affected card cycles for a card purchase root or one of its corrections.
 -- Empty for non-card transactions.
 create or replace function public.finance_card_root_cycles_v1(p_transaction_id uuid)
@@ -53,7 +54,9 @@ as $$
     on i.installment_plan_id = p.id
   where i.cycle_close_date is not null;
 $$;
+
 grant execute on function public.finance_card_root_cycles_v1(uuid) to authenticated;
+
 -- Locks affected materialized Dues and rejects if any has active settlement
 -- progress. This intentionally ignores unmaterialized cycles: ensure/catch-up
 -- remains the only Due creation authority.
@@ -81,7 +84,9 @@ begin
   end loop;
 end;
 $$;
+
 grant execute on function public.finance_block_settled_card_due_change_v1(uuid) to authenticated;
+
 -- Reconciles existing materialized Dues after the root financial truth changed.
 -- If payable remains > 0, the same Due identity is kept and amount/status are
 -- updated. If payable becomes 0, the same Due is CANCELLED. No zero Due is
@@ -148,7 +153,9 @@ begin
   end loop;
 end;
 $$;
+
 grant execute on function public.finance_reconcile_card_due_amounts_v1(uuid) to authenticated;
+
 -- Trash/restore source changes happen as finance_account_effects status flips.
 -- Correction flips the old effect while the transaction is SUPERSEDED; that path
 -- is handled by the correction wrapper below to avoid blocking metadata-only
@@ -187,6 +194,7 @@ begin
   return new;
 end;
 $$;
+
 create or replace function public.finance_card_due_effect_status_after_fn()
 returns trigger
 language plpgsql
@@ -221,14 +229,17 @@ begin
   return new;
 end;
 $$;
+
 drop trigger if exists trg_finance_card_due_effect_status_before_v1 on public.finance_account_effects;
 create trigger trg_finance_card_due_effect_status_before_v1
   before update of effect_status on public.finance_account_effects
   for each row execute function public.finance_card_due_effect_status_before_fn();
+
 drop trigger if exists trg_finance_card_due_effect_status_after_v1 on public.finance_account_effects;
 create trigger trg_finance_card_due_effect_status_after_v1
   after update of effect_status on public.finance_account_effects
   for each row execute function public.finance_card_due_effect_status_after_fn();
+
 -- Keep the accepted correction RPC body as the execution engine and wrap it with
 -- the new A2/B1 guards. Existing completed idempotency rows are delegated first
 -- so replay semantics are preserved even if current state changed later.
@@ -244,6 +255,7 @@ begin
   end if;
 end;
 $$;
+
 create or replace function public.finance_correct_transaction_v1(
   p_transaction_id uuid,
   p_mutation_id text,
@@ -363,9 +375,11 @@ begin
   return v_result;
 end;
 $$;
+
 grant execute on function public.finance_correct_transaction_v1(
   uuid, text, text, text, uuid,
   numeric, text, date, text, uuid, uuid, text,
   boolean, boolean, boolean, boolean
 ) to authenticated;
+
 notify pgrst, 'reload schema';

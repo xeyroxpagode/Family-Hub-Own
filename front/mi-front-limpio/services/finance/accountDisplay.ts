@@ -20,7 +20,7 @@ export type AccountBalancePresentation = {
   currency: string | null;
 };
 
-const UNKNOWN_LABEL = 'Saldo no establecido';
+const UNKNOWN_LABEL = 'Saldo sin establecer';
 
 function isZeroDecimalString(value: string): boolean {
   const trimmed = String(value ?? '').trim();
@@ -34,7 +34,7 @@ function isZeroDecimalString(value: string): boolean {
  * Canonical Account balance presentation.
  *
  * Boundary:
- *   - UNKNOWN  -> "Saldo no establecido" (NEVER $0, H06).
+ *   - UNKNOWN  -> "Saldo sin establecer" (NEVER $0, H06).
  *   - ACCOUNT KNOWN zero -> "Saldo actual $0" (distinct from UNKNOWN, H19).
  *   - ACCOUNT KNOWN positive -> "Saldo actual $X".
  *   - ACCOUNT KNOWN negative (rare) -> "Saldo actual $-X" (preserve truth).

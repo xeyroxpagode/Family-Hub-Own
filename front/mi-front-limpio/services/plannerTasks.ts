@@ -53,6 +53,7 @@ export type PlannerTask = {
   category?: string | null;
   due_date?: string | null;
   due_time?: string | null;
+  estimated_duration_minutes?: number | null;
   requires_verification: boolean;
   created_by_person_id: string;
   created_by_member_id?: string | null;
@@ -88,6 +89,10 @@ export type PlannerTask = {
     nextOccurrenceDate?: string | null;
   } | null;
   recurrenceSummary?: string | null;
+  checklist?: Array<{ text: string; checked: boolean }> | null;
+  archived_at?: string | null;
+  responsibility_id?: string | null;
+  responsibility_occurrence_sequence?: number | null;
 };
 
 export type CreatePlannerTaskPayload = {
@@ -105,6 +110,7 @@ export type CreatePlannerTaskPayload = {
 
 export type UpdatePlannerTaskPayload = Partial<CreatePlannerTaskPayload> & {
   expected_version?: number;
+  checklist?: Array<{ text: string; checked: boolean }>;
 };
 
 export type PlannerTaskFilters = {
@@ -114,6 +120,7 @@ export type PlannerTaskFilters = {
   to?: string;
   template_key?: PlannerTaskTemplateKey;
   include_cancelled?: boolean;
+  include_archived?: boolean;
   limit?: number;
   goal_id?: string;
 };
@@ -570,6 +577,77 @@ export const reopenPlannerTaskFulfillmentV1 = (
   accessToken: string, taskId: string, fulfillmentId: string, expectedVersion: number,
   options?: PlannerTaskV1MutationOptions,
 ) => mutatePlannerTaskFulfillmentV1(accessToken, taskId, fulfillmentId, 'reopen', expectedVersion, undefined, options);
+
+export const releasePlannerTaskV1 = (
+  accessToken: string, taskId: string, expectedAssignmentVersion: number,
+  options?: PlannerTaskV1MutationOptions,
+) => requestPlannerTaskV1Mutation(
+  accessToken,
+  `/api/planner/v1/tasks/${taskId}/release`,
+  'planner.v1.tasks.release',
+  expectedAssignmentVersion,
+  undefined,
+  options,
+);
+
+export const archivePlannerTaskV1 = (
+  accessToken: string, taskId: string, expectedVersion: number,
+  options?: PlannerTaskV1MutationOptions,
+) => requestPlannerTaskV1Mutation(
+  accessToken,
+  `/api/planner/v1/tasks/${taskId}/archive`,
+  'planner.v1.tasks.archive',
+  expectedVersion,
+  undefined,
+  options,
+);
+
+export const unarchivePlannerTaskV1 = (
+  accessToken: string, taskId: string, expectedVersion: number,
+  options?: PlannerTaskV1MutationOptions,
+) => requestPlannerTaskV1Mutation(
+  accessToken,
+  `/api/planner/v1/tasks/${taskId}/unarchive`,
+  'planner.v1.tasks.unarchive',
+  expectedVersion,
+  undefined,
+  options,
+);
+
+export const getTaskAuditHistory = (
+  accessToken: string, taskId: string,
+) => requestJson<{ audit: any[] }>(
+  `/api/planner/tasks/${taskId}/audit`,
+  plannerReadRequestOptions({ accessToken }),
+);
+
+export const submitTaskEvidence = (
+  accessToken: string, taskId: string, fulfillmentId: string | undefined, body: { photo_reference?: string; comment?: string },
+  options?: PlannerTaskMutationOptions,
+) => {
+  const path = fulfillmentId
+    ? `/api/planner/tasks/${taskId}/evidence/${fulfillmentId}`
+    : `/api/planner/tasks/${taskId}/evidence`;
+  const intent = buildPlannerVersionedIntent('task', 1); // evidence doesn't use versioned mutation in the same way
+  return requestJson<any>(path, {
+    ...plannerMutationRequestOptions({
+      accessToken,
+      payload: body,
+      intent,
+      signal: options?.signal,
+      timeoutMs: options?.timeoutMs,
+      contextScope: options?.contextScope,
+    }),
+    method: 'POST',
+  });
+};
+
+export const getTaskEvidenceHistory = (
+  accessToken: string, taskId: string,
+) => requestJson<{ evidence: any[] }>(
+  `/api/planner/tasks/${taskId}/evidence`,
+  plannerReadRequestOptions({ accessToken }),
+);
 
 /**
  * G0.3 vertical proof — optimistic complete with cache integration.

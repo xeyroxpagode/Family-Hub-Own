@@ -368,7 +368,9 @@ runTest('Preset preview/detail permissions match source, capabilities and trash 
   ok(!personal.canRestore, 'active personal cannot restore');
   assertEqual(personal.activeRevisionNumber, 7, 'published revision summary');
   const homeplus = describePresetDetailInteraction(makePreset({ source: 'homeplus', owner_person_id: null }), { use: true, manage: true });
-  ok(homeplus.canUse && !homeplus.canEdit && !homeplus.canTrash && !homeplus.canDuplicate, 'HomePlus original not editable');
+  // P2.2A (contract §14): HomePlus originals are read-only (no edit/trash)
+  // but ARE duplicable — duplication creates a NEW editable household copy.
+  ok(homeplus.canUse && !homeplus.canEdit && !homeplus.canTrash && homeplus.canDuplicate, 'HomePlus original read-only but duplicable');
   const trashed = describePresetDetailInteraction(makePreset({ trashed_at: iso(5) }), { use: true, manage: true });
   ok(!trashed.canUse && !trashed.canEdit && !trashed.canTrash && trashed.canRestore, 'trashed preset restore only');
   const readonly = describePresetDetailInteraction(makePreset(), { use: true, manage: false });

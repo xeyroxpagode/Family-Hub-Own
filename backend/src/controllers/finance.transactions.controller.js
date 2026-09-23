@@ -28,7 +28,19 @@ const createIncome = async (req, res) => {
   }
 };
 
+const createInstallmentExpense = async (req, res) => {
+  try {
+    const financeContext = await resolveFinanceContext(req, contextTypeFrom(req));
+    const correlation = transactionsService.correlationFromRequest(req);
+    const payload = await transactionsService.createCardInstallmentPurchase(financeContext, req.body ?? {}, correlation);
+    return res.status(payload.outcome === 'replay' ? 200 : 201).json(payload);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
 module.exports = {
   createExpense,
   createIncome,
+  createInstallmentExpense,
 };

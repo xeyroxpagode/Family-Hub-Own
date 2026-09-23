@@ -3,7 +3,7 @@ import { Keyboard, StyleSheet, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError } from '../../services/api';
 import type { FinanceContextType, FinanceActiveHousehold } from '../../services/finance/financeContext';
 import {
@@ -70,6 +70,9 @@ export function PaymentRecurrenceEditor({
   onRequestClose,
   onSuccess,
 }: PaymentRecurrenceEditorProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState('');
   const [expectedAmountKnown, setExpectedAmountKnown] = useState(true);
@@ -508,164 +511,168 @@ export function PaymentRecurrenceEditor({
   );
 }
 
-const styles = StyleSheet.create({
-  sheetBody: {
-    flex: 1,
-    position: 'relative',
-  },
-  form: {
-    gap: spacing[4],
-    paddingBottom: spacing[4],
-  },
-  fieldGroup: {
-    gap: spacing[2],
-  },
-  kindLabel: {
-    marginBottom: spacing[1],
-  },
-  knownToggle: {
-    minHeight: touchTargets.normal,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    backgroundColor: colors.surface.soft,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing[3],
-    gap: spacing[3],
-  },
-  knownToggleActive: {
-    backgroundColor: colors.terracotta[50],
-    borderColor: colors.terracotta[300],
-  },
-  knownToggleLabel: {
-    flex: 1,
-  },
-  categoryPicker: {
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    borderRadius: radius.xl,
-    backgroundColor: colors.surface.card,
-    padding: spacing[2],
-    gap: spacing[1],
-  },
-  categoryOption: {
-    minHeight: 44,
-    borderRadius: radius.lg,
-    paddingHorizontal: spacing[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  categoryOptionSelected: {
-    backgroundColor: colors.terracotta[50],
-  },
-  categoryLabel: {
-    flex: 1,
-    minWidth: 0,
-  },
-  recurrenceLabel: {
-    marginBottom: spacing[1],
-  },
-  recurrencePresets: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing[2],
-  },
-  recurrencePreset: {
-    minHeight: 36,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    backgroundColor: colors.surface.soft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing[3],
-  },
-  recurrencePresetSelected: {
-    backgroundColor: colors.terracotta[600],
-    borderColor: colors.terracotta[600],
-  },
-  customRecurrence: {
-    gap: spacing[3],
-    marginTop: spacing[2],
-    paddingTop: spacing[3],
-    borderTopWidth: 1,
-    borderTopColor: colors.border.subtle,
-  },
-  customUnitSelector: {
-    gap: spacing[2],
-  },
-  customUnitOptions: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  customUnitOption: {
-    flex: 1,
-    minHeight: 36,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    backgroundColor: colors.surface.soft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  customUnitOptionSelected: {
-    backgroundColor: colors.terracotta[600],
-    borderColor: colors.terracotta[600],
-  },
-  customCountInput: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-  },
-  customCountInputField: {
-    width: 80,
-    minHeight: touchTargets.normal,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    backgroundColor: colors.surface.card,
-    paddingHorizontal: spacing[3],
-    textAlign: 'center',
-  },
-  summary: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.sage[50],
-    padding: spacing[4],
-    gap: spacing[2],
-  },
-  summaryRow: {
-    minHeight: 20,
-  },
-  note: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing[2],
-    padding: spacing[3],
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-  },
-  errorBox: {
-    borderRadius: radius.lg,
-    backgroundColor: colors.danger.soft,
-    padding: spacing[3],
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  errorText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  footer: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  footerButton: {
-    flex: 1,
-  },
-});
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
+    sheetBody: {
+      flex: 1,
+      position: 'relative',
+    },
+    form: {
+      gap: spacing[4],
+      paddingBottom: spacing[4],
+    },
+    fieldGroup: {
+      gap: spacing[2],
+    },
+    kindLabel: {
+      marginBottom: spacing[1],
+    },
+    knownToggle: {
+      minHeight: touchTargets.normal,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      backgroundColor: colors.surface.soft,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing[3],
+      gap: spacing[3],
+    },
+    knownToggleActive: {
+      backgroundColor: colors.terracotta[50],
+      borderColor: colors.terracotta[300],
+    },
+    knownToggleLabel: {
+      flex: 1,
+    },
+    categoryPicker: {
+      borderWidth: 1,
+      borderColor: colors.border.subtle,
+      borderRadius: radius.xl,
+      backgroundColor: colors.surface.card,
+      padding: spacing[2],
+      gap: spacing[1],
+    },
+    categoryOption: {
+      minHeight: 44,
+      borderRadius: radius.lg,
+      paddingHorizontal: spacing[3],
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[2],
+    },
+    categoryOptionSelected: {
+      backgroundColor: colors.terracotta[50],
+    },
+    categoryLabel: {
+      flex: 1,
+      minWidth: 0,
+    },
+    recurrenceLabel: {
+      marginBottom: spacing[1],
+    },
+    recurrencePresets: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing[2],
+    },
+    recurrencePreset: {
+      minHeight: 36,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      backgroundColor: colors.surface.soft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: spacing[3],
+    },
+    recurrencePresetSelected: {
+      backgroundColor: colors.terracotta[600],
+      borderColor: colors.terracotta[600],
+    },
+    customRecurrence: {
+      gap: spacing[3],
+      marginTop: spacing[2],
+      paddingTop: spacing[3],
+      borderTopWidth: 1,
+      borderTopColor: colors.border.subtle,
+    },
+    customUnitSelector: {
+      gap: spacing[2],
+    },
+    customUnitOptions: {
+      flexDirection: 'row',
+      gap: spacing[2],
+    },
+    customUnitOption: {
+      flex: 1,
+      minHeight: 36,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      backgroundColor: colors.surface.soft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    customUnitOptionSelected: {
+      backgroundColor: colors.terracotta[600],
+      borderColor: colors.terracotta[600],
+    },
+    customCountInput: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing[2],
+    },
+    customCountInputField: {
+      width: 80,
+      minHeight: touchTargets.normal,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      backgroundColor: colors.surface.card,
+      paddingHorizontal: spacing[3],
+      textAlign: 'center',
+    },
+    summary: {
+      borderRadius: radius.xl,
+      borderWidth: 1,
+      borderColor: colors.border.subtle,
+      backgroundColor: colors.sage[50],
+      padding: spacing[4],
+      gap: spacing[2],
+    },
+    summaryRow: {
+      minHeight: 20,
+    },
+    note: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing[2],
+      padding: spacing[3],
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface.soft,
+      borderWidth: 1,
+      borderColor: colors.border.subtle,
+    },
+    errorBox: {
+      borderRadius: radius.lg,
+      backgroundColor: colors.danger.soft,
+      padding: spacing[3],
+      flexDirection: 'row',
+      gap: spacing[2],
+    },
+    errorText: {
+      flex: 1,
+      minWidth: 0,
+    },
+    footer: {
+      flexDirection: 'row',
+      gap: spacing[2],
+    },
+    footerButton: {
+      flex: 1,
+    },
+  });
+}

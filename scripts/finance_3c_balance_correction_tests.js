@@ -408,10 +408,14 @@ async function testBasicCorrection(actors) {
   const zeroCorr = await correctBalance(personalA, zero.id, { correctedBalance: '0', effectiveDate: '2026-08-15' });
   equal(zeroCorr.account.currentBalance, '0', 'C05 zero corrected Balance accepted');
 
-  // C06: negative corrected Balance accepted
+  // C06: negative ACCOUNT correction rejected (V1.1 ACCOUNT floor = 0)
   const neg = await knownAccount(personalA, '100', '2026-08-14', { name: 'Negative correction' });
-  const negCorr = await correctBalance(personalA, neg.id, { correctedBalance: '-50', effectiveDate: '2026-08-15' });
-  equal(negCorr.account.currentBalance, '-50', 'C06 negative corrected Balance accepted');
+  await expectError(
+    () => correctBalance(personalA, neg.id, { correctedBalance: '-50', effectiveDate: '2026-08-15' }),
+    'finance_account_negative_balance_not_allowed',
+    'C06 negative ACCOUNT correction rejected'
+  );
+  equal((await refreshed(personalA, neg.id)).currentBalance, '100', 'C06 rejected correction preserves prior balance');
 
   // C07: corrected Balance exact decimal roundtrip
   const dec = await knownAccount(personalA, '100', '2026-08-14', { name: 'Decimal correction' });
@@ -537,12 +541,18 @@ async function testDerivation(actors) {
   await trackTransaction(await createIncome(personalA, { amount: '50', currency: 'ARS', date: '2026-08-16', account: { id: c27.id } }));
   equal((await refreshed(personalA, c27.id)).currentBalance, '800', 'C27 later Income 50 -> 800');
 
-  // C28: Correction -50, later Expense 25 -> -75
+  // C28: negative correction rejected; expense over available rejected (V1.1 floor = 0)
   const c28 = await knownAccount(personalA, '100', '2026-08-14', { name: 'C28' });
-  await correctBalance(personalA, c28.id, { correctedBalance: '-50', effectiveDate: '2026-08-15' });
-  equal((await refreshed(personalA, c28.id)).currentBalance, '-50', 'C28 correction to negative');
-  await trackTransaction(await createExpense(personalA, { amount: '25', currency: 'ARS', date: '2026-08-16', account: { id: c28.id } }));
-  equal((await refreshed(personalA, c28.id)).currentBalance, '-75', 'C28 negative correction + Expense -> more negative');
+  await expectError(
+    () => correctBalance(personalA, c28.id, { correctedBalance: '-50', effectiveDate: '2026-08-15' }),
+    'finance_account_negative_balance_not_allowed',
+    'C28 correction to negative rejected'
+  );
+  await expectError(
+    () => createExpense(personalA, { amount: '101', currency: 'ARS', date: '2026-08-16', account: { id: c28.id } }),
+    'finance_account_insufficient_funds',
+    'C28 expense over available rejected'
+  );
 
   // C29: Correction 0, later Income 10 -> 10
   const c29 = await knownAccount(personalA, '100', '2026-08-14', { name: 'C29' });

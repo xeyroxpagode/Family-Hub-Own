@@ -57,9 +57,9 @@ runTest('T06-T08 Expense/Income/Transfer direction presentation', () => {
   const display = read('front/mi-front-limpio/services/finance/financeDisplay.ts');
   const screen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
   assert(display.includes("transactionType === 'expense' ? '-' : '+'"), 'T06 Expense shows negative sign');
-  assert(screen.includes('tone="danger"') && screen.includes("transactionType: 'expense'"), 'T06 Expense uses danger tone');
-  assert(screen.includes('tone="success"') && screen.includes("transactionType: 'income'"), 'T07 Income uses success tone');
-  assert(screen.includes('tone="primary"') && screen.includes('kind === \'TRANSFER\''), 'T08 Transfer uses neutral/primary tone');
+  assert(screen.includes('valueTone="danger"') && screen.includes("transactionType: 'expense'"), 'T06 Expense uses danger tone');
+  assert(screen.includes('valueTone="success"') && screen.includes("transactionType: 'income'"), 'T07 Income uses success tone');
+  assert(screen.includes('valueTone="primary"') && screen.includes('kind === \'TRANSFER\''), 'T08 Transfer uses neutral/primary tone');
 });
 
 runTest('T09 Same-currency Transfer renders one factual amount', () => {
@@ -96,15 +96,15 @@ runTest('T13 Commission Expense remains independent', () => {
 
 runTest('T14 Transfer is NOT passed to MovementDetailSheet', () => {
   const screen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
-  assert(screen.includes('if (movement.kind === \'TRANSFER\') return;'), 'T14 handleMovementPress filters TRANSFER');
+  assert(screen.includes('if (movement.kind === \'TRANSFER\')') && screen.includes('handleTransferPress(movement)'), 'T14 TRANSFER delegates to transfer detail, never to MovementDetailSheet');
   assert(screen.includes('<View') && screen.includes('kind === \'TRANSFER\''), 'T14 Transfer row is rendered without row press');
 });
 
 runTest('T15-T16 Expense/Income still opens MovementDetailSheet', () => {
   const screen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
   assert(screen.includes('<MovementDetailSheet') && screen.includes('movement={selectedMovement}'), 'T15 MovementDetailSheet rendered');
-  assert(screen.includes('kind === \'EXPENSE\'') && screen.includes('onMovementPress?.(movement)'), 'T15 Expense triggers detail');
-  assert(screen.includes('kind === \'INCOME\'') && screen.includes('onMovementPress?.(movement)'), 'T16 Income triggers detail');
+  assert(screen.includes('kind === \'EXPENSE\'') && screen.includes('onMovementPress(movement)'), 'T15 Expense triggers detail');
+  assert(screen.includes('kind === \'INCOME\'') && screen.includes('onMovementPress(movement)'), 'T16 Income triggers detail');
 });
 
 runTest('T17 Refund summary preserved for Expense', () => {
@@ -132,7 +132,7 @@ runTest('T20 movement.date used for unified date grouping', () => {
 
 runTest('T21 Month with only Transfer rows is not empty', () => {
   const screen = read('front/mi-front-limpio/screens/finance/FinanceScreen.tsx');
-  assert(screen.includes('groups.length === 0') && screen.includes('No hay gastos, ingresos ni transferencias'), 'T21 Empty state mentions all three kinds');
+  assert(screen.includes('groups.length === 0') && screen.includes('Sin movimientos este mes') && screen.includes('No hay movimientos que coincidan con estos filtros'), 'T21 Empty state adapts to all three kinds vs subset filters');
 });
 
 runTest('T22 Personal/Household request behavior preserved', () => {

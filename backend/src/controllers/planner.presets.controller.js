@@ -197,8 +197,25 @@ const prepareApplicationPayload = async (req, res) => {
   }
 };
 
+const duplicatePresetToHousehold = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    assertCapability(buildCapabilities(context), 'planner.templates.manage');
+    const mutation = requireMutationTransport(req, res, false);
+    const result = await presetsService.duplicateHomeplusToHousehold(context, req.params.id, req.body ?? {}, {
+      idempotencyKey: mutation.idempotencyKey,
+      requestId: req.requestId,
+      mutationId: mutation.mutationId,
+    });
+    return sendMutation(res, result, mutation.mutationId);
+  } catch (error) {
+    return sendApiError(res, error, req);
+  }
+};
+
 module.exports = {
   createPreset,
+  duplicatePresetToHousehold,
   getPreset,
   getRevision,
   listPresets,

@@ -9,6 +9,7 @@
 --   * Concurrency safety
 
 create extension if not exists "pgcrypto";
+
 -- =============================================================================
 -- 1) Transfer status column + lifecycle (trash/restore)
 --    Transfer row is immutable once created; status tracks financial truth.
@@ -18,16 +19,20 @@ create extension if not exists "pgcrypto";
 
 alter table public.finance_transfers
   add column if not exists status text not null default 'ACTIVE';
+
 alter table public.finance_transfers
   drop constraint if exists finance_transfers_status_check;
 alter table public.finance_transfers
   add constraint finance_transfers_status_check
   check (status in ('ACTIVE', 'REVERSED'));
+
 comment on column public.finance_transfers.status is
   'ACTIVE = financial effects participate in balances. REVERSED = effects preserved but excluded from current balances.';
+
 create index if not exists finance_transfers_status_idx
   on public.finance_transfers (status)
   where status = 'REVERSED';
+
 -- ---------------------------------------------------------------------------
 -- 2) Reconcile PaymentDue status from settlement progress.
 --    Called when a settlement transfer's destination effect changes ACTIVE<->REVERSED.
@@ -109,7 +114,9 @@ begin
   end if;
 end;
 $$;
+
 grant execute on function public.finance_payment_due_reconcile_status_v1(uuid) to authenticated;
+
 -- ---------------------------------------------------------------------------
 -- 3) Trash/deactivate a Transfer (sets status=REVERSED, flips effects).
 --    Used for general transfers AND settlement transfers.
@@ -386,7 +393,9 @@ exception
     raise;
 end;
 $$;
+
 grant execute on function public.finance_trash_transfer_v1(uuid, text, text, text, uuid) to authenticated;
+
 -- ---------------------------------------------------------------------------
 -- 4) Restore a Transfer (sets status=ACTIVE, flips effects with floor check).
 --    If transfer is a settlement, validates over-settlement and reconciles Due.
@@ -708,13 +717,16 @@ exception
     raise;
 end;
 $$;
+
 grant execute on function public.finance_restore_transfer_v1(uuid, text, text, text, uuid) to authenticated;
+
 -- ---------------------------------------------------------------------------
 -- 5) Account floor guard enhancement: also check on effect_status UPDATE.
 --    This ensures restore of a debit effect on ACCOUNT cannot bypass floor.
 --    (The original trigger is BEFORE INSERT only; UPDATE bypassed it.)
 -- ---------------------------------------------------------------------------
 drop trigger if exists trg_finance_account_effects_debit_floor_v1 on public.finance_account_effects;
+
 create or replace function public.finance_account_effects_debit_floor_guard_fn()
 returns trigger
 language plpgsql
@@ -777,21 +789,26 @@ begin
   return new;
 end;
 $$;
+
 create trigger trg_finance_account_effects_debit_floor_v1
   before insert or update on public.finance_account_effects
   for each row execute function public.finance_account_effects_debit_floor_guard_fn();
+
 -- ---------------------------------------------------------------------------
 -- 6) RLS for transfer status updates (system-owned, no direct client mutation)
 --    The RPCs handle mutation; direct UPDATE on status blocked by policy.
 -- ---------------------------------------------------------------------------
 alter table public.finance_transfers enable row level security;
+
 drop policy if exists "finance_transfers_update_blocked" on public.finance_transfers;
 create policy "finance_transfers_update_blocked"
   on public.finance_transfers for update to authenticated
   using (false)
   with check (false);
+
 drop policy if exists "finance_transfers_delete_blocked" on public.finance_transfers;
 create policy "finance_transfers_delete_blocked"
   on public.finance_transfers for delete to authenticated
   using (false);
+
 notify pgrst, 'reload schema';

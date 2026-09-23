@@ -10,26 +10,34 @@ import {
 } from '../../services/finance/financeAccounts';
 import type { FinanceContextType, FinanceActiveHousehold } from '../../services/finance/financeContext';
 import { getAccountBalancePresentation, formatAccountPresentationAmount } from '../../services/finance/accountDisplay';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { HomePlusIcon } from '../../constants/icons';
 import {
   AppButton,
-  AppCard,
   AppScreen,
   AppText,
-  EmptyState,
-  ErrorState,
   InteractivePressable,
   Skeleton,
   UndoToast,
 } from '../../components/ui';
+import {
+  FinanceEmptyState,
+  FinanceErrorState,
+  FinanceGroupedSurface,
+  FinanceIconBox,
+  FinanceIconAction,
+  FinanceListRow,
+  financeSpacing,
+} from '../../components/finance/ui';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import type { MoreStackParamList } from '../../navigation/types';
 import { AccountFormSheet } from '../../components/finance/AccountFormSheet';
 import { AccountDetailSheet } from '../../components/finance/AccountDetailSheet';
 import { AccountEditSheet } from '../../components/finance/AccountEditSheet';
-import { BalanceAnchorSheet, BalanceCorrectionSheet } from '../../components/finance/BalanceAnchorSheet';
+import { DirectCreditCardPaymentSheet } from '../../components/finance/DirectCreditCardPaymentSheet';
+import { PayCreditCardSheet } from '../../components/finance/PayCreditCardSheet';
+import type { PaymentDueDto } from '../../services/finance/financePayments';
 
 const CURRENCY_ORDER = ['ARS', 'USD', 'EUR'];
 
@@ -53,6 +61,9 @@ function FinanceAccountsSurface({
   activeHousehold,
   onRequestClose,
 }: FinanceAccountsScreenProps) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
   const [accounts, setAccounts] = useState<FinanceAccountDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,9 +71,9 @@ function FinanceAccountsSurface({
   const [createVisible, setCreateVisible] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
-  const [anchorVisible, setAnchorVisible] = useState(false);
-  const [correctVisible, setCorrectVisible] = useState(false);
   const [detailAccount, setDetailAccount] = useState<FinanceAccountDto | null>(null);
+  const [payCardAccount, setPayCardAccount] = useState<FinanceAccountDto | null>(null);
+  const [payCardDue, setPayCardDue] = useState<PaymentDueDto | null>(null);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const readKeyRef = useRef<string | null>(null);
@@ -158,17 +169,14 @@ function FinanceAccountsSurface({
       contentContainerStyle={styles.content}
     >
       <View style={styles.header}>
-        <InteractivePressable
+        <FinanceIconAction
           onPress={onRequestClose}
           haptic="light"
-          pressScale={motion.scale.icon}
-          style={styles.backButton}
           accessibilityRole="button"
           accessibilityLabel="Volver a Finanzas"
-          hitSlop={8}
         >
           <HomePlusIcon name="chevron-back-outline" size={22} color={colors.text.primary} />
-        </InteractivePressable>
+        </FinanceIconAction>
         <AppText variant="title1" weight="800">Cuentas</AppText>
       </View>
 
@@ -183,15 +191,17 @@ function FinanceAccountsSurface({
           <Skeleton width="72%" height={12} />
         </View>
       ) : error ? (
-        <ErrorState title="No pudimos cargar las cuentas" description={error} onRetry={() => setRefreshNonce((n) => n + 1)} />
+        <FinanceErrorState level="full" message={error} onRetry={() => setRefreshNonce((n) => n + 1)} />
       ) : accounts.length === 0 && !showArchived ? (
         <View style={styles.empty}>
-          <EmptyState
+          <FinanceEmptyState
+            level="section"
             title="Todavia no agregaste cuentas"
             description="Podes usar Finanzas sin cuentas. Si queres seguir tus saldos y como se mueve tu dinero, agrega una cuenta."
-            illustration={<HomePlusIcon name="wallet-outline" size={32} color={colors.terracotta[600]} />}
+            icon={<HomePlusIcon name="wallet-outline" size={20} color={colors.text.tertiary} />}
+            actionLabel="Agregar cuenta"
+            onAction={() => setCreateVisible(true)}
           />
-          <AppButton title="Agregar cuenta" onPress={() => setCreateVisible(true)} style={styles.emptyCta} />
           <ArchivedAccountsLink onPress={() => setShowArchived(true)} />
         </View>
       ) : (
@@ -211,52 +221,31 @@ function FinanceAccountsSurface({
           ) : null}
 
           {grouped.map((group) => (
-            <View key={group.currency} style={styles.currencyGroup}>
-              <AppText variant="caption" tone="secondary" weight="800" style={styles.currencyHeader}>
-                {group.currency}
-              </AppText>
-              <AppCard variant="quiet" padding="default" style={styles.accountListCard}>
-                {group.accounts.map((account, index) => (
-                  <InteractivePressable
-                    key={account.id}
-                    onPress={() => handleDetailAccount(account)}
-                    haptic="light"
-                    pressScale={motion.scale.card}
-                    style={[styles.accountRow, index > 0 && styles.accountRowNotFirst]}
-                    accessibilityRole="button"
-                    accessibilityLabel={formatAccountRowAccessibility(account)}
-                  >
-                    <View style={styles.accountInfo}>
-                      <AppText variant="body" weight="800" numberOfLines={1}>{account.name}</AppText>
-                      <AppText variant="caption" tone="secondary" numberOfLines={1}>
-                        {account.accountType === 'CREDIT_CARD' ? 'Tarjeta de credito' : 'Cuenta'} · {account.financialContextType === 'household' ? (activeHousehold?.name ?? 'Hogar') : 'Personal'}
-                      </AppText>
-                    </View>
-                    <View style={styles.accountBalance}>
-                      <AppText
-                        variant="bodySmall"
-                        weight="800"
-                        tone={account.status === 'ARCHIVED' ? 'warning' : 'primary'}
-                        numberOfLines={1}
-                        style={styles.balanceAmount}
-                      >
-                        {formatAccountRowBalance(account)}
-                      </AppText>
-                    </View>
-                    <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
-                  </InteractivePressable>
-                ))}
-              </AppCard>
-            </View>
+            <FinanceGroupedSurface key={group.currency} title={group.currency}>
+              {group.accounts.map((account, index, list) => (
+                <FinanceListRow
+                  key={account.id}
+                  title={account.name}
+                  subtitle={`${account.accountType === 'CREDIT_CARD' ? 'Tarjeta de crédito' : 'Cuenta'} · ${account.financialContextType === 'household' ? (activeHousehold?.name ?? 'Hogar') : 'Personal'}`}
+                  value={formatAccountRowBalance(account)}
+                  valueTone={account.status === 'ARCHIVED' ? 'warning' : 'primary'}
+                  chevron
+                  onPress={() => handleDetailAccount(account)}
+                  divider={index < list.length - 1}
+                  accessibilityLabel={formatAccountRowAccessibility(account)}
+                />
+              ))}
+            </FinanceGroupedSurface>
           ))}
 
           {showArchived ? (
             <View style={styles.archivedSection}>
               {grouped.flatMap((g) => g.accounts.filter((a) => a.status === 'ARCHIVED')).length === 0 ? (
-                <EmptyState
+                <FinanceEmptyState
+                  level="section"
                   title="Sin cuentas archivadas"
                   description="Las cuentas archivadas aparecen acá."
-                  illustration={<HomePlusIcon name="archive-outline" size={24} color={colors.text.tertiary} />}
+                  icon={<HomePlusIcon name="archive-outline" size={20} color={colors.text.tertiary} />}
                 />
               ) : null}
             </View>
@@ -294,8 +283,8 @@ function FinanceAccountsSurface({
         account={detailAccount}
         onRequestClose={() => { setDetailVisible(false); setDetailAccount(null); }}
         onEdit={(acc: FinanceAccountDto) => { setDetailVisible(false); setEditVisible(true); setDetailAccount(acc); }}
-        onAnchorBalance={(acc: FinanceAccountDto) => { setDetailVisible(false); setAnchorVisible(true); setDetailAccount(acc); }}
-        onCorrectBalance={(acc: FinanceAccountDto) => { setDetailVisible(false); setCorrectVisible(true); setDetailAccount(acc); }}
+        onPayCard={(acc: FinanceAccountDto) => { setDetailVisible(false); setDetailAccount(null); setPayCardAccount(acc); }}
+        onPayDue={(payment) => { setDetailVisible(false); setDetailAccount(null); setPayCardDue(payment); }}
         onChanged={handleAccountLifecycleChanged}
       />
 
@@ -308,22 +297,36 @@ function FinanceAccountsSurface({
         onSuccess={(acc: FinanceAccountDto) => { setEditVisible(false); handleDetailChanged(); }}
       />
 
-      <BalanceAnchorSheet
-        visible={anchorVisible}
+      <DirectCreditCardPaymentSheet
+        visible={payCardAccount !== null}
         accessToken={accessToken}
         contextType={contextType}
-        account={detailAccount}
-        onRequestClose={() => setAnchorVisible(false)}
-        onSuccess={(acc: FinanceAccountDto) => { setAnchorVisible(false); handleDetailChanged(); }}
+        contextLabel={contextLabel}
+        contextState={contextType === 'personal' ? 'personal_ready' : activeHousehold ? 'household_ready' : 'household_unavailable'}
+        activeHousehold={activeHousehold}
+        card={payCardAccount}
+        onRequestClose={() => setPayCardAccount(null)}
+        onSuccess={() => {
+          setPayCardAccount(null);
+          setSuccessFeedback('Tarjeta pagada');
+          handleDetailChanged();
+        }}
       />
 
-      <BalanceCorrectionSheet
-        visible={correctVisible}
-        accessToken={accessToken}
+      <PayCreditCardSheet
+        visible={payCardDue !== null}
+        accessToken={accessToken ?? null}
         contextType={contextType}
-        account={detailAccount}
-        onRequestClose={() => setCorrectVisible(false)}
-        onSuccess={(acc: FinanceAccountDto) => { setCorrectVisible(false); handleDetailChanged(); }}
+        contextLabel={contextLabel}
+        contextState={contextType === 'personal' ? 'personal_ready' : activeHousehold ? 'household_ready' : 'household_unavailable'}
+        activeHousehold={activeHousehold}
+        payment={payCardDue}
+        onRequestClose={() => setPayCardDue(null)}
+        onSuccess={() => {
+          setPayCardDue(null);
+          setSuccessFeedback('Pago registrado');
+          handleDetailChanged();
+        }}
       />
 
       <UndoToast
@@ -337,19 +340,22 @@ function FinanceAccountsSurface({
 }
 
 function ArchivedAccountsLink({ onPress }: { onPress: () => void }) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+
   return (
-    <InteractivePressable
+    <FinanceListRow
+      title="Ver cuentas archivadas"
+      icon={(
+        <FinanceIconBox small>
+          <HomePlusIcon name="archive-outline" size={16} color={colors.text.tertiary} />
+        </FinanceIconBox>
+      )}
+      chevron
       onPress={onPress}
-      haptic="light"
-      pressScale={motion.scale.tab}
-      style={styles.archivedLink}
-      accessibilityRole="button"
+      divider={false}
       accessibilityLabel="Ver cuentas archivadas"
-    >
-      <HomePlusIcon name="archive-outline" size={16} color={colors.text.tertiary} />
-      <AppText variant="caption" tone="secondary" weight="700">Ver cuentas archivadas</AppText>
-      <HomePlusIcon name="chevron-forward-outline" size={16} color={colors.text.tertiary} />
-    </InteractivePressable>
+    />
   );
 }
 
@@ -399,7 +405,10 @@ export function FinanceAccountsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, spacing } = theme;
+
+  return StyleSheet.create({
   content: {
     gap: spacing[4],
   },
@@ -407,16 +416,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[3],
-  },
-  backButton: {
-    width: touchTargets.normal,
-    height: touchTargets.normal,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface.soft,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
   },
   contextBadge: {
     flexDirection: 'row',
@@ -431,47 +430,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[4],
     gap: spacing[3],
   },
-  emptyCta: {
-    alignSelf: 'flex-start',
-  },
   list: {
-    gap: spacing[4],
-  },
-  currencyGroup: {
-    gap: spacing[2],
-  },
-  currencyHeader: {
-    marginTop: spacing[2],
-    marginBottom: spacing[1],
+    gap: financeSpacing.sectionGap,
   },
   addButton: {
     alignSelf: 'flex-start',
-  },
-  accountListCard: {
-    gap: 0,
-  },
-  accountRow: {
-    minHeight: 64,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    paddingVertical: spacing[2],
-  },
-  accountRowNotFirst: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border.subtle,
-  },
-  accountInfo: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing[1],
-  },
-  accountBalance: {
-    maxWidth: '42%',
-    alignItems: 'flex-end',
-  },
-  balanceAmount: {
-    textAlign: 'right',
   },
   archivedSection: {
     gap: spacing[2],
@@ -487,11 +450,5 @@ const styles = StyleSheet.create({
   archivedToggle: {
     paddingVertical: spacing[1],
   },
-  archivedLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-    paddingVertical: spacing[2],
-    alignSelf: 'flex-start',
-  },
-});
+  });
+}

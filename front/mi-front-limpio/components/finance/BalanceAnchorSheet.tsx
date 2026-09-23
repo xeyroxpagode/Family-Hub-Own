@@ -142,7 +142,7 @@ export function BalanceAnchorSheet({
         contentContainerStyle={styles.form}
       >
         <AppText variant="caption" tone="tertiary">
-          La cuenta está en estado Unknown. Ingresá el {balanceLabel.toLowerCase()} real de hoy para anclarla.
+          La cuenta todavía no tiene saldo. Ingresá el {balanceLabel.toLowerCase()} real de hoy para establecerlo.
         </AppText>
 
         <MoneyInput
@@ -152,8 +152,10 @@ export function BalanceAnchorSheet({
           onCurrencyChange={() => undefined}
           availableCurrencies={[currency]}
           label={balanceLabel}
-          helperText="Magnitud positiva, sin signo."
+          helperText={account?.accountType === 'CREDIT_CARD' ? 'Magnitud positiva, sin signo.' : 'Puede ser positivo o negativo.'}
           disabled={submitting}
+          allowZero
+          allowNegative={account?.accountType === 'ACCOUNT'}
           errorText={amount.status === 'invalid' ? 'Revisa el monto.' : undefined}
         />
 
@@ -301,8 +303,10 @@ export function BalanceCorrectionSheet({
           onCurrencyChange={() => undefined}
           availableCurrencies={[currency]}
           label={balanceLabel}
-          helperText="Magnitud positiva, sin signo."
+          helperText={isCreditCard ? 'Magnitud positiva, sin signo.' : 'Puede ser positivo o negativo.'}
           disabled={submitting}
+          allowZero
+          allowNegative={!isCreditCard}
           errorText={amount.status === 'invalid' ? 'Revisa el monto.' : undefined}
         />
 

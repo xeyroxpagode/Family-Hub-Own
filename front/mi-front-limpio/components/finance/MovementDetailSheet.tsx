@@ -1,8 +1,9 @@
+/* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError, generateMutationId, createIdempotencyKey } from '../../services/api';
 import { formatFinanceAmount } from '../../services/finance/financeDisplay';
 import type { FinanceMovementDto, FinanceTransactionDetailDto } from '../../services/finance/financeMovements';
@@ -17,15 +18,23 @@ import {
 import { parseMoneyInputText, type MoneyInputCurrencyCode, type MoneyInputParseResult } from '../../services/finance/moneyInputValue';
 import {
   ActionSheet,
-  AppButton,
   AppText,
   DatePickerSheet,
-  FormActionRow,
-  InteractivePressable,
   formatHumanDate,
 } from '../ui';
 import { MoneyInput } from './MoneyInput';
 import { PoolSelectorSheet } from './PoolSelectorSheet';
+import {
+  FinanceDetailHeader,
+  FinanceDetailMetaRow,
+  FinanceErrorState,
+  FinanceFormFooter,
+  FinanceIconBox,
+  FinanceListRow,
+  FinanceSelectionRow,
+  FinanceSemanticSurface,
+} from './ui';
+import { getFinanceCategoryPresentationByLabel } from '../../services/finance/financeCategories';
 
 type SheetTitleConfig = {
   title: string;
@@ -114,6 +123,9 @@ export function MovementDetailSheet({
   onRefundSuccess,
   onPoolAssignmentSuccess,
 }: MovementDetailSheetProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createStyles(theme);
   const [step, setStep] = useState<DetailFlowStep>('detail');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -469,44 +481,38 @@ export function MovementDetailSheet({
   const current = detail ?? movement;
   const isExpense = current.transactionType === 'expense';
   const titleConfig = getSheetTitleConfig(step, contextLabel);
+  const categoryPresentation = getFinanceCategoryPresentationByLabel(current.categoryLabelSnapshot ?? null);
+  const categoryToneColor =
+    categoryPresentation.tone === 'terracotta' ? colors.terracotta[600]
+    : categoryPresentation.tone === 'sage' ? colors.sage[600]
+    : categoryPresentation.tone === 'sand' ? colors.sand[600]
+    : categoryPresentation.tone === 'info' ? colors.info.text
+    : colors.text.tertiary;
+  const detailAccountLabel = current.accountName
+    ? (current.accountCurrency ? `${current.accountName} · ${current.accountCurrency}` : current.accountName)
+    : null;
 
   const confirmTrashFooter = step === 'confirmTrash' ? (
-    <View style={styles.footer}>
-      <AppButton
-        variant="ghost"
-        title="Cancelar"
-        onPress={() => setStep('recovery')}
-        disabled={submitting}
-        style={styles.footerButton}
-      />
-      <AppButton
-        variant="danger"
-        title="Enviar a Papelera"
-        onPress={handleConfirmTrash}
-        loading={submitting}
-        disabled={submitting}
-        style={styles.footerButton}
-      />
-    </View>
+    <FinanceFormFooter
+      primaryTitle="Enviar a Papelera"
+      onPrimary={handleConfirmTrash}
+      onCancel={() => setStep('recovery')}
+      primaryDisabled={submitting}
+      loading={submitting}
+      destructive
+      divided={false}
+    />
   ) : null;
 
   const refundFooter = step === 'refundCreate' || step === 'refundCorrect' ? (
-    <View style={styles.footer}>
-      <AppButton
-        variant="ghost"
-        title="Cancelar"
-        onPress={() => setStep('detail')}
-        disabled={submitting}
-        style={styles.footerButton}
-      />
-      <AppButton
-        title="Guardar"
-        onPress={handleSaveRefund}
-        loading={submitting}
-        disabled={submitting || !refundAmount.isValid || !refundDate}
-        style={styles.footerButton}
-      />
-    </View>
+    <FinanceFormFooter
+      primaryTitle="Guardar"
+      onPrimary={handleSaveRefund}
+      onCancel={() => setStep('detail')}
+      primaryDisabled={submitting || !refundAmount.isValid || !refundDate}
+      loading={submitting}
+      divided={false}
+    />
   ) : null;
 
   const footer = confirmTrashFooter ?? refundFooter;
@@ -528,29 +534,25 @@ export function MovementDetailSheet({
               <AppText variant="caption" tone="tertiary">Actualizando detalle</AppText>
             ) : null}
 
-            <View style={styles.detailRow}>
-              <AppText variant="caption" tone="secondary" weight="700">
-                Tipo
-              </AppText>
-              <AppText variant="body" weight="800">
-                {isExpense ? 'Gasto' : 'Ingreso'}
-              </AppText>
-            </View>
-
-            <View style={styles.detailRow}>
-              <AppText variant="caption" tone="secondary" weight="700">
-                Monto
-              </AppText>
-              <AppText variant="title2" weight="800" tone={isExpense ? 'danger' : 'success'}>
-                {formatFinanceAmount(current.amount, current.currency, {
-                  sign: 'transaction',
-                  transactionType: isExpense ? 'expense' : 'income',
-                })}
-              </AppText>
-            </View>
+            <FinanceDetailHeader
+              title={isExpense ? 'Gasto' : 'Ingreso'}
+              subtitle={current.categoryLabelSnapshot ?? undefined}
+              amount={formatFinanceAmount(current.amount, current.currency, {
+                sign: 'transaction',
+                transactionType: isExpense ? 'expense' : 'income',
+              })}
+              amountTone={isExpense ? 'danger' : 'success'}
+              icon={
+                <HomePlusIcon
+                  name={categoryPresentation.iconKey}
+                  size={18}
+                  color={categoryToneColor}
+                />
+              }
+            />
 
             {isExpense ? (
-              <View style={styles.refundSummary}>
+              <FinanceSemanticSurface tone="neutral" testID="finance-expense-breakdown">
                 <View style={styles.summaryLine}>
                   <AppText variant="bodySmall" tone="secondary" weight="700">Gastado</AppText>
                   <AppText variant="bodySmall" weight="800">{formatFinanceAmount(current.grossAmount ?? current.amount, current.currency, { sign: 'none' })}</AppText>
@@ -563,106 +565,83 @@ export function MovementDetailSheet({
                   <AppText variant="bodySmall" tone="secondary" weight="700">Gasto neto</AppText>
                   <AppText variant="body" weight="900">{formatFinanceAmount(current.netAmount ?? current.amount, current.currency, { sign: 'none' })}</AppText>
                 </View>
-              </View>
-            ) : null}
-
-            {isExpense ? (
-              <View style={styles.detailRow}>
-                <AppText variant="caption" tone="secondary" weight="700">
-                  Pozo
-                </AppText>
-                <AppText variant="body" weight="800" numberOfLines={1}>
-                  {poolValueLabel}
-                </AppText>
-              </View>
+              </FinanceSemanticSurface>
             ) : null}
 
             {current.description ? (
-              <View style={styles.detailRow}>
-                <AppText variant="caption" tone="secondary" weight="700">
-                  Descripción
-                </AppText>
-                <AppText variant="body" numberOfLines={2}>{current.description}</AppText>
-              </View>
+              <FinanceDetailMetaRow label="Descripción" value={current.description} />
             ) : null}
 
             {current.categoryLabelSnapshot ? (
-              <View style={styles.detailRow}>
-                <AppText variant="caption" tone="secondary" weight="700">
-                  Categoría
-                </AppText>
-                <AppText variant="body" numberOfLines={1}>{current.categoryLabelSnapshot}</AppText>
-              </View>
+              <FinanceDetailMetaRow label="Categoría" value={current.categoryLabelSnapshot} />
             ) : null}
 
-            <View style={styles.detailRow}>
-              <AppText variant="caption" tone="secondary" weight="700">
-                Fecha
-              </AppText>
-              <AppText variant="body" numberOfLines={1}>
-                {new Date(current.transactionDate).toLocaleDateString('es-AR', {
-                  weekday: 'long',
-                  day: 'numeric',
-                  month: 'long',
-                })}
-              </AppText>
-            </View>
+            {detailAccountLabel ? (
+              <FinanceDetailMetaRow label="Cuenta" value={detailAccountLabel} />
+            ) : null}
+
+            {isExpense ? (
+              <FinanceDetailMetaRow label="Pozo" value={poolValueLabel} />
+            ) : null}
+
+            <FinanceDetailMetaRow
+              label="Fecha"
+              value={new Date(current.transactionDate).toLocaleDateString('es-AR', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+              })}
+            />
 
             <View style={styles.divider} />
 
             {isExpense && current.transferId === null ? (
-              <InteractivePressable
-                onPress={() => resetRefundDraft('create')}
+              <FinanceListRow
+                title={refundEvents.length === 0 ? 'Me devolvieron' : 'Agregar otra devolución'}
+                icon={
+                  <FinanceIconBox>
+                    <HomePlusIcon name="arrow-undo-outline" size={18} color={colors.success.strong} />
+                  </FinanceIconBox>
+                }
+                chevron
+                divider={false}
+                onPress={submitting ? undefined : () => resetRefundDraft('create')}
                 disabled={submitting}
-                haptic="light"
-                pressScale={motion.scale.card}
-                style={styles.refundEntry}
-                accessibilityRole="button"
                 accessibilityLabel={refundEvents.length === 0 ? 'Me devolvieron' : 'Agregar otra devolución'}
-              >
-                <HomePlusIcon name="arrow-undo-outline" size={20} color={colors.success.strong} />
-                <AppText variant="body" weight="800" style={{ flex: 1 }}>
-                  {refundEvents.length === 0 ? 'Me devolvieron' : 'Agregar otra devolución'}
-                </AppText>
-                <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
-              </InteractivePressable>
+              />
             ) : null}
 
             {isExpense && refundEvents.length > 0 ? (
-              <InteractivePressable
-                onPress={handleRefundCorrectionIntent}
+              <FinanceListRow
+                title={refundEvents.length === 1 ? 'Corregir devolución' : 'Corregir una devolución'}
+                icon={
+                  <FinanceIconBox>
+                    <HomePlusIcon name="create-outline" size={18} color={colors.terracotta[700]} />
+                  </FinanceIconBox>
+                }
+                chevron
+                divider={false}
+                onPress={submitting ? undefined : handleRefundCorrectionIntent}
                 disabled={submitting}
-                haptic="light"
-                pressScale={motion.scale.card}
-                style={styles.refundCorrectionEntry}
-                accessibilityRole="button"
                 accessibilityLabel={refundEvents.length === 1 ? 'Corregir devolución' : 'Corregir una devolución'}
-              >
-                <HomePlusIcon name="create-outline" size={20} color={colors.terracotta[700]} />
-                <AppText variant="body" weight="800" style={{ flex: 1 }}>
-                  {refundEvents.length === 1 ? 'Corregir devolución' : 'Corregir una devolución'}
-                </AppText>
-                <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
-              </InteractivePressable>
+              />
             ) : null}
 
             {isExpense && current.transferId === null ? (
               <React.Fragment>
-                <InteractivePressable
-                  onPress={() => setPoolSelectorOpen(true)}
+                <FinanceListRow
+                  title="Organizar gasto"
+                  icon={
+                    <FinanceIconBox>
+                      <HomePlusIcon name="albums-outline" size={18} color={colors.sage[700]} />
+                    </FinanceIconBox>
+                  }
+                  chevron
+                  divider={false}
+                  onPress={poolOrganizationDisabled ? undefined : () => setPoolSelectorOpen(true)}
                   disabled={poolOrganizationDisabled}
-                  haptic="light"
-                  pressScale={motion.scale.card}
-                  style={styles.poolOrganizerEntry}
-                  accessibilityRole="button"
                   accessibilityLabel="Organizar gasto por pozo"
-                >
-                  <HomePlusIcon name="albums-outline" size={20} color={colors.sage[700]} />
-                  <AppText variant="body" weight="800" style={{ flex: 1 }}>
-                    Organizar gasto
-                  </AppText>
-                  <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
-                </InteractivePressable>
+                />
                 {!currentPoolAccountId ? (
                   <AppText variant="caption" tone="tertiary" style={styles.poolHint}>
                     Este gasto no tiene cuenta, por eso no puede consumir un pozo.
@@ -676,51 +655,37 @@ export function MovementDetailSheet({
             ) : null}
 
             {error ? (
-              <View style={styles.errorBox}>
-                <HomePlusIcon name="alert-circle-outline" size={18} color={colors.danger.strong} />
-                <AppText variant="bodySmall" tone="danger" style={styles.errorText}>
-                  {error}
-                </AppText>
-              </View>
+              <FinanceErrorState level="form" message={error} />
             ) : null}
 
-            <InteractivePressable
-              onPress={handleAlgoEstaMal}
+            <FinanceListRow
+              title="Algo está mal"
+              icon={
+                <FinanceIconBox>
+                  <HomePlusIcon name="alert-circle-outline" size={18} color={colors.warning.strong} />
+                </FinanceIconBox>
+              }
+              chevron
+              divider={false}
+              onPress={submitting ? undefined : handleAlgoEstaMal}
               disabled={submitting}
-              haptic="light"
-              pressScale={motion.scale.card}
-              style={styles.recoveryEntry}
-              accessibilityRole="button"
               accessibilityLabel="Algo está mal"
-            >
-              <HomePlusIcon name="alert-circle-outline" size={20} color={colors.warning.strong} />
-              <AppText variant="body" weight="800" style={{ flex: 1 }}>
-                Algo está mal
-              </AppText>
-              <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
-            </InteractivePressable>
+            />
           </View>
         )}
 
         {step === 'refundSelect' && (
           <View style={styles.recoveryView}>
             {refundEvents.map((refund: typeof refundEvents[0]) => (
-              <InteractivePressable
+              <FinanceListRow
                 key={refund.id}
+                title={formatHumanDate(refund.effectiveDate)}
+                value={formatFinanceAmount(refund.amount, current.currency, { sign: 'none' })}
+                valueTone="success"
+                chevron
                 onPress={() => resetRefundDraft('correct', refund.id)}
-                haptic="light"
-                pressScale={motion.scale.card}
-                style={styles.refundSelectRow}
-                accessibilityRole="button"
                 accessibilityLabel={`Devolución ${formatHumanDate(refund.effectiveDate)}`}
-              >
-                <AppText variant="bodySmall" weight="800" style={{ flex: 1 }}>
-                  {formatHumanDate(refund.effectiveDate)}
-                </AppText>
-                <AppText variant="bodySmall" weight="900" tone="success">
-                  {formatFinanceAmount(refund.amount, current.currency, { sign: 'none' })}
-                </AppText>
-              </InteractivePressable>
+              />
             ))}
           </View>
         )}
@@ -740,19 +705,15 @@ export function MovementDetailSheet({
               }}
               errorText={refundAmount.status === 'invalid' ? 'Revisa el monto.' : undefined}
             />
-            <FormActionRow
+            <FinanceSelectionRow
               label="Fecha"
-              value={refundDate ? formatHumanDate(refundDate) : 'Elegir fecha'}
+              value={refundDate ? formatHumanDate(refundDate) : undefined}
+              placeholder="Elegir fecha"
               onPress={() => setDatePickerOpen(true)}
               accessibilityLabel="Fecha de la devolución"
             />
             {error ? (
-              <View style={styles.errorBox}>
-                <HomePlusIcon name="alert-circle-outline" size={18} color={colors.danger.strong} />
-                <AppText variant="bodySmall" tone="danger" style={styles.errorText}>
-                  {error}
-                </AppText>
-              </View>
+              <FinanceErrorState level="form" message={error} />
             ) : null}
             <DatePickerSheet
               visible={datePickerOpen}
@@ -768,42 +729,35 @@ export function MovementDetailSheet({
 
         {step === 'recovery' && (
           <View style={styles.recoveryView}>
-            <AppText variant="body" style={styles.recoveryTitle}>
-              ¿Qué ocurrió?
-            </AppText>
-            <InteractivePressable
-              onPress={handleLoAnoteMal}
+            <FinanceListRow
+              title="Lo anoté mal"
+              icon={
+                <FinanceIconBox>
+                  <HomePlusIcon name="pencil-outline" size={18} color={colors.terracotta[700]} />
+                </FinanceIconBox>
+              }
+              chevron
+              divider={false}
+              onPress={submitting ? undefined : handleLoAnoteMal}
               disabled={submitting}
-              haptic="light"
-              pressScale={motion.scale.card}
-              style={styles.recoveryOption}
-              accessibilityRole="button"
               accessibilityLabel="Lo anoté mal"
-            >
-              <HomePlusIcon name="pencil-outline" size={20} color={colors.terracotta[700]} />
-              <AppText variant="body" weight="800" style={{ flex: 1 }}>
-                Lo anoté mal
-              </AppText>
-              <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
-            </InteractivePressable>
+            />
             <AppText variant="caption" tone="tertiary" style={styles.recoveryHint}>
               El movimiento ocurrió, pero alguno de sus datos no es correcto.
             </AppText>
-            <InteractivePressable
-              onPress={handleNuncaOcurrio}
+            <FinanceListRow
+              title="Nunca ocurrió"
+              icon={
+                <FinanceIconBox>
+                  <HomePlusIcon name="trash-outline" size={18} color={colors.danger.strong} />
+                </FinanceIconBox>
+              }
+              chevron
+              divider={false}
+              onPress={submitting ? undefined : handleNuncaOcurrio}
               disabled={submitting}
-              haptic="light"
-              pressScale={motion.scale.card}
-              style={styles.recoveryOption}
-              accessibilityRole="button"
               accessibilityLabel="Nunca ocurrió"
-            >
-              <HomePlusIcon name="trash-outline" size={20} color={colors.danger.strong} />
-              <AppText variant="body" weight="800" style={{ flex: 1 }}>
-                Nunca ocurrió
-              </AppText>
-              <HomePlusIcon name="chevron-forward-outline" size={18} color={colors.text.tertiary} />
-            </InteractivePressable>
+            />
             <AppText variant="caption" tone="tertiary" style={styles.recoveryHint}>
               El movimiento dejará de afectar tus finanzas y podrás recuperarlo más adelante.
             </AppText>
@@ -812,20 +766,12 @@ export function MovementDetailSheet({
 
         {step === 'confirmTrash' && (
           <View style={styles.confirmView}>
-            <AppText variant="body" style={styles.confirmTitle}>
-              ¿Enviar a Papelera?
-            </AppText>
             <AppText variant="bodySmall" tone="secondary" style={styles.confirmMessage}>
               Este movimiento dejará de afectar tus finanzas y podrás recuperarlo más adelante.
             </AppText>
 
             {error ? (
-              <View style={styles.errorBox}>
-                <HomePlusIcon name="alert-circle-outline" size={18} color={colors.danger.strong} />
-                <AppText variant="bodySmall" tone="danger" style={styles.errorText}>
-                  {error}
-                </AppText>
-              </View>
+              <FinanceErrorState level="form" message={error} />
             ) : null}
           </View>
         )}
@@ -848,7 +794,10 @@ export function MovementDetailSheet({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, spacing } = theme;
+
+  return StyleSheet.create({
   content: {
     gap: spacing[4],
     paddingBottom: spacing[2],
@@ -859,21 +808,10 @@ const styles = StyleSheet.create({
   detailView: {
     gap: spacing[3],
   },
-  detailRow: {
-    gap: spacing[1],
-  },
   divider: {
     height: 1,
     backgroundColor: colors.border.subtle,
     marginVertical: spacing[1],
-  },
-  refundSummary: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.soft,
-    padding: spacing[3],
-    gap: spacing[2],
   },
   summaryLine: {
     minHeight: 24,
@@ -882,84 +820,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing[3],
   },
-  refundEntry: {
-    minHeight: 56,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.success.base,
-    backgroundColor: colors.success.soft,
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-  },
-  refundCorrectionEntry: {
-    minHeight: 52,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.soft,
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-  },
-  poolOrganizerEntry: {
-    minHeight: 52,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.soft,
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-  },
   poolHint: {
     textAlign: 'center',
-  },
-  refundSelectRow: {
-    minHeight: 52,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.card,
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
   },
   refundForm: {
     gap: spacing[4],
   },
-  recoveryEntry: {
-    minHeight: 56,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.warning.base,
-    backgroundColor: colors.warning.soft,
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    marginTop: spacing[2],
-  },
   recoveryView: {
-    gap: spacing[3],
-  },
-  recoveryTitle: {
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  recoveryOption: {
-    minHeight: 56,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.danger.base,
-    backgroundColor: colors.danger.soft,
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: spacing[3],
   },
   recoveryHint: {
@@ -970,35 +837,9 @@ const styles = StyleSheet.create({
     gap: spacing[3],
     alignItems: 'center',
   },
-  confirmTitle: {
-    fontWeight: '800',
-    textAlign: 'center',
-  },
   confirmMessage: {
     textAlign: 'center',
     marginTop: spacing[1],
-  },
-  errorBox: {
-    borderRadius: radius.lg,
-    backgroundColor: colors.danger.soft,
-    padding: spacing[3],
-    flexDirection: 'row',
-    gap: spacing[2],
-    alignItems: 'flex-start',
-    width: '100%',
-  },
-  errorText: {
-    flex: 1,
-    minWidth: 0,
-  },
-  confirmActions: {
-    flexDirection: 'row',
-    gap: spacing[2],
-    width: '100%',
-    marginTop: spacing[2],
-  },
-  confirmButton: {
-    flex: 1,
   },
   loadingView: {
     alignItems: 'center',
@@ -1029,15 +870,5 @@ const styles = StyleSheet.create({
   errorButtonInner: {
     width: '100%',
   },
-  footer: {
-    flexDirection: 'row',
-    gap: spacing[2],
-    width: '100%',
-    paddingTop: spacing[3],
-    borderTopWidth: 1,
-    borderTopColor: colors.border.subtle,
-  },
-  footerButton: {
-    flex: 1,
-  },
-});
+  });
+}

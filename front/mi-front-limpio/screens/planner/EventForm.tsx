@@ -460,7 +460,7 @@ onPress: async () => {
 
   const content = loading ? (
     <View style={[S.content, { minHeight: 220, justifyContent: 'center', alignItems: 'center' }]}>
-      <ActivityIndicator color="#E7643F" />
+      <ActivityIndicator color="#CD7353" />
       <Text style={[S.emptyText, { marginTop: 12 }]}>Cargando formulario...</Text>
     </View>
   ) : (

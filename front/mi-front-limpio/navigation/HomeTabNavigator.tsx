@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+﻿import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { createBottomTabNavigator, type BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { HomeTabParamList, MoreStackParamList, PlannerStackParamList } from './types';
@@ -22,11 +22,17 @@ import { EditEventScreen } from '../screens/planner/EditEventScreen';
 import { CreateGoalScreen } from '../screens/planner/CreateGoalScreen';
 import { PlannerPlanStructureEditScreen } from '../screens/planner/PlannerPlanStructureEditScreen';
 import { PlannerPlanDetailScreen } from '../screens/planner/PlannerPlanDetailScreen';
+import { PlannerPlanCreateScreen } from '../screens/planner/PlannerPlanCreateScreen';
+import { PlannerPlanListScreen } from '../screens/planner/PlannerPlanListScreen';
+import { PlannerPlanDetailScreen as PlannerPlanDetailScreenV1 } from '../screens/planner/PlannerPlanDetailScreenV1';
 import { PlannerTrashScreen } from '../screens/planner/PlannerTrashScreen';
 import { PlannerSearchScreen } from '../screens/planner/PlannerSearchScreen';
 import { PlannerAttentionActivityScreen } from '../screens/planner/PlannerAttentionActivityScreen';
 import { TaskDetailScreen } from '../screens/planner/TaskDetailScreen';
 import { EventDetailScreen } from '../screens/planner/EventDetailScreen';
+import { ResponsibilitiesScreen } from '../screens/planner/ResponsibilitiesScreen';
+import { ResponsibilityFormScreen } from '../screens/planner/ResponsibilityFormScreen';
+import { ResponsibilityDetailScreen } from '../screens/planner/ResponsibilityDetailScreen';
 import {
   PlannerDraftRecoveryRoute,
   PlannerDraftResumeRoute,
@@ -41,22 +47,27 @@ import { FinanceAccountsScreen } from '../screens/finance/FinanceAccountsScreen'
 import { FinancePapeleraScreen } from '../screens/finance/FinancePapeleraScreen';
 import { FinancePoolManagementScreen } from '../components/finance/FinancePoolManagementScreen';
 import { FinanceSpendingLimitsManagementScreen } from '../components/finance/FinanceSpendingLimitsManagementScreen';
+import { FinanceCategoryManagementScreen } from '../components/finance/FinanceCategoryManagementScreen';
 import { FinanceAnalysisDetailScreen } from '../screens/finance/FinanceAnalysisDetailScreen';
+import { PresenceScreen } from '../screens/presence/PresenceScreen';
+import { APP_ICONS } from '../constants/icons';
 import {
-  AppTopBar,
   AccountSheet,
+  AppTopBar,
   AppText,
-  FloatingNavigationBar,
-  type FloatingNavigationItem,
+  BottomNavigationIcon,
+  FloatingActionButton,
   HouseholdSwitcherSheet,
   IconButton,
+  InteractivePressable,
+  useBottomNavigationStyle,
 } from '../components/ui';
+import { useAppTheme } from '../context/AppThemeContext';
 import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
 import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
 import { PlannerDeepLinkProvider } from '../services/planner/plannerDeepLinkProvider';
 import { fetchPlannerAttentionRequest } from '../services/planner/plannerAttentionClient';
 import { GLOBAL_SURFACE_GATES_OFF } from '../services/planner/globalSurfaceTypes';
-import { colors, spacing } from '../constants/theme';
 
 const Tab = createBottomTabNavigator<HomeTabParamList>();
 const PlannerStack = createNativeStackNavigator<PlannerStackParamList>();
@@ -67,6 +78,8 @@ function AttentionTopBarButton({ accessToken, householdId, navigation }: {
   householdId: string | null;
   navigation: any;
 }) {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   const [count, setCount] = useState(0);
   const requestSeq = useRef(0);
 
@@ -112,7 +125,7 @@ function AttentionTopBarButton({ accessToken, householdId, navigation }: {
           params: { source: 'planner', returnTo: 'previous' },
         },
       })}
-      accessibilityLabel={count > 0 ? `Abrir Atención y actividad, ${count} asuntos sin resolver` : 'Abrir Atención y actividad'}
+      accessibilityLabel={count > 0 ? `Abrir Atenci├│n y actividad, ${count} asuntos sin resolver` : 'Abrir Atenci├│n y actividad'}
     >
       {count > 0 ? (
         <View style={styles.attentionBadge} accessibilityLabel={`${count} asuntos sin resolver`}>
@@ -130,6 +143,8 @@ function TopBarActions({ accessToken, householdId, navigation }: {
   householdId: string | null;
   navigation: any;
 }) {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   return (
     <View style={styles.topBarActions}>
       <IconButton
@@ -149,21 +164,25 @@ function TopBarActions({ accessToken, householdId, navigation }: {
   );
 }
 
-const MAIN_NAVIGATION_ITEMS: Record<keyof HomeTabParamList, FloatingNavigationItem> = {
-  HomeTab: { id: 'HomeTab', icon: 'home-outline', label: 'Inicio', accessibilityLabel: 'Ir a Inicio' },
-  FamilyTab: { id: 'FamilyTab', icon: 'people-outline', label: 'Familia', accessibilityLabel: 'Ir a Familia' },
-  QuickActionTab: { id: 'QuickActionTab', icon: 'add', label: 'Acciones rápidas', isAction: true, accessibilityLabel: 'Abrir acciones rápidas' },
-  PlannerTab: { id: 'PlannerTab', icon: 'calendar-outline', label: 'Calendario', accessibilityLabel: 'Ir a Calendario' },
-  MoreTab: { id: 'MoreTab', icon: 'ellipsis-horizontal', label: 'Más', accessibilityLabel: 'Abrir Más opciones' },
+const TabIcon = ({
+  iconKey,
+  focused,
+}: {
+  iconKey: keyof typeof APP_ICONS.bottomTabs;
+  focused: boolean;
+}) => {
+  return <BottomNavigationIcon icon={APP_ICONS.bottomTabs[iconKey]} focused={focused} />;
 };
 
 function HomeScreen() {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   const { currentRole, loading, reloading } = useHousehold();
 
   if (loading || reloading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.brand} />
+        <ActivityIndicator size="large" color={theme.colors.brand} />
       </View>
     );
   }
@@ -187,6 +206,9 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="CreateGoal" component={CreateGoalScreen} />
       <PlannerStack.Screen name="EditGoal" component={PlannerPlanStructureEditScreen} />
       <PlannerStack.Screen name="GoalDetail" component={PlannerPlanDetailScreen} />
+      <PlannerStack.Screen name="EditPlan" component={PlannerPlanStructureEditScreen} />
+      <PlannerStack.Screen name="PlanList" component={PlannerPlanListScreen} />
+      <PlannerStack.Screen name="PlanDetail" component={PlannerPlanDetailScreenV1} />
       <PlannerStack.Screen name="PlannerTrash" component={PlannerTrashScreen} />
       <PlannerStack.Screen name="PlannerPresetLibrary" component={PlannerPresetLibraryRoute} />
       <PlannerStack.Screen name="PlannerPresetDetail" component={PlannerPresetDetailRoute} />
@@ -199,6 +221,11 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="PlannerAttentionActivity" component={PlannerAttentionActivityScreen} />
       <PlannerStack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <PlannerStack.Screen name="EventDetail" component={EventDetailScreen} />
+      <PlannerStack.Screen name="Responsibilities" component={ResponsibilitiesScreen} />
+      <PlannerStack.Screen name="ResponsibilityCreate" component={ResponsibilityFormScreen} />
+      <PlannerStack.Screen name="ResponsibilityEdit" component={ResponsibilityFormScreen} />
+      <PlannerStack.Screen name="ResponsibilityDetail" component={ResponsibilityDetailScreen} />
+      <PlannerStack.Screen name="CreatePlan" component={PlannerPlanCreateScreen} />
     </PlannerStack.Navigator>
   );
 }
@@ -214,8 +241,27 @@ function MoreStackScreen() {
       <MoreStack.Screen name="FinancePapelera" component={FinancePapeleraScreen} />
       <MoreStack.Screen name="FinancePoolManagement" component={FinancePoolManagementScreen} />
       <MoreStack.Screen name="FinanceSpendingLimitsManagement" component={FinanceSpendingLimitsManagementScreen} />
+      <MoreStack.Screen name="FinanceCategoryManagement" component={FinanceCategoryManagementScreen} />
       <MoreStack.Screen name="FinanceAnalysisDetail" component={FinanceAnalysisDetailScreen} />
+      <MoreStack.Screen name="Presence" component={PresenceScreen} />
     </MoreStack.Navigator>
+  );
+}
+
+function TabBarButton({ children, style, ...props }: any) {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
+
+  return (
+    <InteractivePressable
+      {...props}
+      style={[styles.tabBarButton, style]}
+      haptic="light"
+      pressScale={theme.motion.scale.tab}
+      pressedOpacity={0.92}
+    >
+      {children}
+    </InteractivePressable>
   );
 }
 
@@ -223,56 +269,46 @@ function QuickActionPlaceholder() {
   return null;
 }
 
-function MainFloatingTabBar({ state, navigation }: BottomTabBarProps) {
+function QuickActionTabButton({ children, style, ...props }: any) {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   const { openActions } = usePlannerSheet();
-  const insets = useSafeAreaInsets();
-  const activeRoute = state.routes[state.index];
-  const activeId = activeRoute.name === 'QuickActionTab' ? undefined : activeRoute.name;
-
-  const handleSelect = useCallback((item: FloatingNavigationItem) => {
-    if (item.id === 'QuickActionTab') {
-      openActions();
-      return;
-    }
-
-    const route = state.routes.find((candidate) => candidate.name === item.id);
-    if (!route) return;
-
-    const event = navigation.emit({
-      type: 'tabPress',
-      target: route.key,
-      canPreventDefault: true,
-    });
-
-    if (!event.defaultPrevented) {
-      navigation.navigate(route.name);
-    }
-  }, [navigation, openActions, state.routes]);
 
   return (
-    <View
-      pointerEvents="box-none"
-      style={[
-        styles.floatingTabBarShell,
-        { paddingBottom: Math.max(insets.bottom, spacing[3]) },
-      ]}
+    <InteractivePressable
+      {...props}
+      onPress={openActions}
+      style={[styles.tabBarButton, style]}
+      haptic="medium"
+      pressScale={theme.motion.scale.icon}
+      pressedOpacity={0.94}
+      accessibilityRole="button"
+      accessibilityLabel="Acciones rapidas"
     >
-      <FloatingNavigationBar
-        items={state.routes.map((route) => MAIN_NAVIGATION_ITEMS[route.name as keyof HomeTabParamList])}
-        activeId={activeId}
-        onSelect={handleSelect}
-        variant="main"
-        display="icon-only"
-        appearance="auto"
-      />
+      {children}
+    </InteractivePressable>
+  );
+}
+
+function QuickActionTabIcon() {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
+
+  return (
+    <View style={styles.quickActionSlot}>
+      <FloatingActionButton />
     </View>
   );
 }
 
 export function HomeTabNavigator() {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   const { session, authMe } = useAuth();
-  const { currentHousehold } = useHousehold();
+  const { currentRole, currentHousehold } = useHousehold();
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
+  const bottomNavStyle = useBottomNavigationStyle(insets.bottom);
   
   const [showHouseholdSwitcher, setShowHouseholdSwitcher] = useState(false);
   const [showAccountSheet, setShowAccountSheet] = useState(false);
@@ -293,6 +329,9 @@ export function HomeTabNavigator() {
   const handleHouseholdPress = useCallback(() => {
     setShowHouseholdSwitcher(true);
   }, []);
+
+  const isAdultoMayor = currentRole === 'adulto_mayor';
+  const tabBarContentHeight = isAdultoMayor ? 76 : theme.componentSizes.bottomNavHeight;
 
   // S2: The Reliability runtime Owner is mounted ONCE in `PrivateNavigator`
   // (AppNavigator) above this `HomeTabNavigator`, so it covers HomeTabs,
@@ -322,16 +361,30 @@ export function HomeTabNavigator() {
       <PlannerDeepLinkProvider>
         <PlannerSheetProvider>
         <Tab.Navigator
-          tabBar={(props) => <MainFloatingTabBar {...props} />}
           screenOptions={{
             headerShown: false,
             tabBarShowLabel: false,
+            tabBarStyle: {
+              ...bottomNavStyle,
+              height: tabBarContentHeight,
+            },
+            tabBarItemStyle: {
+              height: tabBarContentHeight,
+              paddingVertical: theme.spacing[1],
+            },
+            tabBarButton: (props) => <TabBarButton {...props} />,
           }}
         >
           <Tab.Screen
             name="HomeTab"
             component={HomeScreen}
             options={{
+              tabBarIcon: ({ focused }) => (
+                <TabIcon
+                  iconKey="home"
+                  focused={focused}
+                />
+              ),
               tabBarAccessibilityLabel: 'Inicio',
             }}
           />
@@ -340,7 +393,27 @@ export function HomeTabNavigator() {
             name="FamilyTab"
             component={FamilyScreen}
             options={{
+              tabBarIcon: ({ focused }) => (
+                <TabIcon
+                  iconKey="people"
+                  focused={focused}
+                />
+              ),
               tabBarAccessibilityLabel: 'Familia',
+            }}
+          />
+
+          <Tab.Screen
+            name="InventoryTab"
+            component={InventarioScreen}
+            options={{
+              tabBarIcon: ({ focused }) => (
+                <TabIcon
+                  iconKey="inventory"
+                  focused={focused}
+                />
+              ),
+              tabBarAccessibilityLabel: 'Inventario',
             }}
           />
 
@@ -353,6 +426,8 @@ export function HomeTabNavigator() {
               },
             }}
             options={{
+              tabBarIcon: () => <QuickActionTabIcon />,
+              tabBarButton: (props) => <QuickActionTabButton {...props} />,
               tabBarAccessibilityLabel: 'Acciones rapidas',
             }}
           />
@@ -361,6 +436,12 @@ export function HomeTabNavigator() {
             name="PlannerTab"
             component={PlannerStackScreen}
             options={{
+              tabBarIcon: ({ focused }) => (
+                <TabIcon
+                  iconKey="planner"
+                  focused={focused}
+                />
+              ),
               tabBarAccessibilityLabel: 'Calendario',
             }}
           />
@@ -369,12 +450,18 @@ export function HomeTabNavigator() {
             name="MoreTab"
             component={MoreStackScreen}
             options={{
-              tabBarAccessibilityLabel: 'Más',
+              tabBarIcon: ({ focused }) => (
+                <TabIcon
+                  iconKey="more"
+                  focused={focused}
+                />
+              ),
+              tabBarAccessibilityLabel: 'M├ís',
             }}
           />
         </Tab.Navigator>
 
-        {/* M3: Single sheet host — replaces both QuickActionSheet Modal and
+        {/* M3: Single sheet host ÔÇö replaces both QuickActionSheet Modal and
             the legacy compat-bridge Modal in PlannerScreen. */}
         <PlannerSheetHost />
       </PlannerSheetProvider>
@@ -396,22 +483,29 @@ export function HomeTabNavigator() {
 
 
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, spacing } = theme;
+
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background.base,
-  },
-  floatingTabBarShell: {
-    position: 'absolute',
-    left: spacing[4],
-    right: spacing[4],
-    bottom: 0,
-    zIndex: 10,
   },
   topBarActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[1],
+  },
+  tabBarButton: {
+    flex: 1,
+    minWidth: 0,
+  },
+  quickActionSlot: {
+    flex: 1,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ translateY: -16 }],
   },
   loadingContainer: {
     flex: 1,
@@ -434,4 +528,5 @@ const styles = StyleSheet.create({
   attentionBadgeText: {
     fontSize: 10,
   },
-});
+  });
+}

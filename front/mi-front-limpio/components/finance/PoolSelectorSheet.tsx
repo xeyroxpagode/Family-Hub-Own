@@ -1,18 +1,24 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing, touchTargets } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import {
   ActionSheet,
   AppButton,
   AppText,
-  EmptyState,
-  InteractivePressable,
   Skeleton,
 } from '../ui';
 import type { FinancePoolDto } from '../../services/finance/financePools';
 import { formatFinanceAmount } from '../../services/finance/financeDisplay';
+import {
+  FinanceEmptyState,
+  FinanceErrorState,
+  FinanceGroupedSurface,
+  FinanceListRow,
+  FINANCE_SHEET_SIZE_POLICY,
+  financeSpacing,
+} from './ui';
 
 export type PoolSelectorSheetProps = {
   visible: boolean;
@@ -45,6 +51,8 @@ export function PoolSelectorSheet({
   onRequestClose,
   onSelect,
 }: PoolSelectorSheetProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
   const sortedPools = useMemo(
     () => [...pools].sort((a, b) => a.name.localeCompare(b.name)),
     [pools],
@@ -56,15 +64,24 @@ export function PoolSelectorSheet({
   };
 
   const footer = (
-    <View style={styles.footer}>
-      <AppButton
-        title="Cancelar"
-        variant="ghost"
-        onPress={onRequestClose}
-        disabled={disabled}
-        style={styles.footerButton}
-      />
+    <View style={{ flexDirection: 'row', gap: financeSpacing.footerGap }}>
+      <View style={{ flex: 1 }}>
+        <AppButton
+          title="Cancelar"
+          variant="ghost"
+          onPress={onRequestClose}
+          disabled={disabled}
+        />
+      </View>
     </View>
+  );
+
+  const renderRadioIcon = (selected: boolean) => (
+    <HomePlusIcon
+      name={selected ? 'radio-button-on' : 'radio-button-off'}
+      size={20}
+      color={selected ? colors.terracotta[700] : colors.text.tertiary}
+    />
   );
 
   return (
@@ -74,155 +91,63 @@ export function PoolSelectorSheet({
       subtitle={subtitle}
       onRequestClose={onRequestClose}
       closeDisabled={disabled}
+      size={FINANCE_SHEET_SIZE_POLICY.PICKER_CATALOG}
       footer={footer}
     >
-      <View style={styles.sheetBody}>
+      <View style={{ flex: 1, minHeight: 0, paddingBottom: financeSpacing.contentActionGap }}>
         {loading ? (
-          <View style={styles.loadingContainer}>
+          <View style={{ alignItems: 'center', paddingVertical: financeSpacing.sectionGap, gap: financeSpacing.titleContentGap }}>
             <Skeleton width="60%" height={16} />
             <Skeleton width="40%" height={16} />
             <Skeleton width="80%" height={16} />
           </View>
         ) : error ? (
-          <View style={styles.errorContainer}>
-            <HomePlusIcon name="alert-circle-outline" size={28} color={colors.danger.strong} />
-            <AppText variant="body" tone="danger" style={styles.errorText}>
-              {error}
-            </AppText>
-          </View>
-        ) : sortedPools.length === 0 ? (
-          <EmptyState
+          <FinanceErrorState level="full" message={error} />
+        ) : sortedPools.length === 0 && !allowNone ? (
+          <FinanceEmptyState
+            level="section"
             title="Sin pozos disponibles"
             description="No hay pozos activos para este contexto y moneda."
-            illustration={<HomePlusIcon name="archive-outline" size={30} color={colors.text.tertiary} />}
+            icon={<HomePlusIcon name="archive-outline" size={20} color={colors.text.tertiary} />}
           />
         ) : (
-          <View style={styles.list} accessibilityLabel="Lista de pozos">
+          <FinanceGroupedSurface>
             {allowNone ? (
-              <InteractivePressable
+              <FinanceListRow
+                title={noneLabel}
+                icon={renderRadioIcon(selectedPoolId === null)}
                 onPress={() => handleChoose(null)}
                 disabled={disabled}
-                haptic="light"
-                pressScale={motion.scale.card}
-                style={[styles.poolOption, selectedPoolId === null && styles.poolOptionSelected]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: selectedPoolId === null }}
-                accessibilityLabel={noneLabel}
-              >
-                <HomePlusIcon
-                  name={selectedPoolId === null ? 'radio-button-on' : 'radio-button-off'}
-                  size={20}
-                  color={selectedPoolId === null ? colors.terracotta[700] : colors.text.tertiary}
-                />
-                <AppText variant="body" weight="800">{noneLabel}</AppText>
-              </InteractivePressable>
+                accessibilityLabel={`${noneLabel}${selectedPoolId === null ? ', seleccionado' : ''}`}
+              />
             ) : null}
-            {sortedPools.map((pool) => {
+            {sortedPools.map((pool, index) => {
               const selected = pool.id === selectedPoolId;
               const isNegative = pool.balance.startsWith('-');
+              const isLast = index === sortedPools.length - 1;
               return (
-                <InteractivePressable
+                <FinanceListRow
                   key={pool.id}
+                  title={pool.name}
+                  subtitle={isNegative ? 'Te excediste de lo reservado' : undefined}
+                  value={formatFinanceAmount(pool.balance, pool.currency, { sign: 'none' })}
+                  valueTone={isNegative ? 'danger' : 'secondary'}
+                  icon={renderRadioIcon(selected)}
                   onPress={() => handleChoose(pool)}
                   disabled={disabled}
-                  haptic="light"
-                  pressScale={motion.scale.card}
-                  style={[styles.poolOption, selected && styles.poolOptionSelected]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`${pool.name}, saldo ${formatFinanceAmount(pool.balance, pool.currency, { sign: 'none' })}`}
-                >
-                  <HomePlusIcon
-                    name={selected ? 'radio-button-on' : 'radio-button-off'}
-                    size={20}
-                    color={selected ? colors.terracotta[700] : colors.text.tertiary}
-                  />
-                  <View style={[styles.poolInfo, { flex: 1, minWidth: 0 }]}>
-                    <AppText variant="body" weight="800" numberOfLines={1} style={styles.poolName}>
-                      {pool.name}
-                    </AppText>
-                    <AppText
-                      variant="bodySmall"
-                      tone={isNegative ? 'danger' : 'secondary'}
-                      weight={isNegative ? '700' : '400'}
-                      numberOfLines={1}
-                    >
-{formatFinanceAmount(pool.balance, pool.currency, { sign: isNegative ? 'none' : 'none' })}
-                    </AppText>
-                  </View>
-                  {isNegative && (
-                    <AppText variant="caption" tone="warning" style={styles.negativeHint}>
-                      Te excediste de lo reservado
-                    </AppText>
-                  )}
-                </InteractivePressable>
+                  divider={!isLast}
+                  accessibilityLabel={`${pool.name}, saldo ${formatFinanceAmount(pool.balance, pool.currency, { sign: 'none' })}${selected ? ', seleccionado' : ''}`}
+                />
               );
             })}
-          </View>
+          </FinanceGroupedSurface>
         )}
+        {sortedPools.length === 0 && allowNone ? (
+          <AppText variant="caption" tone="tertiary" align="center" style={{ paddingTop: financeSpacing.titleContentGap }}>
+            No hay pozos activos para este contexto y moneda.
+          </AppText>
+        ) : null}
       </View>
     </ActionSheet>
   );
 }
-
-const styles = StyleSheet.create({
-  sheetBody: {
-    flex: 1,
-    paddingBottom: spacing[4],
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    paddingVertical: spacing[6],
-    gap: spacing[2],
-  },
-  errorContainer: {
-    alignItems: 'center',
-    paddingVertical: spacing[6],
-    gap: spacing[2],
-  },
-  errorText: {
-    textAlign: 'center',
-  },
-  list: {
-    gap: spacing[1],
-  },
-  poolOption: {
-    minHeight: 56,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.subtle,
-    backgroundColor: colors.surface.card,
-    paddingHorizontal: spacing[4],
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-  },
-  poolOptionSelected: {
-    backgroundColor: colors.terracotta[50],
-    borderColor: colors.terracotta[300],
-  },
-  poolInfo: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing[3],
-    minWidth: 0,
-  },
-  poolName: {
-    flex: 1,
-    minWidth: 0,
-  },
-  negativeHint: {
-    marginLeft: spacing[2],
-  },
-  footer: {
-    flexDirection: 'row',
-    paddingTop: spacing[3],
-    borderTopWidth: 1,
-    borderTopColor: colors.border.subtle,
-  },
-  footerButton: {
-    flex: 1,
-  },
-});

@@ -36,6 +36,8 @@ export type PlannerSheetState =
       readonly taskId?: string;
       readonly source: PlannerNavigationSource;
       readonly initialDueDate?: string;
+      readonly initialPlanId?: string;
+      readonly initialPlanTitle?: string;
     }
   | {
       readonly kind: 'event_form';
@@ -65,6 +67,8 @@ export type OpenTaskInput = {
   readonly taskId?: string;
   readonly source: PlannerNavigationSource;
   readonly initialDueDate?: string;
+  readonly initialPlanId?: string;
+  readonly initialPlanTitle?: string;
 };
 
 export type OpenEventInput = {
@@ -165,6 +169,8 @@ export function sheetMachineReducer(
         taskId: event.input.taskId,
         source: event.input.source,
         initialDueDate: event.input.initialDueDate,
+        initialPlanId: event.input.initialPlanId,
+        initialPlanTitle: event.input.initialPlanTitle,
       };
       if (state.kind === 'task_form' && sameTask(state, desired)) return noChange(state, context);
       return {
@@ -276,7 +282,7 @@ export function sheetMachineReducer(
 // ---------------------------------------------------------------------------
 
 function sameTask(a: PlannerSheetState & { kind: 'task_form' }, b: PlannerSheetState & { kind: 'task_form' }): boolean {
-  return a.mode === b.mode && a.taskId === b.taskId;
+  return a.mode === b.mode && a.taskId === b.taskId && a.initialPlanId === b.initialPlanId;
 }
 
 function sameEvent(a: PlannerSheetState & { kind: 'event_form' }, b: PlannerSheetState & { kind: 'event_form' }): boolean {

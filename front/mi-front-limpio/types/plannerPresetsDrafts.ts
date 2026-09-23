@@ -61,6 +61,15 @@ export type PlannerPreset<TPayload = Record<string, unknown>> = {
   planner_preset_revisions?: PlannerPresetRevision<TPayload>[];
   created_at: string;
   updated_at: string;
+  /**
+   * P2.2A canonical DTO projections (additive over the raw row; the backend
+   * `toPresetDto` publishes them). `kind` mirrors entity_type; `scope` mirrors
+   * source; `editable` resolves read-only HomePlus rows vs household-owned
+   * rows against the current household context.
+   */
+  kind?: PlannerTemplateEntityType;
+  scope?: PlannerPresetSource;
+  editable?: boolean;
 };
 
 export type PlannerDraft<TPayload = Record<string, unknown>> = {

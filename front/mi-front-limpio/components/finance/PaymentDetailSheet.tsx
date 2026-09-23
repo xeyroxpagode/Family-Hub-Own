@@ -1,14 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+/* eslint-disable react-hooks/set-state-in-effect */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, motion, radius, spacing } from '../../constants/theme';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { ApiError } from '../../services/api';
 import type { FinanceContextType } from '../../services/finance/financeContext';
 import {
   getPaymentDueDetail,
   cancelPaymentDue,
   cancelPaymentSeries,
+  skipPaymentDue,
   type PaymentDueDto,
   type PaymentSeriesDto,
   PAYMENT_KINDS,
@@ -20,6 +22,7 @@ import {
   isPaymentPending,
   isPaymentPaid,
   isPaymentCancelled,
+  isPaymentSkipped,
 } from '../../services/finance/financePayments';
 import {
   ActionSheet,
@@ -28,6 +31,17 @@ import {
   InteractivePressable,
   formatHumanDate,
 } from '../ui';
+import {
+  FinanceDetailHeader,
+  FinanceDetailMetaRow,
+  FinanceDetailSection,
+  FinanceErrorState,
+  FinanceFormFooter,
+  FinanceListRow,
+  FinanceSemanticSurface,
+  FINANCE_SHEET_SIZE_POLICY,
+} from './ui';
+import { compareDecimalStrings } from '../../services/finance/accountDisplay';
 
 type PaymentDetailSheetProps = {
   visible: boolean;
@@ -40,6 +54,7 @@ type PaymentDetailSheetProps = {
   onRegisterPayment: (payment: PaymentDueDto) => void;
   onRegisterCreditCardPayment: (payment: PaymentDueDto) => void;
   onEditPayment: (payment: PaymentDueDto) => void;
+  onOpenMovement: (payment: PaymentDueDto) => void;
   onRefresh: () => void;
 };
 
@@ -54,8 +69,11 @@ export function PaymentDetailSheet({
   onRegisterPayment,
   onRegisterCreditCardPayment,
   onEditPayment,
+  onOpenMovement,
   onRefresh,
 }: PaymentDetailSheetProps) {
+  const theme = useAppTheme();
+  const styles = createStyles(theme);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [payment, setPayment] = useState<PaymentDueDto | null>(null);
@@ -69,7 +87,7 @@ export function PaymentDetailSheet({
     paymentIdRef.current = paymentId;
   }, [paymentId]);
 
-  const loadDetail = async () => {
+  const loadDetail = useCallback(async () => {
     if (!accessToken || !paymentId) return;
 
     try {
@@ -88,7 +106,7 @@ export function PaymentDetailSheet({
     } finally {
       setLoading(false);
     }
-  };
+  }, [accessToken, contextType, paymentId]);
 
   useEffect(() => {
     if (visible && paymentId) {
@@ -98,7 +116,7 @@ export function PaymentDetailSheet({
       setSeries(null);
       setLoading(true);
     }
-  }, [visible, paymentId, accessToken, contextType, refreshNonce]);
+  }, [visible, paymentId, accessToken, contextType, refreshNonce, loadDetail]);
 
   const handleRegister = () => {
     if (payment) {
@@ -118,6 +136,12 @@ export function PaymentDetailSheet({
     }
   };
 
+  const handleOpenMovement = () => {
+    if (payment) {
+      onOpenMovement(payment);
+    }
+  };
+
   const handleCancel = () => {
     if (payment) {
       setCancelScope('single');
@@ -134,7 +158,9 @@ export function PaymentDetailSheet({
     if (!payment || !accessToken) return;
     setDeleting(true);
     try {
-      if (isActiveRecurring && cancelScope === 'series' && series) {
+      if (isActiveRecurring && cancelScope === 'single') {
+        await skipPaymentDue(accessToken, contextType, payment.id);
+      } else if (isActiveRecurring && cancelScope === 'series' && series) {
         await cancelPaymentSeries(accessToken, contextType, series.id);
       } else {
         await cancelPaymentDue(accessToken, contextType, payment.id);
@@ -159,6 +185,7 @@ export function PaymentDetailSheet({
   const pending = payment ? isPaymentPending(payment) : false;
   const paid = payment ? isPaymentPaid(payment) : false;
   const cancelled = payment ? isPaymentCancelled(payment) : false;
+  const skipped = payment ? isPaymentSkipped(payment) : false;
 
   const expectedAmountDisplay = useMemo(
     () => payment ? formatExpectedAmount(payment.expectedAmountKnown, payment.expectedAmount, payment.currency) : '',
@@ -172,10 +199,44 @@ export function PaymentDetailSheet({
 
   const showRegisterNormal = pending && payment?.kind === PAYMENT_KINDS.NORMAL;
   const showRegisterCreditCard = pending && payment?.kind === PAYMENT_KINDS.CREDIT_CARD;
+  const creditCardRemaining = payment?.remaining ?? (payment?.expectedAmountKnown ? payment.expectedAmount ?? null : null);
+  const creditCardPaidSoFar = payment?.paidSoFar ?? '0';
+  const creditCardHasSettlementProgress = payment?.kind === PAYMENT_KINDS.CREDIT_CARD && compareDecimalStrings(creditCardPaidSoFar, '0') > 0;
+  const showCreditCardProgress = payment?.kind === PAYMENT_KINDS.CREDIT_CARD && creditCardRemaining !== null;
   const isActiveRecurring = Boolean(series && series.status === PAYMENT_SERIES_STATUSES.ACTIVE);
-  const showEdit = pending;
-  const showCancel = pending;
+  const showEdit = pending && !creditCardHasSettlementProgress;
+  const showCancel = pending && !creditCardHasSettlementProgress;
   const amountLine = expectedAmountDisplay;
+  const isCreditCard = payment?.kind === PAYMENT_KINDS.CREDIT_CARD;
+  const paidAmountText = payment?.actualAmount
+    ? formatExpectedAmount(true, payment.actualAmount, payment.currency)
+    : 'Monto por definir';
+  const canOpenMovement = Boolean(
+    paid && payment && payment.actualAmount && (
+      (payment.kind === PAYMENT_KINDS.NORMAL && payment.expenseRootTransactionId)
+      || (payment.kind === PAYMENT_KINDS.CREDIT_CARD && payment.transferId)
+    ),
+  );
+  const headerAmount = paid ? paidAmountText : amountLine;
+  const headerSupporting = paid && payment
+    ? `Pagado el ${formatHumanDate(payment.actualDate ?? '')}`
+    : dueDateDisplay;
+  const statusLabel = paid
+    ? 'Pagado'
+    : skipped
+    ? 'Saltado'
+    : cancelled
+    ? 'Cancelado'
+    : overdue
+    ? 'Vencido'
+    : 'Pendiente';
+  const statusTone = paid
+    ? 'success'
+    : overdue
+    ? 'danger'
+    : cancelled || skipped
+    ? 'tertiary'
+    : 'primary';
 
   if (!visible) return null;
 
@@ -186,7 +247,7 @@ export function PaymentDetailSheet({
       subtitle={`Finanzas de ${contextLabel}`}
       onRequestClose={close}
       closeDisabled={loading || deleting}
-      size="content"
+      size={FINANCE_SHEET_SIZE_POLICY.DETAIL}
     >
       <>
         {loading ? (
@@ -195,8 +256,11 @@ export function PaymentDetailSheet({
           </View>
         ) : error ? (
           <View style={styles.error}>
-            <AppText variant="bodySmall" tone="danger">{error}</AppText>
-            <AppButton title="Reintentar" variant="primary" size="sm" onPress={loadDetail} style={styles.retryButton} />
+            <FinanceErrorState
+              level="full"
+              message={error}
+              onRetry={loadDetail}
+            />
           </View>
         ) : payment ? (
           <ScrollView
@@ -204,191 +268,148 @@ export function PaymentDetailSheet({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.content}
           >
-            <View style={styles.header}>
-              <View style={styles.statusBadgeContainer}>
-                <AppText
-                  variant="caption"
-                  weight="800"
-                  tone={
-                    paid ? 'success' : overdue ? 'danger' : cancelled ? 'tertiary' : 'primary'
-                  }
-                  style={styles.statusBadge}
-                >
-                  {paid ? 'Pagado' : overdue ? 'Vencido' : cancelled ? 'Cancelado' : 'Pendiente'}
-                </AppText>
-              </View>
-            </View>
+            <FinanceDetailHeader
+              title={payment.title}
+              subtitle={isCreditCard ? 'Resumen de tarjeta' : 'Pago'}
+              amount={headerAmount}
+              amountTone={overdue ? 'danger' : 'primary'}
+              supporting={headerSupporting}
+            />
 
-            <View style={styles.detailRow}>
-              <AppText variant="caption" tone="secondary" weight="700" style={styles.label}>
-                Monto esperado
-              </AppText>
-              <AppText variant="title3" weight="800" tone={payment?.expectedAmountKnown ? 'primary' : 'secondary'} style={styles.value}>
-                {amountLine}
-              </AppText>
-            </View>
+            <FinanceDetailMetaRow label="Estado" value={statusLabel} valueTone={statusTone} />
+            <FinanceDetailMetaRow
+              label="Vencimiento"
+              value={dueDateDisplay}
+              valueTone={overdue && pending ? 'danger' : 'primary'}
+            />
+            {payment.categoryId ? (
+              <FinanceDetailMetaRow label="Categoría" value={payment.category?.label ?? 'Categoría'} />
+            ) : null}
+            {series ? (
+              <FinanceDetailMetaRow label="Repetición" value={formatRecurrenceSummary(series)} />
+            ) : null}
+            {isCreditCard && payment.targetCreditCard ? (
+              <FinanceDetailMetaRow label="Tarjeta" value={payment.targetCreditCard.name} />
+            ) : null}
 
-            <View style={styles.detailRow}>
-              <AppText variant="caption" tone="secondary" weight="700" style={styles.label}>
-                Vencimiento
-              </AppText>
-              <AppText variant="body" weight="700" tone={overdue ? 'danger' : 'primary'} style={styles.value}>
-                {dueDateDisplay}
-              </AppText>
-            </View>
+            {showCreditCardProgress ? (
+              <FinanceSemanticSurface tone="neutral" testID="finance-card-due-progress">
+                <FinanceDetailMetaRow label="Pagado" value={formatExpectedAmount(true, creditCardPaidSoFar, payment.currency)} valueTone="success" />
+                <FinanceDetailMetaRow label="Restante" value={formatExpectedAmount(true, creditCardRemaining, payment.currency)} />
+              </FinanceSemanticSurface>
+            ) : null}
 
-            {payment?.categoryId && (
-              <View style={styles.detailRow}>
-                <AppText variant="caption" tone="secondary" weight="700" style={styles.label}>
-                  Categoría
-                </AppText>
-                <AppText variant="body" style={styles.value}>
-                  {payment.category?.label ?? 'Categoría'}
-                </AppText>
-              </View>
-            )}
+            {paid ? (
+              <FinanceDetailSection title="Pago registrado">
+                <FinanceDetailMetaRow label="Esperado" value={expectedAmountDisplay} />
+                <FinanceDetailMetaRow label="Pagado" value={paidAmountText} valueTone="success" />
+                <FinanceDetailMetaRow label="Pagado el" value={formatHumanDate(payment.actualDate ?? '')} />
+                {payment.actualAccount ? (
+                  <FinanceDetailMetaRow label="Cuenta" value={payment.actualAccount.name} />
+                ) : null}
+                {!isCreditCard && payment.actualCategory ? (
+                  <FinanceDetailMetaRow label="Categoría del gasto" value={payment.actualCategory.label} />
+                ) : null}
+              </FinanceDetailSection>
+            ) : null}
 
-            {series && (
-              <View style={styles.detailRow}>
-                <AppText variant="caption" tone="secondary" weight="700" style={styles.label}>
-                  Recurrencia
+            {skipped ? (
+              <FinanceSemanticSurface tone="neutral">
+                <AppText variant="caption" tone="secondary">
+                  Esta ocurrencia fue omitida y no generó gasto. La serie sigue activa.
                 </AppText>
-                <AppText variant="body" weight="600" tone="secondary" style={styles.value}>
-                  {formatRecurrenceSummary(series)}
-                </AppText>
-              </View>
-            )}
+              </FinanceSemanticSurface>
+            ) : null}
 
-            {payment?.kind === PAYMENT_KINDS.CREDIT_CARD && payment.targetCreditCard && (
-              <View style={styles.detailRow}>
-                <AppText variant="caption" tone="secondary" weight="700" style={styles.label}>
-                  Tarjeta
-                </AppText>
-                <AppText variant="body" weight="700" tone="primary" style={styles.value}>
-                  {payment.targetCreditCard.name}
-                </AppText>
-              </View>
-            )}
-
-            {paid && (
-              <View>
-                <View style={styles.divider} />
-                <AppText variant="caption" tone="secondary" weight="700" style={styles.sectionLabel}>
-                  Detalle del pago registrado
-                </AppText>
-                <View style={styles.detailRow}>
-                  <AppText variant="caption" tone="secondary" weight="700" style={styles.label}>
-                    Monto real
-                  </AppText>
-                  <AppText variant="title3" weight="800" tone="success" style={styles.value}>
-                    {payment.actualAmount} {payment.currency}
-                  </AppText>
-                </View>
-                <View style={styles.detailRow}>
-                  <AppText variant="caption" tone="secondary" weight="700" style={styles.label}>
-                    Fecha de pago
-                  </AppText>
-                  <AppText variant="body" style={styles.value}>
-                    {formatHumanDate(payment.actualDate ?? '')}
-                  </AppText>
-                </View>
-                {payment.kind === PAYMENT_KINDS.CREDIT_CARD && payment.actualAccountId && (
-                  <View style={styles.detailRow}>
-                    <AppText variant="caption" tone="secondary" weight="700" style={styles.label}>
-                      Pagado desde
-                    </AppText>
-                    <AppText variant="body" style={styles.value}>
-                      {payment.actualAccount?.name ?? 'Cuenta de origen'}
-                    </AppText>
-                  </View>
-                )}
-                {payment.kind === PAYMENT_KINDS.NORMAL && payment.actualCategoryId && (
-                  <View style={styles.detailRow}>
-                    <AppText variant="caption" tone="secondary" weight="700" style={styles.label}>
-                      Categoría
-                    </AppText>
-                    <AppText variant="body" style={styles.value}>
-                      {payment.actualCategory?.label ?? 'Categoría'}
-                    </AppText>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {cancelled && (
-              <View>
-                <View style={styles.divider} />
-                <AppText variant="caption" tone="tertiary" weight="700" style={styles.sectionLabel}>
+            {cancelled ? (
+              <FinanceSemanticSurface tone="neutral">
+                <AppText variant="caption" tone="secondary">
                   Este pago fue cancelado y no genera obligación.
                 </AppText>
-              </View>
-            )}
+              </FinanceSemanticSurface>
+            ) : null}
 
-            {!paid && !cancelled && (
+            {!paid && !cancelled && !skipped ? (
               <View style={styles.actions}>
-                {showRegisterNormal && (
+                {showRegisterNormal ? (
                   <AppButton
                     title="Registrar pago"
                     variant="primary"
                     onPress={handleRegister}
                     style={styles.primaryAction}
                   />
-                )}
-                {showRegisterCreditCard && (
+                ) : null}
+                {showRegisterCreditCard ? (
                   <AppButton
-                    title="Pagar tarjeta"
+                    title={payment.isPartiallyPaid ? 'Pagar restante' : 'Pagar tarjeta'}
                     variant="primary"
                     onPress={handleRegister}
                     style={styles.primaryAction}
                   />
-                )}
+                ) : null}
                 <View style={styles.secondaryActions}>
-                  {showEdit && (
+                  {showEdit ? (
                     <AppButton
                       title="Editar"
                       variant="secondary"
                       onPress={handleEdit}
                       size="sm"
                     />
-                  )}
-                  {showCancel && (
+                  ) : null}
+                  {showCancel ? (
                     <AppButton
-                      title="Cancelar"
+                      title={isActiveRecurring ? 'Omitir' : 'Cancelar'}
                       variant="danger"
                       onPress={handleCancel}
                       size="sm"
                     />
-                  )}
+                  ) : null}
                 </View>
               </View>
-            )}
+            ) : null}
 
-            {paid && payment.expenseRootTransactionId && (
-              <View style={styles.actions}>
-                <AppButton
-                  title="Ver movimiento"
-                  variant="secondary"
-                  onPress={() => {
-                    // Navigation to movement detail would go here
-                    // For now, close and let parent handle navigation
-                  }}
-                />
-              </View>
-            )}
+            {creditCardHasSettlementProgress && pending ? (
+              <AppText variant="caption" tone="tertiary" style={styles.lockNote}>
+                Podés pagar lo restante, pero no editarlo ni cancelarlo.
+              </AppText>
+            ) : null}
+
+            {canOpenMovement ? (
+              <FinanceListRow
+                title="Ver movimiento"
+                chevron
+                divider={false}
+                onPress={handleOpenMovement}
+                accessibilityLabel="Ver movimiento asociado a este pago"
+              />
+            ) : null}
           </ScrollView>
         ) : null}
 
         <ActionSheet
           visible={actionSheetVisible}
-          title="Cancelar pago"
+          title={isActiveRecurring ? 'Omitir o cancelar' : 'Cancelar pago'}
           onRequestClose={closeActionSheet}
           closeDisabled={deleting}
-          size="content"
+          size={FINANCE_SHEET_SIZE_POLICY.CONFIRMATION}
+          footer={(
+            <FinanceFormFooter
+              primaryTitle={isActiveRecurring
+                ? (cancelScope === 'single' ? 'Omitir este pago' : 'Cancelar los siguientes')
+                : 'Cancelar pago'}
+              onPrimary={confirmDelete}
+              destructive
+              onCancel={closeActionSheet}
+              cancelLabel="Volver"
+              loading={deleting}
+              divided={false}
+            />
+          )}
         >
           <View style={styles.confirmContent}>
             {isActiveRecurring ? (
               <View style={styles.cancelScopeGroup}>
-                <AppText variant="bodySmall" weight="800">¿Qué querés cancelar?</AppText>
+                <AppText variant="bodySmall" weight="800">¿Qué querés hacer?</AppText>
                 <ScopeOption
                   selected={cancelScope === 'single'}
                   label="Solo este pago"
@@ -401,19 +422,17 @@ export function PaymentDetailSheet({
                   onPress={() => setCancelScope('series')}
                   disabled={deleting}
                 />
+                <AppText variant="caption" tone="tertiary">
+                  {cancelScope === 'single'
+                    ? 'No genera gasto. La serie continúa con los próximos pagos.'
+                    : 'La serie deja de generar pagos. Los pagos ya registrados no se modifican.'}
+                </AppText>
               </View>
             ) : (
               <AppText variant="bodySmall" tone="secondary">
                 Este pago dejará de estar pendiente.
               </AppText>
             )}
-            <AppButton
-              title={isActiveRecurring ? 'Confirmar cancelación' : 'Cancelar pago'}
-              variant="danger"
-              onPress={confirmDelete}
-              loading={deleting}
-            />
-            <AppButton title="Volver" variant="ghost" onPress={closeActionSheet} disabled={deleting} />
           </View>
         </ActionSheet>
       </>
@@ -432,6 +451,10 @@ function ScopeOption({
   onPress: () => void;
   disabled?: boolean;
 }) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createStyles(theme);
+
   return (
     <InteractivePressable
       onPress={onPress}
@@ -455,7 +478,10 @@ function ScopeOption({
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, spacing } = theme;
+
+  return StyleSheet.create({
   loading: {
     padding: spacing[6],
     alignItems: 'center',
@@ -465,55 +491,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing[3],
   },
-  retryButton: {
-    marginTop: spacing[2],
-  },
   content: {
     gap: spacing[3],
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  statusBadgeContainer: {
-    flexDirection: 'row',
-    gap: spacing[2],
-  },
-  statusBadge: {
-    minWidth: 90,
-    minHeight: 28,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing[3],
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    backgroundColor: colors.terracotta[50],
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing[3],
-    paddingVertical: spacing[2],
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border.subtle,
-  },
-  label: {
-    flex: 1,
-    minWidth: 0,
-  },
-  value: {
-    flex: 1,
-    textAlign: 'right',
-    minWidth: 0,
-  },
-  divider: {
-    marginVertical: spacing[2],
-    height: 1,
-    backgroundColor: colors.border.subtle,
-  },
-  sectionLabel: {
-    marginBottom: spacing[2],
   },
   actions: {
     gap: spacing[2],
@@ -524,6 +503,9 @@ const styles = StyleSheet.create({
   },
   secondaryActions: {
     gap: spacing[2],
+  },
+  lockNote: {
+    marginTop: spacing[1],
   },
   confirmContent: {
     gap: spacing[3],
@@ -551,4 +533,5 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-});
+  });
+}

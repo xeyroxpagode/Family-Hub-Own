@@ -11,6 +11,7 @@ import {
   PRESET_SOURCES,
   isPlannerPresetSource,
 } from '../../../services/planner/plannerPresetContracts';
+import { buildCanonicalPresetGroups } from '../../../services/planner/plannerPresetTaskDomain';
 
 /** Visual lifecycle state of the library, per §7. */
 export type PresetLibraryVisualState =
@@ -124,3 +125,39 @@ export const PRESET_LIBRARY_REFRESH_FAILED_MESSAGE = 'No pudimos actualizar la b
 export const PRESET_LIBRARY_PARTIAL_ERROR_MESSAGE = 'Algunos presets no se pudieron cargar.';
 /** Safe fatal-error message. */
 export const PRESET_LIBRARY_FATAL_MESSAGE = 'No pudimos cargar la biblioteca.';
+
+// ---------------------------------------------------------------------------
+// P2.2A — Canonical Task preset hierarchy (frozen)
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical section keys for the P2.2A library. Household-owned ("DEL HOGAR")
+ * content renders FIRST; system HomePlus content ("DE HOMEPLUS") second —
+ * mirroring the Finance Categories visual donor (custom first, system last)
+ * as ONE continuous hierarchy. No tabs, no kind filters, no Personal section.
+ */
+export type CanonicalPresetSectionKey = 'household' | 'homeplus';
+
+export const CANONICAL_PRESET_SECTION_TITLES: Record<CanonicalPresetSectionKey, string> = {
+  household: 'DEL HOGAR',
+  homeplus: 'DE HOMEPLUS',
+};
+
+/**
+ * Partition a raw preset list for the canonical library: task-only, active
+ * (not trashed), household + homeplus buckets, deterministic order
+ * (created_at asc, id tiebreak). Compatibility rows (personal source,
+ * event/plan kinds, trashed) are EXCLUDED here but never deleted.
+ */
+export function canonicalPresetLibraryGroups(
+  presets: readonly PlannerPreset[],
+): { readonly household: readonly PlannerPreset[]; readonly homeplus: readonly PlannerPreset[] } {
+  return buildCanonicalPresetGroups(presets);
+}
+
+/** True when the canonical library surface has nothing to show. */
+export function isCanonicalLibraryEmpty(
+  groups: { readonly household: readonly PlannerPreset[]; readonly homeplus: readonly PlannerPreset[] },
+): boolean {
+  return groups.household.length === 0 && groups.homeplus.length === 0;
+}

@@ -1,10 +1,11 @@
+﻿/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Keyboard, Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { FlatList, Keyboard, Modal, Pressable, StyleSheet, View, useWindowDimensions, TextInput } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, motion, radius, shadows, spacing, touchTargets } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
+import { useAppTheme } from '../../context/AppThemeContext';
 import { lightHaptic } from '../../utils/haptics';
 import { AppButton } from './AppButton';
 import { AppText } from './AppText';
@@ -13,8 +14,8 @@ import { InteractivePressable } from './InteractivePressable';
 LocaleConfig.locales.es = {
   monthNames: ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
   monthNamesShort: ['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sep.', 'Oct.', 'Nov.', 'Dic.'],
-  dayNames: ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'],
-  dayNamesShort: ['Dom.', 'Lun.', 'Mar.', 'Mie.', 'Jue.', 'Vie.', 'Sab.'],
+  dayNames: ['Domingo', 'Lunes', 'Martes', 'Mi├®rcoles', 'Jueves', 'Viernes', 'S├íbado'],
+  dayNamesShort: ['Dom.', 'Lun.', 'Mar.', 'Mi├®.', 'Jue.', 'Vie.', 'S├íb.'],
   today: 'Hoy',
 };
 LocaleConfig.defaultLocale = 'es';
@@ -30,25 +31,37 @@ export const formatHumanDate = (value: string) => {
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
   if (date.getTime() === today.getTime()) return 'Hoy';
-  if (date.getTime() === tomorrow.getTime()) return 'Manana';
+  if (date.getTime() === tomorrow.getTime()) return 'Ma├▒ana';
   return date.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
 };
 
 type InlinePickerProps = { title: string; onClose: () => void; onConfirm: () => void; children: React.ReactNode };
 
 function InlinePicker({ title, onClose, onConfirm, children }: InlinePickerProps) {
+  const theme = useAppTheme();
+  const { colors } = theme;
+  const styles = createActionSheetStyles(theme);
+
   return (
-    <View style={styles.inlineOverlay} accessibilityViewIsModal>
-      <View style={styles.inlinePanel}>
-        <View style={styles.handle} />
-        <View style={styles.inlineHeader}>
-          <AppButton variant="icon" size="sm" onPress={onClose} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
-          <AppText variant="title3" weight="800" style={styles.inlineTitle}>{title}</AppText>
-          <AppButton title="Listo" size="sm" onPress={onConfirm} accessibilityLabel={`Confirmar ${title}`} />
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.inlineOverlay}>
+        <Pressable
+          style={styles.backdropDismiss}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel={`Cerrar ${title}`}
+        />
+        <View style={styles.inlinePanel} accessibilityViewIsModal>
+          <View style={styles.handle} />
+          <View style={styles.inlineHeader}>
+            <AppButton variant="icon" size="sm" onPress={onClose} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
+            <AppText variant="title3" weight="800" style={styles.inlineTitle}>{title}</AppText>
+            <AppButton title="Listo" size="sm" onPress={onConfirm} accessibilityLabel={`Confirmar ${title}`} />
+          </View>
+          <View style={styles.inlineContent}>{children}</View>
         </View>
-        <View style={styles.inlineContent}>{children}</View>
       </View>
-    </View>
+    </Modal>
   );
 }
 
@@ -60,16 +73,31 @@ export type ActionSheetProps = {
   closeDisabled?: boolean;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  size?: 'full' | 'content';
+  /**
+   * `content` follows the natural height of a short sheet. `scrollable-content`
+   * keeps that behavior until the safe viewport is reached, and `near-full` is
+   * reserved for catalog-like surfaces that need a stable scrolling viewport.
+   */
+  size?: 'full' | 'content' | 'scrollable-content' | 'near-full';
 };
 
 export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer, size = 'full' }: ActionSheetProps) {
+  const theme = useAppTheme();
+  const { colors, spacing } = theme;
+  const styles = createActionSheetStyles(theme);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const fullSheetHeight = Math.max(360, height - insets.top - spacing[3]);
-  const sheetSizing = size === 'content'
-    ? { maxHeight: Math.max(280, height - insets.top - spacing[8]), paddingBottom: Math.max(insets.bottom, spacing[4]) }
-    : { height: fullSheetHeight, paddingBottom: Math.max(insets.bottom, spacing[4]) };
+  // Leave a real top breathing room instead of choosing a device-specific sheet
+  // height. Short sheets stay intrinsic; only catalog surfaces claim this space.
+  const safeSheetHeight = Math.max(360, Math.round(height * 0.9) - insets.top);
+  const sheetSizing = size === 'near-full' || size === 'full'
+    ? { height: safeSheetHeight, paddingBottom: Math.max(insets.bottom, spacing[4]) }
+    : { maxHeight: safeSheetHeight, paddingBottom: Math.max(insets.bottom, spacing[4]) };
+  const contentStyle = size === 'near-full' || size === 'full'
+    ? styles.modalContentFill
+    : size === 'scrollable-content'
+      ? styles.modalContentScrollable
+      : styles.modalContentIntrinsic;
   const requestClose = () => {
     if (!closeDisabled) onRequestClose();
   };
@@ -89,7 +117,7 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
             <View style={{ flex: 1 }}><AppText variant="title2" weight="800">{title}</AppText>{subtitle ? <AppText variant="caption" tone="secondary">{subtitle}</AppText> : null}</View>
             <AppButton variant="icon" size="sm" onPress={requestClose} disabled={closeDisabled} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
           </View>
-          <View style={size === 'content' ? styles.modalContentCompact : styles.modalContent}>{children}</View>
+          <View style={contentStyle}>{children}</View>
           {footer ? <View style={styles.modalFooter}>{footer}</View> : null}
         </View>
       </View>
@@ -98,6 +126,10 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
 }
 
 export function FormActionRow({ label, value, onPress, accessibilityLabel, disabled }: { label: string; value: string; onPress: () => void; accessibilityLabel?: string; disabled?: boolean }) {
+  const theme = useAppTheme();
+  const { colors, motion } = theme;
+  const styles = createActionSheetStyles(theme);
+
   return (
     <InteractivePressable style={styles.actionRow} onPress={() => { Keyboard.dismiss(); onPress(); }} disabled={disabled} haptic="light" pressScale={motion.scale.card} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? `${label}: ${value}`}>
       <AppText variant="bodySmall" weight="700" style={{ flex: 1 }}>{label}</AppText>
@@ -108,6 +140,8 @@ export function FormActionRow({ label, value, onPress, accessibilityLabel, disab
 }
 
 export function DatePickerSheet({ visible, value, onClose, onConfirm }: { visible: boolean; value: string; onClose: () => void; onConfirm: (value: string) => void }) {
+  const theme = useAppTheme();
+  const { colors, spacing } = theme;
   const [draft, setDraft] = useState(value);
   useEffect(() => {
     if (visible) setDraft(value);
@@ -118,12 +152,14 @@ export function DatePickerSheet({ visible, value, onClose, onConfirm }: { visibl
       [today]: { marked: true, dotColor: colors.terracotta[600] },
       [draft]: { selected: true, selectedColor: colors.terracotta[500], selectedTextColor: colors.text.inverse },
     };
-  }, [draft]);
+  }, [colors.terracotta, colors.text.inverse, draft]);
   if (!visible) return null;
   return <InlinePicker title="Seleccionar fecha" onClose={onClose} onConfirm={() => onConfirm(draft)}><Calendar current={draft} markedDates={markedDates} onDayPress={(day) => { setDraft(day.dateString); void lightHaptic(); }} enableSwipeMonths firstDay={1} theme={{ backgroundColor: colors.background.base, calendarBackground: colors.background.base, textSectionTitleColor: colors.text.tertiary, monthTextColor: colors.text.primary, arrowColor: colors.terracotta[600], dayTextColor: colors.text.primary, todayTextColor: colors.terracotta[700], textDisabledColor: colors.text.muted, textDayFontWeight: '600', textMonthFontWeight: '800', textDayHeaderFontWeight: '700' }} accessibilityLabel={`Calendario. Fecha seleccionada: ${formatHumanDate(draft)}`} /><AppText variant="bodySmall" tone="secondary" align="center" style={{ marginTop: spacing[4] }}>{formatHumanDate(draft)}</AppText></InlinePicker>;
 }
 
 function WheelColumn({ values, selected, onSelect, accessibilityLabel }: { values: number[]; selected: number; onSelect: (value: number) => void; accessibilityLabel: string }) {
+  const theme = useAppTheme();
+  const styles = createActionSheetStyles(theme);
   const initialIndex = Math.max(0, values.indexOf(selected));
   const selectOffset = (offset: number) => {
     const index = Math.round(offset / WHEEL_ITEM_HEIGHT);
@@ -134,6 +170,9 @@ function WheelColumn({ values, selected, onSelect, accessibilityLabel }: { value
 }
 
 export function TimePickerSheet({ visible, value, onClose, onConfirm }: { visible: boolean; value: string; onClose: () => void; onConfirm: (value: string) => void }) {
+  const theme = useAppTheme();
+  const { spacing } = theme;
+  const styles = createActionSheetStyles(theme);
   const [hours, minutes] = value.split(':').map(Number);
   const [draftHour, setDraftHour] = useState(Number.isInteger(hours) ? hours : 9);
   const [draftMinute, setDraftMinute] = useState(Number.isInteger(minutes) ? Math.round(minutes / 5) * 5 % 60 : 0);
@@ -148,16 +187,114 @@ export function TimePickerSheet({ visible, value, onClose, onConfirm }: { visibl
   return <InlinePicker title="Seleccionar hora" onClose={onClose} onConfirm={() => onConfirm(`${String(draftHour).padStart(2, '0')}:${String(draftMinute).padStart(2, '0')}`)}><View style={styles.wheelRow}><View style={styles.wheelFrame} pointerEvents="none" /><WheelColumn values={hourValues} selected={draftHour} onSelect={setDraftHour} accessibilityLabel="Hora" /><AppText variant="title2" weight="800">:</AppText><WheelColumn values={minuteValues} selected={draftMinute} onSelect={setDraftMinute} accessibilityLabel="Minutos" /></View><AppText variant="bodySmall" tone="secondary" align="center" style={{ marginTop: spacing[4] }}>{`${String(draftHour).padStart(2, '0')}:${String(draftMinute).padStart(2, '0')}`}</AppText></InlinePicker>;
 }
 
-const styles = StyleSheet.create({
+const DURATION_QUICK_VALUES = [15, 30, 45, 60, 90, 120];
+
+export function DurationPickerSheet({ visible, value, onClose, onConfirm }: { visible: boolean; value: number | null; onClose: () => void; onConfirm: (value: number | null) => void }) {
+  const theme = useAppTheme();
+  const { colors, spacing } = theme;
+  const styles = createActionSheetStyles(theme);
+  const [draft, setDraft] = useState<number | null>(value);
+  const [customMinutes, setCustomMinutes] = useState<string>('');
+  const [showCustom, setShowCustom] = useState(false);
+
+  useEffect(() => {
+    if (visible) setDraft(value);
+  }, [value, visible]);
+
+  const handleQuickSelect = (minutes: number) => {
+    setDraft(minutes);
+    void lightHaptic();
+  };
+
+  const handleCustomConfirm = () => {
+    const minutes = parseInt(customMinutes, 10);
+    if (Number.isInteger(minutes) && minutes >= 1 && minutes <= 10080) {
+      setDraft(minutes);
+      setShowCustom(false);
+      setCustomMinutes('');
+    }
+  };
+
+  if (!visible) return null;
+  return (
+    <InlinePicker title="Duraci├│n estimada" onClose={onClose} onConfirm={() => onConfirm(draft)}>
+      <View style={styles.durationOptions}>
+        {DURATION_QUICK_VALUES.map((minutes) => (
+          <Pressable
+            key={minutes}
+            style={[styles.durationOption, draft === minutes && styles.durationOptionActive]}
+            onPress={() => handleQuickSelect(minutes)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: draft === minutes }}
+            accessibilityLabel={`${minutes} minutos`}
+          >
+            <AppText variant="body" weight={draft === minutes ? '800' : '600'} tone={draft === minutes ? 'primary' : 'secondary'}>
+              {minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)}h ${minutes % 60 ? minutes % 60 + 'min' : ''}`}
+            </AppText>
+          </Pressable>
+        ))}
+        <Pressable
+          style={styles.durationOptionCustom}
+          onPress={() => setShowCustom(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Duraci├│n personalizada"
+        >
+          <HomePlusIcon name="pencil" size={18} color={colors.terracotta[600]} />
+          <AppText variant="body" weight="600" tone="secondary">Personalizada</AppText>
+        </Pressable>
+      </View>
+
+      {showCustom && (
+        <View style={styles.customDurationInput}>
+          <TextInput
+            style={[styles.input, styles.customDurationTextInput]}
+            value={customMinutes}
+            onChangeText={setCustomMinutes}
+            placeholder="Minutos (1-10080)"
+            placeholderTextColor={colors.text.muted}
+            keyboardType="numeric"
+            autoFocus
+          />
+          <View style={styles.customDurationActions}>
+            <AppButton variant="secondary" size="sm" onPress={() => { setShowCustom(false); setCustomMinutes(''); }}>Cancelar</AppButton>
+            <AppButton size="sm" onPress={handleCustomConfirm}>Aceptar</AppButton>
+          </View>
+        </View>
+      )}
+
+      <AppText variant="bodySmall" tone="secondary" align="center" style={{ marginTop: spacing[4] }}>
+        {draft ? (draft < 60 ? `${draft} min` : `${Math.floor(draft / 60)}h ${draft % 60 ? draft % 60 + 'min' : ''}`) : 'Sin duraci├│n'}
+      </AppText>
+    </InlinePicker>
+  );
+}
+
+function createActionSheetStyles(theme: ReturnType<typeof useAppTheme>) {
+  const { colors, radius, shadows, spacing, touchTargets } = theme;
+
+  return StyleSheet.create({
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: colors.surface.overlay },
   backdropDismiss: { ...StyleSheet.absoluteFillObject, zIndex: 0 },
   modalSheet: { zIndex: 1, backgroundColor: colors.background.base, borderTopLeftRadius: radius.xxl, borderTopRightRadius: radius.xxl, paddingHorizontal: spacing[5], paddingTop: spacing[3], ...shadows.sheet },
   handle: { width: 44, height: 4, borderRadius: radius.pill, backgroundColor: colors.border.strong, alignSelf: 'center', marginBottom: spacing[3] },
   modalHeader: { minHeight: touchTargets.normal, flexDirection: 'row', alignItems: 'center', gap: spacing[3], marginBottom: spacing[4] },
-  modalContent: { flex: 1 }, modalContentCompact: { flexGrow: 0 }, modalFooter: { paddingTop: spacing[3], borderTopWidth: 1, borderTopColor: colors.border.subtle },
-  inlineOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 10, justifyContent: 'flex-end', backgroundColor: colors.background.base },
-  inlinePanel: { flex: 1, paddingHorizontal: spacing[5], paddingTop: spacing[3] },
+  modalContentFill: { flex: 1, minHeight: 0 },
+  modalContentIntrinsic: { flexShrink: 1, minHeight: 0 },
+  modalContentScrollable: { flexGrow: 1, flexShrink: 1, minHeight: 0 },
+  modalFooter: { flexShrink: 0, paddingTop: spacing[3], borderTopWidth: 1, borderTopColor: colors.border.subtle },
+  inlineOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: colors.surface.overlay },
+  inlinePanel: { flex: 1, zIndex: 1, backgroundColor: colors.background.base, paddingHorizontal: spacing[5], paddingTop: spacing[3] },
   inlineHeader: { minHeight: touchTargets.normal, flexDirection: 'row', alignItems: 'center', gap: spacing[2], marginBottom: spacing[5] }, inlineTitle: { flex: 1, textAlign: 'center' }, inlineContent: { flex: 1, position: 'relative' },
   actionRow: { minHeight: 56, paddingHorizontal: spacing[4], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.soft, flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, actionRowValue: { maxWidth: '58%', textAlign: 'right' },
   wheelRow: { height: WHEEL_ITEM_HEIGHT * 5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing[3] }, wheelFrame: { position: 'absolute', top: WHEEL_ITEM_HEIGHT * 2, left: 0, right: 0, height: WHEEL_ITEM_HEIGHT, zIndex: 1, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.terracotta[300], backgroundColor: colors.terracotta[50] }, wheelColumn: { width: 92, height: WHEEL_ITEM_HEIGHT * 5 }, wheelContent: { paddingVertical: WHEEL_ITEM_HEIGHT * 2 }, wheelItem: { height: WHEEL_ITEM_HEIGHT, alignItems: 'center', justifyContent: 'center' },
-});
+  durationOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing[2], justifyContent: 'center', paddingHorizontal: spacing[2] },
+  durationOption: { minWidth: 72, minHeight: 44, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.soft, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing[3], paddingVertical: spacing[2] },
+  durationOptionActive: { backgroundColor: colors.terracotta[500], borderColor: colors.terracotta[500] },
+  durationOptionCustom: { minWidth: 100, minHeight: 44, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.terracotta[100], backgroundColor: colors.terracotta[50], alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: spacing[1], paddingHorizontal: spacing[3], paddingVertical: spacing[2] },
+  customDurationInput: { gap: spacing[3], marginTop: spacing[3], paddingHorizontal: spacing[2] },
+  customDurationTextInput: { minHeight: 48, borderRadius: radius.lg, borderWidth: 1.5, borderColor: colors.border.default, backgroundColor: colors.surface.card, paddingHorizontal: spacing[4], paddingVertical: spacing[3], color: colors.text.primary, fontSize: 18, textAlign: 'center' },
+  customDurationActions: { flexDirection: 'row', gap: spacing[2], marginTop: spacing[2] },
+  input: { minHeight: 46, borderRadius: radius.lg, borderWidth: 1.5, borderColor: colors.border.default, backgroundColor: colors.surface.card, paddingHorizontal: spacing[4], paddingVertical: spacing[3], color: colors.text.primary, fontSize: 15 },
+  });
+}
+

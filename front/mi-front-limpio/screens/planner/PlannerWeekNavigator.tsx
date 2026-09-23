@@ -11,6 +11,7 @@ type Props = {
   onSelectDate: (date: Date) => void;
   getDayIndicator?: (date: Date) => number;
   showTodayLabel?: boolean;
+  showWeekHeader?: boolean;
 };
 
 const formatDayMonth = (date: Date) => date.toLocaleDateString('es-AR', { day: 'numeric', month: 'long' }).toUpperCase();
@@ -21,7 +22,7 @@ const formatWeekRange = (start: Date, end: Date) => {
   return `${formatDayMonth(start)} - ${formatDayMonth(end)}`;
 };
 
-export function PlannerWeekNavigator({ selectedDate, onSelectDate, getDayIndicator, showTodayLabel = false }: Props) {
+export function PlannerWeekNavigator({ selectedDate, onSelectDate, getDayIndicator, showTodayLabel = false, showWeekHeader = true }: Props) {
   const opacity = useRef(new Animated.Value(1)).current;
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
   const todayKey = dateToYMD(new Date());
@@ -37,11 +38,13 @@ export function PlannerWeekNavigator({ selectedDate, onSelectDate, getDayIndicat
   return (
     <View style={styles.shell}>
       {showTodayLabel ? <View style={styles.today}><AppText variant="bodySmall" weight="800">Hoy</AppText><AppText variant="caption" tone="secondary">{formatDayMonth(new Date())}</AppText></View> : null}
-      <View style={styles.weekHeader}>
-        <InteractivePressable style={styles.navButton} onPress={() => changeWeek(-7)} haptic="light" pressScale={motion.scale.icon} accessibilityRole="button" accessibilityLabel="Semana anterior"><HomePlusIcon name="chevron-back" size={20} color={colors.text.primary} /></InteractivePressable>
-        <InteractivePressable style={styles.rangeButton} onPress={() => onSelectDate(new Date())} haptic="light" pressScale={motion.scale.card} accessibilityRole="button" accessibilityLabel="Volver a la semana actual"><AppText variant="bodySmall" weight="800" numberOfLines={1}>{formatWeekRange(weekDays[0].date, weekDays[6].date)}</AppText></InteractivePressable>
-        <InteractivePressable style={styles.navButton} onPress={() => changeWeek(7)} haptic="light" pressScale={motion.scale.icon} accessibilityRole="button" accessibilityLabel="Semana siguiente"><HomePlusIcon name="chevron-forward" size={20} color={colors.text.primary} /></InteractivePressable>
-      </View>
+      {showWeekHeader ? (
+        <View style={styles.weekHeader}>
+          <InteractivePressable style={styles.navButton} onPress={() => changeWeek(-7)} haptic="light" pressScale={motion.scale.icon} accessibilityRole="button" accessibilityLabel="Semana anterior"><HomePlusIcon name="chevron-back" size={20} color={colors.text.primary} /></InteractivePressable>
+          <InteractivePressable style={styles.rangeButton} onPress={() => onSelectDate(new Date())} haptic="light" pressScale={motion.scale.card} accessibilityRole="button" accessibilityLabel="Volver a la semana actual"><AppText variant="bodySmall" weight="800" numberOfLines={1}>{formatWeekRange(weekDays[0].date, weekDays[6].date)}</AppText></InteractivePressable>
+          <InteractivePressable style={styles.navButton} onPress={() => changeWeek(7)} haptic="light" pressScale={motion.scale.icon} accessibilityRole="button" accessibilityLabel="Semana siguiente"><HomePlusIcon name="chevron-forward" size={20} color={colors.text.primary} /></InteractivePressable>
+        </View>
+      ) : null}
       <Animated.View style={[styles.dayRow, { opacity }]}>
         {weekDays.map((day) => {
           const dateKey = dateToYMD(day.date);

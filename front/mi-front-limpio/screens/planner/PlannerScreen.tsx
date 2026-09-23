@@ -29,11 +29,11 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
+import { RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import { AppText } from '../../components/ui';
-import { APP_ICONS, HomePlusIcon, type HomePlusIconName } from '../../constants/icons';
+import { ActionSheet, AppText, SegmentedControl } from '../../components/ui';
+import { APP_ICONS, HomePlusIcon } from '../../constants/icons';
 import { colors } from '../../constants/theme';
 import { getPlannerSummary, type PlannerSummary } from '../../services/plannerSummary';
 import {
@@ -47,7 +47,7 @@ import { useHousehold } from '../../context/HouseholdContext';
 import { usePlannerSheet } from '../../context/PlannerSheetContext';
 import { useFeatureFlags } from '../../context/FeatureFlagsContext';
 import { PlannerCalendarScreen } from './PlannerCalendarScreen';
-import { PlannerSchedulesScreen } from './PlannerSchedulesScreen';
+import { PlannerPlanListScreen } from './PlannerPlanListScreen';
 import { PlannerTasksScreen } from './PlannerTasksScreen';
 import { plannerStyles as S } from './plannerShared';
 import {
@@ -536,11 +536,6 @@ export function PlannerScreen() {
     setShowOverflow(false);
   }, [navigation]);
 
-  const openDraftRecovery = useCallback(() => {
-    navigation.navigate(ROUTE_NAMES.DraftRecovery);
-    setShowOverflow(false);
-  }, [navigation]);
-
   // -------------------------------------------------------------------------
   // 5. Resolve canonical global state (single authority)
   // -------------------------------------------------------------------------
@@ -671,41 +666,23 @@ export function PlannerScreen() {
       exitLabel="Salir de Calendario"
     >
       <SafeAreaView style={S.safe} edges={['top']}>
-        <Modal
+        <ActionSheet
           visible={showOverflow}
-          transparent
-          animationType="fade"
+          title="Planner"
           onRequestClose={() => setShowOverflow(false)}
+          size="content"
         >
-          <Pressable
-            style={S.overflowBackdrop}
-            onPress={() => setShowOverflow(false)}
-          >
-            <Pressable style={S.overflowPanel} onPress={(e) => e.stopPropagation()}>
-              <TouchableOpacity
-                style={S.overflowItem}
-                onPress={openPresetLibrary}
-              >
-                <HomePlusIcon name={APP_ICONS.planner.notes ?? 'albums-outline'} size={20} color={colors.text.primary} />
-                <AppText variant="body" weight="600" style={{ marginLeft: 12, flex: 1 }}>Presets</AppText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={S.overflowItem}
-                onPress={openDraftRecovery}
-              >
-                <HomePlusIcon name={APP_ICONS.planner.todo ?? 'document-text-outline'} size={20} color={colors.text.primary} />
-                <AppText variant="body" weight="600" style={{ marginLeft: 12, flex: 1 }}>Borradores</AppText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={S.overflowItem}
-                onPress={openTrash}
-              >
-                <HomePlusIcon name={APP_ICONS.planner.notes ?? 'trash-outline'} size={20} color={colors.text.primary} />
-                <AppText variant="body" weight="600" style={{ marginLeft: 12, flex: 1 }}>Papelera</AppText>
-              </TouchableOpacity>
-            </Pressable>
-          </Pressable>
-        </Modal>
+          <View style={{ gap: 8 }}>
+            <TouchableOpacity style={S.overflowItem} onPress={openPresetLibrary} accessibilityRole="button">
+              <HomePlusIcon name={APP_ICONS.planner.notes ?? 'albums-outline'} size={20} color={colors.text.primary} />
+              <AppText variant="body" weight="600" style={{ marginLeft: 12, flex: 1 }}>Biblioteca de presets</AppText>
+            </TouchableOpacity>
+            <TouchableOpacity style={S.overflowItem} onPress={openTrash} accessibilityRole="button">
+              <HomePlusIcon name="trash-outline" size={20} color={colors.text.primary} />
+              <AppText variant="body" weight="600" style={{ marginLeft: 12, flex: 1 }}>Papelera</AppText>
+            </TouchableOpacity>
+          </View>
+        </ActionSheet>
 
         <ScrollView
           style={S.scroll}
@@ -720,7 +697,7 @@ export function PlannerScreen() {
           {/* Header: title, Search entry (M7 gated, hidden by default), overflow */}
           <View style={[S.headerRow, { marginBottom: 8 }]}>
             <View style={{ flex: 1 }}>
-              <AppText variant="title1" accessibilityRole="header">Calendario</AppText>
+              <AppText variant="title1" weight="600" accessibilityRole="header">Planner</AppText>
             </View>
 
             {/* M7: Search entry point — only visible when flag + capability both true.
@@ -731,7 +708,7 @@ export function PlannerScreen() {
                 onPress={handleOpenSearch}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"
-                accessibilityLabel="Buscar en Calendario"
+                accessibilityLabel="Buscar en Planner"
                 accessibilityHint="Abrir búsqueda en Planner"
               >
                 <HomePlusIcon name="search-outline" size={22} color={colors.text.secondary} />
@@ -748,39 +725,13 @@ export function PlannerScreen() {
           </View>
 
           {/* Canonical tabs (single authority: PlannerTabKey from M1) */}
-          <View
-            style={S.topbarTabsContainer}
-            accessibilityRole="tablist"
-            importantForAccessibility="auto"
-          >
-            {PLANNER_TAB_KEYS.map((tabKey) => {
-              const active = activeTab === tabKey;
-              return (
-                <TouchableOpacity
-                  key={tabKey}
-                  style={[S.topbarTab, active && S.topbarTabActive]}
-                  onPress={() => handleTabSelect(tabKey)}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: active }}
-                  accessibilityLabel={tabLabel(tabKey)}
-                >
-                  <HomePlusIcon
-                    name={tabIcon(tabKey)}
-                    size={16}
-                    color={active ? colors.terracotta[700] : colors.text.tertiary}
-                  />
-                  <AppText
-                    variant="micro"
-                    tone={active ? 'primary' : 'tertiary'}
-                    weight={active ? '700' : '500'}
-                    style={active ? S.topbarTabTextActive : S.topbarTabText}
-                  >
-                    {tabLabel(tabKey)}
-                  </AppText>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <SegmentedControl
+            value={activeTab}
+            options={PLANNER_TAB_KEYS.map((tabKey) => ({ value: tabKey, label: tabLabel(tabKey) }))}
+            onChange={handleTabSelect}
+            density="compact"
+            style={{ marginBottom: 14 }}
+          />
 
           {toast ? (
             <View style={S.toastBox}>
@@ -832,7 +783,7 @@ export function PlannerScreen() {
           ) : null}
 
           {showActiveContent && activeTab === 'plans' ? (
-            <PlannerSchedulesScreen refreshKey={refreshKey} />
+            <PlannerPlanListScreen refreshKey={refreshKey} />
           ) : null}
         </ScrollView>
       </SafeAreaView>
@@ -849,23 +800,10 @@ function tabLabel(key: PlannerTabKey): string {
     case 'tasks':
       return 'Tareas';
     case 'events':
-      return 'Eventos';
+      return 'Calendario';
     case 'plans':
-      return 'Horarios';
+      return 'Planes';
     default:
       return String(key);
-  }
-}
-
-function tabIcon(key: PlannerTabKey): HomePlusIconName {
-  switch (key) {
-    case 'tasks':
-      return APP_ICONS.planner.todo ?? 'checkbox';
-    case 'events':
-      return APP_ICONS.planner.calendar ?? 'calendar';
-    case 'plans':
-      return 'time-outline';
-    default:
-      return 'grid';
   }
 }
