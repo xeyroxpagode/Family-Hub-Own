@@ -14,8 +14,8 @@ import { InteractivePressable } from './InteractivePressable';
 LocaleConfig.locales.es = {
   monthNames: ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
   monthNamesShort: ['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sep.', 'Oct.', 'Nov.', 'Dic.'],
-  dayNames: ['Domingo', 'Lunes', 'Martes', 'Mi├®rcoles', 'Jueves', 'Viernes', 'S├íbado'],
-  dayNamesShort: ['Dom.', 'Lun.', 'Mar.', 'Mi├®.', 'Jue.', 'Vie.', 'S├íb.'],
+  dayNames: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
+  dayNamesShort: ['Dom.', 'Lun.', 'Mar.', 'Mié.', 'Jue.', 'Vie.', 'Sáb.'],
   today: 'Hoy',
 };
 LocaleConfig.defaultLocale = 'es';
@@ -31,7 +31,7 @@ export const formatHumanDate = (value: string) => {
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
   if (date.getTime() === today.getTime()) return 'Hoy';
-  if (date.getTime() === tomorrow.getTime()) return 'Ma├▒ana';
+  if (date.getTime() === tomorrow.getTime()) return 'Mañana';
   return date.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
 };
 
@@ -217,7 +217,7 @@ export function DurationPickerSheet({ visible, value, onClose, onConfirm }: { vi
 
   if (!visible) return null;
   return (
-    <InlinePicker title="Duraci├│n estimada" onClose={onClose} onConfirm={() => onConfirm(draft)}>
+    <InlinePicker title="Duración estimada" onClose={onClose} onConfirm={() => onConfirm(draft)}>
       <View style={styles.durationOptions}>
         {DURATION_QUICK_VALUES.map((minutes) => (
           <Pressable
@@ -237,7 +237,7 @@ export function DurationPickerSheet({ visible, value, onClose, onConfirm }: { vi
           style={styles.durationOptionCustom}
           onPress={() => setShowCustom(true)}
           accessibilityRole="button"
-          accessibilityLabel="Duraci├│n personalizada"
+          accessibilityLabel="Duración personalizada"
         >
           <HomePlusIcon name="pencil" size={18} color={colors.terracotta[600]} />
           <AppText variant="body" weight="600" tone="secondary">Personalizada</AppText>
@@ -263,7 +263,7 @@ export function DurationPickerSheet({ visible, value, onClose, onConfirm }: { vi
       )}
 
       <AppText variant="bodySmall" tone="secondary" align="center" style={{ marginTop: spacing[4] }}>
-        {draft ? (draft < 60 ? `${draft} min` : `${Math.floor(draft / 60)}h ${draft % 60 ? draft % 60 + 'min' : ''}`) : 'Sin duraci├│n'}
+        {draft ? (draft < 60 ? `${draft} min` : `${Math.floor(draft / 60)}h ${draft % 60 ? draft % 60 + 'min' : ''}`) : 'Sin duración'}
       </AppText>
     </InlinePicker>
   );

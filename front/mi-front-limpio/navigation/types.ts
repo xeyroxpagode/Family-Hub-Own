@@ -23,7 +23,6 @@ export type PrivateStackParamList = {
 export type HomeTabParamList = {
   HomeTab: undefined;
   FamilyTab: undefined;
-  InventoryTab: undefined;
   QuickActionTab: undefined;
   PlannerTab: undefined;
   MoreTab: undefined;
