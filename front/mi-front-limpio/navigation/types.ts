@@ -17,6 +17,7 @@ export type PrivateStackParamList = {
   AccessSuspendedFallback: undefined;
   ProfileScreen: undefined;
   FeedFamiliar: undefined;
+  HomeCloudFileIntakeDev: undefined;
 };
 
 export type HomeTabParamList = {
@@ -32,6 +33,7 @@ export type MoreStackParamList = {
   MoreHome: undefined;
   Inventory: undefined;
   Family: undefined;
+  HomeCloudFiles: undefined;
   Finance: import('./financeNavigation').FinanceEntryParams | undefined;
   FinanceAccounts: {
     contextType: import('../services/finance/financeContext').FinanceContextType;

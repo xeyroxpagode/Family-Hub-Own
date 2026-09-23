@@ -11,6 +11,16 @@ import { colors, radius, spacing } from '../constants/theme';
 
 const MODULES = [
   {
+    id: 'homecloud',
+    label: 'HomeCloud',
+    description: 'Archivos del hogar',
+    icon: 'cloud-outline',
+    color: colors.info.base,
+    bg: colors.info.soft,
+    screen: 'HomeCloudFiles' as const,
+    isDemo: false,
+  },
+  {
     id: 'feed',
     label: 'Actividad',
     description: 'Actividad del hogar',

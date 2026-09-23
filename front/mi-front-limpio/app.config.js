@@ -1,6 +1,8 @@
 ﻿module.exports = ({ config }) => ({
   ...config,
 
+  plugins: [...(config.plugins || []), "expo-status-bar"],
+
   android: {
     ...config.android,
 

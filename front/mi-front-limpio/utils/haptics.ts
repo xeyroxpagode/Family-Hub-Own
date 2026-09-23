@@ -14,8 +14,14 @@ export const lightHaptic = () =>
 export const mediumHaptic = () =>
   runHaptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
 
+export const heavyHaptic = () =>
+  runHaptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy));
+
 export const authSuccessHaptic = () =>
   runHaptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
 
 export const authErrorHaptic = () =>
   runHaptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error));
+
+export const successHaptic = authSuccessHaptic;
+export const errorHaptic = authErrorHaptic;

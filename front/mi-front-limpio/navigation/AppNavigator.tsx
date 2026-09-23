@@ -16,6 +16,7 @@ import { StandardShell } from './StandardShell';
 import { PlannerReliabilityRuntimeOwner } from '../components/planner/PlannerReliabilityRuntimeOwner';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { FeedFamiliarScreen } from '../screens/feed/FeedFamiliarScreen';
+import { HomeCloudFileIntakeDevScreen } from '../screens/HomeCloudFileIntakeDevScreen';
 import { ExperienceSelectorScreen } from '../screens/ExperienceSelectorScreen';
 import { ExperienceResolver } from './ExperienceResolver';
 import { useExperience } from '../context/ExperienceContext';
@@ -237,6 +238,7 @@ const PrivateNavigator = () => {
       <PrivateStack.Screen name="AccessSuspendedFallback" component={AccessSuspendedFallbackScreen} />
       <PrivateStack.Screen name="ProfileScreen" component={ProfileScreen} />
       <PrivateStack.Screen name="FeedFamiliar" component={FeedFamiliarScreen} />
+      {__DEV__ && <PrivateStack.Screen name="HomeCloudFileIntakeDev" component={HomeCloudFileIntakeDevScreen} />}
     </PrivateStack.Navigator>
     </PlannerReliabilityRuntimeOwner>
   );
