@@ -11,12 +11,32 @@ const compileFrontendTests = ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.test.
 
 const commands = {
   'backend-syntax': () => runCommand('Backend/test syntax', 'node', ['tests/static/backend-syntax.js']),
+  'migration-uniqueness': () => runCommand('Migration uniqueness guard', 'node', ['tests/static/migration-uniqueness.js']),
   'backend-eslint': () => runCommand('Backend ESLint', 'npm', ['exec', 'eslint', '--', '.'], { cwd: backendRoot }),
   'frontend-lint': () => runCommand('Frontend ESLint', 'npm', ['run', 'lint'], { cwd: frontendRoot }),
   'frontend-typecheck': () => runCommand('Frontend TypeScript', 'npm', ['exec', 'tsc', '--', '--noEmit'], { cwd: frontendRoot }),
   'test-typecheck': () => runCommand('Test TypeScript', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.test.json', '--noEmit']),
   'testing-core': () => runCommand('Testing Core unit tests', 'node', ['--test', 'tests/core/testing-core.test.js']),
   'core-backend': () => runCommand('Core backend contracts', 'node', ['scripts/homeplus_core_contract_tests.js']),
+  'homecloud-2a-backend-structure': () => runCommand('HomeCloud 2A backend structure tests', 'node', ['scripts/homecloud_2a_backend_structure_tests.js']),
+  'homecloud-2a-intake-validation': () => runCommand('HomeCloud 2A intake validation tests', 'node', ['scripts/homecloud_2a_intake_validation_tests.js']),
+  'homecloud-2a-runtime-intake': () => runCommand('HomeCloud 2A runtime intake tests', 'node', ['scripts/homecloud_2a_runtime_intake_tests.js']),
+  'homecloud-2a-frontend-structure': () => runCommand('HomeCloud 2A frontend structure tests', 'node', ['scripts/homecloud_2a_upload_job_tests.js']),
+  'homecloud-2c-intake-validation': () => runCommand('HomeCloud 2C intake validation tests', 'node', ['scripts/homecloud_2c_intake_validation_tests.js']),
+  'homecloud-2c-runtime-intake': () => runCommand('HomeCloud 2C runtime intake tests', 'node', ['scripts/homecloud_2c_runtime_intake_tests.js']),
+  'homecloud-2c-frontend-structure': () => runCommand('HomeCloud 2C memory intake frontend structure tests', 'node', ['scripts/homecloud_2c_memory_intake_tests.js']),
+  'homecloud-2a-upload-job': () => {
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'HomeCloud 2A upload job runtime tests',
+      'node',
+      ['scripts/compiled/scripts/homecloud_2a_upload_job_runtime_tests.js'],
+      { env },
+    );
+  },
   'compile-frontend-tests': () => runCommand('Compile frontend tests', 'npm', compileFrontendTests),
   'compile-planner-reliability-tests': () => runCommand(
     'Compile Planner Reliability tests',
@@ -574,6 +594,8 @@ const suites = {
   'core-backend': ['testing-core', 'core-backend'],
   'core-frontend': ['compile-frontend-tests', 'core-frontend'],
   core: ['testing-core', 'core-backend', 'compile-frontend-tests', 'core-frontend'],
+  'homecloud-2a': ['homecloud-2a-backend-structure', 'homecloud-2a-intake-validation', 'homecloud-2a-runtime-intake', 'homecloud-2a-frontend-structure', 'compile-frontend-tests', 'homecloud-2a-upload-job'],
+  'homecloud-2c': ['homecloud-2c-intake-validation', 'homecloud-2c-runtime-intake', 'homecloud-2c-frontend-structure', 'compile-frontend-tests'],
   planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-plan-duplicate-dispatch', 'planner-p1-structure-contract', 'planner-p2a-milestone-editor', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration', 'planner-v1-s2-runtime-owner', 'planner-v1-s2-terminal-contract', 'planner-v1-s2-runtime-composition'],
   home: ['planner-v1-m9'],
   'planner-m1': ['compile-frontend-tests', 'planner-v1-m1'],
@@ -652,7 +674,7 @@ const suites = {
   telemetry: ['g0.4-contracts'],
   'audit-outbox': ['g0.4-contracts', 'g0.4-db'],
   quality: [
-    'frontend-typecheck', 'test-typecheck', 'backend-syntax', 'backend-eslint', 'frontend-lint',
+    'frontend-typecheck', 'test-typecheck', 'backend-syntax', 'migration-uniqueness', 'backend-eslint', 'frontend-lint',
     'testing-core', 'core-backend', 'compile-frontend-tests', 'core-frontend', 'g0.3',
     'g0.4-contracts', 'runtime-smoke', 'db', 'coverage', 'secrets', 'ci-syntax', 'whitespace',
   ],

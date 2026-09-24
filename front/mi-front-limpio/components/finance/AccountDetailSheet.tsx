@@ -570,7 +570,7 @@ function createStyles(theme: ReturnType<typeof useAppTheme>) {
     gap: spacing[1],
   },
   overflowDismissLayer: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 2,
   },
   overflowItem: {

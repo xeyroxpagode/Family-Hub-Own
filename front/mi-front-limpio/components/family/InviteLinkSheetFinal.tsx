@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   backdropDismiss: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 0,
   },
   sheet: {

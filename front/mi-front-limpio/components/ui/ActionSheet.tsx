@@ -274,7 +274,7 @@ function createActionSheetStyles(theme: ReturnType<typeof useAppTheme>) {
 
   return StyleSheet.create({
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: colors.surface.overlay },
-  backdropDismiss: { ...StyleSheet.absoluteFillObject, zIndex: 0 },
+  backdropDismiss: { ...StyleSheet.absoluteFill, zIndex: 0 },
   modalSheet: { zIndex: 1, backgroundColor: colors.background.base, borderTopLeftRadius: radius.xxl, borderTopRightRadius: radius.xxl, paddingHorizontal: spacing[5], paddingTop: spacing[3], ...shadows.sheet },
   handle: { width: 44, height: 4, borderRadius: radius.pill, backgroundColor: colors.border.strong, alignSelf: 'center', marginBottom: spacing[3] },
   modalHeader: { minHeight: touchTargets.normal, flexDirection: 'row', alignItems: 'center', gap: spacing[3], marginBottom: spacing[4] },
