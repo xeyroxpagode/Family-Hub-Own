@@ -21,7 +21,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const readService = require(path.join(root, 'backend/src/services/finance.read.service'));
 
-const MIGRATION = 'supabase/migrations/20260917000000_finance_transfer_commission_lifecycle_v1_1.sql';
+const MIGRATION = 'supabase/migrations/20260917000050_finance_transfer_commission_lifecycle_v1_1.sql';
 
 // ---------------------------------------------------------------------------
 // Minimal in-memory PostgREST mock honoring eq/in/is filters.
