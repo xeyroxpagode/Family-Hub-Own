@@ -1,6 +1,6 @@
 'use strict';
 
-const { getContentById, listFolders, getFolderById, listAlbums, getAlbumById, getAlbumMemberships } = require('../services/homecloudReadService');
+const { getContentById, listFolders, getFolderById, listAlbums, getAlbumById, getAlbumMemberships, listMemories } = require('../services/homecloudReadService');
 const { telemetry } = require('../config/telemetry');
 const { sendApiError } = require('../lib/httpErrors');
 
@@ -177,6 +177,37 @@ const getAlbumItemsController = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/homecloud/memories
+ * STAGE 4B.1 Memories read model: requires homecloud.view, household-scoped.
+ * Returns active Memories only (role=memory, lifecycle=active) in the canonical
+ * Timeline order, with the derived kind and the Album memberships the UI needs.
+ *
+ * Query params (all optional): limit, offset, year, albumId, query, kind.
+ */
+const listMemoriesController = async (req, res) => {
+  try {
+    const { limit, offset, year, albumId, query, kind } = req.query ?? {};
+    const result = await listMemories(req, { limit, offset, year, albumId, query, kind });
+
+    await telemetry.track('homecloud_memories_list', {
+      result: 'success',
+      count: result.memories.length,
+    }, {
+      requestId: req.requestId,
+      mutationId: req.mutationId,
+    }).catch(() => {});
+
+    return res.status(200).json(result);
+  } catch (error) {
+    await telemetry.track('homecloud_memories_list', { result: 'failure' }, {
+      requestId: req.requestId,
+      mutationId: req.mutationId,
+    }).catch(() => {});
+    return sendApiError(res, error, req);
+  }
+};
+
 module.exports = {
   getContentByIdController,
   listFoldersController,
@@ -184,4 +215,5 @@ module.exports = {
   listAlbumsController,
   getAlbumByIdController,
   getAlbumItemsController,
+  listMemoriesController,
 };

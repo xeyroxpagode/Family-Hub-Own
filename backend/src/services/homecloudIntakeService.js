@@ -35,6 +35,7 @@ const { mapContentRowToDto } = require('../lib/homecloudMappers');
 const { validateRegisterPayload, isMemoryMediaMime } = require('../lib/homecloudIntakeValidation');
 const { createHttpError } = require('../lib/httpErrors');
 const { sanitizeCorrelationId } = require('../lib/mutationContracts');
+const { attemptHomeCloudPreview } = require('./homecloudPreviewService');
 
 const ORIGINAL_BUCKET = getHomeCloudBucket('original');
 
@@ -469,18 +470,57 @@ async function verifyHomeCloudOriginal(req, contentId) {
 }
 
 /**
+ * STAGE 4B.1 — run the best-effort preview attempt for an ACTIVE row and
+ * return the row to report back.
+ *
+ * Guarantees, in order:
+ *   1. Only a binary MEMORY is even considered. A File and a Written Memory
+ *      are never previewed.
+ *   2. The attempt can never throw into finalize.
+ *   3. When nothing was generated, the already-loaded row is returned as-is
+ *      (hasPreview stays truthful: false).
+ *   4. When a preview WAS generated, the row is re-read so hasPreview in the
+ *      response reflects reality.
+ *
+ * @param {Object|null} activeRow freshly loaded homecloud_contents row
+ * @returns {Promise<Object|null>} row to map into the finalize DTO
+ */
+async function runPreviewAfterActive(activeRow) {
+  if (!activeRow || activeRow.role !== 'memory') return activeRow;
+  if (activeRow.written_text !== null && activeRow.written_text !== undefined) return activeRow;
+
+  const outcome = await attemptHomeCloudPreview(activeRow.id);
+  if (!outcome.generated) return activeRow;
+
+  const { data: refreshed } = await supabaseAdmin
+    .from('homecloud_contents')
+    .select('*')
+    .eq('id', activeRow.id)
+    .maybeSingle();
+  return refreshed ?? activeRow;
+}
+
+/**
  * FINALIZE — idempotent staging -> active transition.
  *
  * BINARY content: verifies the original exists (never trusts a client claim),
- * then sets uploaded_at to now() strictly at canonical finalize. Does NOT
- * generate previews.
+ * then sets uploaded_at to now() strictly at canonical finalize.
  *
  * WRITTEN Memory: NO Storage verify (there are no bytes). The DB purity
  * constraints already guarantee written_text exists and every binary field is
  * NULL, so finalize only flips lifecycle to active. uploaded_at REMAINS NULL
  * because binary custody never happened.
  *
+ * STAGE 4B.1 — PREVIEW FOUNDATION (best-effort, AFTER the content is active):
+ *   content active -> preview generation attempt -> persist preview_storage_path
+ * The lifecycle transition is already committed before the attempt starts, so
+ * a preview failure can NEVER roll finalize back: the content simply stays
+ * active with preview_storage_path = NULL and the original remains the
+ * authority. Files and Written Memories are never previewed.
+ *
  * Safe replay: if already active, return success without touching uploaded_at.
+ * A replay re-attempts the (idempotent) preview, which is also the recovery
+ * path when the image codec was unavailable on the first attempt.
  */
 async function finalizeHomeCloudContent(req, contentId) {
   const context = await getHomeCloudContext(req);
@@ -510,7 +550,10 @@ async function finalizeHomeCloudContent(req, contentId) {
       .select('*')
       .eq('id', contentId)
       .single();
-    return mapContentRowToDto(activeRow);
+    // Replay is also the preview retry path: the attempt is idempotent and can
+    // never fail the replay.
+    const retried = await runPreviewAfterActive(activeRow);
+    return mapContentRowToDto(retried ?? activeRow);
   }
 
   if (content.lifecycle !== 'staging') {
@@ -582,10 +625,13 @@ async function finalizeHomeCloudContent(req, contentId) {
       .select('*')
       .eq('id', contentId)
       .single();
-    return mapContentRowToDto(winner);
+    return mapContentRowToDto(await runPreviewAfterActive(winner));
   }
 
-  return mapContentRowToDto(finalized);
+  // Content is ALREADY active and committed at this point. The preview attempt
+  // below is strictly best-effort: any failure leaves the Memory active with
+  // preview_storage_path = NULL and never rolls finalize back.
+  return mapContentRowToDto(await runPreviewAfterActive(finalized));
 }
 
 module.exports = {

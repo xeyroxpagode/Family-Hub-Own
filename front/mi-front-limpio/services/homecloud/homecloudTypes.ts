@@ -19,9 +19,28 @@
  *
  * UploadLocalArtifact (homecloudUploadTypes.ts) is NOT weakened: it keeps
  * representing a strict BINARY local artifact (mime/size/uri required).
+ *
+ * STAGE 4B.1 — Memories read model:
+ *   - HomeCloudMemoryKind is DERIVED server-side from the persisted shape
+ *     (written_text IS NOT NULL / mime_type family). It is NOT a stored
+ *     column and it is NOT derived from `role`.
+ *   - HomeCloudMemoryListItem is the Timeline projection: the canonical safe
+ *     Memory DTO plus the derived kind and the Album memberships needed by
+ *     the UI. Albums are never embedded in the Memory; homecloud_album_items
+ *     stays the membership authority.
+ *   - `lifecycle` is NOT projected: the read model returns active Memories
+ *     only and the Memory contract has no lifecycle field.
+ *   - hasPreview IS the preview availability signal. Preview access semantics
+ *     are unchanged: ask for a bounded signed URL on demand with
+ *     fetchHomeCloudContentAccess(contentId, 'preview') and handle the typed
+ *     'preview_unavailable' result. No preview URL is ever embedded in a read
+ *     response, and no signed URL is persisted.
  */
 
 export type HomeCloudContentRole = 'file' | 'memory';
+
+/** Derived Memory kind. Never stored, never derived from `role`. */
+export type HomeCloudMemoryKind = 'written' | 'image' | 'video' | 'audio';
 
 /** Common safe fields shared by File and Memory.
  * Binary-only fields are nullable at the base because a Written Memory has
@@ -80,6 +99,46 @@ export interface HomeCloudMemory extends HomeCloudContentBase {
 
 /** Discriminated union: narrow by `role` field. */
 export type HomeCloudContent = HomeCloudFile | HomeCloudMemory;
+
+/**
+ * STAGE 4B.1 — one row of the Memories read model (Memories Root / Timeline).
+ *
+ * Carries everything a card needs without asking Storage for anything:
+ * the derived kind to pick the card representation, the honest semantic date
+ * components to group by Year / Month, hasPreview to decide whether to ask
+ * for a signed preview, and albumIds for the album chips.
+ */
+export interface HomeCloudMemoryListItem extends HomeCloudMemory {
+  /** Derived from the persisted shape server-side. */
+  readonly kind: HomeCloudMemoryKind;
+  /** Album memberships projected from homecloud_album_items (ids only). */
+  readonly albumIds: readonly string[];
+}
+
+/** Optional filters for the Memories read model. All are AND-combined. */
+export interface HomeCloudMemoriesQuery {
+  /** Page size. Server default 50, hard maximum 100. */
+  readonly limit?: number;
+  /** Page offset. Stable: the server order is a total order. */
+  readonly offset?: number;
+  /** Semantic year filter. Matches exact, month_year and year precision. */
+  readonly year?: number;
+  /** Restrict to one Album of the current household. */
+  readonly albumId?: string;
+  /** Textual query over caption, writtenText and displayName. */
+  readonly query?: string;
+  /** Restrict to one derived kind. */
+  readonly kind?: HomeCloudMemoryKind;
+}
+
+/**
+ * One page of the Memories read model.
+ * nextOffset is null when the page is the last one.
+ */
+export interface HomeCloudMemoriesPage {
+  readonly memories: readonly HomeCloudMemoryListItem[];
+  readonly nextOffset: number | null;
+}
 
 /** Type guards for narrowing. */
 export function isHomeCloudFile(content: HomeCloudContent): content is HomeCloudFile {

@@ -38,6 +38,12 @@ router.get('/content/:contentId/access', storageController.getHomeCloudContentAc
 // Returns safe discriminated DTO (File | Memory)
 router.get('/content/:contentId', readController.getContentByIdController)
 
+// Stage 4B.1: Memories read model (Memories Root / Timeline data source).
+// Active memories only (role=memory, lifecycle=active), canonical Timeline
+// order, stable limit/offset pagination, derived kind + album memberships.
+// Query: limit, offset, year, albumId, query, kind
+router.get('/memories', readController.listMemoriesController)
+
 // Folders: list and get by ID (protected, household-scoped)
 // No lifecycle on folders; stable ordering by name
 router.get('/folders', readController.listFoldersController)

@@ -1,7 +1,16 @@
 import { requestJson } from '../api';
 import { plannerCache } from '../planner/plannerCache';
 import { plannerKeys } from '../planner/plannerKeys';
-import type { HomeCloudContent, HomeCloudFolder, HomeCloudAlbum, HomeCloudAlbumItem, HomeCloudAccessVariant, HomeCloudAccessResult } from './homecloudTypes';
+import type {
+  HomeCloudContent,
+  HomeCloudFolder,
+  HomeCloudAlbum,
+  HomeCloudAlbumItem,
+  HomeCloudAccessVariant,
+  HomeCloudAccessResult,
+  HomeCloudMemoriesQuery,
+  HomeCloudMemoriesPage,
+} from './homecloudTypes';
 
 /**
  * HomeCloud HC-1F — Frontend Read Services.
@@ -15,11 +24,11 @@ import type { HomeCloudContent, HomeCloudFolder, HomeCloudAlbum, HomeCloudAlbumI
  * - list albums
  * - get album by ID
  * - album membership primitive
+ * - list Memories (STAGE 4B.1 read model)
  * - private content access (contentId + variant)
  *
  * Uses existing plannerCache/plannerKeys infrastructure.
  * Does NOT create screens or parallel cache framework.
- * Does NOT implement Files/Memories-specific read models.
  */
 
 export interface HomeCloudScope {
@@ -334,6 +343,47 @@ export async function fetchHomeCloudAlbumItemsCached(
     plannerCache.setError(key, error instanceof Error ? error : new Error(String(error)), contextToken);
     throw error;
   }
+}
+
+// --- Memories read model (STAGE 4B.1) ---
+
+/**
+ * Build the Memories query string. Only defined filters are sent, so the
+ * server keeps its own defaults for the rest.
+ */
+function memoriesQueryString(query?: HomeCloudMemoriesQuery): string {
+  const params = new URLSearchParams();
+  if (query?.limit !== undefined) params.set('limit', String(query.limit));
+  if (query?.offset !== undefined) params.set('offset', String(query.offset));
+  if (query?.year !== undefined) params.set('year', String(query.year));
+  if (query?.albumId !== undefined) params.set('albumId', query.albumId);
+  if (query?.query !== undefined) params.set('query', query.query);
+  if (query?.kind !== undefined) params.set('kind', query.kind);
+  const encoded = params.toString();
+  return encoded ? `?${encoded}` : '';
+}
+
+/**
+ * List active Memories for the current household (protected).
+ *
+ * The single read primitive a future Memories Root / Timeline needs: canonical
+ * server order, stable limit/offset pagination, derived kind and album
+ * memberships included in the response. No screen is built here.
+ *
+ * Preview access is NOT included: a card reads `hasPreview` and, only when
+ * true, asks fetchHomeCloudContentAccess(contentId, 'preview') for a bounded
+ * signed URL. A missing preview answers with the typed 'preview_unavailable'
+ * result instead of an error.
+ */
+export async function listMemories(
+  accessToken: string,
+  query?: HomeCloudMemoriesQuery,
+  options?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<HomeCloudMemoriesPage> {
+  return requestJson<HomeCloudMemoriesPage>(
+    `/api/homecloud/memories${memoriesQueryString(query)}`,
+    { accessToken, signal: options?.signal, timeoutMs: options?.timeoutMs, operationKind: 'READ_ONLY' },
+  );
 }
 
 // --- Private Binary Access ---
