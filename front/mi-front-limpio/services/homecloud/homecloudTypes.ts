@@ -1,46 +1,80 @@
 /**
- * HomeCloud HC-1F — Frontend Type Contracts.
+ * HomeCloud STAGE 4A.2 — Frontend Type Contracts.
  *
- * Authority: HC-1F Product Truth.
+ * Authority: Memories V2 approved contract + HC-1F Product Truth.
  *
  * Safe discriminated union for HomeCloud content.
  * Normal reads NEVER expose storage internals (original_storage_path,
  * preview_storage_path, bucket names, signed URLs).
  *
  * hasPreview is derived from preview_storage_path IS NOT NULL.
- * No hasOriginal field (active content always has original).
+ *
+ * TWO content forms share one identity table:
+ * - BINARY content (File, image/video/audio Memory): displayName/mimeType/
+ *   sizeBytes are always present. Files keep them strictly non-null (the DB
+ *   file invariant guarantees a File is always fully binary).
+ * - WRITTEN Memory: writtenText is the principal content; the binary fields
+ *   (displayName/mimeType/sizeBytes) are null, uploadedAt stays null (no
+ *   binary custody ever happened).
+ *
+ * UploadLocalArtifact (homecloudUploadTypes.ts) is NOT weakened: it keeps
+ * representing a strict BINARY local artifact (mime/size/uri required).
  */
 
 export type HomeCloudContentRole = 'file' | 'memory';
 
-/** Common safe fields shared by File and Memory. */
+/** Common safe fields shared by File and Memory.
+ * Binary-only fields are nullable at the base because a Written Memory has
+ * none of them; the File branch narrows them back to strict binary types.
+ */
 export interface HomeCloudContentBase {
   readonly id: string;
   readonly role: HomeCloudContentRole;
-  readonly displayName: string;
-  readonly mimeType: string;
+  readonly displayName: string | null;
+  readonly mimeType: string | null;
   readonly extension: string | null;
-  readonly sizeBytes: number;
+  readonly sizeBytes: number | null;
   readonly uploadedByMemberId: string | null;
   readonly uploadedAt: string | null;
   readonly hasPreview: boolean;
+  /** Persisted Memory-model contract for the future Resurfacing stage.
+   *  Always false for Files; Memories may hide from resurfacing. */
+  readonly hiddenFromResurfacing: boolean;
 }
 
-/** File-specific metadata (role = 'file'). */
+/** File-specific metadata (role = 'file').
+ * A File is ALWAYS binary: the DB file invariant guarantees displayName,
+ * mimeType and sizeBytes are present.
+ */
 export interface HomeCloudFile extends HomeCloudContentBase {
   readonly role: 'file';
+  readonly displayName: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
   readonly folderId: string | null;
   readonly documentDate: string | null;
   readonly note: string | null;
 }
 
 /** Memory-specific metadata (role = 'memory').
- * MIME may be image/*, video/*, or audio/*.
+ * Binary Memories have writtenText = null and MIME image/*, video/* or audio/*.
+ * Written Memories carry their principal content in writtenText with all
+ * binary fields null and uploadedAt null (no bytes were ever in custody).
+ *
+ * Semantic date contract:
+ * - exact: capturedAt + capturedYear + capturedMonth (coherent, UTC)
+ * - month_year: capturedYear + capturedMonth (no capturedAt)
+ * - year: capturedYear only
+ * - unknown: all null
+ * A partial date is NEVER represented with a fake capturedAt timestamp.
  */
 export interface HomeCloudMemory extends HomeCloudContentBase {
   readonly role: 'memory';
   readonly caption: string | null;
+  readonly writtenText: string | null;
   readonly capturedAt: string | null;
+  readonly capturedYear: number | null;
+  readonly capturedMonth: number | null;
   readonly capturePrecision: 'exact' | 'month_year' | 'year' | 'unknown';
 }
 

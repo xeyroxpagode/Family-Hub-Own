@@ -146,6 +146,7 @@ try {
         original_storage_path: 'test/file.pdf',
         uploaded_by_member_id: memberIdContributor,
         lifecycle: 'active',
+        uploaded_at: new Date().toISOString(),
       })
       .select()
       .single();
@@ -162,7 +163,10 @@ try {
         original_storage_path: 'test/photo.jpg',
         uploaded_by_member_id: memberIdContributor,
         lifecycle: 'active',
+        uploaded_at: new Date().toISOString(),
         captured_at: new Date().toISOString(),
+        captured_year: new Date().getUTCFullYear(),
+        captured_month: new Date().getUTCMonth() + 1,
         capture_precision: 'exact',
       })
       .select()
@@ -452,6 +456,7 @@ try {
       size_bytes: 50,
       original_storage_path: 'test/service.txt',
       lifecycle: 'active',
+      uploaded_at: new Date().toISOString(),
     })
     .select()
     .single();

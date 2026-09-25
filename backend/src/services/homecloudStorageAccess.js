@@ -18,6 +18,10 @@
  *
  * Client NEVER supplies bucket or path.
  * Signed URLs are bounded, not persisted, re-issued on demand.
+ *
+ * Written Memories have no binary: variant=original is denied with the typed
+ * domain error homecloud_content_has_no_binary (409). variant=preview keeps
+ * the canonical preview_unavailable result (no fake paths are ever invented).
  */
 
 const { supabaseAdmin } = require('../config/supabase');
@@ -79,7 +83,7 @@ async function createHomeCloudContentAccess({ authContext, contentId, variant, o
 
   const { data: content, error: contentErr } = await supabaseAdmin
     .from('homecloud_contents')
-    .select('id, household_id, role, mime_type, size_bytes, original_storage_path, preview_storage_path, lifecycle, uploaded_at')
+    .select('id, household_id, role, mime_type, size_bytes, original_storage_path, preview_storage_path, lifecycle, uploaded_at, written_text')
     .eq('id', contentId)
     .single();
 
@@ -107,6 +111,17 @@ async function createHomeCloudContentAccess({ authContext, contentId, variant, o
   let storagePath;
 
   if (variant === 'original') {
+    // A Written Memory has no binary at all: the requested variant is
+    // structurally impossible. 409 (not 404): the content exists and is
+    // active, the request conflicts with the content's shape. Never a
+    // 500 storage_path_missing.
+    if (content.written_text !== null) {
+      throw createHttpError(
+        409,
+        'Un recuerdo escrito no tiene binario.',
+        'homecloud_content_has_no_binary',
+      );
+    }
     // Original is required for ACTIVE content (uploaded_at != null)
     if (!content.original_storage_path) {
       throw createHttpError(500, 'Original storage path missing for active content', 'storage_path_missing');

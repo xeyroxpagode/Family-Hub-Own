@@ -1,18 +1,26 @@
 'use strict';
 
 /**
- * HomeCloud HC-2A — Intake Foundation Service.
+ * HomeCloud STAGE 4A.2 — Intake Foundation Service.
  *
- * Authority: HC-2A Product Truth + HC-1A..HC-1G frozen foundations.
+ * Authority: Memories V2 approved contract + HC-1A..HC-1G frozen foundations.
  *
- * Canonical upload/intake lifecycle for ALL future HomeCloud intake flows
- * (Files, Memories, Shared Capture). One reusable engine, no generic Upload
- * product screen.
+ * Canonical upload/intake lifecycle for ALL HomeCloud intake flows
+ * (Files, binary Memories, Written Memories, Shared Capture). One reusable
+ * engine, no generic Upload product screen.
  *
  *  register   -> create semantic STAGING row         (homecloud.contribute)
  *  upload     -> single-object signed upload auth    (homecloud.contribute)
  *  verify     -> server confirms original exists      (privileged)
- *  finalize   -> staging -> active, uploaded_at set   (homecloud.contribute)
+ *  finalize   -> staging -> active                    (homecloud.contribute)
+ *
+ * BINARY content (File, image/video/audio Memory) keeps the exact HC-2A
+ * Shared Upload Engine flow: register -> upload -> verify -> finalize with
+ * uploaded_at set at finalize.
+ *
+ * WRITTEN Memory (writtenText) has NO bytes: register -> finalize directly.
+ * No UploadJob, no signed upload, no Storage verify. uploaded_at stays NULL
+ * forever because binary custody never happened.
  *
  * The client NEVER chooses bucket, path, household, lifecycle, uploaded_at.
  * Authorization originates server-side from: authenticated member + canonical
@@ -131,8 +139,11 @@ async function ensureReplayAlbumConsistency(context, contentId, requestedAlbumId
  * REGISTER — create a semantic STAGING row.
  *
  * Requires homecloud.contribute. Household resolved server-side, never trusted
- * from client. lifecycle always 'staging', uploaded_at always NULL, storage
- * path always the canonical {household_id}/{content_id}/original.
+ * from client. lifecycle always 'staging', uploaded_at always NULL.
+ *
+ * BINARY content: storage path is the canonical {household_id}/{content_id}/original.
+ * WRITTEN Memory: identified by a present writtenText; no binary metadata and
+ * NO storage path are generated (there are no bytes to custody).
  *
  * Idempotent by client-supplied intakeRequestId (unique per Household).
  */
@@ -141,8 +152,11 @@ async function registerHomeCloudContent(req, payload) {
   await requireHomeCloudContribute(context);
 
   const normalized = validateRegisterPayload(payload);
+  const isWritten = normalized.writtenText !== null;
 
-  if (normalized.role === 'memory' && !isMemoryMediaMime(normalized.mimeType)) {
+  // Binary Memories keep the frozen media families. Written Memories carry
+  // their content in writtenText (no MIME at all).
+  if (!isWritten && normalized.role === 'memory' && !isMemoryMediaMime(normalized.mimeType)) {
     throw createHttpError(
       400,
       'Un recuerdo debe ser image/*, video/* o audio/*.',
@@ -220,29 +234,55 @@ async function registerHomeCloudContent(req, payload) {
   // here and build the canonical path directly.
   const { randomUUID } = require('crypto');
   contentId = randomUUID();
-  const originalPath = getHomeCloudOriginalPath(context.householdId, contentId);
+  const originalPath = isWritten
+    ? null
+    : getHomeCloudOriginalPath(context.householdId, contentId);
 
-  const insertPayload = {
-    id: contentId,
-    household_id: context.householdId,
-    role: normalized.role,
-    display_name: normalized.displayName,
-    mime_type: normalized.mimeType,
-    extension: normalized.extension,
-    size_bytes: normalized.sizeBytes,
-    original_storage_path: originalPath,
-    uploaded_at: null,
-    lifecycle: 'staging',
-    folder_id: normalized.folderId ?? null,
-    intake_request_id: intakeRequestId,
-  };
+  let insertPayload;
+  if (isWritten) {
+    // WRITTEN Memory: no binary metadata, no storage path, no uploaded_at
+    // custody. lifecycle starts at 'staging' like the canonical creation path.
+    insertPayload = {
+      id: contentId,
+      household_id: context.householdId,
+      role: 'memory',
+      written_text: normalized.writtenText,
+      uploaded_at: null,
+      lifecycle: 'staging',
+      intake_request_id: intakeRequestId,
+      hidden_from_resurfacing: normalized.hiddenFromResurfacing,
+      caption: null,
+      captured_at: normalized.capturedAt,
+      captured_year: normalized.capturedYear,
+      captured_month: normalized.capturedMonth,
+      capture_precision: normalized.capturePrecision,
+    };
+  } else {
+    insertPayload = {
+      id: contentId,
+      household_id: context.householdId,
+      role: normalized.role,
+      display_name: normalized.displayName,
+      mime_type: normalized.mimeType,
+      extension: normalized.extension,
+      size_bytes: normalized.sizeBytes,
+      original_storage_path: originalPath,
+      uploaded_at: null,
+      lifecycle: 'staging',
+      folder_id: normalized.folderId ?? null,
+      intake_request_id: intakeRequestId,
+      hidden_from_resurfacing: normalized.hiddenFromResurfacing,
+    };
+  }
 
   if (normalized.role === 'file') {
     insertPayload.document_date = normalized.documentDate;
     insertPayload.note = normalized.note;
-  } else {
+  } else if (!isWritten) {
     insertPayload.caption = normalized.caption;
     insertPayload.captured_at = normalized.capturedAt;
+    insertPayload.captured_year = normalized.capturedYear;
+    insertPayload.captured_month = normalized.capturedMonth;
     insertPayload.capture_precision = normalized.capturePrecision;
   }
 
@@ -305,7 +345,8 @@ async function registerHomeCloudContent(req, payload) {
  * canonical original path of a KNOWN staging content of the SAME Household.
  *
  * The client receives authorization for exactly one intended staging object.
- * No broad path/bucket power.
+ * No broad path/bucket power. BINARY content only: a Written Memory has no
+ * bytes and is denied with a typed domain error.
  */
 async function authorizeHomeCloudOriginalUpload(req, contentId) {
   const context = await getHomeCloudContext(req);
@@ -317,7 +358,7 @@ async function authorizeHomeCloudOriginalUpload(req, contentId) {
 
   const { data: content, error: contentErr } = await supabaseAdmin
     .from('homecloud_contents')
-    .select('id, household_id, lifecycle, original_storage_path, size_bytes')
+    .select('id, household_id, lifecycle, original_storage_path, size_bytes, written_text')
     .eq('id', contentId)
     .maybeSingle();
 
@@ -329,6 +370,13 @@ async function authorizeHomeCloudOriginalUpload(req, contentId) {
   }
   if (content.lifecycle !== 'staging') {
     throw createHttpError(409, 'El contenido ya no está en estado de ingesta.', 'homecloud_not_staging');
+  }
+  if (content.written_text !== null) {
+    throw createHttpError(
+      409,
+      'Un recuerdo escrito no tiene binario que cargar.',
+      'homecloud_content_has_no_binary',
+    );
   }
 
   const canonicalPath = getHomeCloudOriginalPath(content.household_id, contentId);
@@ -357,6 +405,11 @@ async function authorizeHomeCloudOriginalUpload(req, contentId) {
 /**
  * VERIFY — confirm the original object exists at the canonical path (and size
  * matches when reported). Does NOT finalize.
+ *
+ * A Written Memory has no binary to verify. The answer is idempotent and
+ * state-independent: there is nothing to check, so the operation reports
+ * `verified: true, skipped: 'no_binary'`. The Shared Upload Engine never
+ * calls this for Written content because Written never enters an UploadJob.
  */
 async function verifyHomeCloudOriginal(req, contentId) {
   const context = await getHomeCloudContext(req);
@@ -368,7 +421,7 @@ async function verifyHomeCloudOriginal(req, contentId) {
 
   const { data: content, error: contentErr } = await supabaseAdmin
     .from('homecloud_contents')
-    .select('id, household_id, lifecycle, original_storage_path, size_bytes')
+    .select('id, household_id, lifecycle, original_storage_path, size_bytes, written_text')
     .eq('id', contentId)
     .maybeSingle();
 
@@ -377,6 +430,9 @@ async function verifyHomeCloudOriginal(req, contentId) {
   }
   if (!content || content.household_id !== context.householdId) {
     throw createHttpError(404, 'Contenido no encontrado.', 'homecloud_content_not_found');
+  }
+  if (content.written_text !== null) {
+    return { verified: true, skipped: 'no_binary', contentId };
   }
   if (content.lifecycle !== 'staging') {
     throw createHttpError(409, 'El contenido ya no está en estado de ingesta.', 'homecloud_not_staging');
@@ -413,8 +469,16 @@ async function verifyHomeCloudOriginal(req, contentId) {
 }
 
 /**
- * FINALIZE — idempotent staging -> active transition, setting uploaded_at to
- * now() strictly at canonical finalize. Does NOT generate previews.
+ * FINALIZE — idempotent staging -> active transition.
+ *
+ * BINARY content: verifies the original exists (never trusts a client claim),
+ * then sets uploaded_at to now() strictly at canonical finalize. Does NOT
+ * generate previews.
+ *
+ * WRITTEN Memory: NO Storage verify (there are no bytes). The DB purity
+ * constraints already guarantee written_text exists and every binary field is
+ * NULL, so finalize only flips lifecycle to active. uploaded_at REMAINS NULL
+ * because binary custody never happened.
  *
  * Safe replay: if already active, return success without touching uploaded_at.
  */
@@ -428,7 +492,7 @@ async function finalizeHomeCloudContent(req, contentId) {
 
   const { data: content, error: contentErr } = await supabaseAdmin
     .from('homecloud_contents')
-    .select('id, household_id, lifecycle, original_storage_path, uploaded_at')
+    .select('id, household_id, lifecycle, original_storage_path, uploaded_at, written_text')
     .eq('id', contentId)
     .maybeSingle();
 
@@ -451,6 +515,37 @@ async function finalizeHomeCloudContent(req, contentId) {
 
   if (content.lifecycle !== 'staging') {
     throw createHttpError(409, 'El contenido no puede finalizarse desde su estado actual.', 'homecloud_not_staging');
+  }
+
+  if (content.written_text !== null) {
+    // Written Memory: no bytes were ever taken into custody. The DB
+    // (homecloud_contents_written_purity_check) guarantees uploaded_at and
+    // original_storage_path are NULL, so only the lifecycle flips and
+    // uploaded_at stays NULL forever.
+    const { data: writtenFinalized, error: writtenUpdateErr } = await supabaseAdmin
+      .from('homecloud_contents')
+      .update({ lifecycle: 'active' })
+      .eq('id', contentId)
+      .eq('household_id', context.householdId)
+      .eq('lifecycle', 'staging')
+      .select('*')
+      .maybeSingle();
+
+    if (writtenUpdateErr) {
+      throw createHttpError(500, writtenUpdateErr.message, 'homecloud_finalize_failed');
+    }
+
+    if (!writtenFinalized) {
+      // A concurrent finalize won the race; reload.
+      const { data: winner } = await supabaseAdmin
+        .from('homecloud_contents')
+        .select('*')
+        .eq('id', contentId)
+        .single();
+      return mapContentRowToDto(winner);
+    }
+
+    return mapContentRowToDto(writtenFinalized);
   }
 
   // Verify original exists before finalize (never trust client claim).

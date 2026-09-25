@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * HomeCloud HC-1F — Safe DTO Mappers.
+ * HomeCloud STAGE 4A.2 — Safe DTO Mappers.
  *
  * Pure functions: DB row -> canonical HomeCloud DTO.
  * No dependencies, no side effects.
@@ -9,19 +9,24 @@
  *
  * NEVER leaks storage internals.
  * Returns discriminated union based on role.
+ *
+ * A Written Memory (written_text) maps to the memory branch with
+ * writtenText set and the binary fields (displayName/mimeType/sizeBytes)
+ * null; uploadedAt stays null because binary custody never happened.
  */
 
 function mapContentRowToDto(row) {
   const base = {
     id: row.id,
     role: row.role,
-    displayName: row.display_name,
-    mimeType: row.mime_type,
-    extension: row.extension,
-    sizeBytes: row.size_bytes,
+    displayName: row.display_name ?? null,
+    mimeType: row.mime_type ?? null,
+    extension: row.extension ?? null,
+    sizeBytes: row.size_bytes ?? null,
     uploadedByMemberId: row.uploaded_by_member_id,
     uploadedAt: row.uploaded_at,
     hasPreview: row.preview_storage_path !== null && row.preview_storage_path !== undefined,
+    hiddenFromResurfacing: row.hidden_from_resurfacing === true,
   };
 
   if (row.role === 'file') {
@@ -39,7 +44,10 @@ function mapContentRowToDto(row) {
     ...base,
     role: 'memory',
     caption: row.caption ?? null,
+    writtenText: row.written_text ?? null,
     capturedAt: row.captured_at ?? null,
+    capturedYear: row.captured_year ?? null,
+    capturedMonth: row.captured_month ?? null,
     capturePrecision: row.capture_precision,
   };
 }

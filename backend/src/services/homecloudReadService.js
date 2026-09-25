@@ -61,7 +61,7 @@ async function getContentById(req, contentId) {
 
   const { data: content, error } = await supabaseAdmin
     .from('homecloud_contents')
-    .select('id, household_id, role, display_name, mime_type, extension, size_bytes, original_storage_path, preview_storage_path, uploaded_by_member_id, uploaded_at, document_date, note, caption, captured_at, capture_precision, folder_id, lifecycle')
+    .select('id, household_id, role, display_name, mime_type, extension, size_bytes, original_storage_path, preview_storage_path, uploaded_by_member_id, uploaded_at, document_date, note, caption, written_text, captured_at, captured_year, captured_month, capture_precision, hidden_from_resurfacing, folder_id, lifecycle')
     .eq('id', contentId)
     .eq('household_id', context.householdId)
     .eq('lifecycle', 'active')
@@ -246,8 +246,12 @@ async function getAlbumMemberships(req, albumId) {
         document_date,
         note,
         caption,
+        written_text,
         captured_at,
+        captured_year,
+        captured_month,
         capture_precision,
+        hidden_from_resurfacing,
         folder_id,
         lifecycle
       )

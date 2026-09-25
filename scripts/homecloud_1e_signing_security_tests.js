@@ -102,7 +102,7 @@ async function runTests() {
     const { data: mc1 } = await serviceClient.from('homecloud_contents').insert({
       household_id: householdId, role: 'memory', display_name: 'Photo.jpg', mime_type: 'image/jpeg', size_bytes: testFile.length,
       original_storage_path: `${householdId}/file2/original`, preview_storage_path: `${householdId}/file2/preview`,
-      uploaded_by_member_id: memberIdContributor, lifecycle: 'active', uploaded_at: now, captured_at: now, capture_precision: 'exact'
+      uploaded_by_member_id: memberIdContributor, lifecycle: 'active', uploaded_at: now, captured_at: now, captured_year: new Date(now).getUTCFullYear(), captured_month: new Date(now).getUTCMonth() + 1, capture_precision: 'exact'
     }).select().single();
     contentIdMemory = mc1.id;
 

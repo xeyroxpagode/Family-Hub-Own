@@ -7,7 +7,7 @@ const { resolveHomeCloudCapabilities, assertHomeCloudCapability } = require('../
 const { createHttpError } = require('../lib/httpErrors');
 const { mapContentRowToDto, mapFolderRowToDto } = require('../lib/homecloudMappers');
 
-const CONTENT_FIELDS = 'id, household_id, role, display_name, mime_type, extension, size_bytes, original_storage_path, preview_storage_path, uploaded_by_member_id, uploaded_at, document_date, note, caption, captured_at, capture_precision, folder_id, lifecycle';
+const CONTENT_FIELDS = 'id, household_id, role, display_name, mime_type, extension, size_bytes, original_storage_path, preview_storage_path, uploaded_by_member_id, uploaded_at, document_date, note, caption, written_text, captured_at, captured_year, captured_month, capture_precision, hidden_from_resurfacing, folder_id, lifecycle';
 
 async function contextWithCapability(req, capability) {
   const context = await getHomeCloudContext(req);

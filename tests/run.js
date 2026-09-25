@@ -55,6 +55,21 @@ const commands = {
     'node',
     ['scripts/compiled/scripts/homecloud_3e_scanner_tests.js'],
   ),
+  'homecloud-4a2-written-validation': () => runCommand(
+    'HomeCloud 4A2 written register validation tests',
+    'node',
+    ['scripts/homecloud_4a2_written_validation_tests.js'],
+  ),
+  'homecloud-4a2-schema': () => runCommand(
+    'HomeCloud 4A2 persistence schema tests (local DB)',
+    'node',
+    ['scripts/homecloud_4a2_schema_tests.js'],
+  ),
+  'homecloud-4a2-written-runtime': () => runCommand(
+    'HomeCloud 4A2 written runtime intake tests (local Supabase)',
+    'node',
+    ['scripts/homecloud_4a2_written_runtime_tests.js'],
+  ),
   'compile-frontend-tests': () => runCommand('Compile frontend tests', 'npm', compileFrontendTests),
   'compile-planner-reliability-tests': () => runCommand(
     'Compile Planner Reliability tests',
@@ -616,6 +631,7 @@ const suites = {
   'homecloud-recovery': ['homecloud-upload-recovery'],
   'homecloud-2c': ['homecloud-2c-intake-validation', 'homecloud-2c-runtime-intake', 'homecloud-2c-frontend-structure', 'compile-frontend-tests'],
   'homecloud-3e': ['compile-frontend-tests', 'homecloud-3e-scanner'],
+  'homecloud-4a2': ['homecloud-4a2-written-validation', 'homecloud-4a2-schema', 'homecloud-4a2-written-runtime'],
   planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-plan-duplicate-dispatch', 'planner-p1-structure-contract', 'planner-p2a-milestone-editor', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration', 'planner-v1-s2-runtime-owner', 'planner-v1-s2-terminal-contract', 'planner-v1-s2-runtime-composition'],
   home: ['planner-v1-m9'],
   'planner-m1': ['compile-frontend-tests', 'planner-v1-m1'],
