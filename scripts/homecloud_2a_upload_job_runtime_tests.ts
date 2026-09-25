@@ -107,7 +107,7 @@ mid = transition(mid, 'registered', { contentId: 'ccc-9' });
 mid = transition(mid, 'uploading');
 record(recoverEntryPoint(mid) === 'uploading', 'recover mid-upload resumes at uploading');
 const failedAfterR = transition(mid, 'failed');
-record(recoverEntryPoint(failedAfterR) === 'verifying', 'recover failed-with-contentId resumes at verifying');
+record(recoverEntryPoint(failedAfterR) === 'uploading', 'recover failed-with-contentId resumes at uploading (verify-first, same content)');
 
 // --- store persistence ---
 const store = createInMemoryUploadJobStore();

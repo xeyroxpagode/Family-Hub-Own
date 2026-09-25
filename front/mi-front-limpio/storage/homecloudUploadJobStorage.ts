@@ -27,6 +27,14 @@ export interface UploadJobStore {
 export interface AsyncUploadJobStore extends UploadJobStore {
   getAsync(id: string): Promise<UploadJob | null>;
   allAsync(): Promise<UploadJob[]>;
+  /**
+   * Load every durable AsyncStorage row into the synchronous mirror so the
+   * engine (sync store contract) can see jobs that survived a reload/remount.
+   * Returns the hydrated jobs in no guaranteed order.
+   */
+  hydrate(): Promise<UploadJob[]>;
+  /** Await the durable write of one job (tests/recovery checkpoints). */
+  flush(job: UploadJob): Promise<void>;
 }
 
 type AsyncStorageLike = {
@@ -146,5 +154,36 @@ export function createAsyncStorageUploadJobStore(): AsyncUploadJobStore {
         return [];
       }
     },
+    async hydrate(): Promise<UploadJob[]> {
+      return this.allAsync();
+    },
+    async flush(job: UploadJob): Promise<void> {
+      const AsyncStorage = await loadAsyncStorage();
+      if (!AsyncStorage) return;
+      try {
+        await AsyncStorage.setItem(keyFor(job.id), serializeUploadJob(job));
+      } catch {
+        // Mirror already holds the job; durability best-effort here, the
+        // engine persists every transition so the next write retries it.
+      }
+    },
   } as AsyncUploadJobStore;
+}
+
+/**
+ * Shared process-wide durable store. File intake, memory intake and the
+ * scanner must observe the SAME jobs: per-service store instances each had an
+ * empty mirror after remount, which stranded interrupted jobs and caused
+ * duplicate registrations on retry. All intake services must use this.
+ */
+let sharedStore: AsyncUploadJobStore | null = null;
+
+export function getSharedUploadJobStore(): AsyncUploadJobStore {
+  if (!sharedStore) sharedStore = createAsyncStorageUploadJobStore();
+  return sharedStore;
+}
+
+/** Test seam: replace the shared store (tests restore via reset). */
+export function __setSharedUploadJobStoreForTests(store: AsyncUploadJobStore | null): void {
+  sharedStore = store;
 }

@@ -1,5 +1,6 @@
 import { createUploadEngine, createFetchArtifactReader, createExpoFileSystemUploadTransport } from './homecloudUploadEngine';
-import { createAsyncStorageUploadJobStore } from '../../storage/homecloudUploadJobStorage';
+import { getSharedUploadJobStore } from '../../storage/homecloudUploadJobStorage';
+import { recoverUploadJobs } from './homecloudUploadRecovery';
 import { fetchHomeCloudAlbumsCached } from './homecloudReadService';
 import type { MemoryIntakeConfig, MemoryIntakeState, MemoryIntakeDestination } from './homecloudMemoryIntakeTypes';
 import type { UploadJob } from './homecloudUploadTypes';
@@ -15,7 +16,9 @@ import type { UploadJob } from './homecloudUploadTypes';
 export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   const { householdId, accessToken, capabilities, initialAlbumId, initialAlbumName } = config;
 
-  const store = createAsyncStorageUploadJobStore();
+  // Shared process-wide store: every intake surface observes the same durable
+  // jobs, so a remount never loses the active job.
+  const store = getSharedUploadJobStore();
   const reader = createFetchArtifactReader();
   const uploadTransport = createExpoFileSystemUploadTransport();
 
@@ -129,6 +132,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
     try {
       const completedJob = await engine.run(job.id);
+      currentJob = completedJob;
       emitState({
         status: mapEngineStateToIntakeState(completedJob),
         contentId: completedJob.contentId ?? undefined,
@@ -136,6 +140,8 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
         albumName: selectedAlbumName,
       });
     } catch (error) {
+      const latest = store.get(job.id);
+      if (latest) currentJob = latest;
       emitState({
         status: 'failed',
         error: error instanceof Error ? error.message : 'No pudimos guardar este recuerdo.',
@@ -153,16 +159,30 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   }
 
   async function retry(): Promise<void> {
-    if (!currentJob) return;
+    let job = currentJob;
+    if (!job) {
+      // Service instance recreated after remount: resume the most recent
+      // retryable memory job from the shared store instead of losing it.
+      const candidates = store
+        .all()
+        .filter((j) => j.householdId === householdId && j.role === 'memory' && j.state !== 'completed' && j.state !== 'cancelled')
+        .sort((a, b) => (a.updatedAt < b.updatedAt ? -1 : a.updatedAt > b.updatedAt ? 1 : 0));
+      job = candidates[candidates.length - 1] ?? null;
+      currentJob = job;
+    }
+    if (!job) return;
     emitState({ status: 'preparing', error: undefined });
     try {
-      const completedJob = await engine.run(currentJob.id);
+      const completedJob = await engine.run(job.id);
+      currentJob = completedJob;
       emitState({
         status: mapEngineStateToIntakeState(completedJob),
         contentId: completedJob.contentId ?? undefined,
         error: undefined,
       });
     } catch (error) {
+      const latest = store.get(job.id);
+      if (latest) currentJob = latest;
       emitState({
         status: 'failed',
         error: error instanceof Error ? error.message : 'No pudimos guardar este recuerdo.',
@@ -200,6 +220,35 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     return initialAlbumId != null;
   }
 
+  /**
+   * Canonical shared recovery entry point for memory intake. Hydrates the
+   * durable store and resumes interrupted memory jobs for this Household.
+   * Safe to call on every mount; no-ops when nothing is recoverable.
+   */
+  async function recover(): Promise<void> {
+    if (!householdId || !accessToken) return;
+    try {
+      await recoverUploadJobs({
+        store,
+        householdId,
+        role: 'memory',
+        run: (jobId) => engine.run(jobId),
+        onJob: (job) => {
+          currentJob = job;
+          emitState({
+            status: mapEngineStateToIntakeState(job),
+            contentId: job.contentId ?? undefined,
+            error: job.error?.message,
+            albumId: selectedAlbumId,
+            albumName: selectedAlbumName,
+          });
+        },
+      });
+    } catch {
+      // Recovery is best-effort; explicit retry of the same job remains.
+    }
+  }
+
   function canShowDestinationSelector(): boolean {
     // Root + at least one Album, and no inherited Album context (context already
     // resolved intent → don't ask again).
@@ -218,5 +267,6 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     canShowDestinationSelector,
     hasAlbumContext,
     loadAlbums,
+    recover,
   };
 }

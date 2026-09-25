@@ -39,6 +39,9 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
       const initial = service.getInitialFolder();
       setShowInitialDestination(initial.folderId !== null);
     });
+    // Canonical shared recovery: resume interrupted durable jobs (if any)
+    // for this Household instead of stranding them on every remount.
+    void service.recover();
     return unsubscribe;
   }, [service]);
 

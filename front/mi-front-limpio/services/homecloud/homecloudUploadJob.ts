@@ -220,8 +220,11 @@ export function recoverEntryPoint(job: UploadJob): UploadJobState {
       return 'uploading';
     case 'verifying':
     case 'finalizing':
+      return job.state;
     case 'failed':
-      if (job.contentId) return 'verifying';
+      // With a contentId the engine re-enters through the upload stage, which
+      // checks verify first and re-uploads to the SAME content when needed.
+      if (job.contentId) return 'uploading';
       return 'registering';
     default:
       return job.state;

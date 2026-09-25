@@ -126,7 +126,11 @@ export function HomeCloudScannerScreen() {
 
   useEffect(() => {
     if (!service) return undefined;
-    return service.subscribe(setIntake);
+    const unsubscribe = service.subscribe(setIntake);
+    // Canonical shared recovery (same engine path as the file picker):
+    // resume an interrupted scanner/file job instead of registering a dupe.
+    void service.recover();
+    return unsubscribe;
   }, [service]);
 
   const cleanupTempFiles = useCallback(() => {

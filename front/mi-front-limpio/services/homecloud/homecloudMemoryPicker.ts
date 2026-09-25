@@ -1,6 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import type { UploadLocalArtifact, CapturePrecision } from './homecloudUploadTypes';
 import { copyArtifactToDurableWorkspace } from './homecloudDurableArtifact';
+import { ensureSingleExtension } from './homecloudPickerNaming';
 
 export interface MemoryPickerResult {
   success: true;
@@ -113,9 +114,10 @@ export async function pickMemoryMedia(): Promise<MemoryPickerOutcome> {
       return { success: false, cancelled: false, error: 'Solo podés agregar fotos o videos.' };
     }
 
-    const displayName = asset.fileName ?? asset.uri.split('/').pop() ?? 'recuerdo';
+    const rawName = asset.fileName ?? asset.uri.split('/').pop() ?? 'recuerdo';
     const sizeBytes = typeof asset.fileSize === 'number' && asset.fileSize > 0 ? asset.fileSize : 0;
-    const extension = deriveExtension(mimeType, displayName);
+    const extension = deriveExtension(mimeType, rawName);
+    const displayName = ensureSingleExtension(rawName, extension);
     const { capturedAt, capturePrecision } = deriveCaptureMetadata(asset);
 
     const artifact: UploadLocalArtifact = {

@@ -135,6 +135,14 @@ export function createExpoFileSystemUploadTransport(): UploadTransport {
 export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
   const { store, readArtifact, uploadTransport, getAccessToken, getHouseholdId } = deps;
 
+  /**
+   * Single-flight guard: concurrent run(jobId) calls for the SAME job share
+   * one execution instead of racing register/upload/verify/finalize twice.
+   * Keyed per engine instance; cross-instance duplicates are prevented by the
+   * shared durable store + canonical recovery (one owner resumes each job).
+   */
+  const inFlight = new Map<string, Promise<UploadJob>>();
+
   function requireAccessToken(): string {
     const token = getAccessToken();
     if (!token) throw new Error('no access token');
@@ -203,6 +211,27 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
   async function runUpload(job: UploadJob): Promise<UploadJob> {
     const accessToken = requireAccessToken();
 
+    // Resume path: this job already left `uploading` persisted (interrupted
+    // after a successful PUT, or remount before verify). Ask the idempotent
+    // verify contract first: if the original is already there, skip the
+    // re-upload (the signed PUT uses x-upsert=false, so a blind re-PUT could
+    // fail on an object that already exists).
+    if (job.state === 'uploading' && job.contentId) {
+      try {
+        const resumed = await requestJson<{ verified: boolean }>(
+          `/api/homecloud/content/${job.contentId}/verify`,
+          { method: 'POST', accessToken, operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION },
+        );
+        if (resumed.verified) {
+          const verifyingJob = transition(job, 'verifying');
+          persist(verifyingJob);
+          return verifyingJob;
+        }
+      } catch {
+        // Verify unavailable/negative on resume: fall through to re-upload.
+      }
+    }
+
     const uploadingJob = job.state === 'registered'
       ? transition(job, 'uploading')
       : job;
@@ -237,7 +266,11 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
       }
     }
 
-    return transition(uploadingJob, 'verifying');
+    // Durable BEFORE the next fragile step: a reload/remount here must resume
+    // at verify, never strand the job at `uploading` again.
+    const verifyingJob = transition(uploadingJob, 'verifying');
+    persist(verifyingJob);
+    return verifyingJob;
   }
 
   async function runVerify(job: UploadJob): Promise<UploadJob> {
@@ -249,7 +282,9 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     if (!resp.verified) {
       throw new Error('upload verification failed: original missing or mismatched');
     }
-    return transition(job, 'finalizing');
+    const finalizingJob = transition(job, 'finalizing');
+    persist(finalizingJob);
+    return finalizingJob;
   }
 
   async function runFinalize(job: UploadJob): Promise<UploadJob> {
@@ -258,25 +293,38 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
       `/api/homecloud/content/${job.contentId}/finalize`,
       { method: 'POST', accessToken, operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION },
     );
-    return transition(job, 'completed');
+    // finalize is idempotent server-side (staging -> active guarded; active
+    // replay returns success), so persisting completed is always safe here.
+    const completedJob = transition(job, 'completed');
+    persist(completedJob);
+    return completedJob;
   }
 
-  async function run(jobId: string): Promise<UploadJob> {
+  async function runInner(jobId: string): Promise<UploadJob> {
     let job = requireJob(jobId);
+    // Terminal jobs never rerun: no network, no transition, no duplicate side
+    // effects. Recovery filters these out; this is defense in depth.
+    if (job.state === 'completed') return job;
+    if (job.state === 'cancelled') throw new Error('job cancelled');
     try {
       if (job.state === 'pending' || job.state === 'registering' || (job.state === 'failed' && !job.contentId)) {
         job = await runRegister(job);
       }
-      if (job.state === 'registered' || job.state === 'uploading') {
-        job = await runUpload(job);
+      // A failed job that already owns a contentId re-enters through the
+      // upload stage (verify-first): if the original never reached storage,
+      // verify is negative and the bytes are re-uploaded to the SAME content;
+      // if it did, the PUT is skipped and the job continues at verify.
+      if (job.state === 'registered' || job.state === 'uploading' || (job.state === 'failed' && job.contentId)) {
+        job = await runUpload(job.state === 'failed' ? transition(job, 'uploading') : job);
       }
-      if (job.state === 'verifying' || (job.state === 'failed' && job.contentId)) {
-        job = await runVerify(job.state === 'failed' ? transition(job, 'verifying') : job);
+      if (job.state === 'verifying') {
+        job = await runVerify(job);
       }
       if (job.state === 'finalizing') {
         job = await runFinalize(job);
       }
       if (job.state === 'completed') {
+        persist(job);
         return job;
       }
       if (job.state === 'cancelled') {
@@ -292,6 +340,16 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
       persist(failed);
       throw error;
     }
+  }
+
+  async function run(jobId: string): Promise<UploadJob> {
+    const ongoing = inFlight.get(jobId);
+    if (ongoing) return ongoing;
+    const execution = runInner(jobId).finally(() => {
+      if (inFlight.get(jobId) === execution) inFlight.delete(jobId);
+    });
+    inFlight.set(jobId, execution);
+    return execution;
   }
 
   return {

@@ -1,6 +1,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import type { UploadLocalArtifact } from './homecloudUploadTypes';
 import { copyArtifactToDurableWorkspace } from './homecloudDurableArtifact';
+import { ensureSingleExtension } from './homecloudPickerNaming';
 
 export interface FilePickerResult {
   success: true;
@@ -71,7 +72,6 @@ export async function pickFile(): Promise<FilePickerOutcome> {
     }
 
     const localUri = asset.uri;
-    const displayName = asset.name ?? 'archivo';
     const mimeType = asset.mimeType ?? 'application/octet-stream';
     const sizeBytes = typeof asset.size === 'number' && asset.size > 0 ? asset.size : 0;
 
@@ -79,7 +79,8 @@ export async function pickFile(): Promise<FilePickerOutcome> {
       return { success: false, cancelled: false, error: 'El archivo seleccionado está vacío o no se pudo determinar su tamaño.' };
     }
 
-    const extension = deriveExtension(mimeType, displayName);
+    const extension = deriveExtension(mimeType, asset.name ?? 'archivo');
+    const displayName = ensureSingleExtension(asset.name ?? 'archivo', extension);
 
     const artifact: UploadLocalArtifact = {
       localUri,
