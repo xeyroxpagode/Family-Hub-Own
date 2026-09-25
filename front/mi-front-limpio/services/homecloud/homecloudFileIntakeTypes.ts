@@ -1,5 +1,6 @@
 import type { HomeCloudFolder } from './homecloudTypes';
 import type { HomeCloudCapabilityDescriptor } from './homecloudCapabilitiesAdapter';
+import type { UploadLocalArtifact } from './homecloudUploadTypes';
 
 export interface FileIntakeConfig {
   householdId: string;
@@ -26,8 +27,12 @@ export interface FileIntakeState {
 
 export interface FileIntakeActions {
   pickFile: () => Promise<void>;
+  /** Hand an already-produced local artifact (e.g. scanner PDF) to the shared upload lifecycle. */
+  submitArtifact: (artifact: UploadLocalArtifact) => Promise<void>;
   selectDestination: (folderId: string | null, folderName: string | null) => void;
   retry: () => Promise<void>;
   cancel: () => void;
   dismiss: () => void;
+  /** True once an UploadJob exists (failed jobs stay retryable through retry()). */
+  hasActiveJob: () => boolean;
 }

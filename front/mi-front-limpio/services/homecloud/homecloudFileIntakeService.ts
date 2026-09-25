@@ -1,8 +1,9 @@
 import { createUploadEngine, createFetchArtifactReader, createExpoFileSystemUploadTransport } from './homecloudUploadEngine';
 import { createAsyncStorageUploadJobStore } from '../../storage/homecloudUploadJobStorage';
 import { fetchHomeCloudFoldersCached } from './homecloudReadService';
-import type { FileIntakeConfig, FileIntakeState, FileIntakeDestination, FileIntakeActions } from './homecloudFileIntakeTypes';
-import type { UploadJob } from './homecloudUploadTypes';
+import { copyArtifactToDurableWorkspace } from './homecloudDurableArtifact';
+import type { FileIntakeConfig, FileIntakeState, FileIntakeDestination } from './homecloudFileIntakeTypes';
+import type { UploadJob, UploadLocalArtifact } from './homecloudUploadTypes';
 
 export function createFileIntakeService(config: FileIntakeConfig) {
   const { householdId, accessToken, capabilities, initialFolderId, initialFolderName } = config;
@@ -94,7 +95,28 @@ export function createFileIntakeService(config: FileIntakeConfig) {
       return;
     }
 
-    const { artifact } = outcome;
+    await submitArtifact(outcome.artifact);
+  }
+
+  /**
+   * Capture-source agnostic handoff: any intake adapter (document picker,
+   * scanner, ...) can submit a local artifact and reuse the same durable
+   * workspace copy, UploadJob lifecycle and retry semantics.
+   */
+  async function submitArtifact(artifact: UploadLocalArtifact): Promise<void> {
+    let durableArtifact: UploadLocalArtifact;
+    try {
+      // Idempotent: artifacts already inside the durable workspace pass through.
+      durableArtifact = await copyArtifactToDurableWorkspace(artifact);
+    } catch (error) {
+      emitState({
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Error al preparar el archivo.',
+        folderId: selectedFolderId,
+        folderName: selectedFolderName,
+      });
+      return;
+    }
 
     const job = engine.createJob(
       {
@@ -102,7 +124,7 @@ export function createFileIntakeService(config: FileIntakeConfig) {
         intakeSource: config.intakeSource ?? 'files:picker',
         initialFolderId: selectedFolderId,
       },
-      artifact
+      durableArtifact
     );
 
     currentJob = job;
@@ -122,7 +144,6 @@ export function createFileIntakeService(config: FileIntakeConfig) {
         folderName: selectedFolderName,
       });
     } catch (error) {
-      const failedJob = store.get(job.id);
       emitState({
         status: 'failed',
         error: error instanceof Error ? error.message : 'Error al subir el archivo.',
@@ -187,8 +208,13 @@ export function createFileIntakeService(config: FileIntakeConfig) {
     return availableFolders.length > 1;
   }
 
+  function hasActiveJob(): boolean {
+    return currentJob !== null;
+  }
+
   return {
     pickFile,
+    submitArtifact,
     selectDestination,
     retry,
     cancel,
@@ -198,5 +224,6 @@ export function createFileIntakeService(config: FileIntakeConfig) {
     getInitialFolder,
     canShowDestinationSelector,
     loadFolders,
+    hasActiveJob,
   };
 }

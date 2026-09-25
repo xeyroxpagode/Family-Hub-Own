@@ -33,6 +33,11 @@ export type MoreStackParamList = {
   Inventory: undefined;
   Family: undefined;
   HomeCloudFiles: undefined;
+  HomeCloudScanner: {
+    folderId: string | null;
+    folderName: string | null;
+    capabilities: import('../services/homecloud/homecloudCapabilitiesAdapter').HomeCloudCapabilityDescriptor;
+  } | undefined;
   Finance: import('./financeNavigation').FinanceEntryParams | undefined;
   FinanceAccounts: {
     contextType: import('../services/finance/financeContext').FinanceContextType;

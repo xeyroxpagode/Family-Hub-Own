@@ -13,6 +13,7 @@ import { HomeAdolescente } from '../screens/home/HomeAdolescente';
 import { HomeAdultoMayor } from '../screens/home/HomeAdultoMayor';
 import { FamilyScreen } from '../screens/FamilyScreen';
 import { HomeCloudFilesScreen } from '../screens/HomeCloudFilesScreen';
+import { HomeCloudScannerScreen } from '../screens/HomeCloudScannerScreen';
 import { FinanceScreen } from '../screens/finance/FinanceScreen';
 import { InventarioScreen } from '../screens/inventory/InventarioScreen';
 import { PlannerScreen } from '../screens/planner/PlannerScreen';
@@ -226,6 +227,7 @@ function MoreStackScreen() {
       <MoreStack.Screen name="MoreHome" component={MoreScreen} />
       <MoreStack.Screen name="Family" component={FamilyScreen} />
       <MoreStack.Screen name="HomeCloudFiles" component={HomeCloudFilesScreen} />
+      <MoreStack.Screen name="HomeCloudScanner" component={HomeCloudScannerScreen} />
       <MoreStack.Screen name="Inventory" component={InventarioScreen} />
       <MoreStack.Screen name="Finance" component={FinanceScreen} />
       <MoreStack.Screen name="FinanceAccounts" component={FinanceAccountsScreen} />

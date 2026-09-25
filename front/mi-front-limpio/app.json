@@ -40,6 +40,13 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "HomePlus necesita acceso a la cámara para escanear documentos.",
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "HomePlus necesita tu ubicación para mostrarte en el mapa familiar mientras usás la aplicación.",

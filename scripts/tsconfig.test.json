@@ -74,7 +74,9 @@
     "../scripts/homecloud_2a_upload_job_runtime_tests.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudUploadTypes.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudUploadJob.ts",
-    "../front/mi-front-limpio/storage/homecloudUploadJobStorage.ts"
+    "../front/mi-front-limpio/storage/homecloudUploadJobStorage.ts",
+    "../scripts/homecloud_3e_scanner_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudScanner.ts"
   ],
   "exclude": ["node_modules"]
 }
