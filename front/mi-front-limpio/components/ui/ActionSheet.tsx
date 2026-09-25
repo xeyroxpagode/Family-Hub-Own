@@ -256,8 +256,8 @@ export function DurationPickerSheet({ visible, value, onClose, onConfirm }: { vi
             autoFocus
           />
           <View style={styles.customDurationActions}>
-            <AppButton variant="secondary" size="sm" onPress={() => { setShowCustom(false); setCustomMinutes(''); }}>Cancelar</AppButton>
-            <AppButton size="sm" onPress={handleCustomConfirm}>Aceptar</AppButton>
+            <AppButton variant="secondary" size="sm" title="Cancelar" onPress={() => { setShowCustom(false); setCustomMinutes(''); }} />
+            <AppButton size="sm" title="Aceptar" onPress={handleCustomConfirm} />
           </View>
         </View>
       )}

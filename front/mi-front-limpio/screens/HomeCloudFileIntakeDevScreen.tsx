@@ -75,7 +75,7 @@ export function HomeCloudFileIntakeDevScreen() {
     return (
       <View style={styles.centered}>
         <AppText variant="body" tone="secondary">No hay hogar activo</AppText>
-        <AppButton onPress={() => refetchMe()} style={{ marginTop: spacing[4] }}>Reintentar</AppButton>
+        <AppButton title="Reintentar" onPress={() => refetchMe()} style={{ marginTop: spacing[4] }} />
       </View>
     );
   }
@@ -139,11 +139,10 @@ export function HomeCloudFileIntakeDevScreen() {
           <AppButton
             variant="secondary"
             size="sm"
+            title={showFolderPicker ? 'Ocultar selector' : 'Seleccionar carpeta inicial'}
             onPress={() => setShowFolderPicker(!showFolderPicker)}
             style={{ marginTop: spacing[3] }}
-          >
-            {showFolderPicker ? 'Ocultar selector' : 'Seleccionar carpeta inicial'}
-          </AppButton>
+          />
         )}
       </View>
 
@@ -211,11 +210,10 @@ export function HomeCloudFileIntakeDevScreen() {
           <AppButton
             variant="secondary"
             size="sm"
+            title={showAlbumPicker ? 'Ocultar selector' : 'Seleccionar álbum inicial'}
             onPress={() => setShowAlbumPicker(!showAlbumPicker)}
             style={{ marginTop: spacing[3] }}
-          >
-            {showAlbumPicker ? 'Ocultar selector' : 'Seleccionar álbum inicial'}
-          </AppButton>
+          />
         )}
       </View>
 

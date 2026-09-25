@@ -226,9 +226,7 @@ export function MemoryIntake({ config, onComplete, onDismiss }: MemoryIntakeProp
     return (
       <View style={styles.invalidAlbum}>
         <AppText variant="bodySmall" tone="danger">El álbum seleccionado ya no está disponible.</AppText>
-        <AppButton size="sm" variant="secondary" onPress={handleDismiss} style={{ marginTop: spacing[2] }}>
-          Elegir otro destino
-        </AppButton>
+        <AppButton size="sm" variant="secondary" title="Elegir otro destino" onPress={handleDismiss} style={{ marginTop: spacing[2] }} />
       </View>
     );
   };
