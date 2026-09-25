@@ -18,7 +18,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
-import { ActionSheet, AppButton, AppInput, AppText } from '../components/ui';
+import { ActionSheet, AppButton, AppInput, AppText, floatingNavigationMetrics } from '../components/ui';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing, touchTargets } from '../constants/theme';
 import { errorHaptic, mediumHaptic, successHaptic } from '../utils/haptics';
@@ -292,6 +292,14 @@ export function HomeCloudScannerScreen() {
   const intakeActive = ACTIVE_INTAKE_STATUSES.has(intake.status);
   const intakeFailed = intake.status === 'failed';
 
+  // The global floating BottomNav is absolutely positioned OVER tab content and
+  // stays visible while the Scanner is active. Reserve its real occupied height
+  // (bar + own bottom inset) plus a small gap so no Scanner CTA renders under it.
+  // Same formula already used by PresenceScreen for the same overlay.
+  const bottomNavOverlayPadding = floatingNavigationMetrics.mainRegularHeight
+    + Math.max(insets.bottom, spacing[3])
+    + spacing[2];
+
   // --- Estado: sin sesión/hogar (inoalcanzable desde Archivos, pero seguro) ---
   if (!service) {
     return (
@@ -356,7 +364,7 @@ export function HomeCloudScannerScreen() {
               <AppText variant="bodySmall" tone="inverse" align="center">{captureError}</AppText>
             </View>
           ) : null}
-          <View style={[styles.cameraBottom, { paddingBottom: insets.bottom + spacing[5] }]}>
+          <View style={[styles.cameraBottom, { paddingBottom: bottomNavOverlayPadding }]}>
             {pages.length > 0 ? (
               <AppText variant="bodySmall" tone="inverse" weight="700" style={styles.pageCount}>
                 {pages.length === 1 ? '1 página' : `${pages.length} páginas`}
@@ -427,7 +435,7 @@ export function HomeCloudScannerScreen() {
             <AppButton title="Repetir página" variant="secondary" size="sm" disabled={!selectedPage} onPress={() => { if (selectedPage) { setRetakeId(selectedPage.id); setPhase('camera'); } }} accessibilityLabel="Repetir página" style={styles.reviewAction} />
             <AppButton title="Eliminar página" variant="danger" size="sm" disabled={!selectedPage} onPress={handleDeleteSelected} accessibilityLabel="Eliminar página" style={styles.reviewAction} />
           </View>
-          <View style={[styles.reviewFooter, { paddingBottom: insets.bottom + spacing[4] }]}>
+          <View style={[styles.reviewFooter, { paddingBottom: bottomNavOverlayPadding }]}>
             <AppButton title="Crear PDF" onPress={handleOpenSave} disabled={!canCreatePdf(pages)} accessibilityLabel="Crear PDF" />
           </View>
         </View>
