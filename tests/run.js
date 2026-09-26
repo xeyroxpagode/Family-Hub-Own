@@ -80,6 +80,19 @@ const commands = {
     'node',
     ['scripts/homecloud_4b1_preview_tests.js'],
   ),
+  'homecloud-4b2-timeline': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3001',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'HomeCloud 4B2 memories timeline tests',
+      'node',
+      ['scripts/compiled/scripts/homecloud_4b2_memories_timeline_tests.js'],
+      { env },
+    );
+  },
   'compile-frontend-tests': () => runCommand('Compile frontend tests', 'npm', compileFrontendTests),
   'compile-planner-reliability-tests': () => runCommand(
     'Compile Planner Reliability tests',
@@ -649,6 +662,14 @@ const suites = {
     'homecloud-4a2-written-validation',
     'homecloud-4a2-schema',
     'homecloud-4a2-written-runtime',
+  ],
+  'homecloud-4b2': [
+    'compile-frontend-tests',
+    'homecloud-4b2-timeline',
+    'frontend-typecheck',
+    'homecloud-4b1-memories-read-model',
+    'homecloud-4b1-preview',
+    'homecloud-4a2-written-validation',
   ],
   planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-plan-duplicate-dispatch', 'planner-p1-structure-contract', 'planner-p2a-milestone-editor', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration', 'planner-v1-s2-runtime-owner', 'planner-v1-s2-terminal-contract', 'planner-v1-s2-runtime-composition'],
   home: ['planner-v1-m9'],
