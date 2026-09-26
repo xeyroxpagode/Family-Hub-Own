@@ -18,7 +18,7 @@ const MODULES = [
     icon: 'cloud-outline',
     color: colors.info.base,
     bg: colors.info.soft,
-    screen: 'HomeCloudFiles' as const,
+    screen: 'HomeCloud' as const,
     isDemo: false,
   },
   {

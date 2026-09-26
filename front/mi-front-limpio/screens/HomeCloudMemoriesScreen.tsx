@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, SectionList, StyleSheet, View } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
-import { AppButton, AppText, ErrorState, SegmentedControl, Skeleton } from '../components/ui';
+import { AppButton, AppText, ErrorState, Skeleton } from '../components/ui';
 import { MemoryCard } from '../components/homecloud/MemoryCards';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
@@ -34,8 +34,7 @@ const TIMELINE_COLUMNS = 3;
  * - No Create affordance is connected here: memory creation has no approved
  *   productive contract yet (reported as deferred for the next slice).
  */
-export function HomeCloudMemoriesScreen() {
-  const navigation = useNavigation<any>();
+export function HomeCloudMemoriesView() {
   const { session } = useAuth();
   const { currentHousehold } = useHousehold();
   const token = session?.access_token ?? null;
@@ -119,38 +118,15 @@ export function HomeCloudMemoriesScreen() {
     [memories],
   );
 
-  const goFiles = useCallback(() => {
-    navigation.navigate('HomeCloudFiles');
-  }, [navigation]);
-
   return (
     <View style={styles.screen}>
-      <View style={styles.top}>
-        <AppButton variant="icon" size="sm" onPress={() => navigation.goBack()} accessibilityLabel="Volver">
-          <HomePlusIcon name="arrow-back" size={22} color={colors.text.primary} />
-        </AppButton>
-        <AppText variant="title2" weight="800" style={styles.headerTitle}>
-          {'HomeCloud'}
-        </AppText>
-        <AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar">
-          <HomePlusIcon name="refresh" size={21} color={colors.text.secondary} />
-        </AppButton>
-      </View>
-      <SegmentedControl
-        value="memories"
-        options={[
-          { value: 'files', label: 'Archivos' },
-          { value: 'memories', label: 'Recuerdos' },
-        ]}
-        onChange={(value) => {
-          if (value === 'files') goFiles();
-        }}
-        style={styles.segment}
-      />
       <View style={styles.titleRow}>
-        <AppText variant="title3" weight="800">
+        <AppText variant="title3" weight="800" style={styles.headerTitle}>
           {'Recuerdos'}
         </AppText>
+        <AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar recuerdos">
+          <HomePlusIcon name="refresh" size={21} color={colors.text.secondary} />
+        </AppButton>
       </View>
       {loading ? (
         <MemoriesLoadingSkeleton />
@@ -241,15 +217,7 @@ function MemoriesLoadingSkeleton() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background.base },
-  top: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[3],
-    gap: spacing[2],
-  },
   headerTitle: { flex: 1 },
-  segment: { marginHorizontal: spacing[5], marginTop: spacing[2] },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',

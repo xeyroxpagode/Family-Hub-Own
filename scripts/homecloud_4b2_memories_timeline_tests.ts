@@ -288,16 +288,18 @@ record(screenSource.includes('RefreshControl') && screenSource.includes('refresh
 // --- 25-30: NAVIGATION + NO-MOCK GUARDS ---
 
 const filesSource = stripComments(readFront('screens/HomeCloudFilesScreen.tsx'));
+const rootSource = stripComments(readFront('screens/HomeCloudScreen.tsx'));
 const navTypes = readFront('navigation/types.ts');
 const navigator = readFront('navigation/HomeTabNavigator.tsx');
 record(filesSource.includes('fetchFilesBrowser'), '25. Files sigue abriendo (comportamiento intacto)');
 record(
-  navTypes.includes('HomeCloudMemories') && navigator.includes('HomeCloudMemoriesScreen') && screenSource.includes('listMemories'),
-  '26. Recuerdos abre superficie real (ruta + screen + read model)',
+  navTypes.includes('HomeCloud: undefined') && navigator.includes('HomeCloudScreen') && rootSource.includes('HomeCloudMemoriesView') && screenSource.includes('listMemories'),
+  '26. Recuerdos abre vista real dentro de la unica superficie HomeCloud',
 );
 record(
-  screenSource.includes("navigate('HomeCloudFiles')") && filesSource.includes("navigate('HomeCloudMemories')"),
-  '27. volver a Files no rompe estado (navegacion por stack, sin remount)',
+  rootSource.includes('display: \'none\'') && rootSource.includes('HomeCloudFilesView') &&
+    !screenSource.includes("navigate('HomeCloudFiles')") && !filesSource.includes("navigate('HomeCloudMemories')"),
+  '27. alternar Files/Recuerdos preserva ambas vistas montadas, sin navegacion ni remount',
 );
 {
   const noMockPattern = /\b(fixtures?|mocks?|storageId|hardcode\w*)\b/i;
