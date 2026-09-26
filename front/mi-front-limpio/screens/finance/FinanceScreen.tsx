@@ -23,7 +23,9 @@ import {
   AppText,
   EmptyState,
   ErrorState,
+  SegmentedControl,
   Skeleton,
+  type SegmentOption,
   UndoToast,
 } from '../../components/ui';
 import {
@@ -32,13 +34,10 @@ import {
   FinanceIconBox,
   FinanceListRow,
   FinanceSection,
-  FinanceSegmented,
-  FinanceSegmentedMulti,
   FinanceEmptyState,
   FinanceErrorState,
   FinanceUtilityRow,
   financeSpacing,
-  type FinanceSegmentedOption,
 } from '../../components/finance/ui';
 import { HomePlusIcon } from '../../constants/icons';
 import { useAuth } from '../../context/AuthContext';
@@ -116,12 +115,12 @@ const EMPTY_READ_STATE: FinanceReadState = {
 const EMPTY_SUMMARY_CURRENCIES: FinanceSummaryCurrencyDto[] = [];
 
 // Stage 7B.1 — Finance root authority: single segmented families for tabs + scope.
-const FINANCE_TAB_OPTIONS: FinanceSegmentedOption<FinanceTabKey>[] = FINANCE_TABS.map((tab) => ({
+const FINANCE_TAB_OPTIONS: SegmentOption<FinanceTabKey>[] = FINANCE_TABS.map((tab) => ({
   value: tab,
   label: FINANCE_TAB_LABELS[tab],
 }));
 
-const FINANCE_SCOPE_OPTIONS: FinanceSegmentedOption<FinanceContextType>[] = [
+const FINANCE_SCOPE_OPTIONS: SegmentOption<FinanceContextType>[] = [
   { value: FINANCE_CONTEXT_TYPES.PERSONAL, label: 'Personal' },
   { value: FINANCE_CONTEXT_TYPES.HOUSEHOLD, label: 'Hogar' },
 ];
@@ -146,7 +145,7 @@ function groupMovementsByTransactionDate(movements: FinanceUnifiedMovementDto[])
 type MovementTypeFilterKey = 'expense' | 'income' | 'transfer';
 type MovementFilterKey = MovementTypeFilterKey;
 
-const MOVEMENT_FILTER_OPTIONS: FinanceSegmentedOption<MovementTypeFilterKey>[] = [
+const MOVEMENT_FILTER_OPTIONS: SegmentOption<MovementTypeFilterKey>[] = [
   { value: 'expense', label: 'Gastos' },
   { value: 'income', label: 'Ingresos' },
   { value: 'transfer', label: 'Transferencias' },
@@ -700,9 +699,9 @@ const [selectedMovement, setSelectedMovement] = useState<TransactionMovementDto 
           </AppText>
         </View>
         <View style={styles.scopeWrap}>
-          <FinanceSegmented
-            variant="compact"
-            distribution="content"
+          <SegmentedControl
+            size="compact"
+            fullWidth={false}
             value={selectedContext}
             onChange={(next) => chooseContext(next)}
             options={FINANCE_SCOPE_OPTIONS.map((option) => ({
@@ -723,9 +722,9 @@ const [selectedMovement, setSelectedMovement] = useState<TransactionMovementDto 
         </View>
       ) : null}
 
-      <FinanceSegmented
-        variant="standard"
-        distribution="equal"
+      <SegmentedControl
+        size="regular"
+        fullWidth
         value={selectedTab}
         onChange={(next) => setSelectedTab((current) => selectFinanceTab(current, next))}
         options={FINANCE_TAB_OPTIONS}
@@ -1077,8 +1076,8 @@ function FinanceSummarySurface({
         ) : (
           <View style={styles.summaryStack}>
             {currencies.length > 1 ? (
-              <FinanceSegmented
-                variant="compact"
+              <SegmentedControl
+                size="compact"
                 value={selectedCurrency ?? currencies[0]?.currency ?? 'ARS'}
                 onChange={onSelectCurrency}
                 options={currencies.map((bucket) => ({
@@ -1240,11 +1239,15 @@ const groups = groupMovementsByTransactionDate(
           </FinanceIconAction>
         }
       />
-      <FinanceSegmentedMulti
-        variant="filter"
-        distribution="equal"
-        values={normalizedFilters}
-        onToggle={onFilterChange}
+      <SegmentedControl
+        selectionMode="multiple"
+        size="compact"
+        fullWidth
+        value={normalizedFilters}
+        onChange={(next) => {
+          const changed = MOVEMENT_FILTER_OPTIONS.find((option) => normalizedFilters.includes(option.value) !== next.includes(option.value));
+          if (changed) onFilterChange(changed.value);
+        }}
         options={MOVEMENT_FILTER_OPTIONS}
         testID="finance-movement-filter"
       />

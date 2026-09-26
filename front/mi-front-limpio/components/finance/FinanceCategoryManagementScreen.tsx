@@ -13,6 +13,7 @@ import {
   Skeleton,
   UndoToast,
   ActionSheet,
+  SegmentedControl,
 } from '../ui';
 import { useAppTheme } from '../../context/AppThemeContext';
 import {
@@ -22,7 +23,6 @@ import {
   FinanceIconBox,
   FinanceListRow,
   FinanceSection,
-  FinanceSegmented,
   FINANCE_ACTION_ICON_SIZE,
 } from './ui';
 import { HomePlusIcon } from '../../constants/icons';
@@ -290,9 +290,9 @@ function FinanceCategoryManagementSurface({
         </AppButton>
       </View>
 
-      <FinanceSegmented
-        variant="compact"
-        distribution="equal"
+      <SegmentedControl
+        size="compact"
+        fullWidth
         value={selectedType}
         options={[
           { value: 'expense', label: 'Gastos', accessibilityLabel: 'Gastos' },

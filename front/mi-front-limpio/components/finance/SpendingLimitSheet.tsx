@@ -21,12 +21,11 @@ import {
   type MoneyInputCurrencyCode,
   type MoneyInputParseResult,
 } from '../../services/finance/moneyInputValue';
-import { ActionSheet, AppButton, AppText, InteractivePressable } from '../ui';
+import { ActionSheet, AppButton, AppText, InteractivePressable, SegmentedControl } from '../ui';
 import {
   FinanceFormFooter,
   FinancePeriodNavigator,
   FinanceSelectionRow,
-  FinanceSegmented,
   FINANCE_SHEET_SIZE_POLICY,
 } from './ui';
 import { CreateFinanceCategorySheet } from './CreateFinanceCategorySheet';
@@ -350,9 +349,9 @@ export function SpendingLimitSheet({
 
         {view === 'form' ? (
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-            <FinanceSegmented
-              variant="compact"
-              distribution="equal"
+            <SegmentedControl
+              size="compact"
+              fullWidth
               value={scopeType}
               options={[
                 { value: 'OVERALL', label: 'General', accessibilityLabel: 'General' },
@@ -396,9 +395,9 @@ export function SpendingLimitSheet({
 
         {view === 'period' ? (
           <View style={styles.content}>
-            <FinanceSegmented
-              variant="compact"
-              distribution="equal"
+            <SegmentedControl
+              size="compact"
+              fullWidth
               value={periodType}
               options={[
                 { value: 'MONTHLY', label: 'Mensual', accessibilityLabel: 'Mensual' },

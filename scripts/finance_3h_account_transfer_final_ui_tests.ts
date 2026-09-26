@@ -74,7 +74,7 @@ runTest('H01-H16 Account and Transfer UI wiring', () => {
   const accountDetail = read('front/mi-front-limpio/components/finance/AccountDetailSheet.tsx');
   const accountEdit = read('front/mi-front-limpio/components/finance/AccountEditSheet.tsx');
 
-  assert(newMovement.includes('<FinanceSegmented') && newMovement.includes("label: 'Gasto'") && newMovement.includes("label: 'Transferir'") && !newMovement.includes('<TransferFormSheet'), 'H01 New Movement exposes Transfer mode in the inline switch, no stacked transfer sub-modal');
+  assert(newMovement.includes('<SegmentedControl') && newMovement.includes("label: 'Gasto'") && newMovement.includes("label: 'Transferir'") && !newMovement.includes('<TransferFormSheet'), 'H01 New Movement exposes Transfer mode in the inline switch, no stacked transfer sub-modal');
   assert(newMovement.includes('chooseOperation') && newMovement.includes('testID="finance-new-movement-operation"') && !newMovement.includes("setActivePicker('transfer')") && !newMovement.includes('closeTransferForm'), 'H01 Transfer tab keeps the operation switch visible and renders the transfer form inline, same modal as expense/income');
   assert(newMovement.includes('<AccountSelector') && newMovement.includes('operationHint="expense"') && newMovement.includes('operationHint="income"'), 'H02 Expense and Income expose optional Account selectors');
   assert(newMovement.includes('selectedExpenseAccount ? { account: selectedExpenseAccount.id }') && newMovement.includes('incomeAccountId ? { account: incomeAccountId }'), 'H03 Expense/Income submit optional Account only when selected');

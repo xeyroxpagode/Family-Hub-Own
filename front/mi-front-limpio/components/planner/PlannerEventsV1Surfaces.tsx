@@ -10,6 +10,7 @@ import {
 
 import { AppButton } from '../ui/AppButton';
 import { AppText } from '../ui/AppText';
+import { SegmentedControl } from '../ui/SegmentedControl';
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, radius, spacing, touchTargets } from '../../constants/theme';
 import { describePlannerVisualState, type PlannerVisualStateKind } from '../../services/planner/plannerVisualStates';
@@ -426,19 +427,12 @@ export function EventRecurrenceScopeSelector({
       <AppText variant="bodySmall" tone="primary" weight="800">
         Alcance
       </AppText>
-      <View style={eventStyles.segmentRow}>
-        {recurrence.availableScopes.map((scope) => (
-          <AppButton
-            key={scope}
-            title={scopeLabel(scope)}
-            variant={value === scope ? 'primary' : 'secondary'}
-            size="sm"
-            onPress={() => onChange(scope)}
-            accessibilityLabel={scopeAccessibleLabel(scope)}
-            accessibilityState={{ selected: value === scope }}
-          />
-        ))}
-      </View>
+      <SegmentedControl
+        value={value}
+        onChange={onChange}
+        options={recurrence.availableScopes.map((scope) => ({ value: scope, label: scopeLabel(scope), accessibilityLabel: scopeAccessibleLabel(scope) }))}
+        accessibilityLabel="Alcance de recurrencia"
+      />
       {recurrence.availableScopes.includes('this_and_following') ? (
         <AppText variant="caption" tone="tertiary">
           Este y los siguientes divide la serie desde esta ocurrencia.
@@ -679,22 +673,12 @@ export function EventForm({
         <AppText variant="bodySmall" tone="primary" weight="800">
           Alcance
         </AppText>
-        <View style={eventStyles.segmentRow}>
-          <AppButton
-            title="Personal"
-            variant={value.scope === 'personal' ? 'primary' : 'secondary'}
-            size="sm"
-            onPress={() => update('scope', 'personal')}
-            accessibilityState={{ selected: value.scope === 'personal' }}
-          />
-          <AppButton
-            title="Hogar"
-            variant={value.scope === 'household' ? 'primary' : 'secondary'}
-            size="sm"
-            onPress={() => update('scope', 'household')}
-            accessibilityState={{ selected: value.scope === 'household' }}
-          />
-        </View>
+        <SegmentedControl
+          value={value.scope}
+          onChange={(scope) => update('scope', scope)}
+          options={[{ value: 'personal', label: 'Personal' }, { value: 'household', label: 'Hogar' }]}
+          accessibilityLabel="Alcance del evento"
+        />
         {errorSet.has('household_required') ? <InlineError text="Selecciona un hogar." /> : null}
       </View>
       <View style={eventStyles.section}>
@@ -726,10 +710,12 @@ export function EventForm({
         <AppText variant="bodySmall" tone="primary" weight="800">
           Ubicacion
         </AppText>
-        <View style={eventStyles.segmentRow}>
-          <AppButton title="En casa" variant={value.locationType === 'home' ? 'primary' : 'secondary'} size="sm" onPress={() => update('locationType', 'home')} />
-          <AppButton title="Otro lugar" variant={value.locationType === 'other' ? 'primary' : 'secondary'} size="sm" onPress={() => update('locationType', 'other')} />
-        </View>
+        <SegmentedControl
+          value={value.locationType}
+          onChange={(locationType) => update('locationType', locationType)}
+          options={[{ value: 'home', label: 'En casa' }, { value: 'other', label: 'Otro lugar' }]}
+          accessibilityLabel="Tipo de ubicación"
+        />
         {value.locationType === 'other' ? (
           <FormTextField label="Lugar" value={value.locationText} onChangeText={(text) => update('locationText', text)} />
         ) : null}
@@ -797,19 +783,13 @@ function SegmentedStatusControl<TValue extends string>({
         {uncertain ? <AppText variant="caption" tone="warning">Incierto</AppText> : null}
         {conflict ? <AppText variant="caption" tone="warning">Conflicto</AppText> : null}
       </View>
-      <View style={eventStyles.segmentRow}>
-        {options.filter((option) => availableSet.has(option)).map((option) => (
-          <AppButton
-            key={option}
-            title={labels[option]}
-            variant={value === option ? 'primary' : 'secondary'}
-            size="sm"
-            onPress={() => onChange(option)}
-            disabled={pending}
-            accessibilityState={{ selected: value === option, disabled: pending }}
-          />
-        ))}
-      </View>
+      <SegmentedControl
+        value={value}
+        onChange={onChange}
+        options={options.filter((option) => availableSet.has(option)).map((option) => ({ value: option, label: labels[option], disabled: pending }))}
+        accessibilityLabel={title}
+        disabled={pending}
+      />
     </View>
   );
 }

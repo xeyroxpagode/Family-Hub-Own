@@ -18,13 +18,13 @@ import {
   ActionSheet,
   AppText,
   AppInput,
+  SegmentedControl,
 } from '../ui';
 import { MoneyInput } from './MoneyInput';
 import {
   FinanceErrorState,
   FinanceFormFooter,
   FinanceInlineChoice,
-  FinanceSegmented,
   FinanceSelectionRow,
   FINANCE_SHEET_SIZE_POLICY,
 } from './ui';
@@ -232,9 +232,9 @@ export function AccountFormSheet({
     >
       <View style={styles.accountTypeField}>
         <AppText variant="caption" tone="secondary" weight="700">Tipo</AppText>
-        <FinanceSegmented
-          variant="standard"
-          distribution="equal"
+        <SegmentedControl
+          size="regular"
+          fullWidth
           value={accountType}
           options={[
             { value: FINANCE_ACCOUNT_TYPES.ACCOUNT, label: 'Cuenta' },

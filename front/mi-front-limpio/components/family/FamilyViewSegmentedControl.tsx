@@ -20,6 +20,7 @@ export function FamilyViewSegmentedControl({
 }: FamilyViewSegmentedControlProps) {
   return (
     <SegmentedControl
+      selectionMode="single"
       value={activeTab}
       onChange={onChange}
       options={[
@@ -27,7 +28,6 @@ export function FamilyViewSegmentedControl({
         { value: 'map', label: 'Mapa' },
       ]}
       size="compact"
-      animatedActive
       style={[styles.control, style]}
     />
   );

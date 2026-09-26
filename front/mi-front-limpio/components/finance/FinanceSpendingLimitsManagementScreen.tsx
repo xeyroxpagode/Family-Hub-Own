@@ -11,6 +11,7 @@ import {
   InteractivePressable,
   Skeleton,
   UndoToast,
+  SegmentedControl,
 } from '../ui';
 import { useAppTheme } from '../../context/AppThemeContext';
 import {
@@ -20,7 +21,6 @@ import {
   FinanceIconAction,
   FinancePeriodNavigator,
   FinanceSection,
-  FinanceSegmented,
   FinanceUtilityRow,
   FINANCE_ACTION_ICON_SIZE,
   financeSpacing,
@@ -573,9 +573,9 @@ function FinanceSpendingLimitsManagementSurface({
         />}
       />
 
-      <FinanceSegmented
-        variant="compact"
-        distribution="equal"
+      <SegmentedControl
+        size="compact"
+        fullWidth
         value={periodType}
         options={[
           { value: 'MONTHLY', label: 'Mensual', accessibilityLabel: 'Mensual' },

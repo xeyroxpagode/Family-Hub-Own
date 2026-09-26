@@ -726,10 +726,11 @@ export function PlannerScreen() {
 
           {/* Canonical tabs (single authority: PlannerTabKey from M1) */}
           <SegmentedControl
+            selectionMode="single"
             value={activeTab}
             options={PLANNER_TAB_KEYS.map((tabKey) => ({ value: tabKey, label: tabLabel(tabKey) }))}
             onChange={handleTabSelect}
-            density="compact"
+            size="compact"
             style={{ marginBottom: 14 }}
           />
 

@@ -114,7 +114,8 @@ runTest('T08-T22 Movimientos read and rendering contract', () => {
     screen.includes('MovementTypeFilterKey') &&
       screen.includes('normalizeMovementFilters') &&
       screen.includes('toggleMovementFilter') &&
-      screen.includes('<FinanceSegmentedMulti') &&
+      screen.includes('<SegmentedControl') &&
+      screen.includes('selectionMode="multiple"') &&
       screen.includes('testID="finance-movement-filter"') &&
       !screen.includes('filterPill') &&
       !screen.includes('styles.connectedFilter'),

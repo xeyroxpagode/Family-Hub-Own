@@ -432,10 +432,11 @@ export function PlannerCalendarScreen({ refreshKey, onOpenProjection }: Props) {
         <View style={styles.sheet}>
           {!editingSchedule ? (
             <SegmentedControl<CreateMode>
+              selectionMode="single"
               value={createMode}
               options={[{ value: 'event', label: 'Evento' }, { value: 'schedule', label: 'Horario' }]}
               onChange={setCreateMode}
-              density="form"
+              size="regular"
             />
           ) : null}
           {createMode === 'event' ? (
@@ -465,23 +466,14 @@ export function PlannerCalendarScreen({ refreshKey, onOpenProjection }: Props) {
               <FormActionRow label="Desde" value={scheduleForm.start} onPress={() => setTimePicker('start')} />
               <FormActionRow label="Hasta" value={scheduleForm.end} onPress={() => setTimePicker('end')} />
               <AppText variant="caption" tone="secondary" weight="800">Días</AppText>
-              <View style={styles.days}>
-                {DAYS.map((day) => {
-                  const selected = scheduleForm.days.includes(day.key);
-                  return (
-                    <TouchableOpacity
-                      key={day.key}
-                      style={[styles.dayButton, selected && styles.dayButtonSelected]}
-                      onPress={() => setScheduleForm((previous) => ({ ...previous, days: selected ? previous.days.filter((value) => value !== day.key) : [...previous.days, day.key] }))}
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked: selected }}
-                      accessibilityLabel={day.label}
-                    >
-                      <AppText variant="caption" weight="800" tone={selected ? 'inverse' : 'secondary'}>{day.short}</AppText>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              <SegmentedControl
+                selectionMode="multiple"
+                value={scheduleForm.days.map(String)}
+                onChange={(days) => setScheduleForm((previous) => ({ ...previous, days: days.map(Number) }))}
+                options={DAYS.map((day) => ({ value: String(day.key), label: day.short, accessibilityLabel: day.label }))}
+                accessibilityLabel="Días del horario"
+                size="compact"
+              />
               <AppInput label="Nota" value={scheduleForm.note} onChangeText={(note) => setScheduleForm((previous) => ({ ...previous, note }))} placeholder="Aula, lugar o detalle" multiline />
             </View>
           )}
@@ -545,7 +537,4 @@ function createStyles({ colors, radius, spacing }: ReturnType<typeof useAppTheme
   inlineFields: { flexDirection: 'row', gap: spacing[2] },
   inlineField: { flex: 1, minWidth: 0 },
   scheduleForm: { gap: spacing[3] },
-  days: { flexDirection: 'row', gap: spacing[2], flexWrap: 'wrap' },
-  dayButton: { width: 38, height: 38, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface.soft, borderWidth: 1, borderColor: colors.border.default },
-  dayButtonSelected: { backgroundColor: colors.terracotta[500], borderColor: colors.terracotta[500] },
 }); }

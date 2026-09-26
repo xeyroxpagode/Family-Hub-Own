@@ -2,14 +2,14 @@ import React from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { AppText } from '../../ui/AppText';
-import { FinanceSegmented, type FinanceSegmentedOption } from './FinanceSegmented';
+import { SegmentedControl, type SegmentOption } from '../../ui/SegmentedControl';
 import { financeSpacing } from './financeTokens';
 
 export type FinanceInlineChoiceProps<T extends string> = {
   label?: string;
   helperText?: string;
   value: T;
-  options: FinanceSegmentedOption<T>[];
+  options: SegmentOption<T>[];
   onChange: (value: T) => void;
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -44,7 +44,7 @@ export function FinanceInlineChoice<T extends string>({
           {label}
         </AppText>
       ) : null}
-      <FinanceSegmented variant="compact" distribution="equal" value={value} options={options} onChange={onChange} />
+      <SegmentedControl size="compact" fullWidth value={value} options={options} onChange={onChange} />
       {helperText ? (
         <AppText variant="caption" tone="tertiary">
           {helperText}

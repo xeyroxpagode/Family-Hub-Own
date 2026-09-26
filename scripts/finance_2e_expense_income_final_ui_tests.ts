@@ -54,7 +54,7 @@ runTest('T01-T10 Movimientos entry and canonical form shell', () => {
   assert(sheet.includes('title="Nuevo movimiento"'), 'T04 sheet title is Nuevo movimiento');
   // 3H: default operation remains 'expense' (Gasto), type widened to FinanceOperationKind
   assert(sheet.includes("useState<FinanceOperationKind>('expense')") || sheet.includes("useState<FinanceTransactionKind>('expense')"), 'T05 Gasto is the default operation');
-  assert(sheet.includes('<FinanceSegmented') && sheet.includes("label: 'Gasto'") && sheet.includes("label: 'Transferir'") && sheet.includes('Ingreso'), 'T06 operation selector exposes Gasto and Ingreso after 3H adds Transfer');
+  assert(sheet.includes('<SegmentedControl') && sheet.includes("label: 'Gasto'") && sheet.includes("label: 'Transferir'") && sheet.includes('Ingreso'), 'T06 operation selector exposes Gasto and Ingreso after 3H adds Transfer');
   assert(sheet.includes('<MoneyInput') && sheet.includes('onValueChange={handleAmountChange}') && sheet.includes('onCurrencyChange={handleCurrencyChange}'), 'T07 MoneyInput primitive is reused as the only amount/currency input');
   assert(sheet.includes('DatePickerSheet') && sheet.includes('formatHumanDate(date)') && sheet.includes('todayDateOnly'), 'T08 date defaults to today and uses DatePickerSheet');
   assert(sheet.includes('subtitle={`Finanzas de ${contextLabel}`}') && (sheet.match(/Contexto financiero/g) ?? []).length === 0 && !sheet.includes('financeSelectorOptions('), 'T09 Financial Context is represented once in the sheet subtitle with no duplicate block or second selector');

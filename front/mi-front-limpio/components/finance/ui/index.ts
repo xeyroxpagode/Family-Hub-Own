@@ -2,7 +2,6 @@ export * from './financeTokens';
 export * from './financePolicies';
 export * from './FinanceSection';
 export * from './FinanceSurface';
-export * from './FinanceSegmented';
 export * from './FinanceIconAction';
 export * from './FinancePeriodNavigator';
 export * from './FinanceUtilityRow';

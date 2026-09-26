@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AppButton, AppText, EmptyState } from '../../components/ui';
+import { AppButton, AppText, EmptyState, SegmentedControl } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, radius, shadows, spacing } from '../../constants/theme';
 import {
@@ -257,7 +257,7 @@ export function PlannerPlanMinimalCreateSurface({
 }: MinimalCreateProps) {
   const [objective, setObjective] = useState('');
   const [scope, setScope] = useState<MinimalPlanCreatePayload['scope']>(initialScope);
-  const [finalizationKind, setFinalizationKind] = useState<MinimalPlanCreatePayload['finalizationKind']>('none');
+  const [finalizationKind, setFinalizationKind] = useState<NonNullable<MinimalPlanCreatePayload['finalizationKind']>>('none');
   const payload: MinimalPlanCreatePayload = {
     objective,
     scope,
@@ -283,36 +283,18 @@ export function PlannerPlanMinimalCreateSurface({
           accessibilityLabel="Objetivo del plan"
         />
       </View>
-      <View style={styles.segmented} accessibilityRole="radiogroup" accessibilityLabel="Alcance del plan">
-        {(['personal', 'household'] as const).map((option) => (
-          <Pressable
-            key={option}
-            style={[styles.segment, scope === option && styles.segmentActive]}
-            onPress={() => setScope(option)}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: scope === option }}
-          >
-            <AppText variant="bodySmall" tone={scope === option ? 'inverse' : 'secondary'} weight="700">
-              {scopeLabel(option)}
-            </AppText>
-          </Pressable>
-        ))}
-      </View>
-      <View style={styles.segmented} accessibilityRole="radiogroup" accessibilityLabel="Resultado de finalizacion">
-        {(['none', 'date', 'event'] as const).map((option) => (
-          <Pressable
-            key={option}
-            style={[styles.segment, finalizationKind === option && styles.segmentActive]}
-            onPress={() => setFinalizationKind(option)}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: finalizationKind === option }}
-          >
-            <AppText variant="bodySmall" tone={finalizationKind === option ? 'inverse' : 'secondary'} weight="700">
-              {finalizationLabel(option)}
-            </AppText>
-          </Pressable>
-        ))}
-      </View>
+      <SegmentedControl
+        value={scope}
+        onChange={setScope}
+        options={(['personal', 'household'] as const).map((option) => ({ value: option, label: scopeLabel(option) }))}
+        accessibilityLabel="Alcance del plan"
+      />
+      <SegmentedControl
+        value={finalizationKind}
+        onChange={setFinalizationKind}
+        options={(['none', 'date', 'event'] as const).map((option) => ({ value: option, label: finalizationLabel(option) }))}
+        accessibilityLabel="Resultado de finalización"
+      />
       <View style={styles.actionRow}>
         <AppButton
           title="Crear plan"
@@ -517,22 +499,13 @@ export function PlannerMilestoneEditorSurface({
               accessibilityLabel="Titulo del nuevo hito"
               editable={!submitting}
             />
-            <View style={styles.segmented} accessibilityRole="radiogroup" accessibilityLabel="Modo de completado">
-              {(['manual', 'automatic'] as const).map((option) => (
-                <Pressable
-                  key={option}
-                  style={[styles.segment, newMode === option && styles.segmentActive]}
-                  onPress={() => setNewMode(option)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: newMode === option }}
-                  disabled={submitting}
-                >
-                  <AppText variant="bodySmall" tone={newMode === option ? 'inverse' : 'secondary'} weight="700">
-                    {MILESTONE_COMPLETION_MODE_LABELS[option]}
-                  </AppText>
-                </Pressable>
-              ))}
-            </View>
+            <SegmentedControl
+              value={newMode}
+              onChange={setNewMode}
+              options={(['manual', 'automatic'] as const).map((option) => ({ value: option, label: MILESTONE_COMPLETION_MODE_LABELS[option] }))}
+              accessibilityLabel="Modo de completado"
+              disabled={submitting}
+            />
             {addErrors.length > 0 ? (
               <View style={styles.warningBox} accessibilityRole="alert">
                 {addErrors.map((error) => (
@@ -574,25 +547,13 @@ export function PlannerMilestoneEditorSurface({
                         accessibilityLabel="Editar titulo del hito"
                         editable={!submitting}
                       />
-                      <View style={styles.segmented} accessibilityRole="radiogroup" accessibilityLabel="Modo de hito">
-                        {(['manual', 'automatic'] as const).map((option) => (
-                          <Pressable
-                            key={option}
-                            style={[styles.segment, editMode === option && styles.segmentActive]}
-                            onPress={() => { if (!submitting) setEditMode(option); }}
-                            accessibilityRole="radio"
-                            accessibilityState={{ checked: editMode === option }}
-                          >
-                            <AppText
-                              variant="bodySmall"
-                              tone={editMode === option ? 'inverse' : 'secondary'}
-                              weight="700"
-                            >
-                              {MILESTONE_COMPLETION_MODE_LABELS[option]}
-                            </AppText>
-                          </Pressable>
-                        ))}
-                      </View>
+                      <SegmentedControl
+                        value={editMode}
+                        onChange={setEditMode}
+                        options={(['manual', 'automatic'] as const).map((option) => ({ value: option, label: MILESTONE_COMPLETION_MODE_LABELS[option] }))}
+                        accessibilityLabel="Modo de hito"
+                        disabled={submitting}
+                      />
                       <View style={styles.actionRow}>
                         <AppButton
                           title="Guardar"
@@ -825,26 +786,6 @@ const styles = StyleSheet.create({
   priorityWarning: {
     borderColor: colors.warning.base,
     backgroundColor: colors.warning.soft,
-  },
-  segmented: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    backgroundColor: colors.surface.soft,
-    padding: spacing[1],
-    flexDirection: 'row',
-    gap: spacing[1],
-  },
-  segment: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing[2],
-  },
-  segmentActive: {
-    backgroundColor: colors.terracotta[500],
   },
   input: {
     minHeight: 48,

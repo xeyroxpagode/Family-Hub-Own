@@ -48,6 +48,7 @@ import {
   DatePickerSheet,
   InteractivePressable,
   formatHumanDate,
+  SegmentedControl,
 } from '../ui';
 import { MoneyInput } from './MoneyInput';
 import { AccountFormSheet } from './AccountFormSheet';
@@ -58,7 +59,6 @@ import {
   FinanceDisclosureRow,
   FinanceFormFooter,
   FinanceInlineChoice,
-  FinanceSegmented,
   FinanceSelectionRow,
   FinanceSemanticSurface,
   FINANCE_SHEET_SIZE_POLICY,
@@ -1009,9 +1009,9 @@ if (commissionMode === 'custom' && !commission.isValid) {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.form}
         >
-          <FinanceSegmented
-            variant="standard"
-            distribution="equal"
+          <SegmentedControl
+            size="regular"
+            fullWidth
             value={operation}
             onChange={chooseOperation}
             options={[

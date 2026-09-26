@@ -8,6 +8,7 @@ import {
   AppText,
   Skeleton,
   ErrorState,
+  SegmentedControl,
 } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
 import { useAppTheme } from '../../context/AppThemeContext';
@@ -25,7 +26,6 @@ import {
 } from '../../services/finance/financeAnalysis';
 import { shiftFinanceMonth, formatFinancePeriodLabel } from '../../services/finance/financePeriod';
 import {
-  FinanceSegmented,
   FinanceIconAction,
   FinancePeriodNavigator,
   FinanceListRow,
@@ -543,9 +543,9 @@ export function FinanceAnalysisDetailScreen() {
         />
       </View>
 
-      <FinanceSegmented<AnalysisTab>
-        variant="standard"
-        distribution="equal"
+      <SegmentedControl<AnalysisTab>
+        size="regular"
+        fullWidth
         value={selectedTab}
         onChange={setSelectedTab}
         options={[
