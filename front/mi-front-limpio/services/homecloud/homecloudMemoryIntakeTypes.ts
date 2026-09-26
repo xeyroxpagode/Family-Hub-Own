@@ -1,5 +1,6 @@
 import type { HomeCloudAlbum } from './homecloudTypes';
 import type { HomeCloudCapabilityDescriptor } from './homecloudCapabilitiesAdapter';
+import type { UploadLocalArtifact, CapturePrecision } from './homecloudUploadTypes';
 
 export interface MemoryIntakeConfig {
   householdId: string;
@@ -25,8 +26,24 @@ export interface MemoryIntakeState {
   invalidAlbum?: boolean;
 }
 
+export interface BinaryMemoryDraft {
+  artifact: UploadLocalArtifact;
+  capturedAt: string | null;
+  capturePrecision: CapturePrecision;
+}
+
+export interface BinaryMemoryMetadata {
+  caption: string | null;
+  initialAlbumId: string | null;
+  capturedAt: string | null;
+  capturedYear: number | null;
+  capturedMonth: number | null;
+  capturePrecision: CapturePrecision;
+}
+
 export interface MemoryIntakeActions {
-  pickMemory: () => Promise<void>;
+  pickMemory: () => Promise<BinaryMemoryDraft | null>;
+  createBinaryMemory: (draft: BinaryMemoryDraft, metadata: BinaryMemoryMetadata) => Promise<void>;
   selectDestination: (albumId: string | null, albumName: string | null) => void;
   retry: () => Promise<void>;
   cancel: () => void;

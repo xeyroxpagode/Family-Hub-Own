@@ -186,6 +186,8 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
             initialAlbumId: job2.initialAlbumId ?? null,
             caption: job2.caption ?? undefined,
             capturedAt: job2.capturedAt ?? undefined,
+            capturedYear: job2.capturedYear ?? undefined,
+            capturedMonth: job2.capturedMonth ?? undefined,
             capturePrecision: job2.capturePrecision ?? undefined,
           }
         : {}),

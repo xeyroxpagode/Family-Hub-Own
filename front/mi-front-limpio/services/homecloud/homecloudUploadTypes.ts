@@ -52,6 +52,10 @@ export interface UploadIntakeContext {
   readonly caption?: string | null;
   /** Reliable source capture timestamp. NEVER synthesized from upload/clock time. */
   readonly capturedAt?: string | null;
+  /** Partial semantic-date year. Never paired with a fabricated timestamp. */
+  readonly capturedYear?: number | null;
+  /** Partial semantic-date month (1-12), only with month_year precision. */
+  readonly capturedMonth?: number | null;
   /** Capture precision; coherent with capturedAt (NULL iff unknown). */
   readonly capturePrecision?: CapturePrecision | null;
 }
@@ -80,6 +84,8 @@ export interface UploadJob {
   readonly caption: string | null;
   /** Reliable source capture timestamp (never synthesized). */
   readonly capturedAt: string | null;
+  readonly capturedYear: number | null;
+  readonly capturedMonth: number | null;
   /** Capture precision (coherent with capturedAt). */
   readonly capturePrecision: CapturePrecision | null;
   /** Local artifact identity (survives serialization). */
@@ -108,6 +114,8 @@ export interface UploadRegisterPayload {
   readonly initialAlbumId?: string | null;
   readonly caption?: string | null;
   readonly capturedAt?: string | null;
+  readonly capturedYear?: number | null;
+  readonly capturedMonth?: number | null;
   readonly capturePrecision?: CapturePrecision | null;
 }
 

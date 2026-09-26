@@ -1,316 +1,266 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, Keyboard } from 'react-native';
-import { ActionSheet, FormActionRow } from '../../components/ui/ActionSheet';
-import { AppButton } from '../../components/ui/AppButton';
-import { AppText } from '../../components/ui/AppText';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Image, ScrollView, StyleSheet, View } from 'react-native';
+
+import { ActionSheet, AppButton, AppInput, AppText, FilterChip } from '../../components/ui';
+import { MemorySemanticDateFields } from '../../components/homecloud/MemorySemanticDateFields';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, spacing, radius, touchTargets } from '../../constants/theme';
+import { colors, radius, spacing } from '../../constants/theme';
+import { generateMutationId } from '../api';
 import { createMemoryIntakeService } from './homecloudMemoryIntakeService';
-import type { MemoryIntakeConfig, MemoryIntakeState, MemoryIntakeDestination } from './homecloudMemoryIntakeTypes';
+import { createWrittenMemory } from './homecloudWrittenMemoryService';
+import {
+  emptySemanticDateDraft,
+  semanticDateDraftError,
+  semanticDateDraftFromCapture,
+  semanticDateValueFromDraft,
+  type SemanticDateDraft,
+} from './homecloudSemanticDate';
+import type { BinaryMemoryDraft, MemoryIntakeConfig, MemoryIntakeDestination, MemoryIntakeState } from './homecloudMemoryIntakeTypes';
 
 export interface MemoryIntakeProps {
   config: MemoryIntakeConfig;
   onComplete?: (contentId: string) => void;
-  onDismiss?: () => void;
 }
 
-export function MemoryIntake({ config, onComplete, onDismiss }: MemoryIntakeProps) {
-  const [state, setState] = useState<MemoryIntakeState>({ status: 'idle' });
-  const [sourceSheetVisible, setSourceSheetVisible] = useState(false);
-  const [destinationSheetVisible, setDestinationSheetVisible] = useState(false);
-  const [destinations, setDestinations] = useState<MemoryIntakeDestination[]>([]);
-  const [showDestination, setShowDestination] = useState(false);
+type Sheet = 'create' | 'binary' | 'written' | null;
 
-  const service = React.useMemo(() => createMemoryIntakeService(config), [
-    config.householdId,
-    config.accessToken,
-    config.capabilities.contribute,
-    config.initialAlbumId,
-    config.initialAlbumName,
-    config.intakeSource,
+export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
+  const { householdId, accessToken, capabilities, initialAlbumId, initialAlbumName, intakeSource } = config;
+  const [state, setState] = useState<MemoryIntakeState>({ status: 'idle' });
+  const [sheet, setSheet] = useState<Sheet>(null);
+  const [albums, setAlbums] = useState<MemoryIntakeDestination[]>([]);
+  const [binaryDraft, setBinaryDraft] = useState<BinaryMemoryDraft | null>(null);
+  const [binaryDate, setBinaryDate] = useState<SemanticDateDraft>(emptySemanticDateDraft);
+  const [binaryCaption, setBinaryCaption] = useState('');
+  const [binaryAlbumId, setBinaryAlbumId] = useState<string | null>(config.initialAlbumId ?? null);
+  const [writtenText, setWrittenText] = useState('');
+  const [writtenDate, setWrittenDate] = useState<SemanticDateDraft>(emptySemanticDateDraft);
+  const [writtenAlbumId, setWrittenAlbumId] = useState<string | null>(config.initialAlbumId ?? null);
+  const [writtenSubmitting, setWrittenSubmitting] = useState(false);
+  const [writtenError, setWrittenError] = useState<string | null>(null);
+  const writtenRequestId = useRef<string | null>(null);
+  const notifiedContentId = useRef<string | null>(null);
+
+  const service = useMemo(() => createMemoryIntakeService({
+    householdId,
+    accessToken,
+    capabilities,
+    initialAlbumId,
+    initialAlbumName,
+    intakeSource,
+  }), [
+    householdId,
+    accessToken,
+    capabilities,
+    initialAlbumId,
+    initialAlbumName,
+    intakeSource,
   ]);
 
   useEffect(() => {
     const unsubscribe = service.subscribe(setState);
-    service.loadAlbums().then(() => {
-      setDestinations(service.getAvailableDestinations());
-      setShowDestination(service.canShowDestinationSelector());
-    });
+    void service.loadAlbums().then(() => setAlbums(service.getAvailableDestinations()));
+    void service.recover();
     return unsubscribe;
   }, [service]);
 
   useEffect(() => {
-    if (state.status === 'completed' && state.contentId) {
-      onComplete?.(state.contentId);
+    if (state.status !== 'completed' || !state.contentId || notifiedContentId.current === state.contentId) return;
+    notifiedContentId.current = state.contentId;
+    setSheet(null);
+    setBinaryDraft(null);
+    onComplete?.(state.contentId);
+  }, [onComplete, state.contentId, state.status]);
+
+  const active = ['preparing', 'uploading', 'verifying', 'finalizing'].includes(state.status);
+
+  const chooseMedia = useCallback(async () => {
+    setSheet(null);
+    const draft = await service.pickMemory();
+    if (!draft) return;
+    setBinaryDraft(draft);
+    setBinaryDate(semanticDateDraftFromCapture(draft.capturedAt, draft.capturePrecision));
+    setBinaryCaption('');
+    setBinaryAlbumId(config.initialAlbumId ?? null);
+    setSheet('binary');
+  }, [config.initialAlbumId, service]);
+
+  const submitBinary = useCallback(async () => {
+    if (!binaryDraft || active || semanticDateDraftError(binaryDate)) return;
+    const date = semanticDateValueFromDraft(binaryDate);
+    await service.createBinaryMemory(binaryDraft, {
+      caption: binaryCaption.trim() || null,
+      initialAlbumId: binaryAlbumId,
+      capturedAt: date.capturedAt,
+      capturedYear: date.capturedYear,
+      capturedMonth: date.capturedMonth,
+      capturePrecision: date.precision,
+    });
+  }, [active, binaryAlbumId, binaryCaption, binaryDate, binaryDraft, service]);
+
+  const submitWritten = useCallback(async () => {
+    if (writtenSubmitting || !writtenText.trim() || semanticDateDraftError(writtenDate)) return;
+    setWrittenSubmitting(true);
+    setWrittenError(null);
+    if (!writtenRequestId.current) writtenRequestId.current = generateMutationId();
+    try {
+      const date = semanticDateValueFromDraft(writtenDate);
+      const content = await createWrittenMemory(config.accessToken, {
+        text: writtenText,
+        initialAlbumId: writtenAlbumId,
+        intakeRequestId: writtenRequestId.current,
+        ...date,
+      });
+      writtenRequestId.current = null;
+      setSheet(null);
+      setWrittenText('');
+      setWrittenDate(emptySemanticDateDraft());
+      onComplete?.(content.id);
+    } catch (error) {
+      setWrittenError(error instanceof Error ? error.message : 'No pudimos guardar este recuerdo.');
+    } finally {
+      setWrittenSubmitting(false);
     }
-  }, [state.status, state.contentId, onComplete]);
+  }, [config.accessToken, onComplete, writtenAlbumId, writtenDate, writtenSubmitting, writtenText]);
 
-  const handlePickMemory = useCallback(async () => {
-    await service.pickMemory();
-    setSourceSheetVisible(false);
-  }, [service]);
-
-  const handleSelectDestination = useCallback((albumId: string | null, albumName: string | null) => {
-    service.selectDestination(albumId, albumName);
-    setDestinations(service.getAvailableDestinations());
-    setDestinationSheetVisible(false);
-  }, [service]);
-
-  const handleRetry = useCallback(async () => {
-    await service.retry();
-  }, [service]);
-
-  const handleDismiss = useCallback(() => {
-    service.dismiss();
-    onDismiss?.();
-  }, [service, onDismiss]);
-
-  const renderStatus = () => {
-    switch (state.status) {
-      case 'preparing':
-        return <AppText variant="bodySmall" tone="secondary">Preparando…</AppText>;
-      case 'uploading':
-        return <AppText variant="bodySmall" tone="secondary">Subiendo…</AppText>;
-      case 'verifying':
-        return <AppText variant="bodySmall" tone="secondary">Verificando…</AppText>;
-      case 'finalizing':
-        return <AppText variant="bodySmall" tone="secondary">Guardando…</AppText>;
-      case 'completed':
-        return <AppText variant="bodySmall" tone="success">Guardado</AppText>;
-      case 'failed':
-        return (
-          <View style={styles.errorContainer}>
-            <AppText variant="body" weight="700" tone="danger">No pudimos guardar este recuerdo</AppText>
-            {state.error ? (
-              <AppText variant="caption" tone="secondary" style={styles.errorText}>
-                Detalle tecnico: {state.error}
-              </AppText>
-            ) : null}
-            <AppButton
-              title="Reintentar"
-              size="sm"
-              variant="secondary"
-              onPress={handleRetry}
-              accessibilityLabel="Reintentar guardar recuerdo"
-              style={styles.retryButton}
-            />
-          </View>
-        );
-      case 'cancelled':
-        return null;
-      default:
-        return null;
-    }
-  };
-
-  const renderDestinationSelector = () => {
-    if (!service.canShowDestinationSelector()) return null;
-
-    const currentName = state.albumName ?? 'Recuerdos';
-
-    return (
-      <FormActionRow
-        label="Agregar a"
-        value={currentName}
-        onPress={() => {
-          Keyboard.dismiss();
-          setDestinationSheetVisible(true);
-        }}
-        accessibilityLabel={`Destino actual: ${currentName}. Toca para cambiar.`}
-        disabled={state.status !== 'idle' && state.status !== 'failed' && state.status !== 'completed'}
-      />
-    );
-  };
-
-  const renderDestinationSheet = () => {
-    if (!destinationSheetVisible) return null;
-
-    return (
-      <ActionSheet
-        visible={true}
-        title="Agregar a"
-        onRequestClose={() => setDestinationSheetVisible(false)}
-        size="content"
-      >
-        <View style={styles.destinationList}>
-          {destinations.map((dest) => (
-            <View
-              key={dest.id}
-              style={[
-                styles.destinationRow,
-                dest.isCurrent && styles.destinationRowSelected,
-              ]}
-            >
-              <AppButton
-                variant="icon"
-                size="sm"
-                onPress={() => handleSelectDestination(dest.id === 'root' ? null : dest.id, dest.id === 'root' ? null : dest.name)}
-                disabled={dest.isCurrent}
-                accessibilityLabel={dest.isCurrent ? `${dest.name}, seleccionado` : dest.name}
-              >
-                {dest.isCurrent ? (
-                  <HomePlusIcon name="checkmark" size={20} color={colors.brand} />
-                ) : (
-                  <HomePlusIcon name="ellipse-outline" size={20} color={colors.text.tertiary} />
-                )}
-              </AppButton>
-              <AppText variant="body" weight="500" style={{ flex: 1 }}>{dest.name}</AppText>
-            </View>
-          ))}
-        </View>
-      </ActionSheet>
-    );
-  };
-
-  const renderSourceSheet = () => {
-    if (!sourceSheetVisible) return null;
-
-    return (
-      <ActionSheet
-        visible={true}
-        title="Agregar recuerdos"
-        onRequestClose={() => setSourceSheetVisible(false)}
-        size="content"
-      >
-        <View style={styles.sourceSheetContent}>
-          <AppButton
-            variant="primary"
-            onPress={handlePickMemory}
-            accessibilityLabel="Fotos y videos del dispositivo"
-            style={styles.sourceAction}
-          >
-            <View style={styles.sourceActionContent}>
-              <HomePlusIcon name="images-outline" size={24} color={colors.text.inverse} />
-              <AppText variant="bodyLarge" weight="600" style={{ marginLeft: spacing[3] }}>Fotos y videos</AppText>
-            </View>
-          </AppButton>
-        </View>
-      </ActionSheet>
-    );
-  };
-
-  const renderTrigger = () => {
-    const isActive = state.status === 'preparing' || state.status === 'uploading' || state.status === 'verifying' || state.status === 'finalizing';
-    const isPicking = state.status === 'picking';
-
-    if (isActive || isPicking) {
-      return (
-        <View style={styles.activeTrigger}>
-          <AppText variant="bodySmall" tone="secondary">⟳</AppText>
-          <AppText variant="bodyLarge" weight="600">
-            {state.status === 'preparing' ? 'Preparando…' : state.status === 'uploading' ? 'Subiendo…' : state.status === 'verifying' ? 'Verificando…' : state.status === 'finalizing' ? 'Guardando…' : 'Seleccionando…'}
-          </AppText>
-        </View>
-      );
-    }
-
-    const triggerLabel = service.hasAlbumContext() && config.initialAlbumName
-      ? `Agregar a ${config.initialAlbumName}`
-      : 'Agregar recuerdos';
-
-    return (
-      <AppButton
-        variant="primary"
-        onPress={() => setSourceSheetVisible(true)}
-        disabled={!config.capabilities.contribute || isActive || isPicking || state.invalidAlbum === true}
-        style={styles.triggerButton}
-      >
-        <HomePlusIcon name="add" size={22} color={colors.text.inverse} />
-        <AppText variant="bodyLarge" weight="600" style={{ marginLeft: spacing[3] }}>{triggerLabel}</AppText>
-      </AppButton>
-    );
-  };
-
-  const renderInvalidAlbum = () => {
-    if (!state.invalidAlbum) return null;
-    return (
-      <View style={styles.invalidAlbum}>
-        <AppText variant="bodySmall" tone="danger">El álbum seleccionado ya no está disponible.</AppText>
-        <AppButton size="sm" variant="secondary" title="Elegir otro destino" onPress={handleDismiss} style={{ marginTop: spacing[2] }} />
-      </View>
-    );
+  const openWritten = () => {
+    setWrittenText('');
+    setWrittenDate(emptySemanticDateDraft());
+    setWrittenAlbumId(config.initialAlbumId ?? null);
+    setWrittenError(null);
+    writtenRequestId.current = null;
+    setSheet('written');
   };
 
   return (
-    <View style={styles.container}>
-      {renderTrigger()}
-      {showDestination && renderDestinationSelector()}
-      {renderInvalidAlbum()}
-      {renderStatus()}
-      {renderSourceSheet()}
-      {renderDestinationSheet()}
+    <>
+      <AppButton
+        variant="icon"
+        size="sm"
+        onPress={() => setSheet('create')}
+        disabled={!config.capabilities.contribute || active || state.status === 'picking'}
+        accessibilityLabel="Crear recuerdo"
+      >
+        <HomePlusIcon name="add" size={24} color={colors.brand} />
+      </AppButton>
+
+      <ActionSheet visible={sheet === 'create'} title="Guardar un recuerdo" onRequestClose={() => setSheet(null)} size="content">
+        <View style={styles.actions}>
+          <AppButton title="Elegir fotos o videos" onPress={() => void chooseMedia()} />
+          <AppButton title="Escribir un recuerdo" variant="secondary" onPress={openWritten} />
+        </View>
+      </ActionSheet>
+
+      <ActionSheet
+        visible={sheet === 'binary'}
+        title="Revisar recuerdo"
+        onRequestClose={() => { if (!active) { setSheet(null); setBinaryDraft(null); } }}
+        closeDisabled={active}
+        size="scrollable-content"
+        footer={(
+          <AppButton
+            title={binarySubmitLabel(state.status)}
+            loading={active}
+            disabled={!binaryDraft || active || Boolean(semanticDateDraftError(binaryDate))}
+            onPress={() => void (state.status === 'failed' ? service.retry() : submitBinary())}
+          />
+        )}
+      >
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
+          {binaryDraft?.artifact.mimeType.startsWith('image/') ? (
+            <Image source={{ uri: binaryDraft.artifact.localUri }} resizeMode="cover" style={styles.preview} accessibilityLabel="Vista previa del recuerdo" />
+          ) : binaryDraft ? (
+            <View style={styles.videoPreview}>
+              <HomePlusIcon name="videocam-outline" size={36} color={colors.text.secondary} />
+              <AppText variant="bodySmall" tone="secondary" numberOfLines={2}>{binaryDraft.artifact.displayName}</AppText>
+            </View>
+          ) : null}
+          <AppInput
+            label="Texto (opcional)"
+            value={binaryCaption}
+            onChangeText={setBinaryCaption}
+            editable={!active}
+            placeholder="Contá algo sobre este momento…"
+            variant="multiline"
+          />
+          <MemorySemanticDateFields value={binaryDate} onChange={setBinaryDate} disabled={active} />
+          <MemoryAlbumSelector albums={albums} value={binaryAlbumId} onChange={setBinaryAlbumId} disabled={active} />
+          {state.status === 'failed' ? (
+            <View style={styles.error}>
+              <AppText variant="bodySmall" tone="danger">{state.error ?? 'No pudimos guardar este recuerdo.'}</AppText>
+            </View>
+          ) : null}
+        </ScrollView>
+      </ActionSheet>
+
+      <ActionSheet
+        visible={sheet === 'written'}
+        title="Escribir un recuerdo"
+        onRequestClose={() => { if (!writtenSubmitting) setSheet(null); }}
+        closeDisabled={writtenSubmitting}
+        size="scrollable-content"
+        footer={(
+          <AppButton
+            title={writtenSubmitting ? 'Guardando…' : 'Guardar recuerdo'}
+            loading={writtenSubmitting}
+            disabled={!writtenText.trim() || writtenSubmitting || Boolean(semanticDateDraftError(writtenDate))}
+            onPress={() => void submitWritten()}
+          />
+        )}
+      >
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
+          <AppInput
+            label="Recuerdo"
+            value={writtenText}
+            onChangeText={(text) => { setWrittenText(text); setWrittenError(null); }}
+            editable={!writtenSubmitting}
+            autoFocus
+            placeholder="Escribí el momento que quieren conservar…"
+            variant="multiline"
+          />
+          <MemorySemanticDateFields value={writtenDate} onChange={setWrittenDate} disabled={writtenSubmitting} />
+          <MemoryAlbumSelector albums={albums} value={writtenAlbumId} onChange={setWrittenAlbumId} disabled={writtenSubmitting} />
+          {writtenError ? <AppText variant="bodySmall" tone="danger">{writtenError}</AppText> : null}
+        </ScrollView>
+      </ActionSheet>
+    </>
+  );
+}
+
+function MemoryAlbumSelector({ albums, value, onChange, disabled }: {
+  albums: MemoryIntakeDestination[];
+  value: string | null;
+  onChange: (albumId: string | null) => void;
+  disabled: boolean;
+}) {
+  return (
+    <View style={styles.albumSection}>
+      <AppText variant="caption" tone="secondary" weight="700">{'Álbum (opcional)'}</AppText>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.albumList}>
+        {albums.length === 0 ? <FilterChip label="Sin álbum" selected disabled={disabled} /> : albums.map((album) => {
+          const albumId = album.id === 'root' ? null : album.id;
+          return <FilterChip key={album.id} label={album.id === 'root' ? 'Sin álbum' : album.name} selected={value === albumId} disabled={disabled} onPress={() => onChange(albumId)} />;
+        })}
+      </ScrollView>
     </View>
   );
 }
 
+function binarySubmitLabel(status: MemoryIntakeState['status']): string {
+  if (status === 'preparing') return 'Guardando…';
+  if (status === 'uploading') return 'Subiendo…';
+  if (status === 'verifying') return 'Procesando…';
+  if (status === 'finalizing') return 'Guardando…';
+  if (status === 'failed') return 'Reintentar';
+  return 'Guardar recuerdo';
+}
+
 const styles = StyleSheet.create({
-  container: {
-    gap: spacing[3],
-  },
-  triggerButton: {
-    minHeight: touchTargets.normal,
-    width: '100%',
-  },
-  activeTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[3],
-    paddingVertical: spacing[2],
-    paddingHorizontal: spacing[4],
-    backgroundColor: colors.surface.soft,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-  },
-  sourceSheetContent: {
-    paddingVertical: spacing[2],
-  },
-  sourceAction: {
-    paddingVertical: spacing[4],
-    paddingHorizontal: spacing[4],
-    width: '100%',
-  },
-  sourceActionContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  destinationList: {
-    gap: spacing[2],
-  },
-  destinationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing[3],
-    paddingHorizontal: spacing[4],
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface.card,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-  },
-  destinationRowSelected: {
-    backgroundColor: colors.brandSoft,
-    borderColor: colors.brand,
-  },
-  errorContainer: {
-    gap: spacing[2],
-    alignItems: 'flex-start',
-    padding: spacing[3],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.danger.base,
-    backgroundColor: colors.danger.soft,
-  },
-  errorText: {
-    width: '100%',
-  },
-  retryButton: {
-    marginTop: spacing[1],
-  },
-  invalidAlbum: {
-    padding: spacing[3],
-    backgroundColor: colors.danger.soft,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.danger.base,
-  },
+  actions: { gap: spacing[3], paddingBottom: spacing[2] },
+  form: { gap: spacing[4], paddingBottom: spacing[4] },
+  preview: { width: '100%', height: 210, borderRadius: radius.lg, backgroundColor: colors.background.alt },
+  videoPreview: { minHeight: 150, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center', gap: spacing[2], padding: spacing[4] },
+  albumSection: { gap: spacing[2] },
+  albumList: { gap: spacing[2], paddingRight: spacing[4] },
+  error: { gap: spacing[2], alignItems: 'flex-start' },
 });

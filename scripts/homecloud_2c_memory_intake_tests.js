@@ -59,9 +59,9 @@ record(service.includes('.capturedAt') || service.includes('capturedAt,'), 'serv
 record(service.includes('initialAlbumId'), 'service forwards optional initial Album destination');
 
 // Component
-record(component.includes('Agregar recuerdos'), 'component renders canonical source title');
-record(component.includes('Fotos y videos'), 'component exposes only Fotos y videos source');
-record(component.includes('Recuerdos'), 'root destination represented as Recuerdos');
+record(component.includes('Guardar un recuerdo'), 'component renders canonical create title');
+record(component.includes('Elegir fotos o videos'), 'component exposes the productive photo/video source');
+record(component.includes('Sin álbum'), 'root destination is represented as no Album membership');
 
 // Shared engine extension
 record(types.includes('initialAlbumId'), 'upload type contract carries initialAlbumId');

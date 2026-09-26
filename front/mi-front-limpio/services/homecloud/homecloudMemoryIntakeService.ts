@@ -2,7 +2,7 @@ import { createUploadEngine, createFetchArtifactReader, createExpoFileSystemUplo
 import { getSharedUploadJobStore } from '../../storage/homecloudUploadJobStorage';
 import { recoverUploadJobs } from './homecloudUploadRecovery';
 import { fetchHomeCloudAlbumsCached } from './homecloudReadService';
-import type { MemoryIntakeConfig, MemoryIntakeState, MemoryIntakeDestination } from './homecloudMemoryIntakeTypes';
+import type { BinaryMemoryDraft, BinaryMemoryMetadata, MemoryIntakeConfig, MemoryIntakeState, MemoryIntakeDestination } from './homecloudMemoryIntakeTypes';
 import type { UploadJob } from './homecloudUploadTypes';
 
 /**
@@ -38,10 +38,11 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   let stateListeners: Set<(state: MemoryIntakeState) => void> = new Set();
 
   const baseState: MemoryIntakeState = { status: 'idle' };
+  let currentState: MemoryIntakeState = baseState;
 
   function emitState(partial: Partial<MemoryIntakeState>) {
-    const newState = { ...baseState, ...partial };
-    stateListeners.forEach((listener) => listener(newState));
+    currentState = { ...currentState, ...partial };
+    stateListeners.forEach((listener) => listener(currentState));
   }
 
   async function loadAlbums(): Promise<void> {
@@ -87,10 +88,10 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     }
   }
 
-  async function pickMemory(): Promise<void> {
+  async function pickMemory(): Promise<BinaryMemoryDraft | null> {
     if (!capabilities.contribute) {
       emitState({ status: 'failed', error: 'No tienes permiso para agregar recuerdos.' });
-      return;
+      return null;
     }
 
     emitState({ status: 'picking' });
@@ -99,35 +100,46 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     const outcome = await pickMemoryMedia();
 
     if (outcome.success === false && outcome.cancelled === true) {
-      emitState({ status: 'cancelled' });
-      return;
+      emitState({ status: 'idle', error: undefined });
+      return null;
     }
 
     if (outcome.success === false) {
       emitState({ status: 'failed', error: outcome.error });
-      return;
+      return null;
     }
 
-    const { artifact, capturedAt, capturePrecision } = outcome;
+    emitState({ status: 'idle', error: undefined });
+    return outcome;
+  }
+
+  async function createBinaryMemory(draft: BinaryMemoryDraft, metadata: BinaryMemoryMetadata): Promise<void> {
+    if (!capabilities.contribute) {
+      emitState({ status: 'failed', error: 'No tienes permiso para agregar recuerdos.' });
+      return;
+    }
+    if (currentJob && !['completed', 'failed', 'cancelled'].includes(currentJob.state)) return;
 
     const job = engine.createJob(
       {
         role: 'memory',
         intakeSource: config.intakeSource ?? 'memories:picker',
-        initialAlbumId: selectedAlbumId,
-        caption: null,
-        capturedAt,
-        capturePrecision,
+        initialAlbumId: metadata.initialAlbumId,
+        caption: metadata.caption,
+        capturedAt: metadata.capturedAt,
+        capturedYear: metadata.capturedYear,
+        capturedMonth: metadata.capturedMonth,
+        capturePrecision: metadata.capturePrecision,
       },
-      artifact,
+      draft.artifact,
     );
 
     currentJob = job;
 
     emitState({
       status: 'preparing',
-      albumId: selectedAlbumId,
-      albumName: selectedAlbumName,
+      albumId: metadata.initialAlbumId,
+      albumName: availableAlbums.find((album) => album.id === metadata.initialAlbumId)?.name ?? null,
     });
 
     try {
@@ -136,8 +148,8 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
       emitState({
         status: mapEngineStateToIntakeState(completedJob),
         contentId: completedJob.contentId ?? undefined,
-        albumId: selectedAlbumId,
-        albumName: selectedAlbumName,
+        albumId: metadata.initialAlbumId,
+        albumName: availableAlbums.find((album) => album.id === metadata.initialAlbumId)?.name ?? null,
       });
     } catch (error) {
       const latest = store.get(job.id);
@@ -145,8 +157,8 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
       emitState({
         status: 'failed',
         error: error instanceof Error ? error.message : 'No pudimos guardar este recuerdo.',
-        albumId: selectedAlbumId,
-        albumName: selectedAlbumName,
+        albumId: metadata.initialAlbumId,
+        albumName: availableAlbums.find((album) => album.id === metadata.initialAlbumId)?.name ?? null,
       });
     }
   }
@@ -204,7 +216,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
   function subscribe(listener: (state: MemoryIntakeState) => void): () => void {
     stateListeners.add(listener);
-    listener(baseState);
+    listener(currentState);
     return () => stateListeners.delete(listener);
   }
 
@@ -257,6 +269,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
   return {
     pickMemory,
+    createBinaryMemory,
     selectDestination,
     retry,
     cancel,

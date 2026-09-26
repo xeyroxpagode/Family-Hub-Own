@@ -125,6 +125,8 @@ export function createUploadJob(
     initialAlbumId: ctx.initialAlbumId ?? null,
     caption: ctx.caption ?? null,
     capturedAt: ctx.capturedAt ?? null,
+    capturedYear: ctx.capturedYear ?? null,
+    capturedMonth: ctx.capturedMonth ?? null,
     capturePrecision: ctx.capturePrecision ?? null,
     artifact: { ...artifact },
     state: 'pending',

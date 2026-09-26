@@ -8,6 +8,9 @@ import { MemoryCard } from '../components/homecloud/MemoryCards';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
 import { listMemories } from '../services/homecloud/homecloudReadService';
+import { MemoryIntake } from '../services/homecloud/MemoryIntake';
+import { evaluateHomeCloudCapabilities } from '../services/homecloud/homecloudCapabilitiesAdapter';
+import { fetchHomeCloudCapabilities } from '../services/homecloudCapabilities';
 import type { HomeCloudMemoryListItem } from '../services/homecloud/homecloudTypes';
 import {
   flattenTimelineForSectionList,
@@ -31,8 +34,8 @@ const TIMELINE_COLUMNS = 3;
  *   render last as "Sin fecha" per the productive backend contract.
  * - Cards are non-interactive: there is no productive Viewer V2 yet, so no
  *   fake destination is wired (reported as deferred).
- * - No Create affordance is connected here: memory creation has no approved
- *   productive contract yet (reported as deferred for the next slice).
+ * - Create is productive: binary memories use the Shared Upload Engine and
+ *   written memories register/finalize without manufacturing a binary.
  */
 export function HomeCloudMemoriesView() {
   const { session } = useAuth();
@@ -45,9 +48,10 @@ export function HomeCloudMemoriesView() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState({ view: false, contribute: false, organize: false, delete: false, anyWrite: false });
 
   const loadFirstPage = useCallback(async () => {
-    if (!token || !currentHousehold) {
+    if (!token || !currentHousehold?.id) {
       setLoading(false);
       return;
     }
@@ -57,6 +61,9 @@ export function HomeCloudMemoriesView() {
       const page = await listMemories(token, { limit: MEMORIES_PAGE_SIZE });
       setMemories([...page.memories]);
       setNextOffset(page.nextOffset);
+      void fetchHomeCloudCapabilities(token)
+        .then((projection) => setCapabilities(evaluateHomeCloudCapabilities(projection)))
+        .catch(() => setCapabilities({ view: false, contribute: false, organize: false, delete: false, anyWrite: false }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No pudimos cargar tus recuerdos.');
     } finally {
@@ -65,7 +72,7 @@ export function HomeCloudMemoriesView() {
   }, [token, currentHousehold?.id]);
 
   const refresh = useCallback(async () => {
-    if (!token || !currentHousehold) return;
+    if (!token || !currentHousehold?.id) return;
     setRefreshing(true);
     setError(null);
     try {
@@ -80,7 +87,7 @@ export function HomeCloudMemoriesView() {
   }, [token, currentHousehold?.id]);
 
   const loadMore = useCallback(async () => {
-    if (!token || !currentHousehold || nextOffset === null || loadingMore || loading) return;
+    if (!token || !currentHousehold?.id || nextOffset === null || loadingMore || loading) return;
     setLoadingMore(true);
     try {
       const page = await listMemories(token, { limit: MEMORIES_PAGE_SIZE, offset: nextOffset });
@@ -127,6 +134,17 @@ export function HomeCloudMemoriesView() {
         <AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar recuerdos">
           <HomePlusIcon name="refresh" size={21} color={colors.text.secondary} />
         </AppButton>
+        {token && currentHousehold ? (
+          <MemoryIntake
+            config={{
+              householdId: currentHousehold.id,
+              accessToken: token,
+              capabilities,
+              intakeSource: 'homecloud:memories',
+            }}
+            onComplete={() => void refresh()}
+          />
+        ) : null}
       </View>
       {loading ? (
         <MemoriesLoadingSkeleton />
