@@ -83,9 +83,12 @@
     "../front/mi-front-limpio/services/homecloud/homecloudScanner.ts",
     "../scripts/homecloud_4b2_memories_timeline_tests.ts",
     "../scripts/homecloud_4c1_memory_create_tests.ts",
+    "../scripts/homecloud_4c1_1_memory_create_recovery_tests.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudMemoriesTimeline.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudMemoryPreview.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMediaCaptureMetadata.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudSemanticDate.ts",
+
     "../front/mi-front-limpio/services/homecloud/homecloudReadService.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudTypes.ts"
   ],

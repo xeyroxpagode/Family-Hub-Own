@@ -1,6 +1,8 @@
 import type { HomeCloudAlbum } from './homecloudTypes';
 import type { HomeCloudCapabilityDescriptor } from './homecloudCapabilitiesAdapter';
 import type { UploadLocalArtifact, CapturePrecision } from './homecloudUploadTypes';
+import type { MediaCaptureMetadata } from './homecloudMediaCaptureMetadata';
+
 
 export interface MemoryIntakeConfig {
   householdId: string;
@@ -28,9 +30,14 @@ export interface MemoryIntakeState {
 
 export interface BinaryMemoryDraft {
   artifact: UploadLocalArtifact;
-  capturedAt: string | null;
-  capturePrecision: CapturePrecision;
+  /**
+   * Honest semantic date derived from the asset's own temporal metadata. The
+   * Review shows it; the user never grades it. See
+   * `homecloudMediaCaptureMetadata` for the audited source priority.
+   */
+  capture: MediaCaptureMetadata;
 }
+
 
 export interface BinaryMemoryMetadata {
   caption: string | null;

@@ -1,6 +1,6 @@
-﻿/* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Keyboard, Modal, Pressable, StyleSheet, View, useWindowDimensions, TextInput } from 'react-native';
+import { FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View, useWindowDimensions, TextInput } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -79,14 +79,23 @@ export type ActionSheetProps = {
    * reserved for catalog-like surfaces that need a stable scrolling viewport.
    */
   size?: 'full' | 'content' | 'scrollable-content' | 'near-full';
+  /**
+   * Opt-in keyboard composition. Wraps the sheet in a `KeyboardAvoidingView` so
+   * the footer (the primary CTA) stays reachable while the keyboard is open,
+   * and makes the FIRST backdrop tap dismiss the keyboard instead of closing
+   * the sheet — the standard iOS behaviour, so "tap outside the input" can
+   * never destroy what the user was writing.
+   */
+  keyboardAware?: boolean;
 };
 
-export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer, size = 'full' }: ActionSheetProps) {
+export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer, size = 'full', keyboardAware = false }: ActionSheetProps) {
   const theme = useAppTheme();
   const { colors, spacing } = theme;
   const styles = createActionSheetStyles(theme);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
+  const keyboardVisible = useKeyboardVisible();
   // Leave a real top breathing room instead of choosing a device-specific sheet
   // height. Short sheets stay intrinsic; only catalog surfaces claim this space.
   const safeSheetHeight = Math.max(360, Math.round(height * 0.9) - insets.top);
@@ -101,28 +110,61 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
   const requestClose = () => {
     if (!closeDisabled) onRequestClose();
   };
+  // With the keyboard up, the backdrop is a "tap outside the input" gesture:
+  // it dismisses the keyboard and leaves the sheet (and its CTA) untouched.
+  const handleBackdropPress = () => {
+    if (keyboardAware && keyboardVisible) {
+      Keyboard.dismiss();
+      return;
+    }
+    requestClose();
+  };
+  const sheet = (
+    <View style={[styles.modalSheet, sheetSizing]} accessibilityViewIsModal>
+      <View style={styles.handle} />
+      <View style={styles.modalHeader}>
+        <View style={{ flex: 1 }}><AppText variant="title2" weight="800">{title}</AppText>{subtitle ? <AppText variant="caption" tone="secondary">{subtitle}</AppText> : null}</View>
+        <AppButton variant="icon" size="sm" onPress={requestClose} disabled={closeDisabled} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
+      </View>
+      <View style={contentStyle}>{children}</View>
+      {footer ? <View style={styles.modalFooter}>{footer}</View> : null}
+    </View>
+  );
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={requestClose}>
       <View style={styles.modalOverlay}>
         <Pressable
           style={styles.backdropDismiss}
-          onPress={requestClose}
+          onPress={handleBackdropPress}
           disabled={closeDisabled}
           accessibilityRole="button"
           accessibilityLabel={`Cerrar ${title}`}
         />
-        <View style={[styles.modalSheet, sheetSizing]} accessibilityViewIsModal>
-          <View style={styles.handle} />
-          <View style={styles.modalHeader}>
-            <View style={{ flex: 1 }}><AppText variant="title2" weight="800">{title}</AppText>{subtitle ? <AppText variant="caption" tone="secondary">{subtitle}</AppText> : null}</View>
-            <AppButton variant="icon" size="sm" onPress={requestClose} disabled={closeDisabled} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
-          </View>
-          <View style={contentStyle}>{children}</View>
-          {footer ? <View style={styles.modalFooter}>{footer}</View> : null}
-        </View>
+        {keyboardAware ? (
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardAvoiding} pointerEvents="box-none">
+            {sheet}
+          </KeyboardAvoidingView>
+        ) : sheet}
       </View>
     </Modal>
   );
+}
+
+/**
+ * Whether the software keyboard is currently on screen. Backed by the AppState
+ * + keyboard events pair so a dismissed keyboard is never reported as visible.
+ */
+function useKeyboardVisible(): boolean {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setVisible(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return visible;
 }
 
 export function FormActionRow({ label, value, onPress, accessibilityLabel, disabled }: { label: string; value: string; onPress: () => void; accessibilityLabel?: string; disabled?: boolean }) {
@@ -282,6 +324,7 @@ function createActionSheetStyles(theme: ReturnType<typeof useAppTheme>) {
   modalContentIntrinsic: { flexShrink: 1, minHeight: 0 },
   modalContentScrollable: { flexGrow: 1, flexShrink: 1, minHeight: 0 },
   modalFooter: { flexShrink: 0, paddingTop: spacing[3], borderTopWidth: 1, borderTopColor: colors.border.subtle },
+  keyboardAvoiding: { flexShrink: 1, justifyContent: 'flex-end' },
   inlineOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: colors.surface.overlay },
   inlinePanel: { flex: 1, zIndex: 1, backgroundColor: colors.background.base, paddingHorizontal: spacing[5], paddingTop: spacing[3] },
   inlineHeader: { minHeight: touchTargets.normal, flexDirection: 'row', alignItems: 'center', gap: spacing[2], marginBottom: spacing[5] }, inlineTitle: { flex: 1, textAlign: 'center' }, inlineContent: { flex: 1, position: 'relative' },

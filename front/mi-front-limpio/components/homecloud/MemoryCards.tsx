@@ -28,6 +28,11 @@ import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
  * - written: writtenText IS the content (visually truncated, canonically
  *            intact) + semantic date. Never a displayName, never a file.
  *
+ * IDENTITY: the media IS the content and the caption is the only text that
+ * belongs on the tile. The original filename (displayName) is technical
+ * metadata and is never rendered here; a media Memory without caption falls
+ * back to its honest semantic date ("12 ene 2024" / "Sin fecha").
+ *
  * Cards are intentionally NON-INTERACTIVE in this slice: there is no
  * productive Viewer V2 destination yet, so no fake navigation, modal or
  * viewer is wired. Roles stay descriptive (image/text), never button.

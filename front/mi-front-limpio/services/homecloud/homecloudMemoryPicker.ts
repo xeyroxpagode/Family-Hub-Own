@@ -1,13 +1,13 @@
 import * as ImagePicker from 'expo-image-picker';
-import type { UploadLocalArtifact, CapturePrecision } from './homecloudUploadTypes';
-import { copyArtifactToDurableWorkspace } from './homecloudDurableArtifact';
+import type { UploadLocalArtifact } from './homecloudUploadTypes';
+import { copyArtifactToDurableWorkspace, discardDurableArtifact } from './homecloudDurableArtifact';
+import { deriveMediaCaptureMetadata, type MediaCaptureMetadata } from './homecloudMediaCaptureMetadata';
 import { ensureSingleExtension } from './homecloudPickerNaming';
 
 export interface MemoryPickerResult {
   success: true;
   artifact: UploadLocalArtifact;
-  capturedAt: string | null;
-  capturePrecision: CapturePrecision;
+  capture: MediaCaptureMetadata;
 }
 
 export interface MemoryPickerCancelled {
@@ -59,37 +59,15 @@ function resolveMimeType(asset: ImagePicker.ImagePickerAsset): string | null {
 }
 
 /**
- * Convert an EXIF DateTimeOriginal/DateTime ("YYYY:MM:DD HH:MM:SS") to ISO.
- * Returns null when the value is absent or malformed — we NEVER fabricate a
- * capture date from upload/picker/clock time.
+ * Launch the native gallery picker and return a neutral artifact plus the
+ * honest semantic date of the asset.
+ *
+ * CONTRACT: this function must be called while the caller is ALREADY
+ * presented (or while nothing is presented). Presenting the native picker
+ * while a React Native `Modal` is mid-dismissal is illegal on iOS: the
+ * presentation is dropped and `launchImageLibraryAsync` never settles, which
+ * is what used to make the picker impossible to reopen.
  */
-function exifDateTimeToIso(raw: string): string | null {
-  const match = raw.match(/^(\d{4}):(\d{2}):(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
-  if (!match) return null;
-  const [, year, month, day, hour, minute, second] = match;
-  const date = new Date(Date.UTC(
-    Number(year), Number(month) - 1, Number(day),
-    Number(hour), Number(minute), Number(second),
-  ));
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
-}
-
-function deriveCaptureMetadata(asset: ImagePicker.ImagePickerAsset): {
-  capturedAt: string | null;
-  capturePrecision: CapturePrecision;
-} {
-  const exif = asset.exif;
-  if (exif && typeof exif === 'object') {
-    const raw = exif.DateTimeOriginal ?? exif.DateTime ?? exif.DateTimeDigitized;
-    if (typeof raw === 'string') {
-      const iso = exifDateTimeToIso(raw);
-      if (iso) return { capturedAt: iso, capturePrecision: 'exact' };
-    }
-  }
-  return { capturedAt: null, capturePrecision: 'unknown' };
-}
-
 export async function pickMemoryMedia(): Promise<MemoryPickerOutcome> {
   try {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -117,8 +95,15 @@ export async function pickMemoryMedia(): Promise<MemoryPickerOutcome> {
     const rawName = asset.fileName ?? asset.uri.split('/').pop() ?? 'recuerdo';
     const sizeBytes = typeof asset.fileSize === 'number' && asset.fileSize > 0 ? asset.fileSize : 0;
     const extension = deriveExtension(mimeType, rawName);
+    // `displayName` is TECHNICAL metadata kept for storage/upload only. It is
+    // never the visual identity of a Memory (see memoryPrimaryText).
     const displayName = ensureSingleExtension(rawName, extension);
-    const { capturedAt, capturePrecision } = deriveCaptureMetadata(asset);
+    const capture = deriveMediaCaptureMetadata({
+      exif: asset.exif,
+      type: asset.type ?? null,
+      duration: asset.duration ?? null,
+      fileName: asset.fileName ?? null,
+    });
 
     const artifact: UploadLocalArtifact = {
       localUri: asset.uri,
@@ -131,8 +116,7 @@ export async function pickMemoryMedia(): Promise<MemoryPickerOutcome> {
     return {
       success: true,
       artifact: await copyArtifactToDurableWorkspace(artifact),
-      capturedAt,
-      capturePrecision,
+      capture,
     };
   } catch (error) {
     return {
@@ -141,4 +125,13 @@ export async function pickMemoryMedia(): Promise<MemoryPickerOutcome> {
       error: error instanceof Error ? error.message : 'Error al seleccionar foto o video.',
     };
   }
+}
+
+/**
+ * Discard a picked-but-never-uploaded artifact so an abandoned Review does not
+ * leak a copy of the user's photo into the durable workspace. Best effort:
+ * a failure here must never break the intake flow.
+ */
+export async function discardMemoryMedia(artifact: UploadLocalArtifact): Promise<void> {
+  await discardDurableArtifact(artifact);
 }

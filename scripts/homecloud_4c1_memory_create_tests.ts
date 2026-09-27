@@ -29,7 +29,7 @@ console.log('\n=== HOMECLOUD 4C1 MEMORY CREATE TESTS ===\n');
 
 test('+ in Files preserves the existing Files menu', () => assert.match(filesScreen, /title="Agregar"/));
 test('+ in Memories mounts productive MemoryIntake', () => assert.match(screen, /<MemoryIntake/));
-test('create sheet exposes photo/video', () => assert.match(component, /title="Elegir fotos o videos"/));
+test('create sheet exposes photo/video', () => assert.match(component, /'Elegir fotos o videos'/));
 test('create sheet exposes Written', () => assert.match(component, /title="Escribir un recuerdo"/));
 test('create sheet has no camera action', () => assert.doesNotMatch(component, /title="Tomar foto"/));
 test('create sheet has no recorder action', () => assert.doesNotMatch(component, /title="Grabar audio"/));

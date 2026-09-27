@@ -3,6 +3,9 @@ import type { UploadLocalArtifact } from './homecloudUploadTypes';
 
 const UPLOAD_WORKSPACE = 'homecloud-upload-jobs';
 
+/** Only this exact shape is ever created by `copyArtifactToDurableWorkspace`. */
+const PENDING_FOLDER = /^pending_\d+_[a-z0-9]+$/;
+
 function safeName(name: string): string {
   const trimmed = name.trim() || 'artifact';
   return trimmed
@@ -55,5 +58,33 @@ export async function copyArtifactToDurableWorkspace(
       : artifact.sizeBytes,
     extension,
   };
+}
+
+/**
+ * Delete the workspace copy of an artifact that will never be uploaded.
+ *
+ * Safety: only a folder this module itself created (`pending_<ts>_<rand>`)
+ * directly under the upload workspace can be removed. Any other URI is left
+ * untouched, so a real pending upload job can never be deleted from here.
+ */
+export async function discardDurableArtifact(artifact: UploadLocalArtifact): Promise<void> {
+  const root = FileSystem.documentDirectory;
+  if (!root) return;
+
+  const workspace = `${root}${UPLOAD_WORKSPACE}/`;
+  const localUri = artifact.localUri;
+  if (!localUri.startsWith(workspace)) return;
+
+  const fileDir = localUri.slice(0, localUri.lastIndexOf('/') + 1);
+  const parent = fileDir.slice(0, fileDir.lastIndexOf('/') + 1);
+  if (parent !== workspace) return;
+  if (!PENDING_FOLDER.test(fileDir.slice(workspace.length, -1))) return;
+
+  try {
+    await FileSystem.deleteAsync(fileDir, { idempotent: true });
+  } catch {
+    // Best effort: a leftover copy is a storage concern, never an intake
+    // failure. The flow must continue regardless.
+  }
 }
 

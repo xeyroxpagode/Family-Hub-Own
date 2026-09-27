@@ -37,6 +37,7 @@ function record(ok, message) {
 console.log('\n=== HC-2C MEMORY INTAKE FRONTEND STRUCTURE TESTS ===\n');
 
 const picker = read('homecloudMemoryPicker.ts');
+const captureMetadata = read('homecloudMediaCaptureMetadata.ts');
 const service = read('homecloudMemoryIntakeService.ts');
 const component = read('MemoryIntake.tsx');
 const types = read('homecloudUploadTypes.ts');
@@ -46,8 +47,13 @@ const engine = read('homecloudUploadEngine.ts');
 record(picker.includes('launchImageLibraryAsync'), 'picker uses the native image library picker');
 record(picker.includes("'images'") && picker.includes("'videos'"), 'picker scoped to photos + videos only');
 record(picker.includes('allowsMultipleSelection: false'), 'picker single selection (no batch)');
-record(picker.includes('exif') || picker.includes('DateTimeOriginal'), 'picker reads reliable EXIF capture metadata');
-record(picker.includes('capturedAt') && picker.includes('capturePrecision'), 'picker derives capture metadata');
+record(picker.includes('exif') || captureMetadata.includes('DateTimeOriginal'), 'picker reads reliable EXIF capture metadata');
+record(
+  captureMetadata.includes('capturedAt')
+    && captureMetadata.includes('capturePrecision')
+    && picker.includes('deriveMediaCaptureMetadata'),
+  'capture metadata is derived by the centralized primitive, not ad hoc in the adapter',
+);
 
 // MIME gate
 record(picker.includes('image/') && picker.includes('video/'), 'picker only accepts image/* and video/*');

@@ -265,13 +265,18 @@ record(
 );
 record(
   memoryPrimaryText(mem({ kind: 'image', caption: 'playa', displayName: 'IMG_1.jpg' })) === 'playa' &&
-    memoryPrimaryText(mem({ kind: 'image', caption: null, displayName: 'IMG_1.jpg' })) === 'IMG_1.jpg',
-  '17. binary caption fallback (caption -> displayName)',
+    memoryPrimaryText(mem({ kind: 'image', caption: null, displayName: 'IMG_1.jpg' })) === '',
+  '17. binary muestra el caption y NUNCA el displayName como identidad',
 );
 record(
   memoryPrimaryText(mem({ kind: 'image', caption: null, displayName: null })) === '' &&
     !timelineSourceForCards.includes('mimeType'),
   '18. null-safe rendering (nunca NULL/undefined/MIME)',
+);
+record(
+  memoryPrimaryText(mem({ kind: 'video', caption: null, displayName: 'VID_1029.MOV' })) === '' &&
+    memoryPrimaryText(mem({ kind: 'audio', caption: null, displayName: 'IMG_9.HEIC' })) === '',
+  '18b. video/audio sin caption tampoco exponen el nombre de archivo',
 );
 
 // --- 19-24: ROOT STATES (static guards over the productive screen) ---

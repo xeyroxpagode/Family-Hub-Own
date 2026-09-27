@@ -35,6 +35,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   let selectedAlbumName: string | null = initialAlbumName ?? null;
   let availableAlbums: MemoryIntakeDestination[] = [];
   let albumsLoaded = false;
+  let picking = false;
   let stateListeners: Set<(state: MemoryIntakeState) => void> = new Set();
 
   const baseState: MemoryIntakeState = { status: 'idle' };
@@ -44,6 +45,12 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     currentState = { ...currentState, ...partial };
     stateListeners.forEach((listener) => listener(currentState));
   }
+
+  /** Drop every transient flag left behind by a previous attempt. */
+  function resetTransientState(): void {
+    emitState({ error: undefined, contentId: undefined, invalidAlbum: false });
+  }
+
 
   async function loadAlbums(): Promise<void> {
     if (albumsLoaded) return;
@@ -88,30 +95,56 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     }
   }
 
+  /**
+   * Launch the native gallery and return the draft, WITHOUT uploading.
+   *
+   * Reset contract for this function:
+   * - a new attempt clears the previous error/contentId first, so a failed
+   *   attempt can never leak its message into the next Review;
+   * - the `picking` guard is released in `finally` on EVERY exit path
+   *   (cancel, failure, success, unexpected throw), so it can never be
+   *   orphaned;
+   * - re-entrancy is refused instead of queueing a second native picker, so a
+   *   double tap can never open two pickers.
+   */
   async function pickMemory(): Promise<BinaryMemoryDraft | null> {
     if (!capabilities.contribute) {
       emitState({ status: 'failed', error: 'No tienes permiso para agregar recuerdos.' });
       return null;
     }
 
+    if (picking) return null;
+    picking = true;
+    resetTransientState();
     emitState({ status: 'picking' });
 
-    const { pickMemoryMedia } = await import('./homecloudMemoryPicker');
-    const outcome = await pickMemoryMedia();
+    try {
+      const { pickMemoryMedia } = await import('./homecloudMemoryPicker');
+      const outcome = await pickMemoryMedia();
 
-    if (outcome.success === false && outcome.cancelled === true) {
+      if (outcome.success === false && outcome.cancelled === true) {
+        emitState({ status: 'idle', error: undefined });
+        return null;
+      }
+
+      if (outcome.success === false) {
+        emitState({ status: 'failed', error: outcome.error });
+        return null;
+      }
+
       emitState({ status: 'idle', error: undefined });
+      return outcome;
+    } catch (error) {
+      emitState({
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'No pudimos seleccionar la foto o el video.',
+      });
       return null;
+    } finally {
+      picking = false;
     }
-
-    if (outcome.success === false) {
-      emitState({ status: 'failed', error: outcome.error });
-      return null;
-    }
-
-    emitState({ status: 'idle', error: undefined });
-    return outcome;
   }
+
 
   async function createBinaryMemory(draft: BinaryMemoryDraft, metadata: BinaryMemoryMetadata): Promise<void> {
     if (!capabilities.contribute) {
@@ -209,9 +242,16 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     }
   }
 
+  /**
+   * CLOSE contract: leave the surface ready to open again. Releases the picker
+   * guard (so a native presentation that never settled can never brick Create)
+   * and drops every transient flag.
+   */
   function dismiss(): void {
+    picking = false;
     currentJob = null;
-    emitState({ status: 'idle', error: undefined, contentId: undefined, invalidAlbum: false });
+    resetTransientState();
+    emitState({ status: 'idle' });
   }
 
   function subscribe(listener: (state: MemoryIntakeState) => void): () => void {

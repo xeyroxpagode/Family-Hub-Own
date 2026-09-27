@@ -320,17 +320,25 @@ export function memorySemanticLabel(memory: HomeCloudMemoryListItem): string {
 }
 
 /**
- * Primary text contract for cards.
- * - Written: writtenText IS the content (never displayName).
- * - Binary: caption first, displayName fallback (Figma hierarchy).
- * Returns '' when there is honestly nothing to show; the card then falls
- * back to the semantic date label. NEVER returns 'NULL'/'undefined'/MIME.
+ * Primary text contract for cards (Product Truth).
+ *
+ * - Written: writtenText IS the content.
+ * - Binary:  the caption IS the content, when there is one.
+ *
+ * `displayName` is TECHNICAL metadata (the original filename). It is NEVER the
+ * visual identity of a Memory: `IMG_3485.HEIC` / `VID_1029.MOV` must not appear
+ * on the Memories Root, the Timeline, image cards, video cards or as a Review
+ * title. It stays available for storage/upload and for a future
+ * "Información técnica / Nombre original" surface, and it remains searchable.
+ *
+ * Returns '' when there is honestly nothing to show; the card then falls back
+ * to `memorySemanticLabel` ("12 ene 2024" / "Sin fecha"). NEVER returns
+ * 'NULL'/'undefined'/MIME.
  */
 export function memoryPrimaryText(memory: HomeCloudMemoryListItem): string {
   if (memory.kind === 'written') {
     return typeof memory.writtenText === 'string' ? memory.writtenText : '';
   }
   if (typeof memory.caption === 'string' && memory.caption.length > 0) return memory.caption;
-  if (typeof memory.displayName === 'string') return memory.displayName;
   return '';
 }
