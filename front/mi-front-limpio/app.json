@@ -42,8 +42,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "HomePlus necesita acceso a la cámara para escanear documentos.",
-          "microphonePermission": false
+          "cameraPermission": "HomePlus necesita acceso a la cámara para sacar fotos, grabar videos y escanear documentos.",
+          "microphonePermission": "HomePlus necesita acceso al micrófono para grabar videos con sonido."
         }
       ],
       [
