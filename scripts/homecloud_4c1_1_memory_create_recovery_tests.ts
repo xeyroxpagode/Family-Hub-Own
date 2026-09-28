@@ -85,14 +85,14 @@ test('1. picker launches while the create sheet stays presented (legal presentat
   // ROOT CAUSE guard: dismissing the Modal BEFORE awaiting the native picker is
   // what iOS drops. The dismiss must happen only on the cancel/close path.
   const runPicker = component.slice(component.indexOf('const runPicker'), component.indexOf('const chooseMedia'));
-  assert.doesNotMatch(runPicker.slice(0, runPicker.indexOf('await pick()')), /setSheet\(null\)/);
-  assert.match(runPicker, /const draft = await pick\(\)/);
+  assert.doesNotMatch(runPicker.slice(0, runPicker.indexOf('await pick(mediaAttempt)')), /setSheet\(null\)/);
+  assert.match(runPicker, /const draft = await pick\(mediaAttempt\)/);
 });
 
 test('2. cancel keeps the create sheet open so the same button reopens the picker', () => {
   const chooseMedia = component.slice(component.indexOf('const runPicker'), component.indexOf('const chooseMedia'));
   // A null draft (cancel OR failure) returns WITHOUT switching sheets.
-  assert.match(chooseMedia, /const draft = await pick\(\);\s*if \(!draft\) return;/);
+  assert.match(chooseMedia, /const draft = await pick\(mediaAttempt\);\s*if \(!draft\) return;/);
   // The pick flow never dismisses the create sheet: the only sheet it can open
   // is the Review, and only after a real selection.
   assert.doesNotMatch(chooseMedia, /setSheet\(null\)/);
@@ -164,7 +164,7 @@ test('10. a third attempt works: every attempt gets ownership, latest wins', () 
   const chooseMedia = component.slice(component.indexOf('const runPicker'), component.indexOf('const chooseMedia'));
   assert.match(chooseMedia, /const attempt = pickerAttemptRef\.current \+ 1;\s*pickerAttemptRef\.current = attempt;/);
   // A late resolve from a superseded attempt can never commit its draft.
-  assert.match(chooseMedia, /if \(!mountedRef\.current \|\| pickerAttemptRef\.current !== attempt\) return;/);
+  assert.match(chooseMedia, /if \(!mountedRef\.current \|\| pickerAttemptRef\.current !== attempt \|\| !attemptAuthorityRef\.current\.owns\(mediaAttempt\)\) return;/);
   // Nothing blocks a new attempt once the previous one settled.
   assert.match(service, /resetTransientState\(\);\s*emitState\(\{ status: 'picking' \}\);/);
 });
@@ -308,7 +308,7 @@ test('22. displayName still exists internally (storage/upload/search)', () => {
 test('23. Review never uses the filename as title or label', () => {
   assert.doesNotMatch(stripComments(reviewForm), /displayName/);
   // The video preview states what it is, not what the file is called.
-  assert.match(reviewForm, /<MemoryMediaReview draft=\{binaryDraft\} \/>/);
+  assert.match(reviewForm, /<MemoryMediaReview draft=\{binaryDraft\} attempt=\{reviewAttempt \?\? undefined\} \/>/);
   assert.match(mediaReview, /<VideoView[\s\S]*nativeControls/);
   assert.doesNotMatch(stripComments(reviewForm), /binaryDraft\.artifact\.displayName/);
 });

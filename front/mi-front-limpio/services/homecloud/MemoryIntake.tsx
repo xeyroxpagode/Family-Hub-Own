@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, Linking, ScrollView, StyleSheet, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 
 import { ActionSheet, AppButton, AppInput, AppText, FilterChip } from '../../components/ui';
 import { MemorySemanticDateFields } from '../../components/homecloud/MemorySemanticDateFields';
@@ -22,14 +23,16 @@ import {
 import type { BinaryMemoryDraft, MemoryIntakeConfig, MemoryIntakeDestination, MemoryIntakeState } from './homecloudMemoryIntakeTypes';
 import { MemoryMediaReview } from './MemoryMediaReview';
 import { MemoryAudioRecorder } from './MemoryAudioRecorder';
-import { memoryDevTrace } from './homecloudMemoryDiagnostics';
+import { memoryAttemptTrace, memoryDevTrace } from './homecloudMemoryDiagnostics';
+import { MemoryCameraSurface } from './MemoryCameraSurface';
+import { MemoryAttemptAuthority, type MemoryAttempt } from './homecloudMemoryAttempt';
 
 export interface MemoryIntakeProps {
   config: MemoryIntakeConfig;
   onComplete?: (contentId: string) => void;
 }
 
-type Sheet = 'create' | 'source' | 'binary' | 'recorder' | 'written' | null;
+type Sheet = 'create' | 'source' | 'camera' | 'binary' | 'recorder' | 'audio-handoff' | 'written' | null;
 
 /**
  * HomeCloud STAGE 4C.1.1 — Memory create runtime recovery.
@@ -65,11 +68,14 @@ type Sheet = 'create' | 'source' | 'binary' | 'recorder' | 'written' | null;
  *   ready to open again without remounting anything.
  */
 export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
+  const isFocused = useIsFocused();
   const { householdId, accessToken, capabilities, initialAlbumId, initialAlbumName, intakeSource } = config;
   const [state, setState] = useState<MemoryIntakeState>({ status: 'idle' });
   const [sheet, setSheet] = useState<Sheet>(null);
   const [albums, setAlbums] = useState<MemoryIntakeDestination[]>([]);
   const [binaryDraft, setBinaryDraft] = useState<BinaryMemoryDraft | null>(null);
+  const [reviewAttempt, setReviewAttempt] = useState<MemoryAttempt | null>(null);
+  const [pendingAudioDraft, setPendingAudioDraft] = useState<{ draft: BinaryMemoryDraft; attempt: MemoryAttempt } | null>(null);
   const [binaryCaption, setBinaryCaption] = useState('');
   const [binaryAlbumId, setBinaryAlbumId] = useState<string | null>(initialAlbumId ?? null);
   const [picking, setPicking] = useState(false);
@@ -86,6 +92,8 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   // Attempt ownership: only the newest attempt may commit its draft.
   const pickerAttemptRef = useRef(0);
   const mountedRef = useRef(true);
+  const attemptAuthorityRef = useRef(new MemoryAttemptAuthority());
+  const recorderAttemptRef = useRef<MemoryAttempt | null>(null);
 
   const service = useMemo(() => createMemoryIntakeService({
     householdId,
@@ -104,16 +112,22 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   ]);
 
   useEffect(() => {
+    const attemptAuthority = attemptAuthorityRef.current;
     mountedRef.current = true;
-    const unsubscribe = service.subscribe(setState);
-    void service.loadAlbums().then(() => setAlbums(service.getAvailableDestinations()));
-    void service.recover();
     return () => {
       mountedRef.current = false;
+      attemptAuthority.dispose();
       // Unmount must never leave a pending guard behind.
       pickingRef.current = false;
-      unsubscribe();
     };
+  }, []);
+
+  useEffect(() => {
+    let activeSubscription = true;
+    const unsubscribe = service.subscribe(setState);
+    void service.loadAlbums().then(() => { if (activeSubscription) setAlbums(service.getAvailableDestinations()); });
+    void service.recover();
+    return () => { activeSubscription = false; unsubscribe(); };
   }, [service]);
 
   /** Drop the picked-but-never-uploaded copy so CANCEL/CLOSE do not leak it. */
@@ -129,6 +143,7 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   /** SUCCESS contract: draft + picker transient state cleared, Create reusable. */
   const clearBinaryDraft = useCallback(() => {
     setBinaryDraft(null);
+    setReviewAttempt(null);
     setBinaryCaption('');
     setBinaryAlbumId(initialAlbumId ?? null);
   }, [initialAlbumId]);
@@ -150,20 +165,22 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   // (the create sheet) and can never leak into the next Review.
   const pickingError = state.status === 'failed' ? state.error ?? 'No pudimos seleccionar la foto o el video.' : null;
 
-  const runPicker = useCallback(async (pick: () => Promise<BinaryMemoryDraft | null>) => {
+  const runPicker = useCallback(async (source: 'gallery' | 'audio-import', pick: (attempt: MemoryAttempt) => Promise<BinaryMemoryDraft | null>) => {
     if (pickingRef.current) return;
     pickingRef.current = true;
     const attempt = pickerAttemptRef.current + 1;
     pickerAttemptRef.current = attempt;
+    const mediaAttempt = attemptAuthorityRef.current.begin(source, source === 'gallery' ? 'image' : 'audio');
     setPicking(true);
     Keyboard.dismiss();
     // The create sheet deliberately STAYS presented while the native picker is
     // up: dismissing it first is what made the presentation illegal on iOS.
     try {
-      const draft = await pick();
+      const draft = await pick(mediaAttempt);
       if (!draft) return;
-      if (!mountedRef.current || pickerAttemptRef.current !== attempt) return;
+      if (!mountedRef.current || pickerAttemptRef.current !== attempt || !attemptAuthorityRef.current.owns(mediaAttempt)) return;
       setBinaryDraft(draft);
+      setReviewAttempt(mediaAttempt);
       setBinaryCaption('');
       setBinaryAlbumId(initialAlbumId ?? null);
       setSheet('binary');
@@ -173,20 +190,26 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
     }
   }, [initialAlbumId]);
 
-  const chooseMedia = useCallback(() => runPicker(() => service.pickMemory()), [runPicker, service]);
-  const chooseAudio = useCallback(() => runPicker(() => service.pickAudio()), [runPicker, service]);
-  const captureMedia = useCallback((kind: 'image' | 'video') => runPicker(() => service.captureMemory(kind)), [runPicker, service]);
+  const chooseMedia = useCallback(() => runPicker('gallery', (attempt) => service.pickMemory(attempt, (candidate) => attemptAuthorityRef.current.owns(candidate))), [runPicker, service]);
+  const chooseAudio = useCallback(() => runPicker('audio-import', (attempt) => service.pickAudio(attempt, (candidate) => attemptAuthorityRef.current.owns(candidate))), [runPicker, service]);
 
-  const acceptRecordedAudio = useCallback((draft: BinaryMemoryDraft) => {
-    setBinaryDraft(draft);
-    setBinaryCaption('');
-    setBinaryAlbumId(initialAlbumId ?? null);
-    setSheet('binary');
-  }, [initialAlbumId]);
+  const acceptRecordedAudio = useCallback((draft: BinaryMemoryDraft, attempt: MemoryAttempt) => {
+    if (!attemptAuthorityRef.current.owns(attempt)) return;
+    // Deliberate empty handoff render: recorder hook cleanup/release completes
+    // before the playback hook is mounted on the following effect.
+    setPendingAudioDraft({ draft, attempt }); setSheet('audio-handoff');
+  }, []);
+
+  useEffect(() => {
+    if (sheet !== 'audio-handoff' || !pendingAudioDraft) return;
+    if (!attemptAuthorityRef.current.owns(pendingAudioDraft.attempt)) { setPendingAudioDraft(null); setSheet('create'); return; }
+    setBinaryDraft(pendingAudioDraft.draft); setReviewAttempt(pendingAudioDraft.attempt); setBinaryCaption(''); setBinaryAlbumId(initialAlbumId ?? null); setPendingAudioDraft(null); setSheet('binary');
+  }, [initialAlbumId, pendingAudioDraft, sheet]);
 
   /** CLOSE contract: nothing transient survives, Create is ready to reopen. */
   const closeCreate = useCallback(() => {
     pickerAttemptRef.current += 1;
+    attemptAuthorityRef.current.invalidate();
     pickingRef.current = false;
     setPicking(false);
     service.dismiss();
@@ -202,27 +225,52 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
     // the next flow. The durable job stays in the shared store untouched, and
     // failed jobs are never auto-resumed by recovery (retry stays explicit).
     service.dismiss();
+    attemptAuthorityRef.current.invalidate(reviewAttempt ?? undefined);
     setSheet(null);
-  }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, service]);
+  }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, reviewAttempt, service]);
+
+  const openRecorder = useCallback(() => {
+    const attempt = attemptAuthorityRef.current.begin('audio-record', 'audio');
+    recorderAttemptRef.current = attempt;
+    setSheet('recorder');
+  }, []);
+
+  const openCamera = useCallback(() => { setSheet('camera'); }, []);
+
+  const acceptCamera = useCallback((draft: BinaryMemoryDraft, attempt: MemoryAttempt) => {
+    if (!attemptAuthorityRef.current.owns(attempt)) return;
+    setBinaryDraft(draft); setReviewAttempt(attempt); setBinaryCaption(''); setBinaryAlbumId(initialAlbumId ?? null); setSheet('binary');
+  }, [initialAlbumId]);
+
+  const closeCamera = useCallback(() => { attemptAuthorityRef.current.invalidate(); setSheet('create'); }, []);
+
+  useEffect(() => {
+    if (isFocused) return;
+    pickerAttemptRef.current += 1; pickingRef.current = false; attemptAuthorityRef.current.invalidate();
+    setPicking(false); setPendingAudioDraft(null);
+    if (!service.hasActiveJob()) discardDraftArtifact(binaryDraft);
+    clearBinaryDraft(); service.dismiss(); setSheet(null);
+  }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, isFocused, service]);
 
   const reRecordAudio = useCallback(() => {
     if (!binaryDraft || binaryDraft.source !== 'audio-recorder' || service.hasActiveJob()) return;
     discardDraftArtifact(binaryDraft);
     clearBinaryDraft();
     service.dismiss();
-    setSheet('recorder');
+    const attempt = attemptAuthorityRef.current.begin('audio-record', 'audio'); recorderAttemptRef.current = attempt; setSheet('recorder');
   }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, service]);
 
   const submitBinary = useCallback(async () => {
     if (!binaryDraft || active) return;
     const capture = binaryDraft.capture;
-    memoryDevTrace('submit_press', { source: binaryDraft.source, mimeType: binaryDraft.artifact.mimeType });
+    if (reviewAttempt) memoryAttemptTrace(reviewAttempt, 'submit', { mimeType: binaryDraft.artifact.mimeType });
+    else memoryDevTrace('submit_press', { source: binaryDraft.source, mimeType: binaryDraft.artifact.mimeType });
     await service.createBinaryMemory(binaryDraft, {
       caption: binaryCaption.trim() || null,
       initialAlbumId: binaryAlbumId,
       ...memoryRegisterCaptureFields(capture),
-    });
-  }, [active, binaryAlbumId, binaryCaption, binaryDraft, service]);
+    }, reviewAttempt ?? undefined);
+  }, [active, binaryAlbumId, binaryCaption, binaryDraft, reviewAttempt, service]);
 
   const submitWritten = useCallback(async () => {
     if (writtenSubmitting || !writtenText.trim() || semanticDateDraftError(writtenDate)) return;
@@ -274,10 +322,9 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
 
       <ActionSheet visible={sheet === 'create'} title="Guardar un recuerdo" onRequestClose={closeCreate} size="content">
         <View style={styles.actions}>
-          <AppButton title="Sacar foto" disabled={picking} onPress={() => void captureMedia('image')} />
-          <AppButton title="Grabar video" variant="secondary" disabled={picking} onPress={() => void captureMedia('video')} />
+          <AppButton title="Capturar momento" disabled={picking} onPress={openCamera} />
           <AppButton title="Elegir foto/video/audio" variant="secondary" disabled={picking} onPress={() => setSheet('source')} />
-          <AppButton title="Grabar audio" variant="secondary" disabled={picking} onPress={() => setSheet('recorder')} />
+          <AppButton title="Grabar audio" variant="secondary" disabled={picking} onPress={openRecorder} />
           <AppButton title="Escribir un recuerdo" variant="secondary" onPress={openWritten} disabled={picking} />
           {pickingError ? (
             <View style={styles.error}>
@@ -297,9 +344,11 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
         </View>
       </ActionSheet>
 
-      <ActionSheet visible={sheet === 'recorder'} title="Grabar audio" onRequestClose={() => setSheet('create')} size="content">
-        {sheet === 'recorder' ? <MemoryAudioRecorder onReady={acceptRecordedAudio} onCancel={() => setSheet('create')} /> : <View />}
+      <ActionSheet visible={sheet === 'recorder'} title="Grabar audio" onRequestClose={() => { attemptAuthorityRef.current.invalidate(recorderAttemptRef.current ?? undefined); setSheet('create'); }} size="content">
+        {sheet === 'recorder' && recorderAttemptRef.current ? <MemoryAudioRecorder attempt={recorderAttemptRef.current} ownsAttempt={(attempt) => attemptAuthorityRef.current.owns(attempt)} onReady={acceptRecordedAudio} onCancel={() => { attemptAuthorityRef.current.invalidate(recorderAttemptRef.current ?? undefined); setSheet('create'); }} /> : <View />}
       </ActionSheet>
+
+      {sheet === 'camera' ? <MemoryCameraSurface onClose={closeCamera} beginAttempt={(kind) => attemptAuthorityRef.current.begin('camera', kind)} ownsAttempt={(attempt) => attemptAuthorityRef.current.owns(attempt)} onUse={acceptCamera} /> : null}
 
       <ActionSheet
         visible={sheet === 'binary'}
@@ -323,7 +372,7 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
           keyboardDismissMode="on-drag"
           contentContainerStyle={styles.form}
         >
-          {binaryDraft ? <MemoryMediaReview draft={binaryDraft} /> : null}
+          {binaryDraft ? <MemoryMediaReview draft={binaryDraft} attempt={reviewAttempt ?? undefined} /> : null}
           <MemoryCaptureSummary capture={binaryDraft?.capture} />
           {binaryDraft?.source === 'audio-recorder' && state.status !== 'failed' ? <AppButton title="Volver a grabar" size="sm" variant="secondary" disabled={active} onPress={reRecordAudio} /> : null}
           <AppInput

@@ -109,6 +109,11 @@ const commands = {
     'npm',
     ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_4c1_test.json'],
   ),
+  'homecloud-stage-a1-capture-recovery': () => runCommand(
+    'HomeCloud Stage A1 in-app capture runtime recovery tests',
+    'node',
+    ['scripts/homecloud_stage_a1_capture_recovery_tests.js'],
+  ),
   'compile-frontend-tests': () => runCommand('Compile frontend tests', 'npm', compileFrontendTests),
   'compile-planner-reliability-tests': () => runCommand(
     'Compile Planner Reliability tests',
@@ -691,6 +696,7 @@ const suites = {
     'homecloud-4c1-compile',
     'homecloud-4c1-memory-create',
     'homecloud-4c1-1-memory-create-recovery',
+    'homecloud-stage-a1-capture-recovery',
     'homecloud-4b2-timeline',
     'homecloud-2c-frontend-structure',
     'homecloud-2a-upload-job',

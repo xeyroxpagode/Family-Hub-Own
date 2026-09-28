@@ -8,6 +8,7 @@ const service = read('front/mi-front-limpio/services/homecloud/homecloudMemoryIn
 const durable = read('front/mi-front-limpio/services/homecloud/homecloudDurableArtifact.ts');
 const review = read('front/mi-front-limpio/services/homecloud/MemoryMediaReview.tsx');
 const recorder = read('front/mi-front-limpio/services/homecloud/MemoryAudioRecorder.tsx');
+const camera = read('front/mi-front-limpio/services/homecloud/MemoryCameraSurface.tsx');
 const engine = read('front/mi-front-limpio/services/homecloud/homecloudUploadEngine.ts');
 const written = read('front/mi-front-limpio/services/homecloud/homecloudWrittenMemoryService.ts');
 const app = read('front/mi-front-limpio/app.json');
@@ -17,16 +18,16 @@ let pass = 0;
 function test(name, fn) { fn(); pass += 1; console.log(`  PASS: ${name}`); }
 console.log('\n=== HOMECLOUD MEMORIES STAGE A CORE CREATION ===\n');
 
-test('menu: photo capture', () => assert.match(intake, /title="Sacar foto"/));
-test('menu: video capture', () => assert.match(intake, /title="Grabar video"/));
+test('menu: unified in-app capture', () => assert.match(intake, /title="Capturar momento"/));
+test('menu: old split capture actions removed', () => { assert.doesNotMatch(intake, /title="Sacar foto"/); assert.doesNotMatch(intake, /title="Grabar video"/); });
 test('menu: combined import entry', () => assert.match(intake, /title="Elegir foto\/video\/audio"/));
 test('menu: audio recorder', () => assert.match(intake, /title="Grabar audio"/));
 test('menu: written', () => assert.match(intake, /title="Escribir un recuerdo"/));
 test('combined import uses honest sub-sheet', () => assert.match(intake, /'Fotos y videos'[\s\S]*title="Audio"/));
 test('gallery is single selection image/video', () => assert.match(picker, /mediaTypes: \['images', 'videos'\][\s\S]*allowsMultipleSelection: false/));
-test('camera image uses native camera', () => assert.match(picker, /captureMemoryMedia\(kind: 'image' \| 'video'\)[\s\S]*launchCameraAsync/));
-test('camera permission is just-in-time', () => assert.ok(picker.indexOf('requestCameraPermissionsAsync') < picker.indexOf('launchCameraAsync')));
-test('captured media gets exact event time', () => assert.match(picker, /source === 'camera' \? exactNow\(\)/));
+test('camera image uses in-app CameraView', () => assert.match(camera, /<CameraView/));
+test('camera permission is just-in-time', () => assert.match(camera, /useCameraPermissions\(\)/));
+test('captured media gets exact event time', () => assert.match(camera, /capturedAt = new Date\(\)\.toISOString\(\)/));
 test('gallery metadata stays semantic', () => assert.match(picker, /deriveMediaCaptureMetadata/));
 test('audio import uses audio picker', () => assert.match(picker, /getDocumentAsync\(\{ type: 'audio\/\*'/));
 test('audio import date is unknown', () => assert.match(picker, /capture: unknownMediaCaptureMetadata\(\), source: 'audio-import'/));
@@ -35,12 +36,12 @@ test('recording uses expo-audio', () => assert.match(recorder, /useAudioRecorder
 test('recording permission is just-in-time', () => assert.match(recorder, /requestRecordingPermissionsAsync\(\)/));
 test('recording timer comes from recorder state', () => assert.match(recorder, /recorderState\.durationMillis/));
 test('recording capture time is real start time', () => assert.match(recorder, /capturedAtRef\.current = new Date\(\)\.toISOString\(\)/));
-test('recorder stops on unmount', () => assert.match(recorder, /if \(recorder\.isRecording\) void recorder\.stop/));
+test('recorder stops on unmount', () => assert.match(recorder, /if \(recorder\.isRecording\) await recorder\.stop/));
 test('recorded temp is removed after durable copy', () => assert.match(picker, /deleteAsync\(uri, \{ idempotent: true \}\)/));
 test('image review never decodes original directly', () => assert.match(review, /manipulateAsync\(draft\.artifact\.localUri/));
 test('image preview is a separate bounded representation', () => assert.match(review, /resize: \{ width: 1600 \}/));
 test('image review has loading state', () => assert.match(review, /Preparando vista previa/));
-test('image review has recoverable error', () => assert.match(review, /Reintentar vista previa/));
+test('image review has recoverable error', () => assert.match(review, /No pudimos mostrar la vista previa[\s\S]*onRetry/));
 test('image review records load lifecycle', () => assert.match(review, /onLoadStart[\s\S]*onLoad[\s\S]*onError/));
 test('video review is real and paused', () => assert.match(review, /useVideoPlayer[\s\S]*instance\.pause\(\)[\s\S]*<VideoView/));
 test('video review has native playback controls', () => assert.match(review, /<VideoView[\s\S]*nativeControls/));

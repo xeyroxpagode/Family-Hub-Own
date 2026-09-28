@@ -5,7 +5,8 @@ import { fetchHomeCloudAlbumsCached } from './homecloudReadService';
 import type { BinaryMemoryDraft, BinaryMemoryMetadata, MemoryIntakeConfig, MemoryIntakeState, MemoryIntakeDestination } from './homecloudMemoryIntakeTypes';
 import type { UploadJob } from './homecloudUploadTypes';
 import type { MemoryPickerOutcome } from './homecloudMemoryPicker';
-import { memoryDevTrace } from './homecloudMemoryDiagnostics';
+import { memoryAttemptTrace, memoryDevTrace } from './homecloudMemoryDiagnostics';
+import type { MemoryAttempt } from './homecloudMemoryAttempt';
 
 /**
  * HomeCloud HC-2C — Memory Intake service.
@@ -109,28 +110,21 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
    * - re-entrancy is refused instead of queueing a second native picker, so a
    *   double tap can never open two pickers.
    */
-  async function pickMemory(): Promise<BinaryMemoryDraft | null> {
+  async function pickMemory(attempt?: MemoryAttempt, owns: (attempt: MemoryAttempt) => boolean = () => true): Promise<BinaryMemoryDraft | null> {
     return runSourcePicker(async () => {
       const { pickMemoryMedia } = await import('./homecloudMemoryPicker');
-      return pickMemoryMedia();
-    });
+      return pickMemoryMedia(attempt);
+    }, attempt, owns);
   }
 
-  async function captureMemory(kind: 'image' | 'video'): Promise<BinaryMemoryDraft | null> {
-    return runSourcePicker(async () => {
-      const { captureMemoryMedia } = await import('./homecloudMemoryPicker');
-      return captureMemoryMedia(kind);
-    });
-  }
-
-  async function pickAudio(): Promise<BinaryMemoryDraft | null> {
+  async function pickAudio(attempt?: MemoryAttempt, owns: (attempt: MemoryAttempt) => boolean = () => true): Promise<BinaryMemoryDraft | null> {
     return runSourcePicker(async () => {
       const { pickAudioMemory } = await import('./homecloudMemoryPicker');
-      return pickAudioMemory();
-    });
+      return pickAudioMemory(attempt);
+    }, attempt, owns);
   }
 
-  async function runSourcePicker(pick: () => Promise<MemoryPickerOutcome>): Promise<BinaryMemoryDraft | null> {
+  async function runSourcePicker(pick: () => Promise<MemoryPickerOutcome>, attempt?: MemoryAttempt, owns: (attempt: MemoryAttempt) => boolean = () => true): Promise<BinaryMemoryDraft | null> {
     if (!capabilities.contribute) {
       emitState({ status: 'failed', error: 'No tienes permiso para agregar recuerdos.' });
       return null;
@@ -143,6 +137,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
     try {
       const outcome = await pick();
+      if (attempt && !owns(attempt)) return null;
 
       if (outcome.success === false && outcome.cancelled === true) {
         emitState({ status: 'idle', error: undefined });
@@ -157,6 +152,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
       emitState({ status: 'idle', error: undefined });
       return { artifact: outcome.artifact, capture: outcome.capture, source: outcome.source, durationMillis: outcome.durationMillis };
     } catch (error) {
+      if (attempt && !owns(attempt)) return null;
       emitState({
         status: 'failed',
         error: error instanceof Error ? error.message : 'No pudimos seleccionar la foto o el video.',
@@ -168,7 +164,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   }
 
 
-  async function createBinaryMemory(draft: BinaryMemoryDraft, metadata: BinaryMemoryMetadata): Promise<void> {
+  async function createBinaryMemory(draft: BinaryMemoryDraft, metadata: BinaryMemoryMetadata, attempt?: MemoryAttempt): Promise<void> {
     if (!capabilities.contribute) {
       emitState({ status: 'failed', error: 'No tienes permiso para agregar recuerdos.' });
       return;
@@ -190,6 +186,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     );
 
     currentJob = job;
+    if (attempt) memoryAttemptTrace(attempt, 'job_created', { jobId: job.id });
     memoryDevTrace('createJob', { source: draft.source, jobId: job.id });
 
     emitState({
@@ -336,7 +333,6 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
   return {
     pickMemory,
-    captureMemory,
     pickAudio,
     createBinaryMemory,
     selectDestination,

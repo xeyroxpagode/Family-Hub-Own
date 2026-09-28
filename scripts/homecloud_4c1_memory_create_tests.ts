@@ -31,8 +31,8 @@ test('+ in Files preserves the existing Files menu', () => assert.match(filesScr
 test('+ in Memories mounts productive MemoryIntake', () => assert.match(screen, /<MemoryIntake/));
 test('create sheet exposes photo/video/audio import', () => assert.match(component, /title="Elegir foto\/video\/audio"/));
 test('create sheet exposes Written', () => assert.match(component, /title="Escribir un recuerdo"/));
-test('create sheet exposes photo capture', () => assert.match(component, /title="Sacar foto"/));
-test('create sheet exposes video capture', () => assert.match(component, /title="Grabar video"/));
+test('create sheet exposes unified in-app capture', () => assert.match(component, /title="Capturar momento"/));
+test('create sheet removes split camera actions', () => { assert.doesNotMatch(component, /title="Sacar foto"/); assert.doesNotMatch(component, /title="Grabar video"/); });
 test('create sheet exposes audio recorder', () => assert.match(component, /title="Grabar audio"/));
 test('blank Written is disabled', () => assert.match(component, /disabled=\{!writtenText\.trim\(\)/));
 test('Written trims and validates text', () => assert.match(written, /input\.text\.trim\(\)/));
