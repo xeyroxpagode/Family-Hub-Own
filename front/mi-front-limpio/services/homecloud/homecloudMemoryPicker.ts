@@ -1,137 +1,111 @@
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import type { UploadLocalArtifact } from './homecloudUploadTypes';
 import { copyArtifactToDurableWorkspace, discardDurableArtifact } from './homecloudDurableArtifact';
-import { deriveMediaCaptureMetadata, type MediaCaptureMetadata } from './homecloudMediaCaptureMetadata';
+import { deriveMediaCaptureMetadata, unknownMediaCaptureMetadata, type MediaCaptureMetadata } from './homecloudMediaCaptureMetadata';
 import { ensureSingleExtension } from './homecloudPickerNaming';
+import { memoryDevTrace } from './homecloudMemoryDiagnostics';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export interface MemoryPickerResult {
   success: true;
   artifact: UploadLocalArtifact;
   capture: MediaCaptureMetadata;
+  source: 'gallery' | 'camera' | 'audio-import' | 'audio-recorder';
+  durationMillis?: number | null;
 }
-
-export interface MemoryPickerCancelled {
-  success: false;
-  cancelled: true;
-}
-
-export interface MemoryPickerError {
-  success: false;
-  cancelled: false;
-  error: string;
-}
-
+export interface MemoryPickerCancelled { success: false; cancelled: true; }
+export interface MemoryPickerError { success: false; cancelled: false; error: string; permissionDenied?: boolean; canAskAgain?: boolean; }
 export type MemoryPickerOutcome = MemoryPickerResult | MemoryPickerCancelled | MemoryPickerError;
 
-function deriveExtension(mimeType: string, name: string): string | null {
-  const mimeMap: Record<string, string> = {
-    'image/jpeg': 'jpg',
-    'image/png': 'png',
-    'image/gif': 'gif',
-    'image/webp': 'webp',
-    'image/heic': 'heic',
-    'image/heif': 'heif',
-    'video/mp4': 'mp4',
-    'video/quicktime': 'mov',
-    'video/x-matroska': 'mkv',
-    'video/webm': 'webm',
-  };
+const MIME_EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif',
+  'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/x-matroska': 'mkv', 'video/webm': 'webm',
+  'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/wav': 'wav', 'audio/x-wav': 'wav',
+  'audio/aac': 'aac', 'audio/ogg': 'ogg', 'audio/flac': 'flac', 'audio/webm': 'webm', 'audio/3gpp': '3gp',
+};
+const AUDIO_MIME_BY_EXTENSION: Record<string, string> = {
+  mp3: 'audio/mpeg', m4a: 'audio/mp4', mp4: 'audio/mp4', wav: 'audio/wav', aac: 'audio/aac',
+  ogg: 'audio/ogg', oga: 'audio/ogg', flac: 'audio/flac', webm: 'audio/webm', '3gp': 'audio/3gpp',
+};
 
-  if (mimeMap[mimeType]) return mimeMap[mimeType];
-
-  const dotIndex = name.lastIndexOf('.');
-  if (dotIndex > 0 && dotIndex < name.length - 1) {
-    const ext = name.slice(dotIndex + 1).toLowerCase();
-    if (/^[a-z0-9]{1,8}$/.test(ext)) return ext;
-  }
-
-  return null;
+function extensionFrom(name: string, mimeType: string): string | null {
+  const sourceExtension = /\.([a-z0-9]{1,8})$/i.exec(name)?.[1]?.toLowerCase() ?? null;
+  return sourceExtension ?? MIME_EXTENSIONS[mimeType] ?? null;
 }
-
-function resolveMimeType(asset: ImagePicker.ImagePickerAsset): string | null {
+function imagePickerMime(asset: ImagePicker.ImagePickerAsset): string | null {
   const mime = asset.mimeType?.toLowerCase();
-  if (mime && (mime.startsWith('image/') || mime.startsWith('video/'))) return mime;
-  // Modern pickers usually report mimeType, but fall back to the asset type when
-  // only the broad media kind is known (still image/* or video/*, never documents).
+  if (mime?.startsWith('image/') || mime?.startsWith('video/')) return mime;
   if (asset.type === 'image') return 'image/jpeg';
   if (asset.type === 'video') return 'video/mp4';
   return null;
 }
+function exactNow(): MediaCaptureMetadata {
+  const capturedAt = new Date().toISOString();
+  const date = new Date(capturedAt);
+  return { capturedAt, capturedYear: date.getUTCFullYear(), capturedMonth: date.getUTCMonth() + 1, capturePrecision: 'exact' };
+}
 
-/**
- * Launch the native gallery picker and return a neutral artifact plus the
- * honest semantic date of the asset.
- *
- * CONTRACT: this function must be called while the caller is ALREADY
- * presented (or while nothing is presented). Presenting the native picker
- * while a React Native `Modal` is mid-dismissal is illegal on iOS: the
- * presentation is dropped and `launchImageLibraryAsync` never settles, which
- * is what used to make the picker impossible to reopen.
- */
+async function imageOutcome(asset: ImagePicker.ImagePickerAsset, source: 'gallery' | 'camera'): Promise<MemoryPickerOutcome> {
+  const mimeType = imagePickerMime(asset);
+  if (!mimeType) return { success: false, cancelled: false, error: 'Solo podés agregar fotos o videos.' };
+  const rawName = asset.fileName ?? asset.uri.split('/').pop() ?? 'recuerdo';
+  const extension = extensionFrom(rawName, mimeType);
+  memoryDevTrace('picker_end', { assetType: asset.type, uriScheme: asset.uri.split(':', 1)[0], mimeType, fileSize: asset.fileSize ?? null, width: asset.width, height: asset.height, exifKeyCount: asset.exif ? Object.keys(asset.exif).length : 0 });
+  const durable = await copyArtifactToDurableWorkspace({ localUri: asset.uri, displayName: ensureSingleExtension(rawName, extension), mimeType, sizeBytes: asset.fileSize ?? 0, extension });
+  const capture = source === 'camera' ? exactNow() : deriveMediaCaptureMetadata({ exif: asset.exif, type: asset.type, duration: asset.duration, fileName: asset.fileName });
+  memoryDevTrace('draft_ready', { source, mimeType, sizeBytes: durable.sizeBytes });
+  return { success: true, artifact: durable, capture, source, durationMillis: asset.duration ?? null };
+}
+
 export async function pickMemoryMedia(): Promise<MemoryPickerOutcome> {
   try {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images', 'videos'],
-      allowsMultipleSelection: false,
-      allowsEditing: false,
-      quality: 1,
-      exif: true,
-    });
-
-    if (result.canceled) {
-      return { success: false, cancelled: true };
-    }
-
+    memoryDevTrace('picker_start', { source: 'gallery' });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: false, allowsEditing: false, quality: 1, exif: true });
+    if (result.canceled) return { success: false, cancelled: true };
     const asset = result.assets[0];
-    if (!asset) {
-      return { success: false, cancelled: false, error: 'No se seleccionó ninguna foto o video.' };
-    }
-
-    const mimeType = resolveMimeType(asset);
-    if (!mimeType) {
-      return { success: false, cancelled: false, error: 'Solo podés agregar fotos o videos.' };
-    }
-
-    const rawName = asset.fileName ?? asset.uri.split('/').pop() ?? 'recuerdo';
-    const sizeBytes = typeof asset.fileSize === 'number' && asset.fileSize > 0 ? asset.fileSize : 0;
-    const extension = deriveExtension(mimeType, rawName);
-    // `displayName` is TECHNICAL metadata kept for storage/upload only. It is
-    // never the visual identity of a Memory (see memoryPrimaryText).
-    const displayName = ensureSingleExtension(rawName, extension);
-    const capture = deriveMediaCaptureMetadata({
-      exif: asset.exif,
-      type: asset.type ?? null,
-      duration: asset.duration ?? null,
-      fileName: asset.fileName ?? null,
-    });
-
-    const artifact: UploadLocalArtifact = {
-      localUri: asset.uri,
-      displayName,
-      mimeType,
-      sizeBytes,
-      extension,
-    };
-
-    return {
-      success: true,
-      artifact: await copyArtifactToDurableWorkspace(artifact),
-      capture,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      cancelled: false,
-      error: error instanceof Error ? error.message : 'Error al seleccionar foto o video.',
-    };
-  }
+    return asset ? imageOutcome(asset, 'gallery') : { success: false, cancelled: false, error: 'No se seleccionó ninguna foto o video.' };
+  } catch (error) { return { success: false, cancelled: false, error: error instanceof Error ? error.message : 'Error al seleccionar foto o video.' }; }
 }
 
-/**
- * Discard a picked-but-never-uploaded artifact so an abandoned Review does not
- * leak a copy of the user's photo into the durable workspace. Best effort:
- * a failure here must never break the intake flow.
- */
-export async function discardMemoryMedia(artifact: UploadLocalArtifact): Promise<void> {
-  await discardDurableArtifact(artifact);
+export async function captureMemoryMedia(kind: 'image' | 'video'): Promise<MemoryPickerOutcome> {
+  try {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) return { success: false, cancelled: false, permissionDenied: true, canAskAgain: permission.canAskAgain, error: 'HomePlus necesita acceso a la cámara para capturar este recuerdo.' };
+    memoryDevTrace('picker_start', { source: `camera-${kind}` });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: kind === 'image' ? ['images'] : ['videos'], allowsEditing: false, quality: 1, exif: true });
+    if (result.canceled) return { success: false, cancelled: true };
+    const asset = result.assets[0];
+    return asset ? imageOutcome(asset, 'camera') : { success: false, cancelled: false, error: 'No se capturó ningún archivo.' };
+  } catch (error) { return { success: false, cancelled: false, error: error instanceof Error ? error.message : 'No pudimos abrir la cámara.' }; }
 }
+
+export async function pickAudioMemory(): Promise<MemoryPickerOutcome> {
+  try {
+    memoryDevTrace('picker_start', { source: 'audio-import' });
+    const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*', multiple: false, copyToCacheDirectory: true });
+    if (result.canceled) return { success: false, cancelled: true };
+    const asset = result.assets[0];
+    if (!asset) return { success: false, cancelled: false, error: 'No se seleccionó ningún audio.' };
+    const suppliedMime = asset.mimeType?.toLowerCase() ?? '';
+    const extension = extensionFrom(asset.name, suppliedMime);
+    const mimeType = suppliedMime.startsWith('audio/') ? suppliedMime : extension ? AUDIO_MIME_BY_EXTENSION[extension] : null;
+    if (!mimeType) return { success: false, cancelled: false, error: 'El archivo seleccionado no es un audio compatible.' };
+    memoryDevTrace('picker_end', { assetType: 'audio', uriScheme: asset.uri.split(':', 1)[0], mimeType, fileSize: asset.size ?? null });
+    const durable = await copyArtifactToDurableWorkspace({ localUri: asset.uri, displayName: ensureSingleExtension(asset.name, extension), mimeType, sizeBytes: asset.size ?? 0, extension });
+    memoryDevTrace('draft_ready', { source: 'audio-import', mimeType, sizeBytes: durable.sizeBytes });
+    return { success: true, artifact: durable, capture: unknownMediaCaptureMetadata(), source: 'audio-import' };
+  } catch (error) { return { success: false, cancelled: false, error: error instanceof Error ? error.message : 'No pudimos seleccionar el audio.' }; }
+}
+
+export async function persistRecordedAudio(uri: string, capturedAt: string, durationMillis: number): Promise<MemoryPickerResult> {
+  const stamp = capturedAt.replace(/[:.]/g, '-');
+  const artifact = await copyArtifactToDurableWorkspace({ localUri: uri, displayName: `grabacion-${stamp}.m4a`, mimeType: 'audio/mp4', sizeBytes: 0, extension: 'm4a' });
+  // The recorder cache URI is temporary and no longer needed after the durable
+  // original exists. This never targets the durable workspace copy.
+  void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+  const date = new Date(capturedAt);
+  return { success: true, artifact, capture: { capturedAt, capturedYear: date.getUTCFullYear(), capturedMonth: date.getUTCMonth() + 1, capturePrecision: 'exact' }, source: 'audio-recorder', durationMillis };
+}
+
+export async function discardMemoryMedia(artifact: UploadLocalArtifact): Promise<void> { await discardDurableArtifact(artifact); }

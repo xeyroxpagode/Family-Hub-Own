@@ -66,7 +66,7 @@ record(service.includes('initialAlbumId'), 'service forwards optional initial Al
 
 // Component
 record(component.includes('Guardar un recuerdo'), 'component renders canonical create title');
-record(component.includes('Elegir fotos o videos'), 'component exposes the productive photo/video source');
+record(component.includes('Elegir foto/video/audio') && component.includes('Fotos y videos'), 'component exposes the productive media source');
 record(component.includes('Sin álbum'), 'root destination is represented as no Album membership');
 
 // Shared engine extension

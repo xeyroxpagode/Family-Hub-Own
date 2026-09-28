@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Keyboard, ScrollView, StyleSheet, View } from 'react-native';
+import { Keyboard, Linking, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ActionSheet, AppButton, AppInput, AppText, FilterChip } from '../../components/ui';
 import { MemorySemanticDateFields } from '../../components/homecloud/MemorySemanticDateFields';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, radius, spacing } from '../../constants/theme';
+import { colors, spacing } from '../../constants/theme';
 import { generateMutationId } from '../api';
 import { createMemoryIntakeService } from './homecloudMemoryIntakeService';
 import { createWrittenMemory } from './homecloudWrittenMemoryService';
@@ -20,13 +20,16 @@ import {
   type SemanticDateDraft,
 } from './homecloudSemanticDate';
 import type { BinaryMemoryDraft, MemoryIntakeConfig, MemoryIntakeDestination, MemoryIntakeState } from './homecloudMemoryIntakeTypes';
+import { MemoryMediaReview } from './MemoryMediaReview';
+import { MemoryAudioRecorder } from './MemoryAudioRecorder';
+import { memoryDevTrace } from './homecloudMemoryDiagnostics';
 
 export interface MemoryIntakeProps {
   config: MemoryIntakeConfig;
   onComplete?: (contentId: string) => void;
 }
 
-type Sheet = 'create' | 'binary' | 'written' | null;
+type Sheet = 'create' | 'source' | 'binary' | 'recorder' | 'written' | null;
 
 /**
  * HomeCloud STAGE 4C.1.1 — Memory create runtime recovery.
@@ -147,7 +150,7 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   // (the create sheet) and can never leak into the next Review.
   const pickingError = state.status === 'failed' ? state.error ?? 'No pudimos seleccionar la foto o el video.' : null;
 
-  const chooseMedia = useCallback(async () => {
+  const runPicker = useCallback(async (pick: () => Promise<BinaryMemoryDraft | null>) => {
     if (pickingRef.current) return;
     pickingRef.current = true;
     const attempt = pickerAttemptRef.current + 1;
@@ -157,7 +160,7 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
     // The create sheet deliberately STAYS presented while the native picker is
     // up: dismissing it first is what made the presentation illegal on iOS.
     try {
-      const draft = await service.pickMemory();
+      const draft = await pick();
       if (!draft) return;
       if (!mountedRef.current || pickerAttemptRef.current !== attempt) return;
       setBinaryDraft(draft);
@@ -168,7 +171,18 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
       if (pickerAttemptRef.current === attempt) pickingRef.current = false;
       if (mountedRef.current) setPicking(false);
     }
-  }, [initialAlbumId, service]);
+  }, [initialAlbumId]);
+
+  const chooseMedia = useCallback(() => runPicker(() => service.pickMemory()), [runPicker, service]);
+  const chooseAudio = useCallback(() => runPicker(() => service.pickAudio()), [runPicker, service]);
+  const captureMedia = useCallback((kind: 'image' | 'video') => runPicker(() => service.captureMemory(kind)), [runPicker, service]);
+
+  const acceptRecordedAudio = useCallback((draft: BinaryMemoryDraft) => {
+    setBinaryDraft(draft);
+    setBinaryCaption('');
+    setBinaryAlbumId(initialAlbumId ?? null);
+    setSheet('binary');
+  }, [initialAlbumId]);
 
   /** CLOSE contract: nothing transient survives, Create is ready to reopen. */
   const closeCreate = useCallback(() => {
@@ -180,7 +194,9 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   }, [service]);
 
   const closeReview = useCallback(() => {
-    discardDraftArtifact(binaryDraft);
+    // Before createJob the draft belongs to this sheet. Once a durable job
+    // exists, recovery owns the original and closing UI must not delete it.
+    if (!service.hasActiveJob()) discardDraftArtifact(binaryDraft);
     clearBinaryDraft();
     // CLOSE means the Memory was abandoned, so its error must not survive into
     // the next flow. The durable job stays in the shared store untouched, and
@@ -189,9 +205,18 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
     setSheet(null);
   }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, service]);
 
+  const reRecordAudio = useCallback(() => {
+    if (!binaryDraft || binaryDraft.source !== 'audio-recorder' || service.hasActiveJob()) return;
+    discardDraftArtifact(binaryDraft);
+    clearBinaryDraft();
+    service.dismiss();
+    setSheet('recorder');
+  }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, service]);
+
   const submitBinary = useCallback(async () => {
     if (!binaryDraft || active) return;
     const capture = binaryDraft.capture;
+    memoryDevTrace('submit_press', { source: binaryDraft.source, mimeType: binaryDraft.artifact.mimeType });
     await service.createBinaryMemory(binaryDraft, {
       caption: binaryCaption.trim() || null,
       initialAlbumId: binaryAlbumId,
@@ -249,19 +274,31 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
 
       <ActionSheet visible={sheet === 'create'} title="Guardar un recuerdo" onRequestClose={closeCreate} size="content">
         <View style={styles.actions}>
-          <AppButton
-            title={picking ? 'Abriendo tus fotos…' : 'Elegir fotos o videos'}
-            loading={picking}
-            disabled={picking}
-            onPress={() => void chooseMedia()}
-          />
+          <AppButton title="Sacar foto" disabled={picking} onPress={() => void captureMedia('image')} />
+          <AppButton title="Grabar video" variant="secondary" disabled={picking} onPress={() => void captureMedia('video')} />
+          <AppButton title="Elegir foto/video/audio" variant="secondary" disabled={picking} onPress={() => setSheet('source')} />
+          <AppButton title="Grabar audio" variant="secondary" disabled={picking} onPress={() => setSheet('recorder')} />
           <AppButton title="Escribir un recuerdo" variant="secondary" onPress={openWritten} disabled={picking} />
           {pickingError ? (
             <View style={styles.error}>
               <AppText variant="bodySmall" tone="danger">{pickingError}</AppText>
+              {state.permissionDenied && state.canAskAgain === false ? <AppButton title="Abrir configuración" size="sm" variant="secondary" onPress={() => void Linking.openSettings()} /> : null}
             </View>
           ) : null}
         </View>
+      </ActionSheet>
+
+      <ActionSheet visible={sheet === 'source'} title="Elegir contenido" onRequestClose={() => setSheet('create')} size="content">
+        <View style={styles.actions}>
+          <AppButton title={picking ? 'Abriendo…' : 'Fotos y videos'} loading={picking} disabled={picking} onPress={() => void chooseMedia()} />
+          <AppButton title="Audio" variant="secondary" disabled={picking} onPress={() => void chooseAudio()} />
+          <AppButton title="Volver" variant="ghost" disabled={picking} onPress={() => setSheet('create')} />
+          {pickingError ? <View style={styles.error}><AppText variant="bodySmall" tone="danger">{pickingError}</AppText>{state.permissionDenied && state.canAskAgain === false ? <AppButton title="Abrir configuración" size="sm" variant="secondary" onPress={() => void Linking.openSettings()} /> : null}</View> : null}
+        </View>
+      </ActionSheet>
+
+      <ActionSheet visible={sheet === 'recorder'} title="Grabar audio" onRequestClose={() => setSheet('create')} size="content">
+        {sheet === 'recorder' ? <MemoryAudioRecorder onReady={acceptRecordedAudio} onCancel={() => setSheet('create')} /> : <View />}
       </ActionSheet>
 
       <ActionSheet
@@ -286,17 +323,9 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
           keyboardDismissMode="on-drag"
           contentContainerStyle={styles.form}
         >
-          {binaryDraft?.artifact.mimeType.startsWith('image/') ? (
-            <Image source={{ uri: binaryDraft.artifact.localUri }} resizeMode="cover" style={styles.preview} accessibilityLabel="Vista previa del recuerdo" />
-          ) : binaryDraft ? (
-            // The VIDEO is the content. Its original filename is technical
-            // metadata and is never shown as the identity of the Memory.
-            <View style={styles.videoPreview} accessibilityLabel="Vista previa del video">
-              <HomePlusIcon name="videocam-outline" size={36} color={colors.text.secondary} />
-              <AppText variant="bodySmall" tone="secondary">Video</AppText>
-            </View>
-          ) : null}
+          {binaryDraft ? <MemoryMediaReview draft={binaryDraft} /> : null}
           <MemoryCaptureSummary capture={binaryDraft?.capture} />
+          {binaryDraft?.source === 'audio-recorder' && state.status !== 'failed' ? <AppButton title="Volver a grabar" size="sm" variant="secondary" disabled={active} onPress={reRecordAudio} /> : null}
           <AppInput
             label="Texto (opcional)"
             value={binaryCaption}
@@ -373,7 +402,7 @@ function MemoryCaptureSummary({ capture }: { capture: MediaCaptureMetadata | und
       </AppText>
       <AppText variant="caption" tone="tertiary">
         {capture?.capturePrecision === 'exact'
-          ? 'Tomada de la galería.'
+          ? 'Fecha obtenida de la captura o de la metadata del archivo.'
           : 'Este archivo no trae fecha, así que queda como Sin fecha.'}
       </AppText>
     </View>
@@ -411,8 +440,6 @@ function binarySubmitLabel(status: MemoryIntakeState['status']): string {
 const styles = StyleSheet.create({
   actions: { gap: spacing[3], paddingBottom: spacing[2] },
   form: { gap: spacing[4], paddingBottom: spacing[4] },
-  preview: { width: '100%', height: 210, borderRadius: radius.lg, backgroundColor: colors.background.alt },
-  videoPreview: { minHeight: 150, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center', gap: spacing[2], padding: spacing[4] },
   captureSummary: { gap: spacing[1] },
   albumSection: { gap: spacing[2] },
   albumList: { gap: spacing[2], paddingRight: spacing[4] },

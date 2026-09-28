@@ -26,10 +26,14 @@ export interface MemoryIntakeState {
   albumId?: string | null;
   albumName?: string | null;
   invalidAlbum?: boolean;
+  permissionDenied?: boolean;
+  canAskAgain?: boolean;
 }
 
 export interface BinaryMemoryDraft {
   artifact: UploadLocalArtifact;
+  source: 'gallery' | 'camera' | 'audio-import' | 'audio-recorder';
+  durationMillis?: number | null;
   /**
    * Honest semantic date derived from the asset's own temporal metadata. The
    * Review shows it; the user never grades it. See

@@ -29,10 +29,11 @@ console.log('\n=== HOMECLOUD 4C1 MEMORY CREATE TESTS ===\n');
 
 test('+ in Files preserves the existing Files menu', () => assert.match(filesScreen, /title="Agregar"/));
 test('+ in Memories mounts productive MemoryIntake', () => assert.match(screen, /<MemoryIntake/));
-test('create sheet exposes photo/video', () => assert.match(component, /'Elegir fotos o videos'/));
+test('create sheet exposes photo/video/audio import', () => assert.match(component, /title="Elegir foto\/video\/audio"/));
 test('create sheet exposes Written', () => assert.match(component, /title="Escribir un recuerdo"/));
-test('create sheet has no camera action', () => assert.doesNotMatch(component, /title="Tomar foto"/));
-test('create sheet has no recorder action', () => assert.doesNotMatch(component, /title="Grabar audio"/));
+test('create sheet exposes photo capture', () => assert.match(component, /title="Sacar foto"/));
+test('create sheet exposes video capture', () => assert.match(component, /title="Grabar video"/));
+test('create sheet exposes audio recorder', () => assert.match(component, /title="Grabar audio"/));
 test('blank Written is disabled', () => assert.match(component, /disabled=\{!writtenText\.trim\(\)/));
 test('Written trims and validates text', () => assert.match(written, /input\.text\.trim\(\)/));
 test('Written payload has no MIME', () => assert.doesNotMatch(written, /mimeType/));
@@ -48,7 +49,7 @@ test('Written blocks double submit', () => assert.match(component, /writtenSubmi
 test('Written error remains recoverable', () => assert.match(component, /setWrittenError/));
 test('picker requests images', () => assert.match(picker, /'images'/));
 test('picker requests videos', () => assert.match(picker, /'videos'/));
-test('picker does not request audio', () => assert.doesNotMatch(picker, /'audios'/));
+test('audio import uses the native document picker', () => assert.match(picker, /getDocumentAsync\(\{ type: 'audio\/\*'/));
 test('binary review precedes upload', () => assert.ok(component.indexOf("setSheet('binary')") >= 0 && component.includes('createBinaryMemory')));
 test('binary caption is forwarded', () => assert.match(service, /caption: metadata\.caption/));
 test('binary exact timestamp is forwarded', () => assert.match(service, /capturedAt: metadata\.capturedAt/));

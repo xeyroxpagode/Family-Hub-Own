@@ -4,6 +4,8 @@ import { recoverUploadJobs } from './homecloudUploadRecovery';
 import { fetchHomeCloudAlbumsCached } from './homecloudReadService';
 import type { BinaryMemoryDraft, BinaryMemoryMetadata, MemoryIntakeConfig, MemoryIntakeState, MemoryIntakeDestination } from './homecloudMemoryIntakeTypes';
 import type { UploadJob } from './homecloudUploadTypes';
+import type { MemoryPickerOutcome } from './homecloudMemoryPicker';
+import { memoryDevTrace } from './homecloudMemoryDiagnostics';
 
 /**
  * HomeCloud HC-2C — Memory Intake service.
@@ -48,7 +50,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
   /** Drop every transient flag left behind by a previous attempt. */
   function resetTransientState(): void {
-    emitState({ error: undefined, contentId: undefined, invalidAlbum: false });
+    emitState({ error: undefined, contentId: undefined, invalidAlbum: false, permissionDenied: false, canAskAgain: undefined });
   }
 
 
@@ -108,6 +110,27 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
    *   double tap can never open two pickers.
    */
   async function pickMemory(): Promise<BinaryMemoryDraft | null> {
+    return runSourcePicker(async () => {
+      const { pickMemoryMedia } = await import('./homecloudMemoryPicker');
+      return pickMemoryMedia();
+    });
+  }
+
+  async function captureMemory(kind: 'image' | 'video'): Promise<BinaryMemoryDraft | null> {
+    return runSourcePicker(async () => {
+      const { captureMemoryMedia } = await import('./homecloudMemoryPicker');
+      return captureMemoryMedia(kind);
+    });
+  }
+
+  async function pickAudio(): Promise<BinaryMemoryDraft | null> {
+    return runSourcePicker(async () => {
+      const { pickAudioMemory } = await import('./homecloudMemoryPicker');
+      return pickAudioMemory();
+    });
+  }
+
+  async function runSourcePicker(pick: () => Promise<MemoryPickerOutcome>): Promise<BinaryMemoryDraft | null> {
     if (!capabilities.contribute) {
       emitState({ status: 'failed', error: 'No tienes permiso para agregar recuerdos.' });
       return null;
@@ -119,8 +142,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     emitState({ status: 'picking' });
 
     try {
-      const { pickMemoryMedia } = await import('./homecloudMemoryPicker');
-      const outcome = await pickMemoryMedia();
+      const outcome = await pick();
 
       if (outcome.success === false && outcome.cancelled === true) {
         emitState({ status: 'idle', error: undefined });
@@ -128,12 +150,12 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
       }
 
       if (outcome.success === false) {
-        emitState({ status: 'failed', error: outcome.error });
+        emitState({ status: 'failed', error: outcome.error, permissionDenied: outcome.permissionDenied, canAskAgain: outcome.canAskAgain });
         return null;
       }
 
       emitState({ status: 'idle', error: undefined });
-      return outcome;
+      return { artifact: outcome.artifact, capture: outcome.capture, source: outcome.source, durationMillis: outcome.durationMillis };
     } catch (error) {
       emitState({
         status: 'failed',
@@ -168,6 +190,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     );
 
     currentJob = job;
+    memoryDevTrace('createJob', { source: draft.source, jobId: job.id });
 
     emitState({
       status: 'preparing',
@@ -307,8 +330,14 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     return availableAlbums.length > 1 && !hasAlbumContext();
   }
 
+  function hasActiveJob(): boolean {
+    return currentJob !== null;
+  }
+
   return {
     pickMemory,
+    captureMemory,
+    pickAudio,
     createBinaryMemory,
     selectDestination,
     retry,
@@ -321,5 +350,6 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     hasAlbumContext,
     loadAlbums,
     recover,
+    hasActiveJob,
   };
 }

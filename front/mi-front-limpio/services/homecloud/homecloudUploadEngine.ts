@@ -29,6 +29,7 @@ import {
   serializeUploadJob,
 } from './homecloudUploadJob';
 import type { UploadJobStore } from '../../storage/homecloudUploadJobStorage';
+import { memoryDevTrace } from './homecloudMemoryDiagnostics';
 
 export interface UploadEngineDeps {
   /** Durable job store (native persistence wired at app layer). */
@@ -160,6 +161,7 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
   }
 
   async function runRegister(job: UploadJob): Promise<UploadJob> {
+    if (job.role === 'memory') memoryDevTrace('register_start', { jobId: job.id });
     const householdId = getHouseholdId();
     if (!householdId) throw new Error('no active household');
     const guard = guardOwnership(job, { householdId });
@@ -207,10 +209,12 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
 
     job2 = transition(job2, 'registered', { contentId: resp.content.id });
     persist(job2);
+    if (job.role === 'memory') memoryDevTrace('register_end', { jobId: job.id });
     return job2;
   }
 
   async function runUpload(job: UploadJob): Promise<UploadJob> {
+    if (job.role === 'memory') memoryDevTrace('upload_start', { jobId: job.id });
     const accessToken = requireAccessToken();
 
     // Resume path: this job already left `uploading` persisted (interrupted
@@ -227,6 +231,7 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
         if (resumed.verified) {
           const verifyingJob = transition(job, 'verifying');
           persist(verifyingJob);
+          if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id, resumed: true });
           return verifyingJob;
         }
       } catch {
@@ -272,10 +277,12 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     // at verify, never strand the job at `uploading` again.
     const verifyingJob = transition(uploadingJob, 'verifying');
     persist(verifyingJob);
+    if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id });
     return verifyingJob;
   }
 
   async function runVerify(job: UploadJob): Promise<UploadJob> {
+    if (job.role === 'memory') memoryDevTrace('verify_start', { jobId: job.id });
     const accessToken = requireAccessToken();
     const resp = await requestJson<{ verified: boolean }>(
       `/api/homecloud/content/${job.contentId}/verify`,
@@ -286,10 +293,12 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     }
     const finalizingJob = transition(job, 'finalizing');
     persist(finalizingJob);
+    if (job.role === 'memory') memoryDevTrace('verify_end', { jobId: job.id });
     return finalizingJob;
   }
 
   async function runFinalize(job: UploadJob): Promise<UploadJob> {
+    if (job.role === 'memory') memoryDevTrace('finalize_start', { jobId: job.id });
     const accessToken = requireAccessToken();
     await requestJson<{ content: RegisterResponseContent }>(
       `/api/homecloud/content/${job.contentId}/finalize`,
@@ -299,6 +308,7 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     // replay returns success), so persisting completed is always safe here.
     const completedJob = transition(job, 'completed');
     persist(completedJob);
+    if (job.role === 'memory') memoryDevTrace('finalize_end', { jobId: job.id });
     return completedJob;
   }
 

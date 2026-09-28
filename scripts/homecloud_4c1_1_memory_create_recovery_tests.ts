@@ -22,6 +22,7 @@ const durable = read('front/mi-front-limpio/services/homecloud/homecloudDurableA
 const captureSource = read('front/mi-front-limpio/services/homecloud/homecloudMediaCaptureMetadata.ts');
 const timelineSource = read('front/mi-front-limpio/services/homecloud/homecloudMemoriesTimeline.ts');
 const cardsSource = read('front/mi-front-limpio/components/homecloud/MemoryCards.tsx');
+const mediaReview = read('front/mi-front-limpio/services/homecloud/MemoryMediaReview.tsx');
 const actionSheet = read('front/mi-front-limpio/components/ui/ActionSheet.tsx');
 
 /**
@@ -83,22 +84,22 @@ console.log('\n=== HOMECLOUD 4C1.1 MEMORY CREATE RUNTIME RECOVERY TESTS ===\n');
 test('1. picker launches while the create sheet stays presented (legal presentation order)', () => {
   // ROOT CAUSE guard: dismissing the Modal BEFORE awaiting the native picker is
   // what iOS drops. The dismiss must happen only on the cancel/close path.
-  const chooseMedia = component.slice(component.indexOf('const chooseMedia'), component.indexOf('const closeCreate'));
-  assert.doesNotMatch(chooseMedia.slice(0, chooseMedia.indexOf('service.pickMemory')), /setSheet\(null\)/);
-  assert.match(chooseMedia, /await service\.pickMemory\(\)/);
+  const runPicker = component.slice(component.indexOf('const runPicker'), component.indexOf('const chooseMedia'));
+  assert.doesNotMatch(runPicker.slice(0, runPicker.indexOf('await pick()')), /setSheet\(null\)/);
+  assert.match(runPicker, /const draft = await pick\(\)/);
 });
 
 test('2. cancel keeps the create sheet open so the same button reopens the picker', () => {
-  const chooseMedia = component.slice(component.indexOf('const chooseMedia'), component.indexOf('const closeCreate'));
+  const chooseMedia = component.slice(component.indexOf('const runPicker'), component.indexOf('const chooseMedia'));
   // A null draft (cancel OR failure) returns WITHOUT switching sheets.
-  assert.match(chooseMedia, /const draft = await service\.pickMemory\(\);\s*if \(!draft\) return;/);
+  assert.match(chooseMedia, /const draft = await pick\(\);\s*if \(!draft\) return;/);
   // The pick flow never dismisses the create sheet: the only sheet it can open
   // is the Review, and only after a real selection.
   assert.doesNotMatch(chooseMedia, /setSheet\(null\)/);
   assert.equal(chooseMedia.split('setSheet(').length - 1, 1);
   assert.match(chooseMedia, /setSheet\('binary'\);/);
   // The button stays armed and the sheet is still the one on screen.
-  assert.match(component, /title=\{picking \? 'Abriendo tus fotos…' : 'Elegir fotos o videos'\}/);
+  assert.match(component, /title=\{picking \? 'Abriendo…' : 'Fotos y videos'\}/);
   assert.doesNotMatch(chooseMedia, /setSheet\(null\)/);
 });
 
@@ -122,19 +123,19 @@ test('5. failure preserves the draft for retry and never blocks the picker', () 
 });
 
 test('6. pending guard is released in a finally on resolve', () => {
-  const chooseMedia = component.slice(component.indexOf('const chooseMedia'), component.indexOf('const closeCreate'));
+  const chooseMedia = component.slice(component.indexOf('const runPicker'), component.indexOf('const chooseMedia'));
   assert.match(chooseMedia, /\} finally \{[\s\S]*pickingRef\.current = false;[\s\S]*setPicking\(false\);/);
 });
 
 test('7. pending guard is released in a finally on reject', () => {
   // A `finally` covers both the success and the throw path, so a rejection can
   // never leave the guard held.
-  const chooseMedia = component.slice(component.indexOf('const chooseMedia'), component.indexOf('const closeCreate'));
+  const chooseMedia = component.slice(component.indexOf('const runPicker'), component.indexOf('const chooseMedia'));
   const tryIndex = chooseMedia.indexOf('try {');
   const finallyIndex = chooseMedia.indexOf('finally {');
   assert.ok(tryIndex >= 0 && finallyIndex > tryIndex, 'chooseMedia has try/finally');
   // The service also owns a guard released in its own finally.
-  const pickMemory = service.slice(service.indexOf('async function pickMemory'), service.indexOf('async function createBinaryMemory'));
+  const pickMemory = service.slice(service.indexOf('async function runSourcePicker'), service.indexOf('async function createBinaryMemory'));
   assert.match(pickMemory, /\} finally \{\s*picking = false;/);
   // And it reports a real failure instead of throwing out of the guard.
   assert.match(pickMemory, /catch \(error\) \{[\s\S]*status: 'failed'/);
@@ -160,7 +161,7 @@ test('9. a double tap cannot open two native pickers', () => {
 
 test('10. a third attempt works: every attempt gets ownership, latest wins', () => {
   assert.match(component, /const pickerAttemptRef = useRef\(0\);/);
-  const chooseMedia = component.slice(component.indexOf('const chooseMedia'), component.indexOf('const closeCreate'));
+  const chooseMedia = component.slice(component.indexOf('const runPicker'), component.indexOf('const chooseMedia'));
   assert.match(chooseMedia, /const attempt = pickerAttemptRef\.current \+ 1;\s*pickerAttemptRef\.current = attempt;/);
   // A late resolve from a superseded attempt can never commit its draft.
   assert.match(chooseMedia, /if \(!mountedRef\.current \|\| pickerAttemptRef\.current !== attempt\) return;/);
@@ -294,8 +295,7 @@ test('21. a caption may be shown when there is one', () => {
 });
 
 test('22. displayName still exists internally (storage/upload/search)', () => {
-  assert.match(picker, /const displayName = ensureSingleExtension\(rawName, extension\);/);
-  assert.match(picker, /\n      displayName,\n/);
+  assert.match(picker, /displayName: ensureSingleExtension\(rawName, extension\)/);
   assert.match(read('front/mi-front-limpio/services/homecloud/homecloudUploadEngine.ts'), /displayName: job2\.artifact\.displayName/);
   assert.match(read('front/mi-front-limpio/services/homecloud/homecloudTypes.ts'), /readonly displayName: string \| null;/);
   // ...and the timeline primitive simply stops consulting it.
@@ -308,7 +308,8 @@ test('22. displayName still exists internally (storage/upload/search)', () => {
 test('23. Review never uses the filename as title or label', () => {
   assert.doesNotMatch(stripComments(reviewForm), /displayName/);
   // The video preview states what it is, not what the file is called.
-  assert.match(reviewForm, /<AppText variant="bodySmall" tone="secondary">Video<\/AppText>/);
+  assert.match(reviewForm, /<MemoryMediaReview draft=\{binaryDraft\} \/>/);
+  assert.match(mediaReview, /<VideoView[\s\S]*nativeControls/);
   assert.doesNotMatch(stripComments(reviewForm), /binaryDraft\.artifact\.displayName/);
 });
 
@@ -394,7 +395,7 @@ test('31. the optional album stays intact on both forms', () => {
 
 test('CANCEL/CLOSE do not leak the durable artifact copy', () => {
   assert.match(component, /void import\('\.\/homecloudMemoryPicker'\)[\s\S]*discardMemoryMedia\(draft\.artifact\)/);
-  assert.match(component, /const closeReview = useCallback\(\(\) => \{\s*discardDraftArtifact\(binaryDraft\);/);
+  assert.match(component, /if \(!service\.hasActiveJob\(\)\) discardDraftArtifact\(binaryDraft\);/);
   assert.match(picker, /export async function discardMemoryMedia/);
   // Only a folder this module created can ever be deleted.
   assert.match(durable, /const PENDING_FOLDER = \/\^pending_\\d\+_\[a-z0-9\]\+\$\/;/);

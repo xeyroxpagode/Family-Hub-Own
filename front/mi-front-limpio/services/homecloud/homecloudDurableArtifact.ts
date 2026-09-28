@@ -1,10 +1,19 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import type { UploadLocalArtifact } from './homecloudUploadTypes';
+import { memoryDevTrace } from './homecloudMemoryDiagnostics';
 
 const UPLOAD_WORKSPACE = 'homecloud-upload-jobs';
 
 /** Only this exact shape is ever created by `copyArtifactToDurableWorkspace`. */
 const PENDING_FOLDER = /^pending_\d+_[a-z0-9]+$/;
+
+export class InvalidDurableArtifactError extends Error {
+  readonly code = 'invalid_durable_artifact';
+  constructor(message = 'No pudimos preparar este archivo. Elegí otro e intentá de nuevo.') {
+    super(message);
+    this.name = 'InvalidDurableArtifactError';
+  }
+}
 
 function safeName(name: string): string {
   const trimmed = name.trim() || 'artifact';
@@ -37,8 +46,14 @@ export async function copyArtifactToDurableWorkspace(
   artifact: UploadLocalArtifact,
 ): Promise<UploadLocalArtifact> {
   const root = FileSystem.documentDirectory;
-  if (!root) return artifact;
-  if (artifact.localUri.startsWith(`${root}${UPLOAD_WORKSPACE}/`)) return artifact;
+  if (!root) throw new InvalidDurableArtifactError();
+  if (artifact.localUri.startsWith(`${root}${UPLOAD_WORKSPACE}/`)) {
+    const existing = await FileSystem.getInfoAsync(artifact.localUri);
+    if (!existing.exists || typeof existing.size !== 'number' || existing.size <= 0) {
+      throw new InvalidDurableArtifactError();
+    }
+    return { ...artifact, sizeBytes: existing.size };
+  }
 
   const folderId = `pending_${Date.now()}_${randomSegment()}`;
   const dirUri = `${root}${UPLOAD_WORKSPACE}/${folderId}/`;
@@ -46,18 +61,21 @@ export async function copyArtifactToDurableWorkspace(
   const fileName = `${baseNameWithoutExtension(artifact.displayName)}.${extension}`;
   const targetUri = `${dirUri}${fileName}`;
 
-  await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
-  await FileSystem.copyAsync({ from: artifact.localUri, to: targetUri });
-  const info = await FileSystem.getInfoAsync(targetUri);
-
-  return {
-    ...artifact,
-    localUri: targetUri,
-    sizeBytes: info.exists && typeof info.size === 'number' && info.size > 0
-      ? info.size
-      : artifact.sizeBytes,
-    extension,
-  };
+  memoryDevTrace('copy_start', { uriScheme: artifact.localUri.split(':', 1)[0], mimeType: artifact.mimeType });
+  try {
+    await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
+    await FileSystem.copyAsync({ from: artifact.localUri, to: targetUri });
+    const info = await FileSystem.getInfoAsync(targetUri);
+    if (!info.exists || typeof info.size !== 'number' || info.size <= 0) {
+      throw new InvalidDurableArtifactError();
+    }
+    memoryDevTrace('copy_end', { actualCopiedSize: info.size });
+    return { ...artifact, localUri: targetUri, sizeBytes: info.size, extension };
+  } catch (error) {
+    try { await FileSystem.deleteAsync(dirUri, { idempotent: true }); } catch { /* best effort */ }
+    if (error instanceof InvalidDurableArtifactError) throw error;
+    throw new InvalidDurableArtifactError();
+  }
 }
 
 /**
