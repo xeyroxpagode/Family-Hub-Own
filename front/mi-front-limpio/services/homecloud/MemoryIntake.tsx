@@ -22,7 +22,7 @@ import {
 } from './homecloudSemanticDate';
 import type { BinaryMemoryDraft, MemoryIntakeConfig, MemoryIntakeDestination, MemoryIntakeState } from './homecloudMemoryIntakeTypes';
 import { MemoryMediaReview } from './MemoryMediaReview';
-import { MemoryAudioRecorder } from './MemoryAudioRecorder';
+import { MemoryAudioRecorder, type MemoryAudioRecorderHandle } from './MemoryAudioRecorder';
 import { memoryAttemptTrace, memoryDevTrace } from './homecloudMemoryDiagnostics';
 import { MemoryCameraSurface } from './MemoryCameraSurface';
 import { MemoryAttemptAuthority, type MemoryAttempt } from './homecloudMemoryAttempt';
@@ -33,6 +33,12 @@ export interface MemoryIntakeProps {
 }
 
 type Sheet = 'create' | 'source' | 'camera' | 'binary' | 'recorder' | 'audio-handoff' | 'written' | null;
+
+/**
+ * Every reason the binary draft can disappear. There is NO path that clears it
+ * without naming one, so a lost draft is always traceable to a cause.
+ */
+type BinaryDraftClearReason = 'completed' | 'review_close' | 'focus_lost' | 'rerecord';
 
 /**
  * HomeCloud STAGE 4C.1.1 — Memory create runtime recovery.
@@ -94,6 +100,8 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   const mountedRef = useRef(true);
   const attemptAuthorityRef = useRef(new MemoryAttemptAuthority());
   const recorderAttemptRef = useRef<MemoryAttempt | null>(null);
+  const recorderHandleRef = useRef<MemoryAudioRecorderHandle | null>(null);
+  const setRecorderHandle = useCallback((handle: MemoryAudioRecorderHandle | null) => { recorderHandleRef.current = handle; }, []);
 
   const service = useMemo(() => createMemoryIntakeService({
     householdId,
@@ -111,6 +119,18 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
     intakeSource,
   ]);
 
+  // Latest-value mirrors: they let UNMOUNT-only diagnostics report the real
+  // current service/state/draft without re-creating the mount effect.
+  const serviceRef = useRef(service);
+  const stateRef = useRef(state);
+  const binaryDraftRef = useRef<BinaryMemoryDraft | null>(binaryDraft);
+
+  useEffect(() => {
+    serviceRef.current = service;
+    stateRef.current = state;
+    binaryDraftRef.current = binaryDraft;
+  });
+
   useEffect(() => {
     const attemptAuthority = attemptAuthorityRef.current;
     mountedRef.current = true;
@@ -119,12 +139,24 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
       attemptAuthority.dispose();
       // Unmount must never leave a pending guard behind.
       pickingRef.current = false;
+      memoryDevTrace('intake_unmount', {
+        reason: 'unmount',
+        status: stateRef.current.status,
+        source: binaryDraftRef.current?.source ?? null,
+        hasActiveJob: serviceRef.current.hasActiveJob(),
+      });
     };
   }, []);
 
   useEffect(() => {
     let activeSubscription = true;
     const unsubscribe = service.subscribe(setState);
+    memoryDevTrace('service_recreated', {
+      reason: 'config_identity_changed',
+      status: stateRef.current.status,
+      hasActiveJob: service.hasActiveJob(),
+      hasDraft: binaryDraftRef.current !== null,
+    });
     void service.loadAlbums().then(() => { if (activeSubscription) setAlbums(service.getAvailableDestinations()); });
     void service.recover();
     return () => { activeSubscription = false; unsubscribe(); };
@@ -141,7 +173,9 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   }, []);
 
   /** SUCCESS contract: draft + picker transient state cleared, Create reusable. */
-  const clearBinaryDraft = useCallback(() => {
+  const clearBinaryDraft = useCallback((reason: BinaryDraftClearReason) => {
+    const draft = binaryDraftRef.current;
+    memoryDevTrace('draft_clear', { reason, source: draft?.source ?? null, mimeType: draft?.artifact.mimeType ?? null });
     setBinaryDraft(null);
     setReviewAttempt(null);
     setBinaryCaption('');
@@ -151,12 +185,19 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   useEffect(() => {
     if (state.status !== 'completed' || !state.contentId || notifiedContentId.current === state.contentId) return;
     notifiedContentId.current = state.contentId;
-    clearBinaryDraft();
-    setSheet(null);
+    // PERSISTENCE RESULT (register → upload → verify → finalize produced an
+    // active content) is FINAL and is reported FIRST, before anything local is
+    // torn down. LOCAL MEDIA CLEANUP follows and can never be surfaced as
+    // "No pudimos guardar": this path never calls the service, so it can never
+    // emit a `failed` state over a successful save.
+    memoryDevTrace('completed_cleanup', { contentId: state.contentId, reason: 'finalize_success' });
     onComplete?.(state.contentId);
+    setSheet(null);
+    clearBinaryDraft('completed');
   }, [clearBinaryDraft, onComplete, state.contentId, state.status]);
 
   const active = ['preparing', 'uploading', 'verifying', 'finalizing'].includes(state.status);
+
   // The trigger depends on the LOCAL guard only. A remote status that could be
   // orphaned must never be able to disable the only entry point.
   const triggerDisabled = !capabilities.contribute || active || picking;
@@ -195,19 +236,24 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
 
   const acceptRecordedAudio = useCallback((draft: BinaryMemoryDraft, attempt: MemoryAttempt) => {
     if (!attemptAuthorityRef.current.owns(attempt)) return;
-    // Deliberate empty handoff render: recorder hook cleanup/release completes
-    // before the playback hook is mounted on the following effect.
+    // Deliberate empty handoff render: the recorder's ownership ends BEFORE the
+    // playback hook is mounted, so the Review never coexists with a recorder.
+    memoryAttemptTrace(attempt, 'recorder_ownership_released', { uri: draft.artifact.localUri.split(':', 1)[0] });
     setPendingAudioDraft({ draft, attempt }); setSheet('audio-handoff');
   }, []);
 
   useEffect(() => {
     if (sheet !== 'audio-handoff' || !pendingAudioDraft) return;
-    if (!attemptAuthorityRef.current.owns(pendingAudioDraft.attempt)) { setPendingAudioDraft(null); setSheet('create'); return; }
+    if (!attemptAuthorityRef.current.owns(pendingAudioDraft.attempt)) {
+      memoryDevTrace('review_close_requested', { reason: 'audio_handoff_attempt_lost', source: pendingAudioDraft.draft.source });
+      setPendingAudioDraft(null); setSheet('create'); return;
+    }
     setBinaryDraft(pendingAudioDraft.draft); setReviewAttempt(pendingAudioDraft.attempt); setBinaryCaption(''); setBinaryAlbumId(initialAlbumId ?? null); setPendingAudioDraft(null); setSheet('binary');
   }, [initialAlbumId, pendingAudioDraft, sheet]);
 
   /** CLOSE contract: nothing transient survives, Create is ready to reopen. */
   const closeCreate = useCallback(() => {
+    memoryDevTrace('review_close_requested', { reason: 'create_sheet_close', sheet: 'create' });
     pickerAttemptRef.current += 1;
     attemptAuthorityRef.current.invalidate();
     pickingRef.current = false;
@@ -217,10 +263,12 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   }, [service]);
 
   const closeReview = useCallback(() => {
+    const hasActiveJob = service.hasActiveJob();
+    memoryDevTrace('review_close_requested', { reason: 'user_close', hasActiveJob, source: binaryDraft?.source ?? null, status: stateRef.current.status });
     // Before createJob the draft belongs to this sheet. Once a durable job
     // exists, recovery owns the original and closing UI must not delete it.
-    if (!service.hasActiveJob()) discardDraftArtifact(binaryDraft);
-    clearBinaryDraft();
+    if (!hasActiveJob) discardDraftArtifact(binaryDraft);
+    clearBinaryDraft('review_close');
     // CLOSE means the Memory was abandoned, so its error must not survive into
     // the next flow. The durable job stays in the shared store untouched, and
     // failed jobs are never auto-resumed by recovery (retry stays explicit).
@@ -244,18 +292,41 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
 
   const closeCamera = useCallback(() => { attemptAuthorityRef.current.invalidate(); setSheet('create'); }, []);
 
+  /**
+   * Closing the recorder sheet from outside the recorder (close button,
+   * backdrop). The recorder finishes its OWN teardown — including stopping an
+   * in-flight native recording while `useAudioRecorder` still owns a valid
+   * object — and leaves the sheet through `onCancel`. The host must never
+   * unmount the recorder directly, or the native object would be released with
+   * a recording still running and no way left to read its URI.
+   */
+  const abandonRecorder = useCallback((reason: string) => {
+    memoryDevTrace('review_close_requested', { reason, sheet: 'recorder' });
+    const handle = recorderHandleRef.current;
+    if (!handle) { attemptAuthorityRef.current.invalidate(recorderAttemptRef.current ?? undefined); setSheet('create'); return; }
+    handle.abandon();
+  }, []);
+
   useEffect(() => {
     if (isFocused) return;
+    memoryDevTrace('focus_lost', {
+      reason: 'navigation_blur',
+      hasActiveJob: service.hasActiveJob(),
+      hasDraft: binaryDraft !== null,
+      source: binaryDraft?.source ?? null,
+      status: stateRef.current.status,
+    });
     pickerAttemptRef.current += 1; pickingRef.current = false; attemptAuthorityRef.current.invalidate();
     setPicking(false); setPendingAudioDraft(null);
     if (!service.hasActiveJob()) discardDraftArtifact(binaryDraft);
-    clearBinaryDraft(); service.dismiss(); setSheet(null);
+    clearBinaryDraft('focus_lost'); service.dismiss(); setSheet(null);
   }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, isFocused, service]);
 
   const reRecordAudio = useCallback(() => {
     if (!binaryDraft || binaryDraft.source !== 'audio-recorder' || service.hasActiveJob()) return;
+    memoryDevTrace('draft_clear', { reason: 'rerecord', source: binaryDraft.source });
     discardDraftArtifact(binaryDraft);
-    clearBinaryDraft();
+    clearBinaryDraft('rerecord');
     service.dismiss();
     const attempt = attemptAuthorityRef.current.begin('audio-record', 'audio'); recorderAttemptRef.current = attempt; setSheet('recorder');
   }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, service]);
@@ -344,8 +415,8 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
         </View>
       </ActionSheet>
 
-      <ActionSheet visible={sheet === 'recorder'} title="Grabar audio" onRequestClose={() => { attemptAuthorityRef.current.invalidate(recorderAttemptRef.current ?? undefined); setSheet('create'); }} size="content">
-        {sheet === 'recorder' && recorderAttemptRef.current ? <MemoryAudioRecorder attempt={recorderAttemptRef.current} ownsAttempt={(attempt) => attemptAuthorityRef.current.owns(attempt)} onReady={acceptRecordedAudio} onCancel={() => { attemptAuthorityRef.current.invalidate(recorderAttemptRef.current ?? undefined); setSheet('create'); }} /> : <View />}
+      <ActionSheet visible={sheet === 'recorder'} title="Grabar audio" onRequestClose={() => abandonRecorder('recorder_sheet_dismissed')} size="content">
+        {sheet === 'recorder' && recorderAttemptRef.current ? <MemoryAudioRecorder attempt={recorderAttemptRef.current} ownsAttempt={(attempt) => attemptAuthorityRef.current.owns(attempt)} abandonRef={setRecorderHandle} onReady={acceptRecordedAudio} onCancel={() => { attemptAuthorityRef.current.invalidate(recorderAttemptRef.current ?? undefined); setSheet('create'); }} /> : <View />}
       </ActionSheet>
 
       {sheet === 'camera' ? <MemoryCameraSurface onClose={closeCamera} beginAttempt={(kind) => attemptAuthorityRef.current.begin('camera', kind)} ownsAttempt={(attempt) => attemptAuthorityRef.current.owns(attempt)} onUse={acceptCamera} /> : null}

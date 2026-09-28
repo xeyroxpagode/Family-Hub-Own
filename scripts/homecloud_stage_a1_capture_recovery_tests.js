@@ -65,9 +65,67 @@ test('44 shared audio review', () => assert.match(review, /: <AudioReview/));
 test('45 written remains', () => assert.ok(intake.includes('createWrittenMemory') && written.includes('/api/homecloud/register')));
 test('46 media exit localized', () => assert.match(review, /MediaErrorBoundary/));
 test('47 camera cancel navigation safe', () => assert.match(camera, /return \(\) => \{[\s\S]*stopNativeRecording/));
-test('48 video close navigation safe', () => assert.match(review, /subscription\.remove\(\); player\.pause\(\)/));
-test('49 audio close navigation safe', () => assert.match(recorder, /subscription\.remove\(\); void stopAndDiscard\(\)/));
+test('48 video close navigation safe', () => { assert.match(review, /subscription\.remove\(\)/); assert.doesNotMatch(review, /subscription\.remove\(\); player\.pause\(\)/); });
+test('49 audio close navigation safe', () => { assert.match(recorder, /subscription\.remove\(\)/); assert.doesNotMatch(recorder, /subscription\.remove\(\); void stopAndDiscard\(\)/); });
 test('50 one shared upload engine', () => { assert.match(service, /createUploadEngine/); assert.ok(['register_start', 'upload_start', 'verify_start', 'finalize_start'].every((e) => engine.includes(e))); assert.doesNotMatch(camera + picker + recorder, /createUploadEngine/); });
+
+// ── HOMECLOUD_MEMORIES_STAGE_A1_2_CONFIRMED_BLOCKERS_RECOVERY ──────────────
+// CAMERA VIDEO READY GATE (Foto → Video recovered readiness, then one record).
+test('51 camera readiness is recovered by an explicit remount', () => {
+  assert.match(camera, /const \[surfaceSession, setSurfaceSession\] = useState\(0\)/);
+  assert.match(camera, /const remountSurface = useCallback\(\(\) => \{ setReady\(false\); setSurfaceSession\(\(value\) => value \+ 1\); \}, \[\]\)/);
+  assert.match(camera, /<CameraView key=\{`\$\{mode\}:\$\{facing\}:\$\{surfaceSession\}`\}/);
+});
+test('52 mode switch drops and remounts readiness', () => assert.match(camera, /setMode\(next\); remountSurface\(\); setError\(null\)/));
+test('53 facing switch drops and remounts readiness', () => assert.match(camera, /setFacing\(\(value\) => value === 'back' \? 'front' : 'back'\); remountSurface\(\);/));
+test('54 retake and mount-error retry remount the surface', () => {
+  assert.match(camera, /const retake = [^\n]*remountSurface\(\); setPhase\('ready'\)/);
+  assert.match(camera, /onPress=\{\(\) => \{ setError\(null\); remountSurface\(\); setPhase\('ready'\); \}\}/);
+});
+test('55 remount preserves facing, attempt, permissions and AppState', () => {
+  const remountCallers = ['switchMode', 'retake', 'onPress={() => { setFacing'];
+  assert.ok(remountCallers.every((c) => camera.includes(c)));
+  assert.ok(!/remountSurface[^;]*setFacing\(/.test(camera), 'remount must not reset facing');
+  assert.ok(!/remountSurface[^;]*beginAttempt/.test(camera), 'remount must not restart the attempt');
+  assert.match(camera, /const \[permission, requestPermission, getPermission\] = useCameraPermissions\(\)/);
+  assert.match(camera, /const \[appActive, setAppActive\] = useState\(AppState\.currentState === 'active'\)/);
+});
+test('56 readiness is never forced, timed or bypassed', () => {
+  assert.doesNotMatch(camera, /setReady\(true\)[^;]*;?\s*(?:\/\/)?\s*(setTimeout|await)/);
+  assert.ok(camera.includes('onCameraReady={() => { setReady(true);'), 'ready=true only from onCameraReady');
+  assert.equal((camera.match(/setReady\(true\)/g) ?? []).length, 1);
+});
+test('57 record gate trace is complete', () => {
+  assert.match(camera, /'camera_video record_gate'/);
+  ['ready,', 'active:', 'focused:', 'appActive,', 'cameraPermission:', 'microphonePermission:', 'recording,', 'stopping,', 'refReady:', 'disabled:'].forEach((field) => assert.ok(camera.includes(field), field));
+});
+test('58 record button is disabled exactly by the gate', () => {
+  assert.match(camera, /disabled: !ready \|\| phase === 'capturing' \|\| stopping \|\| phase === 'error'/);
+  assert.match(camera, /<AppButton variant="icon" disabled=\{recordGate\.disabled\}/);
+});
+test('59 recordAsync is reachable exactly once per press sequence', () => {
+  assert.match(camera, /const recordStartLockRef = useRef\(false\)/);
+  assert.match(camera, /phase !== 'ready' \|\| recordStartLockRef\.current\)/);
+  assert.match(camera, /recordStartLockRef\.current = true;/);
+  assert.match(camera, /finally \{ recordStartLockRef\.current = false; \}/);
+  assert.equal((camera.match(/recordAsync\(\)/g) ?? []).length, 1);
+});
+test('60 stop is requested exactly once per recording', () => {
+  assert.match(camera, /const stopRequestLockRef = useRef\(false\)/);
+  assert.match(camera, /if \(phase !== 'recording' \|\| stopRequestLockRef\.current\) return;/);
+  assert.match(camera, /stopRequestLockRef\.current = false; setElapsed\(0\); setPhase\('recording'\)/);
+});
+test('61 refused record presses are still traced', () => assert.match(camera, /if \(mode === 'video'\) memoryAttemptTrace\(attemptRef\.current, 'camera_video record_gate', \{ \.\.\.recordGate, decision: 'refused' \}\)/));
+test('62 video to picture switch still works', () => {
+  assert.match(camera, /value: 'picture', label: 'Foto'/);
+  assert.match(camera, /mode === 'picture' \? void takePhoto\(\) : void startVideo\(\)/);
+  assert.match(camera, /takePictureAsync\(\{ quality: 0\.9 \}\)/);
+});
+test('63 close during a mode change stays safe', () => {
+  assert.match(camera, /const close = useCallback\(\(\) => \{ invalidateOperation\(\); stopNativeRecording\(\)/);
+  assert.match(camera, /mountedRef\.current = false; invalidateOperation\(\); stopNativeRecording\(\); subscription\.remove\(\)/);
+  assert.match(camera, /key=\{`\$\{mode\}:\$\{facing\}:\$\{surfaceSession\}`\} ref=\{cameraRef\}/);
+});
 
 assert.match(scanner, /CameraView/);
 assert.match(app, /cameraPermission[\s\S]*microphonePermission/);

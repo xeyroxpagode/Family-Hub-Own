@@ -36,7 +36,8 @@ test('recording uses expo-audio', () => assert.match(recorder, /useAudioRecorder
 test('recording permission is just-in-time', () => assert.match(recorder, /requestRecordingPermissionsAsync\(\)/));
 test('recording timer comes from recorder state', () => assert.match(recorder, /recorderState\.durationMillis/));
 test('recording capture time is real start time', () => assert.match(recorder, /capturedAtRef\.current = new Date\(\)\.toISOString\(\)/));
-test('recorder stops on unmount', () => assert.match(recorder, /if \(recorder\.isRecording\) await recorder\.stop/));
+test('recorder native stop is a mount-scoped path', () => { assert.match(recorder, /if \(recorder\.isRecording\)/); assert.match(recorder, /await recorder\.stop\(\)/); });
+test('recorder is never read after the hook released it', () => assert.doesNotMatch(recorder, /subscription\.remove\(\);\s*void stopAndDiscard\(\)/));
 test('recorded temp is removed after durable copy', () => assert.match(picker, /deleteAsync\(uri, \{ idempotent: true \}\)/));
 test('image review never decodes original directly', () => assert.match(review, /manipulateAsync\(draft\.artifact\.localUri/));
 test('image preview is a separate bounded representation', () => assert.match(review, /resize: \{ width: 1600 \}/));
@@ -68,5 +69,68 @@ test('official media dependencies are SDK-pinned', () => { assert.equal(pkg.depe
 test('forbidden media dependencies remain absent', () => ['expo-media-library','ffmpeg','video-thumbnails'].forEach((name) => assert.equal(pkg.dependencies[name], undefined)));
 test('no fake media UX exists', () => assert.doesNotMatch(intake + picker + review + recorder, /simulateUpload|fake waveform|fake poster|placeholder.*media/i));
 test('engine keeps stable job recovery path', () => assert.match(service, /recoverUploadJobs/));
+
+// ── HOMECLOUD_MEMORIES_STAGE_A1_2_CONFIRMED_BLOCKERS_RECOVERY ──────────────
+// Single-owner contract for every SharedObject-backed native handle.
+test('RC2 video player is released only by useVideoPlayer', () => {
+  assert.doesNotMatch(review, /subscription\.remove\(\); player\.pause\(\)/);
+  assert.doesNotMatch(review, /player\.release\(\)/);
+  assert.match(review, /subscription\.remove\(\);/);
+  assert.match(review, /instance\.pause\(\)/);
+});
+test('RC2 video listener is removed idempotently and stops feeding state', () => {
+  const cleanup = review.slice(review.indexOf('function VideoPlayerInstance'), review.indexOf('function AudioReview'));
+  assert.match(cleanup, /let active = true;/);
+  assert.match(cleanup, /subscription\.remove\(\);/);
+  assert.match(cleanup, /active = false;/);
+  assert.match(review, /const applyStatus = \(\{ status, error \}[\s\S]*?if \(!active\) return;/);
+});
+test('RC2 retry builds a fresh player with no stale reference', () => assert.match(review, /key=\{`\$\{uri\}:\$\{retry\}`\}/));
+test('RC3 audio player is released only by useAudioPlayer', () => {
+  assert.doesNotMatch(review, /player\.pause\(\); trace\(attempt, 'player_cleanup', \{ kind: 'audio'/);
+  assert.doesNotMatch(review, /return \(\) => \{ player\./);
+  assert.match(review, /player_cleanup', \{ kind: 'audio', reason: 'hook_owned_release'/);
+});
+test('RC3 recorder URI is read while the recorder is still valid', () => {
+  assert.match(recorder, /const stopped = recorder\.getStatus\(\);[\s\S]*const uri = recorder\.uri \?\? stopped\.url;[\s\S]*pendingUriRef\.current = uri;/);
+});
+test('RC3 recorder ownership ends before the handoff', () => {
+  assert.match(recorder, /pendingUriRef\.current = null; recordedRef\.current = true;[\s\S]*onReady\(draft, attempt\)/);
+  assert.match(recorder, /recorderOwnership: 'released_by_useAudioRecorder'/);
+});
+test('RC3 closing the recorder sheet is routed through the mounted recorder', () => {
+  assert.match(recorder, /abandonRef\(\{ abandon: \(\) => \{ cancelRef\.current\(\); \} \}\)/);
+  assert.match(intake, /abandonRef=\{setRecorderHandle\}/);
+  assert.match(intake, /const handle = recorderHandleRef\.current;[\s\S]*handle\.abandon\(\);/);
+});
+test('RC3 audio import and audio record share one Review primitive', () => {
+  assert.match(review, /const kind = draft\.artifact\.mimeType\.startsWith\('image\/'\)[\s\S]*<AudioReview uri=\{draft\.artifact\.localUri\}/);
+  assert.match(review, /review_kind', \{ kind, source: draft\.source/);
+});
+
+// Success semantics: persistence result is final, local cleanup cannot rewrite it.
+test('SUCCESS finalize is reported before any local teardown', () => {
+  const effect = intake.slice(intake.indexOf("state.status !== 'completed'"), intake.indexOf('const active = ['));
+  const reported = effect.indexOf('onComplete?.(state.contentId)');
+  const cleared = effect.indexOf("clearBinaryDraft('completed')");
+  assert.ok(reported >= 0 && cleared > reported, 'onComplete must run before draft cleanup');
+});
+test('SUCCESS completed path never reports a failure', () => assert.doesNotMatch(intake.slice(intake.indexOf("state.status !== 'completed'"), intake.indexOf('const active = [')), /emitState|service\.retry|setWrittenError/));
+test('SUCCESS local media cleanup is best effort and never throws into the flow', () => assert.match(intake, /discardMemoryMedia\(draft\.artifact\)\)\s*\n\s*\.catch\(\(\) => \{/));
+
+// Every draft teardown names its CAUSE.
+test('DIAG draft_clear always carries a reason', () => {
+  assert.match(intake, /clearBinaryDraft = useCallback\(\(reason: BinaryDraftClearReason\)/);
+  assert.match(intake, /memoryDevTrace\('draft_clear', \{ reason,/);
+  ['completed', 'review_close', 'focus_lost', 'rerecord'].forEach((r) => assert.ok(intake.includes(`clearBinaryDraft('${r}')`), r));
+});
+test('DIAG required cleanup traces exist', () => ['review_close_requested', 'draft_clear', 'intake_unmount', 'focus_lost', 'completed_cleanup', 'service_recreated'].forEach((event) => assert.ok(intake.includes(`'${event}'`), event)));
+test('DIAG media review teardown distinguishes unmount from preview reset', () => assert.match(review, /review_unmount', \{ kind: 'image', reason: unmountedRef\.current \? 'unmount' : 'preview_reset' \}/));
+test('DIAG video/audio teardown names its cause', () => {
+  assert.match(review, /player_cleanup', \{ kind: 'video', reason: 'listener_removed'/);
+  assert.match(review, /review_unmount', \{ kind: 'video', reason: 'unmount'/);
+  assert.match(review, /review_unmount', \{ kind: 'audio', reason: 'unmount'/);
+});
+test('DIAG no binary draft clear without a reason', () => assert.doesNotMatch(intake, /clearBinaryDraft\(\)/));
 
 console.log(`\nHOMECLOUD_MEMORIES_STAGE_A_CORE_CREATION_TESTS pass=${pass} fail=0`);

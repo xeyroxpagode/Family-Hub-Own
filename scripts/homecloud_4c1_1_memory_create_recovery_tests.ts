@@ -109,9 +109,12 @@ test('3. review replaces the create sheet only on a real selection', () => {
 
 test('4. success clears the draft and the transient picker state', () => {
   const success = component.slice(component.indexOf("state.status !== 'completed'"), component.indexOf('const active ='));
-  assert.match(success, /clearBinaryDraft\(\);/);
+  assert.match(success, /clearBinaryDraft\('completed'\);/);
   assert.match(success, /setSheet\(null\);/);
-  assert.match(component, /const clearBinaryDraft = useCallback\(\(\) => \{[\s\S]*?setBinaryDraft\(null\);[\s\S]*?setBinaryCaption\(''\);/);
+  // The success result is reported BEFORE the local teardown, so a cleanup
+  // problem can never rewrite a persisted memory as a failed save.
+  assert.ok(success.indexOf('onComplete?.(state.contentId)') < success.indexOf("clearBinaryDraft('completed')"));
+  assert.match(component, /const clearBinaryDraft = useCallback\(\(reason: BinaryDraftClearReason\) => \{[\s\S]*?setBinaryDraft\(null\);[\s\S]*?setBinaryCaption\(''\);/);
 });
 
 test('5. failure preserves the draft for retry and never blocks the picker', () => {
