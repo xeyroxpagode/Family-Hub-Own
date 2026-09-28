@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
@@ -20,6 +20,7 @@ import { HomeCloudFileIntakeDevScreen } from '../screens/HomeCloudFileIntakeDevS
 import { ExperienceSelectorScreen } from '../screens/ExperienceSelectorScreen';
 import { ExperienceResolver } from './ExperienceResolver';
 import { useExperience } from '../context/ExperienceContext';
+import { runtimeTrace } from '../services/runtimeTrace';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const PrivateStack = createNativeStackNavigator<PrivateStackParamList>();
@@ -166,10 +167,81 @@ const getInitialPrivateRoute = (
   return 'P02CrearGrupo';
 };
 
+/**
+ * HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION
+ *
+ * Transparent lifetime probe for the private tree. It renders NOTHING extra
+ * (a fragment), so the mounted navigator and the runtime owner above it keep
+ * exactly the same position in the tree; it exists only to prove, with a
+ * stable per-mount id, whether the whole private stack really disappears and
+ * to correlate that instant with the auth events that precede it.
+ *
+ * `initialPrivateRoute` is a dependency on purpose: `PrivateStack.Navigator`
+ * is keyed by it, so a route change really does tear the stack down and mount
+ * a new one — the probe must report that pair.
+ */
+let nextPrivateStackInstanceId = 1;
+
+const PrivateStackInstance = ({
+  initialPrivateRoute,
+  children,
+}: {
+  initialPrivateRoute: keyof PrivateStackParamList;
+  children: React.ReactNode;
+}) => {
+  const [instanceId] = useState(() => `private-stack-${nextPrivateStackInstanceId++}`);
+
+  useEffect(() => {
+    runtimeTrace('private_stack_mount', { instanceId, initialPrivateRoute });
+
+    return () => {
+      runtimeTrace('private_stack_unmount', { instanceId, initialPrivateRoute });
+    };
+  }, [instanceId, initialPrivateRoute]);
+
+  return <>{children}</>;
+};
+
 const PrivateNavigator = () => {
   const { authMe, authMeLoading, authMeError, pendingJoinToken } = useAuth();
   const { ready: experienceReady, setupCompleted } = useExperience();
   const initialPrivateRoute = getInitialPrivateRoute(authMe);
+
+  /**
+   * HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION — the global gate.
+   *
+   * `decision` is derived with the SAME precedence as the conditional below
+   * (`authMeLoading` / missing authMe first, then the error screen, then the
+   * experience hydration), so it can be read as "what is mounted right now".
+   * The conditional itself is intentionally left untouched: the trace must
+   * never be able to change which screen is rendered.
+   */
+  const decision: 'private_stack' | 'auth_loading' | 'auth_me_error' | 'experience_loading'
+    = authMeLoading
+      ? 'auth_loading'
+      : !authMe && !authMeError
+        ? 'auth_loading'
+        : authMeError
+          ? 'auth_me_error'
+          : !experienceReady
+            ? 'experience_loading'
+            : 'private_stack';
+
+  const tracedDecisionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (tracedDecisionRef.current === decision) return;
+    tracedDecisionRef.current = decision;
+
+    runtimeTrace('private_navigator_gate', {
+      authMeLoading,
+      hasAuthMe: authMe !== null,
+      hasAuthMeError: authMeError !== null,
+      experienceReady,
+      navigationNext: authMe?.navigation?.next ?? null,
+      decision,
+    });
+  }, [authMe, authMeError, authMeLoading, decision, experienceReady]);
 
   if (authMeLoading || (!authMe && !authMeError)) return <AuthLoadingScreen />;
 
@@ -223,6 +295,7 @@ const PrivateNavigator = () => {
   // React unmount cleanup, once because we pass to a new key).
   return (
     <PlannerReliabilityRuntimeOwner ownerSurface="AppShellPrivate">
+    <PrivateStackInstance initialPrivateRoute={initialPrivateRoute}>
     <PrivateStack.Navigator
       key={initialPrivateRoute}
       screenOptions={{ headerShown: false }}
@@ -240,6 +313,7 @@ const PrivateNavigator = () => {
       <PrivateStack.Screen name="FeedFamiliar" component={FeedFamiliarScreen} />
       {__DEV__ && <PrivateStack.Screen name="HomeCloudFileIntakeDev" component={HomeCloudFileIntakeDevScreen} />}
     </PrivateStack.Navigator>
+    </PrivateStackInstance>
     </PlannerReliabilityRuntimeOwner>
   );
 };

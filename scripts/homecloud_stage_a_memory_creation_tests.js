@@ -124,7 +124,12 @@ test('DIAG draft_clear always carries a reason', () => {
   assert.match(intake, /memoryDevTrace\('draft_clear', \{ reason,/);
   ['completed', 'review_close', 'focus_lost', 'rerecord'].forEach((r) => assert.ok(intake.includes(`clearBinaryDraft('${r}')`), r));
 });
-test('DIAG required cleanup traces exist', () => ['review_close_requested', 'draft_clear', 'intake_unmount', 'focus_lost', 'completed_cleanup', 'service_recreated'].forEach((event) => assert.ok(intake.includes(`'${event}'`), event)));
+// HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION: `intake_unmount` and
+// `service_recreated` were renamed to `memory_intake_unmount` /
+// `service_created` so the auth/navigator/picker/intake events share one
+// timeline. The contract is unchanged — the traces must still exist and still
+// name their cause — only the event ids moved.
+test('DIAG required cleanup traces exist', () => ['review_close_requested', 'draft_clear', 'memory_intake_mount', 'memory_intake_unmount', 'focus_lost', 'completed_cleanup', 'service_created'].forEach((event) => assert.ok(intake.includes(`'${event}'`), event)));
 test('DIAG media review teardown distinguishes unmount from preview reset', () => assert.match(review, /review_unmount', \{ kind: 'image', reason: unmountedRef\.current \? 'unmount' : 'preview_reset' \}/));
 test('DIAG video/audio teardown names its cause', () => {
   assert.match(review, /player_cleanup', \{ kind: 'video', reason: 'listener_removed'/);

@@ -1,10 +1,12 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import { AppState } from 'react-native';
 import type { UploadLocalArtifact } from './homecloudUploadTypes';
 import { copyArtifactToDurableWorkspace, discardDurableArtifact } from './homecloudDurableArtifact';
 import { deriveMediaCaptureMetadata, unknownMediaCaptureMetadata, type MediaCaptureMetadata } from './homecloudMediaCaptureMetadata';
 import { ensureSingleExtension } from './homecloudPickerNaming';
 import { memoryAttemptTrace, memoryDevTrace } from './homecloudMemoryDiagnostics';
+import { runtimeTrace } from '../runtimeTrace';
 import * as FileSystem from 'expo-file-system/legacy';
 import { reclassifyMemoryAttempt, type MemoryAttempt } from './homecloudMemoryAttempt';
 
@@ -61,12 +63,30 @@ async function imageOutcome(asset: ImagePicker.ImagePickerAsset, source: 'galler
 }
 
 export async function pickMemoryMedia(attempt?: MemoryAttempt): Promise<MemoryPickerOutcome> {
+  /**
+   * HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION — the two ends of
+   * the native gallery presentation. The pair is the head of the timeline that
+   * discriminates P2 (AppState return triggers a token refresh) from P1/P3:
+   * `appState` is read at BOTH ends without touching the picker, so the
+   * background/inactive -> active hop can be placed relative to the resolve.
+   */
+  const launchedAt = Date.now();
+  runtimeTrace('gallery_picker_launch', { appState: AppState.currentState ?? null });
+
   try {
     if (attempt) memoryAttemptTrace(attempt, 'picker_start', { acceptedKinds: 'image,video' });
     memoryDevTrace('picker_start', { source: 'gallery' });
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: false, allowsEditing: false, quality: 1, exif: true });
+    const asset = result.assets?.[0];
+
+    runtimeTrace('gallery_picker_resolve', {
+      appState: AppState.currentState ?? null,
+      durationMs: Date.now() - launchedAt,
+      assetType: asset?.type ?? null,
+      cancelled: result.canceled === true,
+    });
+
     if (result.canceled) return { success: false, cancelled: true };
-    const asset = result.assets[0];
     return asset ? imageOutcome(asset, 'gallery', attempt) : { success: false, cancelled: false, error: 'No se seleccionó ninguna foto o video.' };
   } catch (error) { return { success: false, cancelled: false, error: error instanceof Error ? error.message : 'Error al seleccionar foto o video.' }; }
 }

@@ -24,6 +24,7 @@ import type { BinaryMemoryDraft, MemoryIntakeConfig, MemoryIntakeDestination, Me
 import { MemoryMediaReview } from './MemoryMediaReview';
 import { MemoryAudioRecorder, type MemoryAudioRecorderHandle } from './MemoryAudioRecorder';
 import { memoryAttemptTrace, memoryDevTrace } from './homecloudMemoryDiagnostics';
+import { runtimeTrace } from '../runtimeTrace';
 import { MemoryCameraSurface } from './MemoryCameraSurface';
 import { MemoryAttemptAuthority, type MemoryAttempt } from './homecloudMemoryAttempt';
 
@@ -33,6 +34,24 @@ export interface MemoryIntakeProps {
 }
 
 type Sheet = 'create' | 'source' | 'camera' | 'binary' | 'recorder' | 'audio-handoff' | 'written' | null;
+
+/**
+ * HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION
+ *
+ * The only config fields whose IDENTITY can recreate the service through the
+ * `useMemo` below. Reported as NAMES ONLY (never as values) so the diagnostic
+ * can explain a `service_created` without ever exposing a token.
+ */
+const SERVICE_CONFIG_IDENTITY_FIELDS = [
+  'householdId',
+  'accessToken',
+  'capabilities',
+  'initialAlbumId',
+  'initialAlbumName',
+  'intakeSource',
+] as const satisfies readonly (keyof MemoryIntakeConfig)[];
+
+let nextMemoryIntakeInstanceId = 1;
 
 /**
  * Every reason the binary draft can disappear. There is NO path that clears it
@@ -124,39 +143,75 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   const serviceRef = useRef(service);
   const stateRef = useRef(state);
   const binaryDraftRef = useRef<BinaryMemoryDraft | null>(binaryDraft);
+  const reviewAttemptRef = useRef<MemoryAttempt | null>(reviewAttempt);
+  const configRef = useRef<MemoryIntakeConfig>(config);
+  // HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION — identity of this
+  // mount, and the config that produced each service instance, so a
+  // `service_created` can name the fields that actually changed instead of
+  // asserting a hardcoded cause.
+  const instanceIdRef = useRef<string | null>(null);
+  if (instanceIdRef.current === null) instanceIdRef.current = `memory-intake-${nextMemoryIntakeInstanceId++}`;
+  const instanceId = instanceIdRef.current;
+  const serviceConfigRef = useRef<MemoryIntakeConfig | null>(null);
+  const serviceCreateCountRef = useRef(0);
 
   useEffect(() => {
     serviceRef.current = service;
     stateRef.current = state;
     binaryDraftRef.current = binaryDraft;
+    reviewAttemptRef.current = reviewAttempt;
+    // Declared BEFORE the `[service]` effect on purpose: the diagnostic there
+    // must read the config that PRODUCED this service instance, and it must
+    // never add `config` to its own dependencies (the parent builds that
+    // object inline, so it changes identity on every render and would
+    // re-subscribe the service continuously).
+    configRef.current = config;
   });
 
   useEffect(() => {
     const attemptAuthority = attemptAuthorityRef.current;
     mountedRef.current = true;
+    runtimeTrace('memory_intake_mount', { instanceId });
     return () => {
       mountedRef.current = false;
       attemptAuthority.dispose();
       // Unmount must never leave a pending guard behind.
       pickingRef.current = false;
-      memoryDevTrace('intake_unmount', {
-        reason: 'unmount',
-        status: stateRef.current.status,
+      // `hasCurrentJobReference` (not `hasActiveJob`) is the honest field: it
+      // asks whether this service still holds a reference to a memory job at
+      // all — the lost draft is lost regardless of that job's state.
+      runtimeTrace('memory_intake_unmount', {
+        instanceId,
         source: binaryDraftRef.current?.source ?? null,
-        hasActiveJob: serviceRef.current.hasActiveJob(),
+        status: stateRef.current.status,
+        hasDraft: binaryDraftRef.current !== null,
+        attemptLabel: reviewAttemptRef.current?.label ?? null,
+        hasCurrentJobReference: serviceRef.current.hasActiveJob(),
       });
     };
-  }, []);
+  }, [instanceId]);
 
   useEffect(() => {
     let activeSubscription = true;
     const unsubscribe = service.subscribe(setState);
-    memoryDevTrace('service_recreated', {
-      reason: 'config_identity_changed',
-      status: stateRef.current.status,
-      hasActiveJob: service.hasActiveJob(),
-      hasDraft: binaryDraftRef.current !== null,
+    // HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION: report WHAT
+    // changed, not a hardcoded cause. The previous `reason:
+    // 'config_identity_changed'` was printed on EVERY mount and identified
+    // nothing, so it could never be the explanation of an unmount.
+    const previousConfig = serviceConfigRef.current;
+    const activeConfig = configRef.current;
+    const changedFields = previousConfig === null
+      ? []
+      : SERVICE_CONFIG_IDENTITY_FIELDS.filter((field) => previousConfig[field] !== activeConfig[field]);
+    const isFirstMount = serviceCreateCountRef.current === 0;
+    serviceCreateCountRef.current += 1;
+    serviceConfigRef.current = activeConfig;
+
+    runtimeTrace('service_created', {
+      isFirstMount,
+      changedFields: [...changedFields],
     });
+
     void service.loadAlbums().then(() => { if (activeSubscription) setAlbums(service.getAvailableDestinations()); });
     void service.recover();
     return () => { activeSubscription = false; unsubscribe(); };

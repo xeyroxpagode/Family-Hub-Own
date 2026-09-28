@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { AppState, Platform } from 'react-native';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -26,6 +26,7 @@ import { supabase } from '../supabase';
 import { getAuthErrorMessage } from '../utils/authErrors';
 import { markSessionActive, runSessionCleanup } from '../services/core/lifecycle';
 import { stopLocationSharing } from '../services/presenceLocationSharing';
+import { runtimeTrace } from '../services/runtimeTrace';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -75,6 +76,16 @@ export type AuthContextType = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+/**
+ * HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION — why `/api/auth/me`
+ * is being loaded. Derived from the caller, never guessed by the callee:
+ * - `initial`: first load of the provider lifecycle.
+ * - `token_changed`: the session access token changed (this is the P1 path).
+ * - `manual`: explicit user/dev action (sign-in, refetchMe, retry).
+ * - `unknown`: a caller that does not declare a reason (defensive default).
+ */
+type AuthMeLoadReason = 'initial' | 'token_changed' | 'manual' | 'unknown';
 
 const AUTH_CALLBACK_PATH = 'auth/callback';
 
@@ -126,6 +137,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [pendingJoinToken, setPendingJoinToken] = useState<string | null>(null);
   const isMountedRef = useRef(true);
   const authMeRequestIdRef = useRef(0);
+  // Instrumentation-only mirrors. `authMeRef` is written through
+  // `commitAuthMe` on every write, so it always holds the LAST COMMITTED value
+  // (React state would still be one render behind when a trace needs it inside
+  // the same turn, e.g. right after a failed load).
+  const authMeRef = useRef<AuthMe | null>(authMe);
+  const lastAccessTokenRef = useRef<string | null>(null);
+  const loadedAccessTokenRef = useRef<string | null>(null);
+  const hasLoadedAuthMeRef = useRef(false);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState ?? 'unknown');
 
   const applySession = useCallback((nextSession: Session | null) => {
     if (!isMountedRef.current) {
@@ -134,35 +154,62 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     setSession(nextSession);
     setUser(nextSession?.user ?? null);
+    lastAccessTokenRef.current = nextSession?.access_token ?? null;
+  }, []);
+
+  /** Single write path for `authMe` so the trace mirror can never drift. */
+  const commitAuthMe = useCallback((nextAuthMe: AuthMe | null) => {
+    authMeRef.current = nextAuthMe;
+    setAuthMe(nextAuthMe);
   }, []);
 
   const clearAuthMe = useCallback(() => {
     authMeRequestIdRef.current += 1;
-    setAuthMe(null);
+    commitAuthMe(null);
     setAuthMeError(null);
     setAuthMeLoading(false);
-  }, []);
+  }, [commitAuthMe]);
 
-const loadAuthMe = useCallback(async (accessToken: string): Promise<AuthMe | null> => {
+const loadAuthMe = useCallback(async (accessToken: string, reason: AuthMeLoadReason = 'unknown'): Promise<AuthMe | null> => {
     const requestId = authMeRequestIdRef.current + 1;
     authMeRequestIdRef.current = requestId;
+
+    const hadExistingAuthMe = authMeRef.current !== null;
+    const accessTokenChanged = loadedAccessTokenRef.current !== accessToken;
+    hasLoadedAuthMeRef.current = true;
+
+    runtimeTrace('auth_me_load_start', {
+      reason,
+      accessTokenChanged,
+      hasExistingAuthMe: hadExistingAuthMe,
+    });
 
     if (isMountedRef.current) {
       setAuthMeLoading(true);
       setAuthMeError(null);
     }
 
+    const startedAt = Date.now();
+    let ok = false;
+    let errorCode: string | null = null;
+
     try {
       if (__DEV__) console.log('[Auth] loadAuthMe: calling GET /api/auth/me...');
       const nextAuthMe = await getAuthMe(accessToken);
       if (__DEV__) console.log('[Auth] loadAuthMe: OK, navigation.next:', nextAuthMe.navigation?.next);
+      ok = true;
+      loadedAccessTokenRef.current = accessToken;
 
       if (isMountedRef.current && authMeRequestIdRef.current === requestId) {
-        setAuthMe(nextAuthMe);
+        commitAuthMe(nextAuthMe);
       }
 
       return nextAuthMe;
     } catch (error) {
+      errorCode = error instanceof ApiError
+        ? error.code ?? (error.status ? `http_${error.status}` : 'api_error')
+        : 'unexpected_error';
+
       const message = error instanceof ApiError
         ? error.message
         : 'No pudimos cargar tu sesion de HomePlus.';
@@ -170,7 +217,7 @@ const loadAuthMe = useCallback(async (accessToken: string): Promise<AuthMe | nul
       if (__DEV__) console.log('[Auth] loadAuthMe: failed:', error instanceof Error ? error.message : String(error));
 
       if (isMountedRef.current && authMeRequestIdRef.current === requestId) {
-        setAuthMe(null);
+        commitAuthMe(null);
         setAuthMeError(message);
       }
 
@@ -179,8 +226,21 @@ const loadAuthMe = useCallback(async (accessToken: string): Promise<AuthMe | nul
       if (isMountedRef.current && authMeRequestIdRef.current === requestId) {
         setAuthMeLoading(false);
       }
+
+      // `authMePreserved` answers the ONLY question the navigator gate cares
+      // about: did this call leave an authMe in the state? It is false exactly
+      // when a failed load nulled it (P3) or the provider was torn down; it is
+      // true when a fresh authMe landed or when a stale response was discarded
+      // and the previous one survived.
+      runtimeTrace('auth_me_load_end', {
+        ok,
+        hadExistingAuthMe,
+        authMePreserved: hadExistingAuthMe && authMeRef.current !== null,
+        durationMs: Date.now() - startedAt,
+        errorCode,
+      });
     }
-  }, []);
+  }, [commitAuthMe]);
 
 const persistBackendSession = useCallback(
     async (backendSession: AuthSession): Promise<AuthActionResult> => {
@@ -243,7 +303,7 @@ const persistBackendSession = useCallback(
       return null;
     }
 
-    return loadAuthMe(accessToken);
+    return loadAuthMe(accessToken, 'manual');
   }, [clearAuthMe, loadAuthMe, session?.access_token]);
 
   const handleIncomingUrl = useCallback(
@@ -315,6 +375,13 @@ const persistBackendSession = useCallback(
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      runtimeTrace('auth_state_change', {
+        event,
+        accessTokenChanged: (nextSession?.access_token ?? null) !== lastAccessTokenRef.current,
+        hasSession: Boolean(nextSession),
+        hasAuthMe: authMeRef.current !== null,
+      });
+
       applySession(nextSession);
 
       if (event === 'PASSWORD_RECOVERY') {
@@ -332,6 +399,17 @@ const persistBackendSession = useCallback(
     const appStateSubscription =
       Platform.OS !== 'web'
         ? AppState.addEventListener('change', (state) => {
+            const from = appStateRef.current;
+            appStateRef.current = state;
+            const willStartAutoRefresh = state === 'active';
+
+            runtimeTrace('app_state_change', {
+              from,
+              to: state,
+              willStartAutoRefresh,
+              willStopAutoRefresh: !willStartAutoRefresh,
+            });
+
             if (state === 'active') {
               supabase.auth.startAutoRefresh();
             } else {
@@ -416,7 +494,7 @@ const persistBackendSession = useCallback(
 
     markSessionActive();
 
-    void loadAuthMe(accessToken);
+    void loadAuthMe(accessToken, hasLoadedAuthMeRef.current ? 'token_changed' : 'initial');
   }, [clearAuthMe, loadAuthMe, session?.access_token]);
 
 const signIn = useCallback(async ({ email, password }: SignInParams): Promise<AuthActionResult> => {
@@ -435,7 +513,7 @@ const signIn = useCallback(async ({ email, password }: SignInParams): Promise<Au
       }
 
       if (__DEV__) console.log('[Auth] signIn: setSession OK, loading authMe...');
-      await loadAuthMe(response.session.access_token);
+      await loadAuthMe(response.session.access_token, 'manual');
       return { error: null };
     } catch (error) {
       return {
@@ -635,7 +713,7 @@ const signUp = useCallback(
         }
 
         if (__DEV__) console.log('[Auth] signUp: setSession OK, loading authMe...');
-        await loadAuthMe(response.session.access_token);
+        await loadAuthMe(response.session.access_token, 'manual');
         return {
           error: null,
           needsEmailConfirmation: false,
