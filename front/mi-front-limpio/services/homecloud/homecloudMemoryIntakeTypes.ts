@@ -7,6 +7,8 @@ import type { MediaCaptureMetadata } from './homecloudMediaCaptureMetadata';
 export interface MemoryIntakeConfig {
   householdId: string;
   accessToken: string;
+  /** A live session accessor for long-running intake work. */
+  getAccessToken?: () => string | null;
   capabilities: HomeCloudCapabilityDescriptor;
   initialAlbumId?: string | null;
   initialAlbumName?: string | null;

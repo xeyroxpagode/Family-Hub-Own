@@ -5,6 +5,8 @@ import type { UploadLocalArtifact } from './homecloudUploadTypes';
 export interface FileIntakeConfig {
   householdId: string;
   accessToken: string;
+  /** A live session accessor for long-running intake work. */
+  getAccessToken?: () => string | null;
   capabilities: HomeCloudCapabilityDescriptor;
   initialFolderId?: string | null;
   initialFolderName?: string | null;

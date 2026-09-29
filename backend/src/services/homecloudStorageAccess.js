@@ -27,6 +27,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { createHttpError } = require('../lib/httpErrors');
 const { getHomeCloudBucket } = require('../lib/homecloudStoragePaths');
+const { normalizeHomeCloudSignedUrlTtl } = require('../lib/homecloudAccessTtl');
 
 // Default signed URL TTL (seconds). Configurable via env or future config system.
 // 1 hour default — runtime can override via options.
@@ -142,7 +143,7 @@ async function createHomeCloudContentAccess({ authContext, contentId, variant, o
   }
 
   // 7. Create bounded signed URL
-  const ttl = options.ttl ?? DEFAULT_SIGNED_URL_TTL;
+  const ttl = normalizeHomeCloudSignedUrlTtl(options.ttl) ?? DEFAULT_SIGNED_URL_TTL;
   const { data: signedUrlData, error: signedUrlErr } = await supabaseAdmin
     .storage
     .from(bucket)
@@ -201,4 +202,5 @@ module.exports = {
   createHomeCloudContentAccess,
   checkHomeCloudPreviewAvailability,
   DEFAULT_SIGNED_URL_TTL,
+  normalizeHomeCloudSignedUrlTtl,
 };

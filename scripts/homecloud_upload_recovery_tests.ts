@@ -326,6 +326,43 @@ async function main() {
     record(ensureSingleExtension('foto.jpg', 'pdf') === 'foto.jpg', 'I: unrelated extension untouched');
   }
 
+  // ── J. live token supplier crosses a refresh between engine steps ──
+  {
+    __resetUploadRecoveryForTests();
+    const backend = makeBackend();
+    const observedTokens: string[] = [];
+    let token = 'token-A';
+    (globalThis as unknown as { fetch: typeof fetch }).fetch = (async (url: unknown, init?: { method?: string; body?: string; headers?: HeadersInit }) => {
+      const raw = String(url);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const path = raw.replace(/^https?:\/\/[^/]+/, '');
+      const headers = new Headers(init?.headers);
+      if (path.startsWith('/api/homecloud/')) observedTokens.push(headers.get('Authorization') ?? '');
+      const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+      if (path === '/api/homecloud/register' && method === 'POST') {
+        token = 'token-B'; // Supabase refresh completed after registration.
+        return json(201, { content: { id: 'content-live-token', role: 'file' } });
+      }
+      if (path === '/api/homecloud/content/content-live-token/upload' && method === 'POST') return json(200, { signedUploadUrl: 'https://storage.test/content-live-token/original', contentId: 'content-live-token', expiresIn: 7200 });
+      if (path === '/api/homecloud/content/content-live-token/verify' && method === 'POST') return json(200, { verified: true });
+      if (path === '/api/homecloud/content/content-live-token/finalize' && method === 'POST') return json(200, { content: { id: 'content-live-token', role: 'file' } });
+      return json(404, { code: 'not_found', message: `unexpected ${method} ${path}` });
+    }) as typeof fetch;
+    const store = createInMemoryUploadJobStore();
+    const engine = createUploadEngine({
+      store,
+      readArtifact: async () => new ArrayBuffer(0),
+      uploadTransport: async () => ({ status: 200, ok: true }),
+      getAccessToken: () => token,
+      getHouseholdId: () => 'hh-1',
+    });
+    const job = engine.createJob({ role: 'file', intakeSource: 'files:picker' }, ARTIFACT);
+    const done = await engine.run(job.id);
+    record(done.state === 'completed', 'J: live-token job completes');
+    record(observedTokens[0] === 'Bearer token-A', 'J: register reads token A at service creation');
+    record(observedTokens.slice(1).every((value) => value === 'Bearer token-B'), 'J: next engine server steps read refreshed token B');
+  }
+
   console.log(`\nHOMECLOUD_UPLOAD_RECOVERY_RESULT pass=${passCount} fail=${failCount}`);
   if (failCount > 0) {
     console.error('HOMECLOUD_UPLOAD_RECOVERY_TESTS=FAIL');

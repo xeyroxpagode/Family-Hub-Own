@@ -108,6 +108,8 @@ export function HomeCloudScannerScreen() {
   const allowLeaveRef = useRef(false);
   const intakeStatusRef = useRef<FileIntakeState['status']>('idle');
   intakeStatusRef.current = intake.status;
+  const accessTokenRef = useRef(session?.access_token ?? null);
+  accessTokenRef.current = session?.access_token ?? null;
   const blockedActionRef = useRef<any>(null);
 
   const intakeContext = useMemo(() => buildScannerIntakeContext(folderId), [folderId]);
@@ -117,12 +119,13 @@ export function HomeCloudScannerScreen() {
     return createFileIntakeService({
       householdId: currentHousehold.id,
       accessToken: session.access_token,
+      getAccessToken: () => accessTokenRef.current,
       capabilities,
       initialFolderId: intakeContext.initialFolderId,
       initialFolderName: folderName,
       intakeSource: intakeContext.intakeSource,
     });
-  }, [session?.access_token, currentHousehold?.id, capabilities.contribute, intakeContext, folderName]);
+  }, [currentHousehold?.id, capabilities.contribute, intakeContext, folderName]);
 
   useEffect(() => {
     if (!service) return undefined;

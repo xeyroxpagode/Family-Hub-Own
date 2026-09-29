@@ -1,7 +1,7 @@
 'use strict';
 
 const { getHomeCloudContext } = require('../services/homecloud.context.service');
-const { createHomeCloudContentAccess } = require('../services/homecloudStorageAccess');
+const { createHomeCloudContentAccess, normalizeHomeCloudSignedUrlTtl } = require('../services/homecloudStorageAccess');
 const { telemetry } = require('../config/telemetry');
 const { createHttpError, sendApiError } = require('../lib/httpErrors');
 
@@ -36,7 +36,7 @@ const getHomeCloudContentAccess = async (req, res) => {
       },
       contentId,
       variant,
-      options: { ttl: ttl ? Number(ttl) : undefined },
+      options: { ttl: normalizeHomeCloudSignedUrlTtl(ttl) },
     });
 
     await telemetry.track('homecloud_content_access_granted', { result: 'success', variant }, {

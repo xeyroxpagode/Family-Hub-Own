@@ -10,6 +10,7 @@ import { FileIntake } from '../services/homecloud/FileIntake';
 import { evaluateHomeCloudCapabilities } from '../services/homecloud/homecloudCapabilitiesAdapter';
 import { fetchHomeCloudCapabilities } from '../services/homecloudCapabilities';
 import { createHomeCloudFolder, deleteHomeCloudFolder, fetchFilesBrowser, renameHomeCloudFolder, type FileSort, updateHomeCloudFile } from '../services/homecloud/homecloudFilesService';
+import { downloadHomeCloudOriginal, openHomeCloudDownloadedFile } from '../services/homecloud/homecloudDownloadService';
 import { fetchHomeCloudFolders } from '../services/homecloud/homecloudReadService';
 import type { HomeCloudFile, HomeCloudFolder } from '../services/homecloud/homecloudTypes';
 
@@ -38,6 +39,16 @@ export function HomeCloudFilesView() {
   const saveFolder = async () => { if (!token || !folderEditor || saving) return; setSaving(true); try { if (folderEditor.mode === 'create') await createHomeCloudFolder(token, folderName); else await renameHomeCloudFolder(token, folderEditor.item!.id, folderName); setFolderEditor(null); setFolderName(''); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'No pudimos guardar la carpeta.'); } finally { setSaving(false); } };
   const removeFolder = async () => { if (!token || !folderActions || saving) return; setSaving(true); try { await deleteHomeCloudFolder(token, folderActions.id); setFolderActions(null); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'No pudimos eliminar la carpeta.'); } finally { setSaving(false); } };
   const saveFile = async (patch: Parameters<typeof updateHomeCloudFile>[2]) => { if (!token || !fileInfo || saving) return; setSaving(true); try { await updateHomeCloudFile(token, fileInfo.id, patch); setFileInfo(null); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'No pudimos guardar el archivo.'); } finally { setSaving(false); } };
+  const downloadFile = async () => {
+    if (!token || !fileInfo || saving) return;
+    setSaving(true); setError(null);
+    try {
+      const local = await downloadHomeCloudOriginal(token, fileInfo);
+      await openHomeCloudDownloadedFile(local.uri);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No pudimos descargar el archivo.');
+    } finally { setSaving(false); }
+  };
   const canAdd = caps.contribute; const canOrganize = caps.organize;
   return <View style={styles.screen}>
     <View style={styles.search}><AppInput value={query} onChangeText={setQuery} placeholder={folder ? 'Buscar en esta carpeta' : 'Buscar en archivos'} variant="search" label="Buscar" /></View>
@@ -47,19 +58,19 @@ export function HomeCloudFilesView() {
     <ActionSheet visible={uploadOpen} title="Elegir archivo" onRequestClose={() => setUploadOpen(false)} size="content"><FileIntake config={{ householdId: currentHousehold?.id ?? '', accessToken: token ?? '', capabilities: caps, initialFolderId: folder?.id ?? null, initialFolderName: folder?.name ?? null, intakeSource: 'homecloud:files' }} onComplete={() => { setUploadOpen(false); void load(); }} onDismiss={() => setUploadOpen(false)} /></ActionSheet>
     <ActionSheet visible={!!folderEditor} title={folderEditor?.mode === 'rename' ? 'Renombrar carpeta' : 'Nueva carpeta'} onRequestClose={() => setFolderEditor(null)} size="content" footer={<AppButton title="Guardar" disabled={!folderName.trim() || saving} onPress={() => void saveFolder()} />}><AppInput value={folderName} onChangeText={setFolderName} label="Nombre" autoFocus /></ActionSheet>
     <ActionSheet visible={!!folderActions} title={folderActions?.name ?? 'Carpeta'} onRequestClose={() => setFolderActions(null)} size="content"><View style={styles.sheetList}><AppButton title="Renombrar" variant="secondary" disabled={!canOrganize} onPress={() => { setFolderName(folderActions!.name); setFolderEditor({ mode: 'rename', item: folderActions! }); setFolderActions(null); }} /><AppButton title="Eliminar carpeta" variant="danger" disabled={!canOrganize || saving} onPress={() => void removeFolder()} /><AppText variant="caption" tone="secondary">Los archivos no se eliminan: volverán a Archivos.</AppText></View></ActionSheet>
-    <FileInfoSheet file={fileInfo} folders={allFolders} canOrganize={canOrganize} onClose={() => setFileInfo(null)} onSave={saveFile} saving={saving} />
+    <FileInfoSheet file={fileInfo} folders={allFolders} canOrganize={canOrganize} onClose={() => setFileInfo(null)} onSave={saveFile} onDownload={downloadFile} saving={saving} />
   </View>;
 }
 
 function FolderTile({ folder, onPress, onMore }: { folder: HomeCloudFolder; onPress: () => void; onMore: () => void }) { return <View style={styles.tile}><AppButton variant="icon" size="sm" onPress={onMore} style={styles.more}><HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} /></AppButton><AppButton variant="secondary" onPress={onPress} style={styles.visual}><HomePlusIcon name="folder" size={48} color={colors.terracotta[500]} /></AppButton><AppText variant="bodySmall" weight="700" numberOfLines={2}>{folder.name}</AppText></View>; }
 function FileTile({ file, onMore }: { file: HomeCloudFile; onMore: () => void }) { const icon = file.mimeType.startsWith('image/') ? 'image-outline' : file.mimeType === 'application/pdf' ? 'document-text-outline' : 'document-outline'; return <View style={styles.tile}><AppButton variant="icon" size="sm" onPress={onMore} style={styles.more}><HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} /></AppButton><View style={styles.visual}><HomePlusIcon name={icon as any} size={44} color={colors.info.base} /></View><AppText variant="bodySmall" weight="700" numberOfLines={2}>{file.displayName}</AppText></View>; }
-function FileInfoSheet({ file, folders, canOrganize, onClose, onSave, saving }: { file: HomeCloudFile | null; folders: HomeCloudFolder[]; canOrganize: boolean; onClose: () => void; onSave: (patch: any) => void; saving: boolean }) {
+function FileInfoSheet({ file, folders, canOrganize, onClose, onSave, onDownload, saving }: { file: HomeCloudFile | null; folders: HomeCloudFolder[]; canOrganize: boolean; onClose: () => void; onSave: (patch: any) => void; onDownload: () => void; saving: boolean }) {
   const [name, setName] = useState(''); const [note, setNote] = useState(''); const [folderPicker, setFolderPicker] = useState(false); const [datePicker, setDatePicker] = useState(false);
   useEffect(() => { setName(file?.displayName ?? ''); setNote(file?.note ?? ''); }, [file?.id]);
   if (!file) return null;
   const folderName = folders.find(f => f.id === file.folderId)?.name ?? 'Archivos';
   return <>
-    <ActionSheet visible title="Información del archivo" onRequestClose={onClose} size="content" footer={<AppButton title="Guardar cambios" disabled={!canOrganize || saving} onPress={() => onSave({ displayName: name, note })} />}><View style={styles.sheetList}><AppInput label="Nombre" value={name} onChangeText={setName} editable={canOrganize} /><AppInput label="Nota" value={note} onChangeText={setNote} editable={canOrganize} multiline /><FormActionRow label="Carpeta" value={folderName} disabled={!canOrganize} onPress={() => setFolderPicker(true)} /><FormActionRow label="Fecha del documento" value={file.documentDate ?? 'Agregar fecha'} disabled={!canOrganize} onPress={() => setDatePicker(true)} /></View></ActionSheet>
+    <ActionSheet visible title="Información del archivo" onRequestClose={onClose} size="content" footer={<View style={styles.sheetList}><AppButton title="Descargar y abrir original" variant="secondary" disabled={saving} onPress={onDownload} /><AppButton title="Guardar cambios" disabled={!canOrganize || saving} onPress={() => onSave({ displayName: name, note })} /></View>}><View style={styles.sheetList}><AppInput label="Nombre" value={name} onChangeText={setName} editable={canOrganize} /><AppInput label="Nota" value={note} onChangeText={setNote} editable={canOrganize} multiline /><FormActionRow label="Carpeta" value={folderName} disabled={!canOrganize} onPress={() => setFolderPicker(true)} /><FormActionRow label="Fecha del documento" value={file.documentDate ?? 'Agregar fecha'} disabled={!canOrganize} onPress={() => setDatePicker(true)} /></View></ActionSheet>
     <ActionSheet visible={folderPicker} title="Mover a" onRequestClose={() => setFolderPicker(false)} size="content"><View style={styles.sheetList}><AppButton title="Archivos" variant={file.folderId === null ? 'primary' : 'secondary'} onPress={() => { setFolderPicker(false); onSave({ folderId: null }); }} />{folders.map(item => <AppButton key={item.id} title={item.name} variant={file.folderId === item.id ? 'primary' : 'secondary'} onPress={() => { setFolderPicker(false); onSave({ folderId: item.id }); }} />)}</View></ActionSheet>
     <DatePickerSheet visible={datePicker} value={file.documentDate ?? new Date().toISOString().slice(0, 10)} onClose={() => setDatePicker(false)} onConfirm={(documentDate) => { setDatePicker(false); onSave({ documentDate }); }} />
   </>;

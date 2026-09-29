@@ -16,15 +16,18 @@ export interface FileIntakeProps {
 }
 
 export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
+  const accessTokenRef = React.useRef(config.accessToken);
+  accessTokenRef.current = config.accessToken;
+  const getAccessToken = React.useCallback(() => accessTokenRef.current || null, []);
   const [state, setState] = useState<FileIntakeState>({ status: 'idle' });
   const [sourceSheetVisible, setSourceSheetVisible] = useState(false);
   const [destinationSheetVisible, setDestinationSheetVisible] = useState(false);
   const [destinations, setDestinations] = useState<FileIntakeDestination[]>([]);
   const [showInitialDestination, setShowInitialDestination] = useState(false);
 
-  const service = React.useMemo(() => createFileIntakeService(config), [
+  const service = React.useMemo(() => createFileIntakeService({ ...config, getAccessToken }), [
     config.householdId,
-    config.accessToken,
+    getAccessToken,
     config.capabilities.contribute,
     config.capabilities.organize,
     config.initialFolderId,
@@ -90,7 +93,7 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
       case 'failed':
         return (
           <View style={styles.errorContainer}>
-            <AppText variant="body" weight="700" tone="danger">No pudimos guardar el archivo</AppText>
+            <AppText variant="body" weight="700" tone="danger">{state.error ?? 'No pudimos guardar el archivo'}</AppText>
             {__DEV__ && state.error ? (
               <AppText variant="caption" tone="secondary" style={styles.errorText}>
                 Detalle tecnico: {state.error}

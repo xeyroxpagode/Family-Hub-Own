@@ -114,6 +114,16 @@ const commands = {
     'node',
     ['scripts/homecloud_stage_a1_capture_recovery_tests.js'],
   ),
+  'homecloud-slice01-integrity': () => runCommand(
+    'HomeCloud Slice 01 artifact/storage/download integrity tests',
+    'node',
+    ['scripts/homecloud_slice01_integrity_tests.js'],
+  ),
+  'homecloud-slice01-storage-runtime': () => runCommand(
+    'HomeCloud Slice 01 disposable 60 MiB Storage runtime test',
+    'node',
+    ['scripts/homecloud_slice01_storage_runtime_tests.js'],
+  ),
   'compile-frontend-tests': () => runCommand('Compile frontend tests', 'npm', compileFrontendTests),
   'compile-planner-reliability-tests': () => runCommand(
     'Compile Planner Reliability tests',
@@ -702,6 +712,14 @@ const suites = {
     'homecloud-2a-upload-job',
     'homecloud-upload-recovery',
     'frontend-typecheck',
+  ],
+  'homecloud-slice01': [
+    'homecloud-4c1-compile',
+    'homecloud-stage-a1-capture-recovery',
+    'homecloud-3e-scanner',
+    'homecloud-upload-recovery',
+    'homecloud-slice01-integrity',
+    'homecloud-slice01-storage-runtime',
   ],
 
   planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-plan-duplicate-dispatch', 'planner-p1-structure-contract', 'planner-p2a-milestone-editor', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration', 'planner-v1-s2-runtime-owner', 'planner-v1-s2-terminal-contract', 'planner-v1-s2-runtime-composition'],

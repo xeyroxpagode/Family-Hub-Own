@@ -95,6 +95,9 @@ type BinaryDraftClearReason = 'completed' | 'review_close' | 'focus_lost' | 'rer
 export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   const isFocused = useIsFocused();
   const { householdId, accessToken, capabilities, initialAlbumId, initialAlbumName, intakeSource } = config;
+  const accessTokenRef = useRef(accessToken);
+  accessTokenRef.current = accessToken;
+  const getAccessToken = useCallback(() => accessTokenRef.current || null, []);
   const [state, setState] = useState<MemoryIntakeState>({ status: 'idle' });
   const [sheet, setSheet] = useState<Sheet>(null);
   const [albums, setAlbums] = useState<MemoryIntakeDestination[]>([]);
@@ -129,9 +132,10 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
     initialAlbumId,
     initialAlbumName,
     intakeSource,
+    getAccessToken,
   }), [
     householdId,
-    accessToken,
+    getAccessToken,
     capabilities,
     initialAlbumId,
     initialAlbumName,

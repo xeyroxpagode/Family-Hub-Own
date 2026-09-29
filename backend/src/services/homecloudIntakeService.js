@@ -36,6 +36,7 @@ const { validateRegisterPayload, isMemoryMediaMime } = require('../lib/homecloud
 const { createHttpError } = require('../lib/httpErrors');
 const { sanitizeCorrelationId } = require('../lib/mutationContracts');
 const { attemptHomeCloudPreview } = require('./homecloudPreviewService');
+const { assertHomeCloudAcceptedSize } = require('../lib/homecloudSizePolicy');
 
 const ORIGINAL_BUCKET = getHomeCloudBucket('original');
 
@@ -154,6 +155,10 @@ async function registerHomeCloudContent(req, payload) {
 
   const normalized = validateRegisterPayload(payload);
   const isWritten = normalized.writtenText !== null;
+
+  // Authoritative pre-transfer guard: rejection creates neither a staging row
+  // nor an upload authorization.
+  if (!isWritten) assertHomeCloudAcceptedSize(normalized.sizeBytes);
 
   // Binary Memories keep the frozen media families. Written Memories carry
   // their content in writtenText (no MIME at all).

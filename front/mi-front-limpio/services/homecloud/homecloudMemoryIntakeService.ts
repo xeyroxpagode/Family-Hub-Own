@@ -7,6 +7,7 @@ import type { UploadJob } from './homecloudUploadTypes';
 import type { MemoryPickerOutcome } from './homecloudMemoryPicker';
 import { memoryAttemptTrace, memoryDevTrace } from './homecloudMemoryDiagnostics';
 import type { MemoryAttempt } from './homecloudMemoryAttempt';
+import { homeCloudUploadErrorMessage } from './homecloudUploadError';
 
 /**
  * HomeCloud HC-2C — Memory Intake service.
@@ -17,7 +18,7 @@ import type { MemoryAttempt } from './homecloudMemoryAttempt';
  * date), and optional initial Album destination under homecloud.contribute.
  */
 export function createMemoryIntakeService(config: MemoryIntakeConfig) {
-  const { householdId, accessToken, capabilities, initialAlbumId, initialAlbumName } = config;
+  const { householdId, accessToken, getAccessToken = () => accessToken, capabilities, initialAlbumId, initialAlbumName } = config;
 
   // Shared process-wide store: every intake surface observes the same durable
   // jobs, so a remount never loses the active job.
@@ -29,7 +30,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     store,
     readArtifact: reader,
     uploadTransport,
-    getAccessToken: () => accessToken,
+    getAccessToken,
     getHouseholdId: () => householdId,
   });
 
@@ -58,7 +59,9 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   async function loadAlbums(): Promise<void> {
     if (albumsLoaded) return;
     try {
-      const albums = await fetchHomeCloudAlbumsCached(accessToken, { householdId });
+      const token = getAccessToken();
+      if (!token) throw new Error('no access token');
+      const albums = await fetchHomeCloudAlbumsCached(token, { householdId });
       availableAlbums = [
         { id: 'root', name: 'Recuerdos', isCurrent: selectedAlbumId === null },
         ...albums.map((a) => ({ id: a.id, name: a.name, isCurrent: a.id === selectedAlbumId })),
@@ -209,7 +212,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
       if (latest) currentJob = latest;
       emitState({
         status: 'failed',
-        error: error instanceof Error ? error.message : 'No pudimos guardar este recuerdo.',
+        error: homeCloudUploadErrorMessage(error, 'No pudimos guardar este recuerdo.'),
         albumId: metadata.initialAlbumId,
         albumName: availableAlbums.find((album) => album.id === metadata.initialAlbumId)?.name ?? null,
       });
@@ -250,7 +253,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
       if (latest) currentJob = latest;
       emitState({
         status: 'failed',
-        error: error instanceof Error ? error.message : 'No pudimos guardar este recuerdo.',
+        error: homeCloudUploadErrorMessage(error, 'No pudimos guardar este recuerdo.'),
       });
     }
   }
@@ -298,7 +301,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
    * Safe to call on every mount; no-ops when nothing is recoverable.
    */
   async function recover(): Promise<void> {
-    if (!householdId || !accessToken) return;
+    if (!householdId || !getAccessToken()) return;
     try {
       await recoverUploadJobs({
         store,

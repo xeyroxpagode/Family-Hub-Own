@@ -5,9 +5,10 @@ import { fetchHomeCloudFoldersCached } from './homecloudReadService';
 import { copyArtifactToDurableWorkspace } from './homecloudDurableArtifact';
 import type { FileIntakeConfig, FileIntakeState, FileIntakeDestination } from './homecloudFileIntakeTypes';
 import type { UploadJob, UploadLocalArtifact } from './homecloudUploadTypes';
+import { homeCloudUploadErrorMessage } from './homecloudUploadError';
 
 export function createFileIntakeService(config: FileIntakeConfig) {
-  const { householdId, accessToken, capabilities, initialFolderId, initialFolderName } = config;
+  const { householdId, accessToken, getAccessToken = () => accessToken, capabilities, initialFolderId, initialFolderName } = config;
 
   // Shared process-wide store: every intake surface (Files, Scanner, dev)
   // observes the same durable jobs, so a remount never loses the active job
@@ -20,7 +21,7 @@ export function createFileIntakeService(config: FileIntakeConfig) {
     store,
     readArtifact: reader,
     uploadTransport,
-    getAccessToken: () => accessToken,
+    getAccessToken,
     getHouseholdId: () => householdId,
   });
 
@@ -43,7 +44,9 @@ export function createFileIntakeService(config: FileIntakeConfig) {
   async function loadFolders(): Promise<void> {
     if (foldersLoaded) return;
     try {
-      const folders = await fetchHomeCloudFoldersCached(accessToken, { householdId });
+      const token = getAccessToken();
+      if (!token) throw new Error('no access token');
+      const folders = await fetchHomeCloudFoldersCached(token, { householdId });
       availableFolders = [
         { id: 'root', name: 'Archivos', isCurrent: selectedFolderId === null },
         ...folders.map((f) => ({ id: f.id, name: f.name, isCurrent: f.id === selectedFolderId })),
@@ -131,7 +134,7 @@ export function createFileIntakeService(config: FileIntakeConfig) {
         if (latest) currentJob = latest;
         emitState({
           status: 'failed',
-          error: error instanceof Error ? error.message : 'Error al subir el archivo.',
+          error: homeCloudUploadErrorMessage(error, 'Error al subir el archivo.'),
           folderId: selectedFolderId,
           folderName: selectedFolderName,
         });
@@ -146,7 +149,7 @@ export function createFileIntakeService(config: FileIntakeConfig) {
     } catch (error) {
       emitState({
         status: 'failed',
-        error: error instanceof Error ? error.message : 'Error al preparar el archivo.',
+        error: homeCloudUploadErrorMessage(error, 'Error al preparar el archivo.'),
         folderId: selectedFolderId,
         folderName: selectedFolderName,
       });
@@ -184,7 +187,7 @@ export function createFileIntakeService(config: FileIntakeConfig) {
       if (latest) currentJob = latest;
       emitState({
         status: 'failed',
-        error: error instanceof Error ? error.message : 'Error al subir el archivo.',
+        error: homeCloudUploadErrorMessage(error, 'Error al subir el archivo.'),
         folderId: selectedFolderId,
         folderName: selectedFolderName,
       });
@@ -226,7 +229,7 @@ export function createFileIntakeService(config: FileIntakeConfig) {
       if (latest) currentJob = latest;
       emitState({
         status: 'failed',
-        error: error instanceof Error ? error.message : 'Error al reintentar.',
+        error: homeCloudUploadErrorMessage(error, 'Error al reintentar.'),
       });
     }
   }
@@ -275,7 +278,7 @@ export function createFileIntakeService(config: FileIntakeConfig) {
    * Safe to call on every mount; no-ops when nothing is recoverable.
    */
   async function recover(): Promise<void> {
-    if (!householdId || !accessToken) return;
+    if (!householdId || !getAccessToken()) return;
     try {
       await recoverUploadJobs({
         store,
