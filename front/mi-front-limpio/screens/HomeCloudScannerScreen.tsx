@@ -198,7 +198,7 @@ export function HomeCloudScannerScreen() {
     mediumHaptic();
     try {
       // No skipProcessing: default processing keeps correct orientation.
-      const photo = await camera.takePictureAsync({ quality: 0.8 });
+      const photo = await camera.takePictureAsync({ quality: 1 });
       const replaced = retakeId;
       const page: ScannerPage = {
         id: `scan_${Date.now()}_${captureCounterRef.current++}`,

@@ -110,7 +110,9 @@ export function MemoryCameraSurface({
     const attempt = attemptRef.current; const operation = ++operationRef.current; const capturedAt = new Date().toISOString();
     setPhase('capturing'); setError(null); memoryAttemptTrace(attempt, 'capture_start');
     try {
-      const result = await camera.takePictureAsync({ quality: 0.9 });
+      // Preserve the exact artifact emitted by the selected camera engine.
+      // `quality: 1` is its maximum processed quality, not a lossless claim.
+      const result = await camera.takePictureAsync({ quality: 1, exif: true });
       if (!mountedRef.current || operationRef.current !== operation || !ownsAttempt(attempt)) { await deleteTemp(result.uri); return; }
       replaceCapture({ uri: result.uri, kind: 'image', capturedAt, durationMillis: null }); setPhase('captured'); memoryAttemptTrace(attempt, 'capture_complete');
     } catch (caught) { if (mountedRef.current && operationRef.current === operation) { setError('No pudimos sacar la foto. Probá de nuevo.'); setPhase('error'); memoryAttemptTrace(attempt, 'error', { step: 'capture_photo', message: caught instanceof Error ? caught.message : 'unknown' }); } }

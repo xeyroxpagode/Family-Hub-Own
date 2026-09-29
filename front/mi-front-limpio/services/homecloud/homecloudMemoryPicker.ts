@@ -9,6 +9,7 @@ import { memoryAttemptTrace, memoryDevTrace } from './homecloudMemoryDiagnostics
 import { runtimeTrace } from '../runtimeTrace';
 import * as FileSystem from 'expo-file-system/legacy';
 import { reclassifyMemoryAttempt, type MemoryAttempt } from './homecloudMemoryAttempt';
+import { resolveCapturedArtifactFormat } from './homecloudArtifactMime';
 
 export interface MemoryPickerResult {
   success: true;
@@ -119,8 +120,8 @@ export async function persistCameraCapture(input: {
   durationMillis?: number | null;
   attempt: MemoryAttempt;
 }): Promise<MemoryPickerResult> {
-  const mimeType = input.kind === 'image' ? 'image/jpeg' : 'video/mp4';
-  const extension = input.kind === 'image' ? 'jpg' : 'mp4';
+  const format = await resolveCapturedArtifactFormat(input.uri, input.kind);
+  const { mimeType, extension } = format;
   const stamp = input.capturedAt.replace(/[:.]/g, '-');
   memoryAttemptTrace(input.attempt, 'artifact_copy_start', { mimeType });
   const artifact = await copyArtifactToDurableWorkspace({

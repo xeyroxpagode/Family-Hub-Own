@@ -14,6 +14,7 @@ const written = read('front/mi-front-limpio/services/homecloud/homecloudWrittenM
 const scanner = read('front/mi-front-limpio/screens/HomeCloudScannerScreen.tsx');
 const app = read('front/mi-front-limpio/app.json');
 const config = read('front/mi-front-limpio/app.config.js');
+const artifactMime = read('front/mi-front-limpio/services/homecloud/homecloudArtifactMime.ts');
 let passed = 0;
 function test(name, fn) { fn(); passed += 1; console.log(`  PASS: ${name}`); }
 console.log('\n=== HOMECLOUD MEMORIES STAGE A1 CAPTURE RECOVERY ===\n');
@@ -116,10 +117,10 @@ test('60 stop is requested exactly once per recording', () => {
   assert.match(camera, /stopRequestLockRef\.current = false; setElapsed\(0\); setPhase\('recording'\)/);
 });
 test('61 refused record presses are still traced', () => assert.match(camera, /if \(mode === 'video'\) memoryAttemptTrace\(attemptRef\.current, 'camera_video record_gate', \{ \.\.\.recordGate, decision: 'refused' \}\)/));
-test('62 video to picture switch still works', () => {
+test('62 HomeCloud photo capture requests maximum processed quality and EXIF', () => {
   assert.match(camera, /value: 'picture', label: 'Foto'/);
   assert.match(camera, /mode === 'picture' \? void takePhoto\(\) : void startVideo\(\)/);
-  assert.match(camera, /takePictureAsync\(\{ quality: 0\.9 \}\)/);
+  assert.match(camera, /takePictureAsync\(\{ quality: 1, exif: true \}\)/);
 });
 test('63 close during a mode change stays safe', () => {
   assert.match(camera, /const close = useCallback\(\(\) => \{ invalidateOperation\(\); stopNativeRecording\(\)/);
@@ -128,6 +129,20 @@ test('63 close during a mode change stays safe', () => {
 });
 
 assert.match(scanner, /CameraView/);
+test('64 scanner requests quality=1 and does not require EXIF', () => {
+  assert.match(scanner, /takePictureAsync\(\{ quality: 1 \}\)/);
+  assert.doesNotMatch(scanner, /takePictureAsync\(\{ quality: 1, exif: true \}\)/);
+});
+test('65 camera artifact MIME is derived from URI/header evidence, never assumed JPEG', () => {
+  assert.match(picker, /resolveCapturedArtifactFormat/);
+  assert.doesNotMatch(picker, /input\.kind === 'image' \? 'image\/jpeg'/);
+  assert.match(artifactMime, /position: 0,[\s\S]*length: 32/);
+  assert.match(artifactMime, /No pudimos determinar de forma segura/);
+});
+test('66 canonical camera artifact is copied without an image transform', () => {
+  assert.match(picker, /copyArtifactToDurableWorkspace/);
+  assert.doesNotMatch(picker, /manipulateAsync|ImageManipulator|compress:|resize:/);
+});
 assert.match(app, /cameraPermission[\s\S]*microphonePermission/);
 assert.ok(config.includes('expo-audio') && config.includes('expo-video'));
 assert.doesNotMatch(picker, /launchCameraAsync/);
