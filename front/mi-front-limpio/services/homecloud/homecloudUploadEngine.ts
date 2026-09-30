@@ -30,6 +30,7 @@ import {
 } from './homecloudUploadJob';
 import type { UploadJobStore } from '../../storage/homecloudUploadJobStorage';
 import { memoryDevTrace } from './homecloudMemoryDiagnostics';
+import { normalizeSignedStorageUrlForRuntime } from './homecloudSignedUrl';
 
 export interface UploadEngineDeps {
   /** Durable job store (native persistence wired at app layer). */
@@ -70,37 +71,14 @@ export function createFetchArtifactReader(): UploadArtifactReader {
   };
 }
 
-function getRuntimeSupabaseOrigin(): string | null {
-  const raw = process.env.EXPO_PUBLIC_HOMECLOUD_STORAGE_URL
-    ?? process.env.EXPO_PUBLIC_SUPABASE_URL
-    ?? null;
-  if (!raw) return null;
-  try {
-    return new URL(raw).origin;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Supabase creates signed URLs with the backend Supabase origin. In local
- * Android, that origin may be host-local (localhost/127.0.0.1) even though the
+ * development, that origin may be host-local (localhost/127.0.0.1) even though the
  * device must reach Supabase through its runtime origin. Replace ONLY origin;
  * path and signed query stay byte-for-byte from the server authorization.
  */
 export function normalizeSignedUploadUrlForRuntime(signedUploadUrl: string): string {
-  const runtimeOrigin = getRuntimeSupabaseOrigin();
-  if (!runtimeOrigin) return signedUploadUrl;
-
-  try {
-    const signed = new URL(signedUploadUrl);
-    const runtime = new URL(runtimeOrigin);
-    signed.protocol = runtime.protocol;
-    signed.host = runtime.host;
-    return signed.toString();
-  } catch {
-    return signedUploadUrl;
-  }
+  return normalizeSignedStorageUrlForRuntime(signedUploadUrl);
 }
 
 export function maskSignedUploadUrlForDiagnostics(url: string): string {

@@ -69,6 +69,10 @@ test('official media dependencies are SDK-pinned', () => { assert.equal(pkg.depe
 test('forbidden media dependencies remain absent', () => ['expo-media-library','ffmpeg','video-thumbnails'].forEach((name) => assert.equal(pkg.dependencies[name], undefined)));
 test('no fake media UX exists', () => assert.doesNotMatch(intake + picker + review + recorder, /simulateUpload|fake waveform|fake poster|placeholder.*media/i));
 test('engine keeps stable job recovery path', () => assert.match(service, /recoverUploadJobs/));
+test('stale terminal job reference never rejects a new gallery draft', () => {
+  assert.match(service, /if \(currentJob && !\['completed', 'failed', 'cancelled'\]\.includes\(currentJob\.state\)\) return;/);
+  assert.match(service, /function hasActiveJob\(\): boolean \{[\s\S]*return currentJob !== null;/);
+});
 
 // ── HOMECLOUD_MEMORIES_STAGE_A1_2_CONFIRMED_BLOCKERS_RECOVERY ──────────────
 // Single-owner contract for every SharedObject-backed native handle.

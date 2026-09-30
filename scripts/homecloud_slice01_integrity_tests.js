@@ -53,7 +53,9 @@ test('download uses a native filesystem task, never a whole-object JS buffer', (
   assert.match(download, /await task\.downloadAsync\(\)/);
   assert.doesNotMatch(download, /arrayBuffer\(|base64|readAsStringAsync|fetch\(access\.signedUrl/);
   assert.match(filesScreen, /downloadHomeCloudOriginal/);
-  assert.match(filesScreen, /Descargar y abrir original/);
+  assert.match(download, /normalizeSignedStorageUrlForRuntime/);
+  assert.match(download, /Sharing\.shareAsync\(file\.uri/);
+  assert.match(filesScreen, /Descargar y compartir original/);
 });
 test('oversize product error is explicit to the user', () => assert.match(read('front/mi-front-limpio/services/homecloud/homecloudUploadError.ts'), /supera el tamaño máximo permitido/));
 
