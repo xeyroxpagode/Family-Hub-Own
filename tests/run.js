@@ -119,6 +119,11 @@ const commands = {
     'node',
     ['scripts/homecloud_slice01_integrity_tests.js'],
   ),
+  'homecloud-slice01-auth-runtime': () => runCommand(
+    'HomeCloud Slice 01 auth runtime recovery tests',
+    'node',
+    ['scripts/homecloud_slice01_auth_runtime_tests.ts'],
+  ),
   'homecloud-slice01-storage-runtime': () => runCommand(
     'HomeCloud Slice 01 disposable 60 MiB Storage runtime test',
     'node',
@@ -714,6 +719,7 @@ const suites = {
     'frontend-typecheck',
   ],
   'homecloud-slice01': [
+    'homecloud-slice01-auth-runtime',
     'homecloud-4c1-compile',
     'homecloud-stage-a1-capture-recovery',
     'homecloud-3e-scanner',

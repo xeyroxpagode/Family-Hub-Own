@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
+import { resolvePrivateTreeDecision } from '../context/authProjectionLifecycle';
 import type { AuthStackParamList, PrivateStackParamList } from './types';
 import { P00Splash } from '../screens/Splash';
 import { AuthLoadingScreen } from '../screens/AuthLoading';
@@ -210,22 +211,17 @@ const PrivateNavigator = () => {
   /**
    * HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION — the global gate.
    *
-   * `decision` is derived with the SAME precedence as the conditional below
-   * (`authMeLoading` / missing authMe first, then the error screen, then the
-   * experience hydration), so it can be read as "what is mounted right now".
-   * The conditional itself is intentionally left untouched: the trace must
-   * never be able to change which screen is rendered.
+   * `decision` is the single render policy used by the conditional below, so
+   * it can be read as "what is mounted right now".
+   * The shared decision policy deliberately distinguishes initial resolution
+   * from background revalidation so a valid private tree is never replaced.
    */
-  const decision: 'private_stack' | 'auth_loading' | 'auth_me_error' | 'experience_loading'
-    = authMeLoading
-      ? 'auth_loading'
-      : !authMe && !authMeError
-        ? 'auth_loading'
-        : authMeError
-          ? 'auth_me_error'
-          : !experienceReady
-            ? 'experience_loading'
-            : 'private_stack';
+  const decision = resolvePrivateTreeDecision({
+    authMeLoading,
+    hasAuthMe: authMe !== null,
+    hasAuthMeError: authMeError !== null,
+    experienceReady,
+  });
 
   const tracedDecisionRef = useRef<string | null>(null);
 
@@ -243,16 +239,16 @@ const PrivateNavigator = () => {
     });
   }, [authMe, authMeError, authMeLoading, decision, experienceReady]);
 
-  if (authMeLoading || (!authMe && !authMeError)) return <AuthLoadingScreen />;
+  if (decision === 'auth_loading') return <AuthLoadingScreen />;
 
   // Error real cargando el hogar (no es "sin hogar") — mostrar pantalla de reintento
-  if (authMeError) {
+  if (decision === 'auth_me_error') {
     return <AuthMeErrorScreen />;
   }
 
   // The account-scoped preference is hydrated before the shell mounts, so a
   // saved Simple experience never flashes the Standard navigation first.
-  if (!experienceReady) return <AuthLoadingScreen />;
+  if (decision === 'experience_loading') return <AuthLoadingScreen />;
 
   // Pending join token takes priority: process the invitation before anything else
   if (pendingJoinToken) {

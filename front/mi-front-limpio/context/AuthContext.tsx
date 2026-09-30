@@ -27,6 +27,7 @@ import { getAuthErrorMessage } from '../utils/authErrors';
 import { markSessionActive, runSessionCleanup } from '../services/core/lifecycle';
 import { stopLocationSharing } from '../services/presenceLocationSharing';
 import { runtimeTrace } from '../services/runtimeTrace';
+import { shouldPreserveAuthMeAfterLoadFailure } from './authProjectionLifecycle';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -217,8 +218,16 @@ const loadAuthMe = useCallback(async (accessToken: string, reason: AuthMeLoadRea
       if (__DEV__) console.log('[Auth] loadAuthMe: failed:', error instanceof Error ? error.message : String(error));
 
       if (isMountedRef.current && authMeRequestIdRef.current === requestId) {
-        commitAuthMe(null);
-        setAuthMeError(message);
+        if (shouldPreserveAuthMeAfterLoadFailure(hadExistingAuthMe)) {
+          // Revalidation is stale-while-refresh: a transient /auth/me failure
+          // does not destroy the last usable projection or its mounted tree.
+          // Authentication invalidation still flows through SIGNED_OUT, which
+          // clears both the session and projection via clearAuthMe().
+          setAuthMeError(null);
+        } else {
+          commitAuthMe(null);
+          setAuthMeError(message);
+        }
       }
 
       return null;
