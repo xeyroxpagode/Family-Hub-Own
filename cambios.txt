@@ -1,0 +1,12 @@
+nav bar principal de la parte inferior agregar el apartado "inventario" a lado de inicio reemplazando y eliminando el acceso directo a "familia" que pasara a estar en el apartado "mas", quitarlo del apartado mas, si hay que cambiar los tamaños mantener las relaciones de aspectos de todos.
+en el nav bar principal parte inferior quiero quitar el acciones rapidas (signo de +) eliminarlo por completo ya que las acciones esas estan dentro de "planner", mantener planner en el mismo navbar, en el apartado "mas"
+dentrro del apartado inventario quitar la alerta de atencion de stock, arriba de todo quiero que aparezca el apartado de busqueda, abajo mantener las categorias como cocina, baño etc.., mantener el agregar rapido, para el apartado inventario quiero que 
+me des recomendaciones luego de haber analizado el mismo apartado para luego modificar y darle la mejor ui/ux experiencia de usuario, que sea mas intuitivo simple y comodo para el mismo
+
+al crear nuevo item en inventario el teclado me oculta parte del apartado de la creacion y no me deja ver las demas opciones para seleccionarlas, me gustaria que tenga un scrolleo mas dinamico para poder bajar
+y completar ya que el teclado tapa las demas opciones y debo sacar el teclado para ver las demas opciones a completar por lo que se vuelve algo incomodo y poco intuitivo me gustaria que este apartado pueda seguir subiendo y agrandandose
+verticalemnte para obtener una vista completa y que el teclado no oculte nada
+al seleccionar otra categoria por ejemplo "baño" me gustaria que al crear nuevo item se coloque automaticamente en la categoria "baño" porque se mantiene en cocina y es algo sin logica ya que fui al apartado de "baño" tambien al ir al 
+apartado de baño quisiera que me de recomendaciones y creaciones rapidas con items de baño o la categoria que sea elegida ya sea "baño", "limpieza", "herramientas", "medicamentos", "mascotas", "general". en cuanto a el navbar inferior principal
+me gustaria que este ubicado un poco mas abajo, a la vista esta bastante arriba y queda bastante relleno desde abajo hacia arriba hasta cada item, que el navbar este ubicado un poco mas abajo dejando el mismo margen de abajo que el de arriba
+

@@ -1,0 +1,231 @@
+Resetting local database...
+Recreating database...
+Initialising schema...
+Seeding globals from roles.sql...
+Applying migration 202606210001_auth_base.sql...
+NOTICE (42710): extension "pgcrypto" already exists, skipping
+NOTICE (00000): trigger "trg_users_updated_at" for relation "public.users" does not exist, skipping
+NOTICE (00000): trigger "on_auth_user_created" for relation "auth.users" does not exist, skipping
+NOTICE (00000): [VERIFY PASS] Trigger on_auth_user_created funcionó correctamente.
+NOTICE (00000):               Usuario "FamilyHub Verify" encontrado en public.users.
+Applying migration 202606210002_rls_auth.sql...
+NOTICE (00000): policy "users_select" for relation "public.users" does not exist, skipping
+NOTICE (00000): policy "users_insert" for relation "public.users" does not exist, skipping
+NOTICE (00000): policy "users_update" for relation "public.users" does not exist, skipping
+NOTICE (00000): policy "users_delete" for relation "public.users" does not exist, skipping
+NOTICE (00000): policy "households_select" for relation "public.households" does not exist, skipping
+NOTICE (00000): policy "households_insert" for relation "public.households" does not exist, skipping
+NOTICE (00000): policy "households_update" for relation "public.households" does not exist, skipping
+NOTICE (00000): policy "households_delete" for relation "public.households" does not exist, skipping
+NOTICE (00000): policy "household_members_select" for relation "public.household_members" does not exist, skipping
+NOTICE (00000): policy "household_members_insert" for relation "public.household_members" does not exist, skipping
+NOTICE (00000): policy "household_members_update" for relation "public.household_members" does not exist, skipping
+NOTICE (00000): policy "household_members_delete" for relation "public.household_members" does not exist, skipping
+NOTICE (00000): policy "invitations_select" for relation "public.invitations" does not exist, skipping
+NOTICE (00000): policy "invitations_insert" for relation "public.invitations" does not exist, skipping
+NOTICE (00000): policy "invitations_update" for relation "public.invitations" does not exist, skipping
+NOTICE (00000): policy "invitations_delete" for relation "public.invitations" does not exist, skipping
+Applying migration 202606210003_schedules.sql...
+NOTICE (00000): trigger "trg_schedules_updated_at" for relation "public.schedules" does not exist, skipping
+NOTICE (00000): policy "schedules_select" for relation "public.schedules" does not exist, skipping
+NOTICE (00000): policy "schedules_insert" for relation "public.schedules" does not exist, skipping
+NOTICE (00000): policy "schedules_update" for relation "public.schedules" does not exist, skipping
+NOTICE (00000): policy "schedules_delete" for relation "public.schedules" does not exist, skipping
+Applying migration 202606210004_tasks.sql...
+NOTICE (00000): trigger "trg_tasks_updated_at" for relation "public.tasks" does not exist, skipping
+NOTICE (00000): policy "tasks_select" for relation "public.tasks" does not exist, skipping
+NOTICE (00000): policy "tasks_insert" for relation "public.tasks" does not exist, skipping
+NOTICE (00000): policy "tasks_update" for relation "public.tasks" does not exist, skipping
+NOTICE (00000): policy "tasks_delete" for relation "public.tasks" does not exist, skipping
+Applying migration 202606210005_events.sql...
+NOTICE (00000): trigger "trg_events_updated_at" for relation "public.events" does not exist, skipping
+NOTICE (00000): policy "events_select" for relation "public.events" does not exist, skipping
+NOTICE (00000): policy "events_insert" for relation "public.events" does not exist, skipping
+NOTICE (00000): policy "events_update" for relation "public.events" does not exist, skipping
+NOTICE (00000): policy "events_delete" for relation "public.events" does not exist, skipping
+Applying migration 202606210006_ensure_user_fn.sql...
+Applying migration 202606210007_join_by_token_fn.sql...
+Applying migration 202606210008_fix_es256_jwt.sql...
+WARNING (01000): No se pudo sobreescribir auth.uid(). effective_uid() actúa como fallback en todas las funciones.
+Applying migration 202606210009_auth_onboarding_final.sql...
+NOTICE (42710): extension "pgcrypto" already exists, skipping
+NOTICE (42P07): relation "households" already exists, skipping
+NOTICE (42P07): relation "household_members" already exists, skipping
+NOTICE (00000): constraint "people_active_household_id_fkey" of relation "people" does not exist, skipping
+NOTICE (00000): trigger "trg_people_updated_at" for relation "public.people" does not exist, skipping
+NOTICE (00000): trigger "trg_households_updated_at" for relation "public.households" does not exist, skipping
+NOTICE (00000): trigger "trg_household_members_updated_at" for relation "public.household_members" does not exist, skipping
+NOTICE (00000): trigger "trg_household_invite_links_updated_at" for relation "public.household_invite_links" does not exist, skipping
+NOTICE (00000): trigger "trg_validate_people_active_household" for relation "public.people" does not exist, skipping
+NOTICE (00000): trigger "trg_prevent_active_household_orphan" for relation "public.household_members" does not exist, skipping
+NOTICE (00000): trigger "trg_validate_invite_link_creator" for relation "public.household_invite_links" does not exist, skipping
+NOTICE (00000): policy "people_select_self" for relation "public.people" does not exist, skipping
+NOTICE (00000): policy "people_insert_self" for relation "public.people" does not exist, skipping
+NOTICE (00000): policy "people_update_self" for relation "public.people" does not exist, skipping
+NOTICE (00000): policy "people_delete_blocked" for relation "public.people" does not exist, skipping
+NOTICE (00000): policy "households_select_active_members" for relation "public.households" does not exist, skipping
+NOTICE (00000): policy "households_insert_blocked" for relation "public.households" does not exist, skipping
+NOTICE (00000): policy "households_update_coordinator" for relation "public.households" does not exist, skipping
+NOTICE (00000): policy "households_delete_blocked" for relation "public.households" does not exist, skipping
+NOTICE (00000): policy "household_members_select_allowed" for relation "public.household_members" does not exist, skipping
+NOTICE (00000): policy "household_members_insert_blocked" for relation "public.household_members" does not exist, skipping
+NOTICE (00000): policy "household_members_update_blocked" for relation "public.household_members" does not exist, skipping
+NOTICE (00000): policy "household_members_delete_blocked" for relation "public.household_members" does not exist, skipping
+NOTICE (00000): policy "household_invite_links_select_coordinator" for relation "public.household_invite_links" does not exist, skipping
+NOTICE (00000): policy "household_invite_links_insert_blocked" for relation "public.household_invite_links" does not exist, skipping
+NOTICE (00000): policy "household_invite_links_update_blocked" for relation "public.household_invite_links" does not exist, skipping
+NOTICE (00000): policy "household_invite_links_delete_blocked" for relation "public.household_invite_links" does not exist, skipping
+NOTICE (00000): view "household_people_public" does not exist, skipping
+NOTICE (00000): function public.create_household_invite_link(uuid,pg_catalog.interval) does not exist, skipping
+Applying migration 202606230001_planner_mvp.sql...
+NOTICE (42710): extension "pgcrypto" already exists, skipping
+NOTICE (00000): constraint "planner_tasks_status_check" of relation "planner_tasks" does not exist, skipping
+NOTICE (00000): constraint "planner_tasks_priority_check" of relation "planner_tasks" does not exist, skipping
+NOTICE (00000): constraint "planner_tasks_template_key_check" of relation "planner_tasks" does not exist, skipping
+NOTICE (00000): constraint "planner_tasks_title_not_empty_check" of relation "planner_tasks" does not exist, skipping
+NOTICE (00000): constraint "planner_events_status_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): constraint "planner_events_recurrence_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): constraint "planner_events_title_not_empty_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): constraint "planner_events_ends_after_starts_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_tasks_updated_at" for relation "public.planner_tasks" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_events_updated_at" for relation "public.planner_events" does not exist, skipping
+NOTICE (00000): policy "planner_tasks_select_active_household" for relation "public.planner_tasks" does not exist, skipping
+NOTICE (00000): policy "planner_tasks_insert_active_household" for relation "public.planner_tasks" does not exist, skipping
+NOTICE (00000): policy "planner_tasks_update_active_household" for relation "public.planner_tasks" does not exist, skipping
+NOTICE (00000): policy "planner_events_select_active_household" for relation "public.planner_events" does not exist, skipping
+NOTICE (00000): policy "planner_events_insert_active_household" for relation "public.planner_events" does not exist, skipping
+NOTICE (00000): policy "planner_events_update_active_household" for relation "public.planner_events" does not exist, skipping
+Applying migration 202606230002_planner_table_grants.sql...
+Applying migration 202606230003_finalize_household_member.sql...
+Applying migration 202606230004_fix_finalize_household_member_order.sql...
+Applying migration 202606230005_planner_event_occurrence_overrides.sql...
+Applying migration 202606240001_h042_1_data_model_hardening.sql...
+NOTICE (42710): extension "pgcrypto" already exists, skipping
+Applying migration 202607050001_h042_4_family_members_role_requests.sql...
+NOTICE (42710): extension "pgcrypto" already exists, skipping
+NOTICE (00000): trigger "trg_role_requests_validate_memberships" for relation "public.household_role_change_requests" does not exist, skipping
+NOTICE (00000): trigger "trg_role_requests_updated_at" for relation "public.household_role_change_requests" does not exist, skipping
+NOTICE (00000): policy "role_requests_select_coordinator_or_self" for relation "public.household_role_change_requests" does not exist, skipping
+NOTICE (00000): policy "role_requests_insert_self" for relation "public.household_role_change_requests" does not exist, skipping
+NOTICE (00000): policy "role_requests_update_coordinator" for relation "public.household_role_change_requests" does not exist, skipping
+NOTICE (00000): policy "role_requests_delete_blocked" for relation "public.household_role_change_requests" does not exist, skipping
+Applying migration 202607080001_inventory_module.sql...
+NOTICE (42710): extension "pgcrypto" already exists, skipping
+NOTICE (00000): constraint "inventory_item_templates_key_not_empty_check" of relation "inventory_item_templates" does not exist, skipping
+NOTICE (00000): constraint "inventory_item_templates_name_not_empty_check" of relation "inventory_item_templates" does not exist, skipping
+NOTICE (00000): constraint "inventory_item_templates_quantity_check" of relation "inventory_item_templates" does not exist, skipping
+NOTICE (00000): constraint "inventory_items_name_not_empty_check" of relation "inventory_items" does not exist, skipping
+NOTICE (00000): constraint "inventory_items_quantity_check" of relation "inventory_items" does not exist, skipping
+NOTICE (00000): constraint "inventory_item_movements_type_check" of relation "inventory_item_movements" does not exist, skipping
+NOTICE (00000): constraint "inventory_restock_requests_status_check" of relation "inventory_restock_requests" does not exist, skipping
+NOTICE (00000): constraint "inventory_restock_requests_title_not_empty_check" of relation "inventory_restock_requests" does not exist, skipping
+NOTICE (00000): trigger "trg_inventory_items_updated_at" for relation "public.inventory_items" does not exist, skipping
+NOTICE (00000): trigger "trg_inventory_restock_requests_updated_at" for relation "public.inventory_restock_requests" does not exist, skipping
+NOTICE (00000): policy "inventory_templates_select_authenticated" for relation "public.inventory_item_templates" does not exist, skipping
+NOTICE (00000): policy "inventory_items_select_active_household" for relation "public.inventory_items" does not exist, skipping
+NOTICE (00000): policy "inventory_items_insert_active_household" for relation "public.inventory_items" does not exist, skipping
+NOTICE (00000): policy "inventory_items_update_active_household" for relation "public.inventory_items" does not exist, skipping
+NOTICE (00000): policy "inventory_items_delete_active_household" for relation "public.inventory_items" does not exist, skipping
+NOTICE (00000): policy "inventory_movements_select_active_household" for relation "public.inventory_item_movements" does not exist, skipping
+NOTICE (00000): policy "inventory_movements_insert_active_household" for relation "public.inventory_item_movements" does not exist, skipping
+NOTICE (00000): policy "inventory_restock_select_active_household" for relation "public.inventory_restock_requests" does not exist, skipping
+NOTICE (00000): policy "inventory_restock_insert_active_household" for relation "public.inventory_restock_requests" does not exist, skipping
+NOTICE (00000): policy "inventory_restock_update_approver" for relation "public.inventory_restock_requests" does not exist, skipping
+Applying migration 202607080002_create_person_for_current_user_rpc.sql...
+Applying migration 202607080003_planner_tasks_origin_fields.sql...
+NOTICE (00000): constraint "planner_tasks_origin_module_check" of relation "planner_tasks" does not exist, skipping
+NOTICE (00000): constraint "planner_tasks_origin_entity_type_not_empty_check" of relation "planner_tasks" does not exist, skipping
+NOTICE (00000): constraint "planner_tasks_origin_reason_not_empty_check" of relation "planner_tasks" does not exist, skipping
+Applying migration 202607080004_planner_goals.sql...
+NOTICE (42710): extension "pgcrypto" already exists, skipping
+NOTICE (00000): constraint "planner_goals_status_check" of relation "planner_goals" does not exist, skipping
+NOTICE (00000): constraint "planner_goals_visibility_check" of relation "planner_goals" does not exist, skipping
+NOTICE (00000): constraint "planner_goals_category_check" of relation "planner_goals" does not exist, skipping
+NOTICE (00000): constraint "planner_goals_target_type_check" of relation "planner_goals" does not exist, skipping
+NOTICE (00000): constraint "planner_goals_title_not_blank_check" of relation "planner_goals" does not exist, skipping
+NOTICE (00000): constraint "planner_goals_target_value_check" of relation "planner_goals" does not exist, skipping
+NOTICE (00000): constraint "planner_goals_current_value_check" of relation "planner_goals" does not exist, skipping
+NOTICE (00000): constraint "planner_goal_milestones_title_not_blank_check" of relation "planner_goal_milestones" does not exist, skipping
+NOTICE (00000): constraint "planner_goal_milestones_target_value_check" of relation "planner_goal_milestones" does not exist, skipping
+NOTICE (00000): constraint "planner_goal_milestones_sort_order_check" of relation "planner_goal_milestones" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_goals_updated_at" for relation "public.planner_goals" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_goal_milestones_updated_at" for relation "public.planner_goal_milestones" does not exist, skipping
+NOTICE (00000): policy "planner_goals_select_visible" for relation "public.planner_goals" does not exist, skipping
+NOTICE (00000): policy "planner_goals_insert_active_household" for relation "public.planner_goals" does not exist, skipping
+NOTICE (00000): policy "planner_goals_update_visible" for relation "public.planner_goals" does not exist, skipping
+NOTICE (00000): policy "planner_goal_milestones_select_goal_visible" for relation "public.planner_goal_milestones" does not exist, skipping
+NOTICE (00000): policy "planner_goal_milestones_insert_goal_editable" for relation "public.planner_goal_milestones" does not exist, skipping
+NOTICE (00000): policy "planner_goal_milestones_update_goal_editable" for relation "public.planner_goal_milestones" does not exist, skipping
+Applying migration 202607080005_fix_planner_goals_insert_rls.sql...
+Applying migration 202607100001_add_progress_mode_to_goals.sql...
+NOTICE (00000): constraint "planner_goals_progress_mode_check" of relation "planner_goals" does not exist, skipping
+Applying migration 20260711203451_planner_member_actor_ids.sql...
+Applying migration 20260712000000_planner_version_columns.sql...
+NOTICE (00000): trigger "trg_planner_tasks_increment_version" for relation "public.planner_tasks" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_events_increment_version" for relation "public.planner_events" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_goals_increment_version" for relation "public.planner_goals" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_goal_milestones_increment_version" for relation "public.planner_goal_milestones" does not exist, skipping
+Applying migration 20260712120000_soft_delete_goal_milestone_rpc.sql...
+Applying migration 20260713000000_planner_idempotency_keys.sql...
+NOTICE (00000): policy "planner_idempotency_keys_select_active_member" for relation "public.planner_idempotency_keys" does not exist, skipping
+NOTICE (00000): policy "planner_idempotency_keys_insert_owner" for relation "public.planner_idempotency_keys" does not exist, skipping
+NOTICE (00000): policy "planner_idempotency_keys_update_owner" for relation "public.planner_idempotency_keys" does not exist, skipping
+Applying migration 20260713001000_normalize_planner_task_priorities.sql...
+Applying migration 20260713002000_migrate_goals_failed_to_closed.sql...
+Applying migration 20260713003000_add_planner_trash_restore.sql...
+Applying migration 20260713004000_add_planner_cancellation_metadata.sql...
+Applying migration 20260713005000_create_planner_activity_log.sql...
+NOTICE (00000): policy "activity_log_select_household_members" for relation "public.planner_activity_log" does not exist, skipping
+NOTICE (00000): policy "activity_log_insert_household_members" for relation "public.planner_activity_log" does not exist, skipping
+Applying migration 20260714010000_homeplus_g0_4_operation_rollout.sql...
+Applying migration 20260715010000_remove_broken_legacy_rpcs.sql...
+NOTICE (00000): function public.get_expense_balance(uuid) does not exist, skipping
+Applying migration 20260722010000_m11_1a_task_fulfillment_foundation.sql...
+NOTICE (00000): trigger "trg_planner_task_assignment_configs_updated_at" for relation "public.planner_task_assignment_configs" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_task_assignment_configs_increment_version" for relation "public.planner_task_assignment_configs" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_task_assignees_updated_at" for relation "public.planner_task_assignees" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_task_assignees_increment_version" for relation "public.planner_task_assignees" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_task_fulfillments_updated_at" for relation "public.planner_task_fulfillments" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_task_fulfillments_increment_version" for relation "public.planner_task_fulfillments" does not exist, skipping
+Applying migration 20260722020000_m11_1b_task_fulfillment_operations.sql...
+Applying migration 20260722030000_m11_2a_event_domain_foundation.sql...
+NOTICE (00000): constraint "planner_events_v1_scope_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): constraint "planner_events_v1_owner_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): constraint "planner_events_v1_lifecycle_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): constraint "planner_events_v1_schedule_type_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): constraint "planner_events_v1_schedule_shape_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): constraint "planner_events_v1_location_type_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): constraint "planner_events_v1_location_payload_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): constraint "planner_events_v1_occurrence_identity_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): constraint "planner_events_v1_trashed_from_lifecycle_check" of relation "planner_events" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_events_v1_normalize" for relation "public.planner_events" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_event_participants_validate" for relation "public.planner_event_participants" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_event_series_updated_at" for relation "public.planner_event_series" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_event_series_increment_version" for relation "public.planner_event_series" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_event_participants_updated_at" for relation "public.planner_event_participants" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_event_participants_increment_version" for relation "public.planner_event_participants" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_events_creator_participant" for relation "public.planner_events" does not exist, skipping
+NOTICE (00000): policy "planner_events_select_v1_scope" for relation "public.planner_events" does not exist, skipping
+NOTICE (00000): policy "planner_events_insert_v1_scope" for relation "public.planner_events" does not exist, skipping
+NOTICE (00000): policy "planner_events_update_v1_scope" for relation "public.planner_events" does not exist, skipping
+Applying migration 20260722040000_m11_3a_plan_graph_foundation.sql...
+NOTICE (42622): identifier "planner_plan_measurement_history_correction_same_measurement_fkey" will be truncated to "planner_plan_measurement_history_correction_same_measurement_fk"
+Applying migration 20260722049000_m11_3a_consume_shared_mutation_authority.sql...
+Applying migration 20260722050000_m11_4a_presets_drafts_foundation.sql...
+NOTICE (00000): constraint "planner_presets_active_revision_fkey" of relation "planner_presets" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_presets_updated_at" for relation "public.planner_presets" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_presets_increment_version" for relation "public.planner_presets" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_preset_revisions_updated_at" for relation "public.planner_preset_revisions" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_preset_revisions_increment_version" for relation "public.planner_preset_revisions" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_drafts_updated_at" for relation "public.planner_drafts" does not exist, skipping
+NOTICE (00000): trigger "trg_planner_drafts_increment_version" for relation "public.planner_drafts" does not exist, skipping
+NOTICE (00000): policy "planner_presets_select_scope" for relation "public.planner_presets" does not exist, skipping
+NOTICE (00000): policy "planner_preset_revisions_select_scope" for relation "public.planner_preset_revisions" does not exist, skipping
+NOTICE (00000): policy "planner_drafts_owner_select" for relation "public.planner_drafts" does not exist, skipping
+Applying migration 20260722090000_m11_int_01_shared_mutation_authority_foundation.sql...
+NOTICE (00000): M11.INT-01 backfill: 0 rows backfilled, 0 ambiguous/unresolvable, 0 in-flight skipped.
+WARN: no files matched pattern: supabase/seed.sql
+Restarting containers...
+Finished supabase db reset on branch main.
+A new version of Supabase CLI is available: v2.110.0 (currently installed v2.90.0)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli

@@ -1,0 +1,60 @@
+Continuá exclusivamente con el sistema de ubicación en tiempo real de HomePlus. No rediseñes UI, navbar, mapa, cards ni permisos salvo que sea imprescindible para corregir el pipeline de datos.
+
+Proyecto:
+- Frontend: C:\Users\tig1\Documents\Family-Hub-Own-pulido-ui.-ux\front\mi-front-limpio
+- Backend: C:\Users\tig1\Documents\Family-Hub-Own-pulido-ui.-ux\backend
+- Supabase: C:\Users\tig1\Documents\Family-Hub-Own-pulido-ui.-ux\supabase
+
+Objetivo:
+Usuario A activa Compartir -> GPS real en foreground -> PUT /api/presence/location -> Supabase -> realtime -> Usuario B del mismo hogar ve marker/card actualizados sin refrescar. Al detener, todos ven sharingEnabled=false.
+
+Causa raíz encontrada:
+La tabla remota presence_member_locations tiene un trigger normalize_presence_sharing_state() que define:
+sharing_enabled := sharing_mode <> 'off'.
+
+El backend anterior enviaba sharing_enabled=true pero no enviaba sharing_mode; la fila conservaba sharing_mode='off', el trigger volvía sharing_enabled=false y borraba latitud/longitud. Por eso el frontend recibía presence_location_response_invalid aunque el PUT respondiera 200.
+
+Cambios ya implementados:
+- backend/src/services/presence.locations.service.js
+  - Al compartir, escribe sharing_mode='foreground' por defecto.
+  - Acepta foreground, background y off.
+  - Al detener, usa off.
+  - Incluye sharing_mode en la respuesta.
+- front/mi-front-limpio/services/presence.ts
+  - Contrato y parser explícito de la respuesta del PUT.
+  - Logs de desarrollo con status, respuesta resumida sin coordenadas exactas y shape esperado.
+- front/mi-front-limpio/services/presenceLocationSharing.ts
+  - Foreground publica con sharing_mode='foreground'.
+  - Background publica con sharing_mode='background'.
+  - Stop y reconciliación usan sharing_mode='off'.
+- supabase/migrations/20260916000200_presence_location_sharing_mode_alignment.sql
+
+Estado de la base remota:
+- Ya existen sharing_mode, history_enabled y el trigger de normalización.
+- Valores válidos: off, foreground y background.
+- La última fila observada estaba en sharing_mode='off', sharing_enabled=false y sin coordenadas.
+- No ejecutar supabase migration repair ni supabase db push a ciegas: el remoto contiene migraciones 20260904... a 20260907... que la copia local no tiene. Primero auditar/sincronizar ese historial de forma segura.
+
+Validaciones realizadas:
+- Lint de los servicios modificados: PASS.
+- Export web Expo: PASS.
+- Prueba local del contrato backend para foreground, background y off: PASS.
+- tsc --noEmit mantiene errores preexistentes fuera de Presence en InviteLinkSheetFinal, AccountDetailSheet, ActionSheet y supabase/index.ts.
+
+Importante:
+- El backend que corría en localhost:3001 se inició con node index.js, sin watch. Hay que reiniciarlo para cargar el cambio antes de probar.
+- No declarar PASS end-to-end todavía.
+- No usar mocks ni asumir que marker.updated en consola significa que el marker es visible.
+
+Siguiente ejecución:
+1. Reiniciar backend desde backend con npm run dev.
+2. Recargar la app Expo.
+3. Desde una sesión real, tocar Compartir.
+4. Confirmar location.publish.success y respuesta con sharing_enabled=true y sharing_mode=foreground.
+5. Consultar la fila remota sin imprimir coordenadas: sharing_mode, sharing_enabled y flags de latitud/longitud.
+6. Confirmar GET /api/presence/locations y realtime con sharingEnabled=true.
+7. Probar una segunda sesión del mismo hogar: marker visible, card actualizada y actualización sin refresh.
+8. Probar Detener: backend/realtime/UI deben pasar a sharingEnabled=false y sharing_mode=off.
+
+Prioridad estricta:
+contrato y persistencia correcta -> estado realtime correcto -> marker/card visible -> pruebas de dos sesiones. No volver a modificar visuales hasta cerrar esto.

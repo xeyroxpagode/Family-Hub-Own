@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Backend (Express)",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--watch", "index.js"],
+      "cwd": "backend",
+      "port": 3000
+    },
+    {
+      "name": "Frontend (Expo / Metro)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["expo", "start"],
+      "cwd": "front/mi-front-limpio",
+      "port": 8081
+    }
+  ]
+}

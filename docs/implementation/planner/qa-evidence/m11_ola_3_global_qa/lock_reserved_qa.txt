@@ -1,0 +1,14 @@
+﻿{
+    "state":  "RESERVED_QA",
+    "cleanliness":  "DIRTY_UNTIL_QA_CLEANUP",
+    "owner":  "QA",
+    "previousOwner":  "Integration",
+    "reservedBy":  "QA",
+    "start":  "2026-07-28T06:37:14.2556226Z",
+    "released":  null,
+    "releasedBy":  null,
+    "cleanupVerifiedBy":  null,
+    "worktree":  "C:\\Users\\thega\\Desktop\\HomePlus-worktrees\\qa",
+    "branch":  "planner-v1-qa",
+    "remote":  "not accessed"
+}

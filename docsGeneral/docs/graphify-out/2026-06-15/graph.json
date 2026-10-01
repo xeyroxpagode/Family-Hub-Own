@@ -1,0 +1,1913 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "id": "homeplus",
+      "label": "HomePlus (Sistema Operativo)",
+      "norm_label": "homeplus (sistema operativo)",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "doc_api",
+      "label": "HomePlus — Api + TestCases + Edgecases V1",
+      "norm_label": "homeplus — api + testcases + edgecases v1",
+      "file_type": "document",
+      "source_file": "HomePlus — Api + TestCases + Edgecases V1.md",
+      "community": 0
+    },
+    {
+      "id": "doc_ds",
+      "label": "HomePlus — Desing system v1",
+      "norm_label": "homeplus — desing system v1",
+      "file_type": "document",
+      "source_file": "HomePlus — Desing system v1.md",
+      "community": 0
+    },
+    {
+      "id": "doc_onboarding",
+      "label": "HomePlus — Diseño de onboarding completo v1",
+      "norm_label": "homeplus — diseño de onboarding completo v1",
+      "file_type": "document",
+      "source_file": "HomePlus — Diseño de onboarding completo v1.md",
+      "community": 0
+    },
+    {
+      "id": "doc_home_ui",
+      "label": "HomePlus — Diseño de Pantallas de Home V1",
+      "norm_label": "homeplus — diseño de pantallas de home v1",
+      "file_type": "document",
+      "source_file": "HomePlus — Diseño de Pantallas de Home V1.md",
+      "community": 0
+    },
+    {
+      "id": "doc_auth_ui",
+      "label": "HomePlus — Diseño ed pantallas de Auth v1",
+      "norm_label": "homeplus — diseño ed pantallas de auth v1",
+      "file_type": "document",
+      "source_file": "HomePlus — Diseño ed pantallas de Auth v1.md",
+      "community": 0
+    },
+    {
+      "id": "doc_db",
+      "label": "HomePlus — Esquema de base de datos v1",
+      "norm_label": "homeplus — esquema de base de datos v1",
+      "file_type": "document",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "doc_events",
+      "label": "HomePlus — Eventos del sistema v1",
+      "norm_label": "homeplus — eventos del sistema v1",
+      "file_type": "document",
+      "source_file": "HomePlus — Eventos del sistema v1.md",
+      "community": 0
+    },
+    {
+      "id": "doc_final_spec",
+      "label": "HomePlus — FinalSpec",
+      "norm_label": "homeplus — finalspec",
+      "file_type": "document",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "doc_prod_1",
+      "label": "HomePlus — SECCION 1 PRODUCTO",
+      "norm_label": "homeplus — seccion 1 producto",
+      "file_type": "document",
+      "source_file": "HomePlus — SECCION 1 PRODUCTO.md",
+      "community": 0
+    },
+    {
+      "id": "doc_prod_2",
+      "label": "HomePlus — SECCION 2 PRINCIPIOS DEL PRODUCTO",
+      "norm_label": "homeplus — seccion 2 principios del producto",
+      "file_type": "document",
+      "source_file": "HomePlus — SECCION 2 PRINCIPIOS DEL PRODUCTO.md",
+      "community": 0
+    },
+    {
+      "id": "doc_filosofia_3",
+      "label": "HomePlus — SECCION 3 FILOSOFIA",
+      "norm_label": "homeplus — seccion 3 filosofia",
+      "file_type": "document",
+      "source_file": "HomePlus — SECCION 3 FILOSOFIA.md",
+      "community": 0
+    },
+    {
+      "id": "doc_emotional_4",
+      "label": "HomePlus — SECCION 4 EMOTIONAL DESING",
+      "norm_label": "homeplus — seccion 4 emotional desing",
+      "file_type": "document",
+      "source_file": "HomePlus — SECCION 4 EMOTIONAL DESING.md",
+      "community": 0
+    },
+    {
+      "id": "doc_relations_5",
+      "label": "HomePlus — SECCION 5 RELATIONSHIP PHILOSOPHY",
+      "norm_label": "homeplus — seccion 5 relationship philosophy",
+      "file_type": "document",
+      "source_file": "HomePlus — SECCION 5 RELATIONSHIP PHILOSOPHY.md",
+      "community": 0
+    },
+    {
+      "id": "doc_ux_6",
+      "label": "HomePlus — SECCION 6 UX PHILOSOPHY",
+      "norm_label": "homeplus — seccion 6 ux philosophy",
+      "file_type": "document",
+      "source_file": "HomePlus — SECCION 6 UX PHILOSOPHY.md",
+      "community": 0
+    },
+    {
+      "id": "doc_geni_7",
+      "label": "HomePlus — SECCION 7 AI PHILOSOPHY - GENI",
+      "norm_label": "homeplus — seccion 7 ai philosophy - geni",
+      "file_type": "document",
+      "source_file": "HomePlus — SECCION 7 AI PHILOSOPHY - GENI.md",
+      "community": 0
+    },
+    {
+      "id": "doc_data_8",
+      "label": "HomePlus — SECCION 8 DATA PHILOSOPHY",
+      "norm_label": "homeplus — seccion 8 data philosophy",
+      "file_type": "document",
+      "source_file": "HomePlus — SECCION 8 DATA PHILOSOPHY.md",
+      "community": 0
+    },
+    {
+      "id": "doc_ux_writing",
+      "label": "HomePlus — UX writing guide para geni",
+      "norm_label": "homeplus — ux writing guide para geni",
+      "file_type": "document",
+      "source_file": "HomePlus — UX writing guide para geni.md",
+      "community": 0
+    },
+    {
+      "id": "domain_people",
+      "label": "Dominio: People",
+      "norm_label": "dominio: people",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "domain_planner",
+      "label": "Dominio: Planner",
+      "norm_label": "dominio: planner",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "domain_finance",
+      "label": "Dominio: Finance",
+      "norm_label": "dominio: finance",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "domain_presence",
+      "label": "Dominio: Presence",
+      "norm_label": "dominio: presence",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "domain_inventory",
+      "label": "Dominio: Inventory",
+      "norm_label": "dominio: inventory",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "domain_assets",
+      "label": "Dominio: Assets",
+      "norm_label": "dominio: assets",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "domain_homecloud",
+      "label": "Dominio: HomeCloud",
+      "norm_label": "dominio: homecloud",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "domain_sos",
+      "label": "Dominio: SOS",
+      "norm_label": "dominio: sos",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "domain_geni",
+      "label": "Dominio: Geni",
+      "norm_label": "dominio: geni",
+      "file_type": "concept",
+      "source_file": "HomePlus — SECCION 7 AI PHILOSOPHY - GENI.md",
+      "community": 0
+    },
+    {
+      "id": "domain_automatizaciones",
+      "label": "Dominio: Automatizaciones",
+      "norm_label": "dominio: automatizaciones",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "domain_feed",
+      "label": "Dominio: Feed",
+      "norm_label": "dominio: feed",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "domain_notificaciones",
+      "label": "Dominio: Notificaciones",
+      "norm_label": "dominio: notificaciones",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "domain_system",
+      "label": "Dominio: System",
+      "norm_label": "dominio: system",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "role_coordinador",
+      "label": "Rol: Coordinador",
+      "norm_label": "rol: coordinador",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "role_adulto",
+      "label": "Rol: Adulto",
+      "norm_label": "rol: adulto",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "role_adolescente",
+      "label": "Rol: Adolescente",
+      "norm_label": "rol: adolescente",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "role_niño",
+      "label": "Rol: Niño",
+      "norm_label": "rol: niño",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "role_adulto_mayor",
+      "label": "Rol: Adulto Mayor",
+      "norm_label": "rol: adulto mayor",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "role_invitado",
+      "label": "Rol: Invitado",
+      "norm_label": "rol: invitado",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "role_empleado_familiar",
+      "label": "Rol: Empleado Familiar",
+      "norm_label": "rol: empleado familiar",
+      "file_type": "concept",
+      "source_file": "HomePlus — FinalSpec.md",
+      "community": 0
+    },
+    {
+      "id": "entity_tasks",
+      "label": "Entidad: Tasks",
+      "norm_label": "entidad: tasks",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_task_dependencies",
+      "label": "Entidad: Task Dependencies",
+      "norm_label": "entidad: task dependencies",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_task_comments",
+      "label": "Entidad: Task Comments",
+      "norm_label": "entidad: task comments",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_events",
+      "label": "Entidad: Events",
+      "norm_label": "entidad: events",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_event_participants",
+      "label": "Entidad: Event Participants",
+      "norm_label": "entidad: event participants",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_goals",
+      "label": "Entidad: Goals",
+      "norm_label": "entidad: goals",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_milestones",
+      "label": "Entidad: Milestones",
+      "norm_label": "entidad: milestones",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_responsibilities",
+      "label": "Entidad: Responsibilities",
+      "norm_label": "entidad: responsibilities",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_streaks",
+      "label": "Entidad: Streaks",
+      "norm_label": "entidad: streaks",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_accounts",
+      "label": "Entidad: Accounts",
+      "norm_label": "entidad: accounts",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_expenses",
+      "label": "Entidad: Expenses",
+      "norm_label": "entidad: expenses",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_expense_splits",
+      "label": "Entidad: Expense Splits",
+      "norm_label": "entidad: expense splits",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_incomes",
+      "label": "Entidad: Incomes",
+      "norm_label": "entidad: incomes",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_budgets",
+      "label": "Entidad: Budgets",
+      "norm_label": "entidad: budgets",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_funds",
+      "label": "Entidad: Funds",
+      "norm_label": "entidad: funds",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_debts",
+      "label": "Entidad: Debts",
+      "norm_label": "entidad: debts",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_locations",
+      "label": "Entidad: Locations",
+      "norm_label": "entidad: locations",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_location_settings",
+      "label": "Entidad: Location Settings",
+      "norm_label": "entidad: location settings",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_location_history",
+      "label": "Entidad: Location History",
+      "norm_label": "entidad: location history",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_geofences",
+      "label": "Entidad: Geofences",
+      "norm_label": "entidad: geofences",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_places",
+      "label": "Entidad: Places",
+      "norm_label": "entidad: places",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_check-ins",
+      "label": "Entidad: Check-ins",
+      "norm_label": "entidad: check-ins",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_inventory_categories",
+      "label": "Entidad: Inventory Categories",
+      "norm_label": "entidad: inventory categories",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_inventory_items",
+      "label": "Entidad: Inventory Items",
+      "norm_label": "entidad: inventory items",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_shopping_list",
+      "label": "Entidad: Shopping List",
+      "norm_label": "entidad: shopping list",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_expiry_records",
+      "label": "Entidad: Expiry Records",
+      "norm_label": "entidad: expiry records",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_assets",
+      "label": "Entidad: Assets",
+      "norm_label": "entidad: assets",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_asset_documents",
+      "label": "Entidad: Asset Documents",
+      "norm_label": "entidad: asset documents",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_asset_maintenance",
+      "label": "Entidad: Asset Maintenance",
+      "norm_label": "entidad: asset maintenance",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_pets",
+      "label": "Entidad: Pets",
+      "norm_label": "entidad: pets",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_vehicles",
+      "label": "Entidad: Vehicles",
+      "norm_label": "entidad: vehicles",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_properties",
+      "label": "Entidad: Properties",
+      "norm_label": "entidad: properties",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_devices",
+      "label": "Entidad: Devices",
+      "norm_label": "entidad: devices",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_media_items",
+      "label": "Entidad: Media Items",
+      "norm_label": "entidad: media items",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_albums",
+      "label": "Entidad: Albums",
+      "norm_label": "entidad: albums",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_album_items",
+      "label": "Entidad: Album Items",
+      "norm_label": "entidad: album items",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_documents",
+      "label": "Entidad: Documents",
+      "norm_label": "entidad: documents",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_document_versions",
+      "label": "Entidad: Document Versions",
+      "norm_label": "entidad: document versions",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_document_access",
+      "label": "Entidad: Document Access",
+      "norm_label": "entidad: document access",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_households",
+      "label": "Entidad: Households",
+      "norm_label": "entidad: households",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_household_members",
+      "label": "Entidad: Household Members",
+      "norm_label": "entidad: household members",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_invitations",
+      "label": "Entidad: Invitations",
+      "norm_label": "entidad: invitations",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_posts",
+      "label": "Entidad: Posts",
+      "norm_label": "entidad: posts",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_post_reactions",
+      "label": "Entidad: Post Reactions",
+      "norm_label": "entidad: post reactions",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_post_comments",
+      "label": "Entidad: Post Comments",
+      "norm_label": "entidad: post comments",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_sos_alerts",
+      "label": "Entidad: SOS Alerts",
+      "norm_label": "entidad: sos alerts",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_sos_recipients",
+      "label": "Entidad: SOS Recipients",
+      "norm_label": "entidad: sos recipients",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_memory_personal",
+      "label": "Entidad: Memory Personal",
+      "norm_label": "entidad: memory personal",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_memory_family",
+      "label": "Entidad: Memory Family",
+      "norm_label": "entidad: memory family",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_conversations",
+      "label": "Entidad: Conversations",
+      "norm_label": "entidad: conversations",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_patterns_log",
+      "label": "Entidad: Patterns Log",
+      "norm_label": "entidad: patterns log",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_automations",
+      "label": "Entidad: Automations",
+      "norm_label": "entidad: automations",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_automation_logs",
+      "label": "Entidad: Automation Logs",
+      "norm_label": "entidad: automation logs",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_notification_preferences",
+      "label": "Entidad: Notification Preferences",
+      "norm_label": "entidad: notification preferences",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_notifications",
+      "label": "Entidad: Notifications",
+      "norm_label": "entidad: notifications",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_channels",
+      "label": "Entidad: Channels",
+      "norm_label": "entidad: channels",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_audit_logs",
+      "label": "Entidad: Audit Logs",
+      "norm_label": "entidad: audit logs",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "entity_load_metrics",
+      "label": "Entidad: Load Metrics",
+      "norm_label": "entidad: load metrics",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    },
+    {
+      "id": "prin_asimetría_de_coordin",
+      "label": "Principio: Asimetría de Coordinación",
+      "norm_label": "principio: asimetría de coordinación",
+      "file_type": "concept",
+      "source_file": "HomePlus — SECCION 1 PRODUCTO.md",
+      "community": 0
+    },
+    {
+      "id": "prin_la_verdad_primero_el",
+      "label": "Principio: La verdad primero, el confort después",
+      "norm_label": "principio: la verdad primero, el confort después",
+      "file_type": "concept",
+      "source_file": "HomePlus — SECCION 2 PRINCIPIOS DEL PRODUCTO.md",
+      "community": 0
+    },
+    {
+      "id": "prin_privacidad_no_es_opa",
+      "label": "Principio: Privacidad no es opacidad",
+      "norm_label": "principio: privacidad no es opacidad",
+      "file_type": "concept",
+      "source_file": "HomePlus — SECCION 2 PRINCIPIOS DEL PRODUCTO.md",
+      "community": 0
+    },
+    {
+      "id": "prin_seguridad_sin_pánico",
+      "label": "Principio: Seguridad sin pánico (SOS)",
+      "norm_label": "principio: seguridad sin pánico (sos)",
+      "file_type": "concept",
+      "source_file": "HomePlus — SECCION 4 EMOTIONAL DESING.md",
+      "community": 0
+    },
+    {
+      "id": "prin_regla_del_1-tap",
+      "label": "Principio: Regla del 1-tap",
+      "norm_label": "principio: regla del 1-tap",
+      "file_type": "concept",
+      "source_file": "HomePlus — SECCION 6 UX PHILOSOPHY.md",
+      "community": 0
+    },
+    {
+      "id": "prin_los_datos_son_del_us",
+      "label": "Principio: Los datos son del usuario",
+      "norm_label": "principio: los datos son del usuario",
+      "file_type": "concept",
+      "source_file": "HomePlus — SECCION 8 DATA PHILOSOPHY.md",
+      "community": 0
+    },
+    {
+      "id": "prin_auditoría_permanente",
+      "label": "Principio: Auditoría Permanente",
+      "norm_label": "principio: auditoría permanente",
+      "file_type": "concept",
+      "source_file": "HomePlus — Esquema de base de datos v1.md",
+      "community": 0
+    }
+  ],
+  "links": [
+    {
+      "source": "doc_api",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_ds",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_onboarding",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_home_ui",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_auth_ui",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_db",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_events",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_final_spec",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_prod_1",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_prod_2",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_filosofia_3",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_emotional_4",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_relations_5",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_ux_6",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_geni_7",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_data_8",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "doc_ux_writing",
+      "target": "homeplus",
+      "relation": "defines_architecture",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_people",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_people",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_planner",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_planner",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_finance",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_finance",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_presence",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_presence",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_inventory",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_inventory",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_assets",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_assets",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_homecloud",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_homecloud",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_sos",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_sos",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_geni",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_automatizaciones",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_automatizaciones",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_feed",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_feed",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_notificaciones",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_notificaciones",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "domain_system",
+      "relation": "has_domain",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "domain_system",
+      "relation": "operates_across",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "role_coordinador",
+      "relation": "has_role",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "role_coordinador",
+      "target": "domain_people",
+      "relation": "managed_in",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "role_adulto",
+      "relation": "has_role",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "role_adulto",
+      "target": "domain_people",
+      "relation": "managed_in",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "role_adolescente",
+      "relation": "has_role",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "role_adolescente",
+      "target": "domain_people",
+      "relation": "managed_in",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "role_niño",
+      "relation": "has_role",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "role_niño",
+      "target": "domain_people",
+      "relation": "managed_in",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "role_adulto_mayor",
+      "relation": "has_role",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "role_adulto_mayor",
+      "target": "domain_people",
+      "relation": "managed_in",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "role_invitado",
+      "relation": "has_role",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "role_invitado",
+      "target": "domain_people",
+      "relation": "managed_in",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "role_empleado_familiar",
+      "relation": "has_role",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "role_empleado_familiar",
+      "target": "domain_people",
+      "relation": "managed_in",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "role_coordinador",
+      "target": "homeplus",
+      "relation": "administers",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_planner",
+      "target": "entity_tasks",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_planner",
+      "target": "entity_task_dependencies",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_planner",
+      "target": "entity_task_comments",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_planner",
+      "target": "entity_events",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_planner",
+      "target": "entity_event_participants",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_planner",
+      "target": "entity_goals",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_planner",
+      "target": "entity_milestones",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_planner",
+      "target": "entity_responsibilities",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_planner",
+      "target": "entity_streaks",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_finance",
+      "target": "entity_accounts",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_finance",
+      "target": "entity_expenses",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_finance",
+      "target": "entity_expense_splits",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_finance",
+      "target": "entity_incomes",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_finance",
+      "target": "entity_budgets",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_finance",
+      "target": "entity_funds",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_finance",
+      "target": "entity_debts",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_presence",
+      "target": "entity_locations",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_presence",
+      "target": "entity_location_settings",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_presence",
+      "target": "entity_location_history",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_presence",
+      "target": "entity_geofences",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_presence",
+      "target": "entity_places",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_presence",
+      "target": "entity_check-ins",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_inventory",
+      "target": "entity_inventory_categories",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_inventory",
+      "target": "entity_inventory_items",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_inventory",
+      "target": "entity_shopping_list",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_inventory",
+      "target": "entity_expiry_records",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_assets",
+      "target": "entity_assets",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_assets",
+      "target": "entity_asset_documents",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_assets",
+      "target": "entity_asset_maintenance",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_assets",
+      "target": "entity_pets",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_assets",
+      "target": "entity_vehicles",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_assets",
+      "target": "entity_properties",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_assets",
+      "target": "entity_devices",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_homecloud",
+      "target": "entity_media_items",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_homecloud",
+      "target": "entity_albums",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_homecloud",
+      "target": "entity_album_items",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_homecloud",
+      "target": "entity_documents",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_homecloud",
+      "target": "entity_document_versions",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_homecloud",
+      "target": "entity_document_access",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_people",
+      "target": "entity_households",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_people",
+      "target": "entity_household_members",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_people",
+      "target": "entity_invitations",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_feed",
+      "target": "entity_posts",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_feed",
+      "target": "entity_post_reactions",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_feed",
+      "target": "entity_post_comments",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_sos",
+      "target": "entity_sos_alerts",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_sos",
+      "target": "entity_sos_recipients",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "entity_memory_personal",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "entity_memory_family",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "entity_conversations",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "entity_patterns_log",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_automatizaciones",
+      "target": "entity_automations",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_automatizaciones",
+      "target": "entity_automation_logs",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_notificaciones",
+      "target": "entity_notification_preferences",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_notificaciones",
+      "target": "entity_notifications",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_notificaciones",
+      "target": "entity_channels",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_system",
+      "target": "entity_audit_logs",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_system",
+      "target": "entity_load_metrics",
+      "relation": "contains",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_tasks",
+      "target": "entity_responsibilities",
+      "relation": "belongs_to",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_tasks",
+      "target": "entity_events",
+      "relation": "prepares_for",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_tasks",
+      "target": "entity_goals",
+      "relation": "advances_progress",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_expenses",
+      "target": "entity_budgets",
+      "relation": "consumes",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_expenses",
+      "target": "entity_documents",
+      "relation": "has_receipt_in",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_assets",
+      "target": "entity_documents",
+      "relation": "documented_by",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_assets",
+      "target": "entity_asset_maintenance",
+      "relation": "requires",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_asset_maintenance",
+      "target": "entity_tasks",
+      "relation": "generates",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_inventory_items",
+      "target": "entity_shopping_list",
+      "relation": "replenished_via",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_inventory_items",
+      "target": "entity_expenses",
+      "relation": "purchased_via",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_sos_alerts",
+      "target": "entity_locations",
+      "relation": "uses_context_of",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "entity_automations",
+      "target": "entity_notifications",
+      "relation": "can_trigger",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "prin_asimetría_de_coordin",
+      "relation": "governed_by",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "prin_la_verdad_primero_el",
+      "relation": "governed_by",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "prin_privacidad_no_es_opa",
+      "relation": "governed_by",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "prin_seguridad_sin_pánico",
+      "relation": "governed_by",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "prin_regla_del_1-tap",
+      "relation": "governed_by",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "prin_los_datos_son_del_us",
+      "relation": "governed_by",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "homeplus",
+      "target": "prin_auditoría_permanente",
+      "relation": "governed_by",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    },
+    {
+      "source": "domain_geni",
+      "target": "prin_asimetría_de_coordinaci",
+      "relation": "resolves",
+      "confidence": "CURATED",
+      "confidence_score": 1.0,
+      "weight": 1.0
+    }
+  ]
+}

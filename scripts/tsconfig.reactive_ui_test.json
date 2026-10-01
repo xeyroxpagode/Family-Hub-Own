@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "typeRoots": ["../front/mi-front-limpio/node_modules/@types"],
+    "outDir": "./compiled-reactive-ui",
+    "rootDir": "..",
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": false
+  },
+  "include": [
+    "../scripts/reactive_ui_state_tests.ts",
+    "../front/mi-front-limpio/services/core/collectionState.ts",
+    "../front/mi-front-limpio/services/core/serverState.ts"
+  ],
+  "exclude": ["node_modules"]
+}

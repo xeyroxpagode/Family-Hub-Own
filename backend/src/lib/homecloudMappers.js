@@ -1,0 +1,163 @@
+'use strict';
+
+/**
+ * HomeCloud STAGE 4A.2 — Safe DTO Mappers.
+ *
+ * Pure functions: DB row -> canonical HomeCloud DTO.
+ * No dependencies, no side effects.
+ * Exported for tests and service layer.
+ *
+ * NEVER leaks storage internals.
+ * Returns discriminated union based on role.
+ *
+ * A Written Memory (written_text) maps to the memory branch with
+ * writtenText set and the binary fields (displayName/mimeType/sizeBytes)
+ * null; uploadedAt stays null because binary custody never happened.
+ *
+ * STAGE 4B.1 — Memories read model:
+ *   - deriveMemoryKind derives the Memory kind from the persisted shape.
+ *     It is NEVER a stored column and NEVER derived from `role`.
+ *   - mapMemoryRowToReadDto projects one active Memory row into the
+ *     Timeline-safe DTO (canonical safe DTO + derived kind + albumIds).
+ *     The canonical content authority stays homecloud_contents; Album
+ *     membership authority stays homecloud_album_items and is only
+ *     projected as ids, never duplicated as embedded Album objects.
+ */
+
+/** Canonical Memory kinds derived from the persisted row shape. */
+const HOME_CLOUD_MEMORY_KINDS = Object.freeze(['written', 'image', 'video', 'audio']);
+
+/**
+ * Derive the Memory kind from the persisted row.
+ *
+ * Contract (Memories V2, storage foundation is the authority):
+ *   written -> written_text IS NOT NULL
+ *   image   -> mime_type LIKE 'image/%'
+ *   video   -> mime_type LIKE 'video/%'
+ *   audio   -> mime_type LIKE 'audio/%'
+ *
+ * `role` is deliberately NOT an input: a File is a File even when its MIME
+ * is image/*. A written Memory carries no MIME at all, so the two branches
+ * can never collide.
+ *
+ * @param {Object} row homecloud_contents row
+ * @returns {'written'|'image'|'video'|'audio'}
+ * @throws {Error} only for a row that violates the DB shape contract
+ *   (structurally impossible for role='memory').
+ */
+function deriveMemoryKind(row) {
+  if (row.written_text !== null && row.written_text !== undefined) return 'written';
+  const mimeType = typeof row.mime_type === 'string' ? row.mime_type : '';
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  throw new Error('homecloud_memory_kind_undetermined');
+}
+
+function mapContentRowToDto(row) {
+  const base = {
+    id: row.id,
+    role: row.role,
+    displayName: row.display_name ?? null,
+    mimeType: row.mime_type ?? null,
+    extension: row.extension ?? null,
+    sizeBytes: row.size_bytes ?? null,
+    uploadedByMemberId: row.uploaded_by_member_id,
+    uploadedAt: row.uploaded_at,
+    hasPreview: row.preview_storage_path !== null && row.preview_storage_path !== undefined,
+    hiddenFromResurfacing: row.hidden_from_resurfacing === true,
+  };
+
+  if (row.role === 'file') {
+    return {
+      ...base,
+      role: 'file',
+      folderId: row.folder_id ?? null,
+      documentDate: row.document_date ?? null,
+      note: row.note ?? null,
+    };
+  }
+
+  // role === 'memory'
+  return {
+    ...base,
+    role: 'memory',
+    caption: row.caption ?? null,
+    writtenText: row.written_text ?? null,
+    capturedAt: row.captured_at ?? null,
+    capturedYear: row.captured_year ?? null,
+    capturedMonth: row.captured_month ?? null,
+    capturePrecision: row.capture_precision,
+  };
+}
+
+/**
+ * Memories read model mapper (STAGE 4B.1).
+ *
+ * Reuses the canonical safe content DTO as its base, so the DTO boundary
+ * (no original_storage_path, no preview_storage_path, no bucket, no signed
+ * URL, no service metadata) is inherited instead of re-implemented.
+ *
+ * Adds only what the Timeline cannot derive on its own:
+ *   - kind     (derived from the persisted shape, never stored)
+ *   - albumIds (projected from homecloud_album_items, the membership
+ *               authority; albums are never embedded in the Memory)
+ *
+ * `lifecycle` is intentionally NOT projected: the read model returns active
+ * Memories only, and the current frontend Memory contract has no lifecycle
+ * field. `hasPreview` (inherited) IS the preview availability signal; the
+ * preview access semantics stay the existing signed-access contract
+ * (GET /content/:id/access?variant=preview, typed preview_unavailable).
+ *
+ * @param {Object} row homecloud_contents row with role='memory'
+ * @param {string[]} [albumIds] Album ids this Memory belongs to
+ * @returns {Object} Memory read-model DTO
+ */
+function mapMemoryRowToReadDto(row, albumIds = []) {
+  const base = mapContentRowToDto(row);
+  if (base.role !== 'memory') {
+    throw new Error('homecloud_memory_read_requires_memory_role');
+  }
+  return {
+    ...base,
+    kind: deriveMemoryKind(row),
+    albumIds: [...albumIds],
+  };
+}
+
+/**
+ * Safe folder mapper: DB row -> canonical HomeCloud Folder DTO.
+ * Minimal representation per HC-1F Product Truth.
+ */
+function mapFolderRowToDto(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    createdByMemberId: row.created_by_member_id ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * Safe album mapper: DB row -> canonical HomeCloud Album DTO.
+ * Minimal representation per HC-1F Product Truth (active only).
+ */
+function mapAlbumRowToDto(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    createdByMemberId: row.created_by_member_id ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+module.exports = {
+  mapContentRowToDto,
+  mapMemoryRowToReadDto,
+  deriveMemoryKind,
+  HOME_CLOUD_MEMORY_KINDS,
+  mapFolderRowToDto,
+  mapAlbumRowToDto,
+};
