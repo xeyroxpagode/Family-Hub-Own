@@ -9,7 +9,7 @@ import { memoryAttemptTrace, memoryDevTrace } from './homecloudMemoryDiagnostics
 import { runtimeTrace } from '../runtimeTrace';
 import * as FileSystem from 'expo-file-system/legacy';
 import { reclassifyMemoryAttempt, type MemoryAttempt } from './homecloudMemoryAttempt';
-import { resolveCapturedArtifactFormat } from './homecloudArtifactMime';
+import { probeGalleryVideoFormat, resolveCapturedArtifactFormat } from './homecloudArtifactMime';
 
 export interface MemoryPickerResult {
   success: true;
@@ -24,7 +24,9 @@ export type MemoryPickerOutcome = MemoryPickerResult | MemoryPickerCancelled | M
 
 const MIME_EXTENSIONS: Record<string, string> = {
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif',
-  'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/x-matroska': 'mkv', 'video/webm': 'webm',
+  'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/mov': 'mov', 'video/x-quicktime': 'mov',
+  'video/x-m4v': 'm4v', 'video/3gpp': '3gp', 'video/3gpp2': '3g2',
+  'video/x-matroska': 'mkv', 'video/webm': 'webm',
   'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/wav': 'wav', 'audio/x-wav': 'wav',
   'audio/aac': 'aac', 'audio/ogg': 'ogg', 'audio/flac': 'flac', 'audio/webm': 'webm', 'audio/3gpp': '3gp',
 };
@@ -45,16 +47,47 @@ function imagePickerMime(asset: ImagePicker.ImagePickerAsset): string | null {
   return null;
 }
 async function imageOutcome(asset: ImagePicker.ImagePickerAsset, source: 'gallery', attempt?: MemoryAttempt): Promise<MemoryPickerOutcome> {
-  const mimeType = imagePickerMime(asset);
+  let mimeType = imagePickerMime(asset);
   if (!mimeType) return { success: false, cancelled: false, error: 'Solo podés agregar fotos o videos.' };
   const rawName = asset.fileName ?? asset.uri.split('/').pop() ?? 'recuerdo';
-  const extension = extensionFrom(rawName, mimeType);
+  let extension = extensionFrom(rawName, mimeType);
   if (attempt) reclassifyMemoryAttempt(attempt, mimeType.startsWith('video/') ? 'video' : 'image');
   if (attempt) {
     memoryAttemptTrace(attempt, `${attempt.label}_picker_start`, { selected: true });
     memoryAttemptTrace(attempt, `${attempt.label}_picker_end`, { assetType: asset.type, mimeType });
   }
   memoryDevTrace('picker_end', { assetType: asset.type, uriScheme: asset.uri.split(':', 1)[0], mimeType, fileSize: asset.fileSize ?? null, width: asset.width, height: asset.height, exifKeyCount: asset.exif ? Object.keys(asset.exif).length : 0 });
+  // GALLERY VIDEO FORMAT HONESTY: the native gallery cache filename lies on both
+  // platforms (Android always stages video as `.mp4`, iOS legacy as `.mov`),
+  // and `fileName`/`mime` can be null when the ContentResolver query misses.
+  // Probe ONLY a bounded 32-byte header (never the whole video into JS RAM) and
+  // adopt the format the bytes name. The bytes themselves are untouched: no
+  // transcoding, no re-encode, no second uploader. Images keep the
+  // picker-derived values verbatim, and a probe that cannot name a video format
+  // returns null so a valid video is never blocked.
+  //
+  // LEGACY_OR_REMOTE_GALLERY_ASSET_EDGE_CASE: an old or not-yet-materializable
+  // iCloud asset can fail HERE, before a draft exists. That is the intended
+  // fail-safe shape and it needs no new machinery: the probe is fail-open, and
+  // a staging failure surfaces as `InvalidDurableArtifactError` ("Elegí otro e
+  // intentá de nuevo") with its temp folder removed. The service reports it as a
+  // `failed` state, the picker guard is released in the caller's `finally`, no
+  // job is created and no partial draft is kept, so the same button retries.
+  if (mimeType.startsWith('video/')) {
+    const probed = await probeGalleryVideoFormat(asset.uri);
+    if (probed) {
+      memoryDevTrace('video_format_probe', {
+        kind: 'video',
+        uriScheme: asset.uri.split(':', 1)[0],
+        mimeType,
+        extension,
+        probedMimeType: probed.mimeType,
+        probedExtension: probed.extension,
+      });
+      mimeType = probed.mimeType;
+      extension = probed.extension;
+    }
+  }
   if (attempt) memoryAttemptTrace(attempt, 'artifact_copy_start', { mimeType });
   const durable = await copyArtifactToDurableWorkspace({ localUri: asset.uri, displayName: ensureSingleExtension(rawName, extension), mimeType, sizeBytes: asset.fileSize ?? 0, extension });
   if (attempt) memoryAttemptTrace(attempt, 'artifact_copy_end', { sizeBytes: durable.sizeBytes });

@@ -104,6 +104,17 @@ const commands = {
     ['scripts/compiled/scripts/homecloud_4c1_1_memory_create_recovery_tests.js'],
   ),
 
+  'homecloud-s0-gallery-intake-contract': () => runCommand(
+    'HomeCloud S0 gallery intake contract tests',
+    'node',
+    ['scripts/homecloud_s0_gallery_intake_contract_tests.js'],
+  ),
+  'homecloud-s0-modal-host-contract': () => runCommand(
+    'HomeCloud S0 single modal host contract tests',
+    'node',
+    ['scripts/homecloud_s0_modal_host_contract_tests.js'],
+  ),
+
   'homecloud-4c1-compile': () => runCommand(
     'Compile HomeCloud 4C1 focused tests',
     'npm',
@@ -716,6 +727,8 @@ const suites = {
     'homecloud-4c1-compile',
     'homecloud-4c1-memory-create',
     'homecloud-4c1-1-memory-create-recovery',
+    'homecloud-s0-gallery-intake-contract',
+    'homecloud-s0-modal-host-contract',
     'homecloud-stage-a1-capture-recovery',
     'homecloud-4b2-timeline',
     'homecloud-2c-frontend-structure',

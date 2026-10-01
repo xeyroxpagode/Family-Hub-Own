@@ -91,6 +91,21 @@ type BinaryDraftClearReason = 'completed' | 'review_close' | 'focus_lost' | 'rer
  *   picker guard is released regardless.
  * - CLOSE: every transient flag is dropped and the guard released; Create is
  *   ready to open again without remounting anything.
+ *
+ * ONE NATIVE MODAL HOST for source + binary
+ * ------------------------------------------
+ * ROOT CAUSE of "the picked video never reaches the Review" was a dismiss/present
+ * race, proven on device: a `source` Modal and a separate `binary` Modal plus the
+ * native gallery picker meant the flow had to dismiss one and present the next
+ * inside the same turn, and iOS silently dropped it. The draft existed, but no
+ * Review was ever rendered.
+ *
+ * The fix is structural, not a timer or a callback: `source` and `binary` are
+ * CONTENT of a single Modal host that stays presented across
+ * source → native gallery picker → binary, so there is no second native
+ * presentation to race and no `onDismiss` is ever an authority. Sheet visibility
+ * is `visible` and nothing else; `handleSourceBinaryRequestClose` is the single
+ * close authority, and its policy varies per content (see below).
  */
 export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   const isFocused = useIsFocused();
@@ -256,6 +271,13 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   }, [clearBinaryDraft, onComplete, state.contentId, state.status]);
 
   const active = ['preparing', 'uploading', 'verifying', 'finalizing'].includes(state.status);
+  /**
+   * REVIEW_READY — the ONE save-enable contract for every binary source
+   * (gallery image, gallery video, camera, recorder): a durable draft exists and
+   * no submit is in flight. Source, kind and MIME are deliberately NOT part of
+   * it, so no source can end up with a Save button the others do not have.
+   */
+  const saveDisabled = !binaryDraft || active;
 
   // The trigger depends on the LOCAL guard only. A remote status that could be
   // orphaned must never be able to disable the only entry point.
@@ -350,6 +372,29 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   }, [initialAlbumId]);
 
   const closeCamera = useCallback(() => { attemptAuthorityRef.current.invalidate(); setSheet('create'); }, []);
+
+  /**
+   * SINGLE NATIVE MODAL HOST — the close policy for the source+binary host.
+   *
+   * `source` and `binary` are CONTENT of one Modal instance, so moving between
+   * them is a content transition and never a dismissal of the flow: this
+   * handler is reached only from the real close affordances (X, backdrop and
+   * the Android hardware back), which ActionSheet funnels through
+   * `onRequestClose`.
+   * - SOURCE: back to create.
+   * - BINARY, idle: abandon the review.
+   * - BINARY, submitting: `closeDisabled` already blocks this, and the guard
+   *   below is the second line of defence against discarding a live draft.
+   */
+  const handleSourceBinaryRequestClose = useCallback(() => {
+    if (sheet === 'source') {
+      setSheet('create');
+      return;
+    }
+    if (sheet === 'binary' && !active) {
+      closeReview();
+    }
+  }, [active, closeReview, sheet]);
 
   /**
    * Closing the recorder sheet from outside the recorder (close button,
@@ -465,13 +510,67 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
         </View>
       </ActionSheet>
 
-      <ActionSheet visible={sheet === 'source'} title="Elegir contenido" onRequestClose={() => setSheet('create')} size="content">
-        <View style={styles.actions}>
-          <AppButton title={picking ? 'Abriendo…' : 'Fotos y videos'} loading={picking} disabled={picking} onPress={() => void chooseMedia()} />
-          <AppButton title="Audio" variant="secondary" disabled={picking} onPress={() => void chooseAudio()} />
-          <AppButton title="Volver" variant="ghost" disabled={picking} onPress={() => setSheet('create')} />
-          {pickingError ? <View style={styles.error}><AppText variant="bodySmall" tone="danger">{pickingError}</AppText>{state.permissionDenied && state.canAskAgain === false ? <AppButton title="Abrir configuración" size="sm" variant="secondary" onPress={() => void Linking.openSettings()} /> : null}</View> : null}
-        </View>
+      {/*
+       * SINGLE NATIVE MODAL HOST for source + binary.
+       *
+       * One Modal instance stays presented across
+       * source → native gallery picker → binary. Only title, body, footer and
+       * close policy change. That is what makes the picker presentation legal
+       * on iOS (presenting from an already-presented host) and it is why there
+       * is no dismiss/present race and no `onDismiss` authority anywhere in
+       * this flow: the host's visibility is `visible`, nothing else.
+       */}
+      <ActionSheet
+        visible={sheet === 'source' || sheet === 'binary'}
+        title={sheet === 'binary' ? 'Revisar recuerdo' : 'Elegir contenido'}
+        subtitle={sheet === 'binary' && binaryDraft ? formatMediaCaptureDate(binaryDraft.capture) : undefined}
+        onRequestClose={handleSourceBinaryRequestClose}
+        closeDisabled={sheet === 'binary' && active}
+        size={sheet === 'binary' ? 'scrollable-content' : 'content'}
+        keyboardAware={sheet === 'binary'}
+        footer={sheet === 'binary' ? (
+          <AppButton
+            title={binarySubmitLabel(state.status)}
+            loading={active}
+            disabled={saveDisabled}
+            onPress={() => { Keyboard.dismiss(); void (state.status === 'failed' ? service.retry() : submitBinary()); }}
+          />
+        ) : undefined}
+      >
+        {sheet === 'binary' ? (
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            contentContainerStyle={styles.form}
+          >
+            {binaryDraft ? <MemoryMediaReview draft={binaryDraft} attempt={reviewAttempt ?? undefined} /> : null}
+            <MemoryCaptureSummary capture={binaryDraft?.capture} />
+            {binaryDraft?.source === 'audio-recorder' && state.status !== 'failed' ? <AppButton title="Volver a grabar" size="sm" variant="secondary" disabled={active} onPress={reRecordAudio} /> : null}
+            <AppInput
+              label="Texto (opcional)"
+              value={binaryCaption}
+              onChangeText={setBinaryCaption}
+              editable={!active}
+              placeholder="Contá algo sobre este momento…"
+              variant="multiline"
+              returnKeyType="done"
+              blurOnSubmit
+            />
+            <MemoryAlbumSelector albums={albums} value={binaryAlbumId} onChange={setBinaryAlbumId} disabled={active} />
+            {state.status === 'failed' ? (
+              <View style={styles.error}>
+                <AppText variant="bodySmall" tone="danger">{state.error ?? 'No pudimos guardar este recuerdo.'}</AppText>
+              </View>
+            ) : null}
+          </ScrollView>
+        ) : (
+          <View style={styles.actions}>
+            <AppButton title={picking ? 'Abriendo…' : 'Fotos y videos'} loading={picking} disabled={picking} onPress={() => void chooseMedia()} />
+            <AppButton title="Audio" variant="secondary" disabled={picking} onPress={() => void chooseAudio()} />
+            <AppButton title="Volver" variant="ghost" disabled={picking} onPress={() => setSheet('create')} />
+            {pickingError ? <View style={styles.error}><AppText variant="bodySmall" tone="danger">{pickingError}</AppText>{state.permissionDenied && state.canAskAgain === false ? <AppButton title="Abrir configuración" size="sm" variant="secondary" onPress={() => void Linking.openSettings()} /> : null}</View> : null}
+          </View>
+        )}
       </ActionSheet>
 
       <ActionSheet visible={sheet === 'recorder'} title="Grabar audio" onRequestClose={() => abandonRecorder('recorder_sheet_dismissed')} size="content">
@@ -479,50 +578,6 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
       </ActionSheet>
 
       {sheet === 'camera' ? <MemoryCameraSurface onClose={closeCamera} beginAttempt={(kind) => attemptAuthorityRef.current.begin('camera', kind)} ownsAttempt={(attempt) => attemptAuthorityRef.current.owns(attempt)} onUse={acceptCamera} /> : null}
-
-      <ActionSheet
-        visible={sheet === 'binary'}
-        title="Revisar recuerdo"
-        subtitle={binaryDraft ? formatMediaCaptureDate(binaryDraft.capture) : undefined}
-        onRequestClose={() => { if (!active) closeReview(); }}
-        closeDisabled={active}
-        size="scrollable-content"
-        keyboardAware
-        footer={(
-          <AppButton
-            title={binarySubmitLabel(state.status)}
-            loading={active}
-            disabled={!binaryDraft || active}
-            onPress={() => { Keyboard.dismiss(); void (state.status === 'failed' ? service.retry() : submitBinary()); }}
-          />
-        )}
-      >
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          contentContainerStyle={styles.form}
-        >
-          {binaryDraft ? <MemoryMediaReview draft={binaryDraft} attempt={reviewAttempt ?? undefined} /> : null}
-          <MemoryCaptureSummary capture={binaryDraft?.capture} />
-          {binaryDraft?.source === 'audio-recorder' && state.status !== 'failed' ? <AppButton title="Volver a grabar" size="sm" variant="secondary" disabled={active} onPress={reRecordAudio} /> : null}
-          <AppInput
-            label="Texto (opcional)"
-            value={binaryCaption}
-            onChangeText={setBinaryCaption}
-            editable={!active}
-            placeholder="Contá algo sobre este momento…"
-            variant="multiline"
-            returnKeyType="done"
-            blurOnSubmit
-          />
-          <MemoryAlbumSelector albums={albums} value={binaryAlbumId} onChange={setBinaryAlbumId} disabled={active} />
-          {state.status === 'failed' ? (
-            <View style={styles.error}>
-              <AppText variant="bodySmall" tone="danger">{state.error ?? 'No pudimos guardar este recuerdo.'}</AppText>
-            </View>
-          ) : null}
-        </ScrollView>
-      </ActionSheet>
 
       <ActionSheet
         visible={sheet === 'written'}

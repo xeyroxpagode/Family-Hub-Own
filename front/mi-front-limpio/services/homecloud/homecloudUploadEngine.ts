@@ -138,8 +138,27 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     store.put(job);
   }
 
+  /**
+   * The artifact identity each memory phase actually hands to the backend.
+   * Allow-listed scalars only — never tokens, signed URLs, household IDs, file
+   * bytes or paths — so `register`/`upload`/`verify` can be compared from logs
+   * when a memory does not land. Once per job per phase, so it stays quiet.
+   */
+  function memoryArtifactTraceFields(job: UploadJob): { jobId: string; kind: string; mimeType: string | null; extension: string | null; sizeBytes: number | null } | null {
+    if (job.role !== 'memory') return null;
+    const mimeType = job.artifact.mimeType ?? '';
+    return {
+      jobId: job.id,
+      kind: mimeType.startsWith('image/') ? 'image' : mimeType.startsWith('video/') ? 'video' : mimeType.startsWith('audio/') ? 'audio' : 'other',
+      mimeType: mimeType || null,
+      extension: job.artifact.extension ?? null,
+      sizeBytes: job.artifact.sizeBytes ?? null,
+    };
+  }
+
   async function runRegister(job: UploadJob): Promise<UploadJob> {
-    if (job.role === 'memory') memoryDevTrace('register_start', { jobId: job.id });
+    const traceFields = memoryArtifactTraceFields(job);
+    if (traceFields) memoryDevTrace('register_start', traceFields);
     const householdId = getHouseholdId();
     if (!householdId) throw new Error('no active household');
     const guard = guardOwnership(job, { householdId });
@@ -192,7 +211,8 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
   }
 
   async function runUpload(job: UploadJob): Promise<UploadJob> {
-    if (job.role === 'memory') memoryDevTrace('upload_start', { jobId: job.id });
+    const traceFields = memoryArtifactTraceFields(job);
+    if (traceFields) memoryDevTrace('upload_start', traceFields);
     const accessToken = requireAccessToken();
 
     // Resume path: this job already left `uploading` persisted (interrupted
@@ -234,6 +254,7 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
         mimeType: uploadingJob.artifact.mimeType,
       });
       if (!result.ok) {
+        if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id, ok: false, status: result.status });
         throw new Error(`upload transport failed: ${result.status}`);
       }
     } else {
@@ -247,6 +268,7 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
         body: bytes,
       });
       if (!putResp.ok) {
+        if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id, ok: false, status: putResp.status });
         throw new Error(`upload transport failed: ${putResp.status}`);
       }
     }
@@ -255,7 +277,7 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     // at verify, never strand the job at `uploading` again.
     const verifyingJob = transition(uploadingJob, 'verifying');
     persist(verifyingJob);
-    if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id });
+    if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id, ok: true });
     return verifyingJob;
   }
 
@@ -267,11 +289,12 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
       { method: 'POST', accessToken, operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION },
     );
     if (!resp.verified) {
+      if (job.role === 'memory') memoryDevTrace('verify_end', { jobId: job.id, verified: false });
       throw new Error('upload verification failed: original missing or mismatched');
     }
     const finalizingJob = transition(job, 'finalizing');
     persist(finalizingJob);
-    if (job.role === 'memory') memoryDevTrace('verify_end', { jobId: job.id });
+    if (job.role === 'memory') memoryDevTrace('verify_end', { jobId: job.id, verified: true });
     return finalizingJob;
   }
 
