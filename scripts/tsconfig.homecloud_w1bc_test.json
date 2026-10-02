@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-w1bc"
+  },
+  "include": [
+    "../scripts/homecloud_w1bc_pagination_reconciliation_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudFilesPagination.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudReadReconciliation.ts"
+  ],
+  "exclude": ["node_modules"]
+}

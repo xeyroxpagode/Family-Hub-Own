@@ -38,6 +38,11 @@ import {
   type ScannerPage,
   type ScanPdfPageInput,
 } from '../services/homecloud/homecloudScanner';
+import {
+  createScannerSubmitGuard,
+  planScannerCleanupAfterAcceptance,
+  scannerAcceptanceOutcome,
+} from '../services/homecloud/homecloudScannerAcceptance';
 
 type ScannerRoute = {
   folderId?: string | null;
@@ -106,6 +111,22 @@ export function HomeCloudScannerScreen() {
   const pdfRef = useRef<GeneratedPdf | null>(null);
   const savedRef = useRef(false);
   const allowLeaveRef = useRef(false);
+  // W1-C: the acceptance boundary is one-shot and separate from `savedRef`
+  // (which also means "nothing left to discard"). Kept distinct so a
+  // post-acceptance completion can never re-trigger navigation.
+  const acceptedRef = useRef(false);
+  // Synchronous re-entrancy guard. A second tap on "Guardar escaneo" must not
+  // create a SECOND UploadJob: `generating` is React state, so two taps inside
+  // one frame would both read a stale `false` from the closure. The guard flips
+  // synchronously, before any await.
+  const submitGuardRef = useRef(createScannerSubmitGuard());
+  // The acceptance boundary is reached from an async continuation, so it must
+  // never touch navigation or state after this screen is gone.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   const intakeStatusRef = useRef<FileIntakeState['status']>('idle');
   intakeStatusRef.current = intake.status;
   const accessTokenRef = useRef(session?.access_token ?? null);
@@ -146,16 +167,43 @@ export function HomeCloudScannerScreen() {
     void deleteQuietly(pdfUri);
   }, []);
 
-  // Success: the Upload Engine already owns a durable workspace copy, so temp
-  // captures and the source PDF can be removed safely. Return to HomeCloud.
-  useEffect(() => {
-    if (intake.status !== 'completed' || savedRef.current) return;
-    savedRef.current = true;
+  /**
+   * THE ACCEPTANCE BOUNDARY — this is where the Scanner stops being the owner.
+   *
+   * Up to here the Scanner owns the draft: the local captures, the generated
+   * PDF and the decision to stay open and offer a retry. Once the UploadJob is
+   * DURABLY accepted, ownership moves to the household coordinator (execution)
+   * and to the W1-C global read reconciliation (visibility), so the Scanner
+   * detaches immediately instead of waiting for `completed`.
+   *
+   * Only LOCAL, ALREADY-REDUNDANT state is cleaned here: the temporary captures
+   * and the source PDF. The durable workspace copy and the UploadJob are NOT
+   * touched — they belong to the engine, and deleting them here (or relying on
+   * unmount to do it) would be exactly the ownership inversion this fixes.
+   */
+  const handleAccepted = useCallback(() => {
+    if (acceptedRef.current) return; // one-shot: acceptance navigates exactly once
+    acceptedRef.current = true;
     setSaveOpen(false);
     successHaptic();
-    cleanupTempFiles();
+    // Only LOCAL, ALREADY-REDUNDANT state: the temporary captures and the
+    // source PDF. The plan carries no handle to the durable workspace copy and
+    // no way to cancel the job, so detaching can never destroy or abort them.
+    const plan = planScannerCleanupAfterAcceptance({
+      captureUris: pagesRef.current.map((page) => page.uri),
+      generatedPdfUri: pdfRef.current?.uri ?? null,
+    });
+    pagesRef.current = [];
+    setPages([]);
+    pdfRef.current = null;
+    plan.deleteTempCaptureUris.forEach((uri) => void deleteQuietly(uri));
+    void deleteQuietly(plan.deleteGeneratedPdfUri);
+    // Accepted: leaving is no longer a discard, so the back guard must not
+    // intercept this very navigation.
+    allowLeaveRef.current = true;
+    savedRef.current = true;
     navigation.goBack();
-  }, [intake.status, navigation, cleanupTempFiles]);
+  }, [navigation]);
 
   // Refresh the permission snapshot when returning from system Settings.
   useEffect(() => {
@@ -268,7 +316,7 @@ export function HomeCloudScannerScreen() {
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (!service || generating || ACTIVE_INTAKE_STATUSES.has(intakeStatusRef.current)) return;
+    if (!service || !submitGuardRef.current.tryBegin() || ACTIVE_INTAKE_STATUSES.has(intakeStatusRef.current)) return;
     setPdfError(null);
     const name = normalizeScanFileName(fileName);
     setGenerating(true);
@@ -276,14 +324,39 @@ export function HomeCloudScannerScreen() {
     try {
       pdf = await generatePdf(name);
     } catch {
-      setGenerating(false);
-      setPdfError('No pudimos crear el PDF. Tus páginas siguen acá, probá de nuevo.');
-      errorHaptic();
+      submitGuardRef.current.end();
+      // BEFORE acceptance: the Scanner stays open, the pages and the local PDF
+      // survive, and a retry is possible. No navigation, ever.
+      if (mountedRef.current) {
+        setGenerating(false);
+        setPdfError('No pudimos crear el PDF. Tus páginas siguen acá, probá de nuevo.');
+        errorHaptic();
+      }
       return;
     }
-    setGenerating(false);
+    if (mountedRef.current) setGenerating(false);
     await service.submitArtifact(buildScannerArtifact({ localUri: pdf.uri, sizeBytes: pdf.sizeBytes, displayName: name }));
-  }, [service, generating, fileName, generatePdf]);
+    submitGuardRef.current.end();
+
+    // THE ACCEPTANCE BOUNDARY, decided from the REAL accepted signal.
+    //
+    // `getAcceptedJobId()` is set by the intake service only after the
+    // UploadJob has been durably persisted, and it stays `null` for every
+    // failure before that (durable copy, register enqueue). So this is the
+    // acceptance boundary itself — not a timeout, not a visual status and not
+    // the start of the upload.
+    const outcome = scannerAcceptanceOutcome({
+      acceptedJobId: service.getAcceptedJobId(),
+      alreadyAccepted: acceptedRef.current,
+    });
+    // BEFORE acceptance: the failure is already projected by the service, so the
+    // Scanner deliberately stays open with the error and a retry.
+    if (outcome.kind !== 'detach') return;
+    if (!mountedRef.current) return;
+    // AFTER acceptance: detach now. The coordinator keeps uploading, and the
+    // W1-C global reconciliation makes the file appear on its own.
+    handleAccepted();
+  }, [service, fileName, generatePdf, handleAccepted]);
 
   const handleRetrySave = useCallback(async () => {
     if (!service) return;

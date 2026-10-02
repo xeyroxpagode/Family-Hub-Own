@@ -2,6 +2,7 @@
 import type { UploadJob, UploadLocalArtifact } from './homecloudUploadTypes';
 import type { UploadJobStore } from '../../storage/homecloudUploadJobStorage';
 import { transition } from './homecloudUploadJob';
+import { reconcileHomeCloudReadAfterCompletion } from './homecloudReadReconciliation';
 
 export type UploadCoordinatorSnapshot = { householdId: string; activeJobId: string | null; jobs: UploadJob[] };
 export type UploadCoordinatorDeps = {
@@ -81,6 +82,27 @@ export function ensureUploadCoordinator(initial: UploadCoordinatorDeps): UploadC
       try { await deps.cleanupTerminalArtifact?.(job.artifact); } catch { /* sweep is the backstop */ }
     }
   };
+  /**
+   * W1-C: the ONE point where an upload becomes visible to the rest of the app.
+   *
+   * `run` returns the job as the DURABLE store now holds it, so this observes a
+   * real `completed` transition owned by the one execution owner per household —
+   * not a UI callback. The intake surface that accepted the job is usually gone
+   * by now, and that no longer matters: reconciliation is global and household
+   * scoped, so Files/Memories refresh whether or not they are mounted, and the
+   * Scanner lands on exactly the same path. The call is idempotent per job, so a
+   * repeated observation cannot loop.
+   */
+  const reconcileReadState = (job: UploadJob) => {
+    if (job.state !== 'completed') return;
+    // The JOB supplies the household, never the caller: a completion of a job
+    // in household A cannot refresh household B.
+    reconcileHomeCloudReadAfterCompletion({
+      householdId: job.householdId,
+      jobId: job.id,
+      role: job.role,
+    });
+  };
   const runPump = async (): Promise<void> => {
     for (;;) {
       const next = ordered(deps.store, deps.householdId).find((job) => eligible(job, retryIds));
@@ -93,6 +115,7 @@ export function ensureUploadCoordinator(initial: UploadCoordinatorDeps): UploadC
         // may invoke it while this pump promise owns the household.
         const run = deps.run;
         const finished = await run(next.id);
+        reconcileReadState(finished);
         await cleanup(finished);
       } catch { /* failure is persisted by the engine; decide from latest below */ }
       finally { activeJobId = null; notify(); }

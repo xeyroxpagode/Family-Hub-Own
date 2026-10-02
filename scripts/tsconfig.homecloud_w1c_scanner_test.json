@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-w1cscanner"
+  },
+  "include": [
+    "../scripts/homecloud_w1c_scanner_acceptance_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudScannerAcceptance.ts"
+  ],
+  "exclude": ["node_modules"]
+}

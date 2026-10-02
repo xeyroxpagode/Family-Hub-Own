@@ -99,6 +99,42 @@ const commands = {
       { env },
     );
   },
+  'homecloud-w1bc-pagination-reconciliation': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud W1-B/W1-C compile pagination/reconciliation tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_w1bc_test.json'],
+    );
+    return runCommand(
+      'HomeCloud W1-B/W1-C files pagination / global completion reconciliation tests',
+      'node',
+      ['scripts/compiled-w1bc/scripts/homecloud_w1bc_pagination_reconciliation_tests.js'],
+      { env },
+    );
+  },
+  'homecloud-w1c-scanner-acceptance': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud W1-C compile scanner accept/detach tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_w1c_scanner_test.json'],
+    );
+    return runCommand(
+      'HomeCloud W1-C scanner accept -> detach regression tests',
+      'node',
+      ['scripts/compiled-w1cscanner/scripts/homecloud_w1c_scanner_acceptance_tests.js'],
+      { env },
+    );
+  },
   'homecloud-3e-scanner': () => runCommand(
     'HomeCloud 3E scanner logic tests',
     'node',
@@ -784,6 +820,17 @@ const suites = {
     'homecloud-2a-upload-job',
     'homecloud-upload-recovery',
     'homecloud-w1a-authority',
+    'homecloud-w1bc-pagination-reconciliation',
+    'homecloud-w1c-scanner-acceptance',
+    'frontend-typecheck',
+  ],
+  'homecloud-w1': [
+    'homecloud-w1a-authority',
+    'homecloud-w1bc-pagination-reconciliation',
+    'homecloud-w1c-scanner-acceptance',
+    'homecloud-t1-stale-job',
+    'homecloud-t1-queue-persistence',
+    'homecloud-4b2-timeline',
     'frontend-typecheck',
   ],
   'homecloud-slice01': [

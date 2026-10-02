@@ -12,6 +12,8 @@ supabase/snippets/
 /scripts/compiled-reliability-repro/
 /scripts/compiled-t1stale/
 /scripts/compiled-w1a/
+/scripts/compiled-w1bc/
+/scripts/compiled-w1cscanner/
 /scripts/scripts/
 /.env
 /.env.local

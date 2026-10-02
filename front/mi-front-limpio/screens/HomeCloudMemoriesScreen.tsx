@@ -8,6 +8,7 @@ import { MemoryCard } from '../components/homecloud/MemoryCards';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
 import { listMemories } from '../services/homecloud/homecloudReadService';
+import { subscribeHomeCloudReadReconciliation } from '../services/homecloud/homecloudReadReconciliation';
 import { MemoryIntake } from '../services/homecloud/MemoryIntake';
 import { useHomeCloudCapabilities } from '../services/homecloud/useHomeCloudCapabilities';
 import { homeCloudCapabilitiesNotice } from '../services/homecloud/homecloudCapabilitiesNotice';
@@ -74,20 +75,33 @@ export function HomeCloudMemoriesView() {
     }
   }, [token, currentHousehold?.id]);
 
+  /**
+   * W1-C: the read itself, with no presentation attached.
+   *
+   * A completion must re-read the FIRST page (a new memory lands at the top) but
+   * must not blank the Timeline or fake a pull-to-refresh, so the three callers
+   * — first load, pull-to-refresh and global reconciliation — share this one
+   * read and each owns only its own indicator.
+   */
+  const readFirstPage = useCallback(async () => {
+    if (!token || !currentHousehold?.id) return;
+    const page = await listMemories(token, { limit: MEMORIES_PAGE_SIZE });
+    setMemories([...page.memories]);
+    setNextOffset(page.nextOffset);
+  }, [token, currentHousehold?.id]);
+
   const refresh = useCallback(async () => {
     if (!token || !currentHousehold?.id) return;
     setRefreshing(true);
     setError(null);
     try {
-      const page = await listMemories(token, { limit: MEMORIES_PAGE_SIZE });
-      setMemories([...page.memories]);
-      setNextOffset(page.nextOffset);
+      await readFirstPage();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No pudimos cargar tus recuerdos.');
     } finally {
       setRefreshing(false);
     }
-  }, [token, currentHousehold?.id]);
+  }, [readFirstPage, token, currentHousehold?.id]);
 
   const loadMore = useCallback(async () => {
     if (!token || !currentHousehold?.id || nextOffset === null || loadingMore || loading) return;
@@ -122,6 +136,24 @@ export function HomeCloudMemoriesView() {
     setNextOffset(null);
     setError(null);
   }, [currentHousehold?.id]);
+
+  /**
+   * W1-C: correctness of the timeline does NOT depend on `MemoryIntake`.
+   *
+   * The intake instance that accepted a memory may unmount, be rebuilt or
+   * change service before the job finalizes, so its `onComplete` is a local UX
+   * convenience (it closes the flow) and never the authority. This
+   * subscription is: global, household scoped, silent, and idempotent per job.
+   */
+  useEffect(() => {
+    if (!currentHousehold?.id || !token) return;
+    return subscribeHomeCloudReadReconciliation(currentHousehold.id, (event) => {
+      if (event.role !== 'memory') return;
+      void readFirstPage().catch(() => {
+        /* A silent reconciliation never replaces the Timeline with an error. */
+      });
+    });
+  }, [currentHousehold?.id, token, readFirstPage]);
 
   const sections = useMemo<TimelineListSection[]>(
     () => flattenTimelineForSectionList(groupMemoriesForTimeline(memories), TIMELINE_COLUMNS),
