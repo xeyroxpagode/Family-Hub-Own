@@ -15,6 +15,7 @@ import { ForgotPasswordScreen } from '../screens/ForgotPassword';
 import { UpdatePasswordScreen } from '../screens/UpdatePassword';
 import { StandardShell } from './StandardShell';
 import { PlannerReliabilityRuntimeOwner } from '../components/planner/PlannerReliabilityRuntimeOwner';
+import { HomeCloudScopeOwner } from '../components/homecloud/HomeCloudScopeOwner';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { FeedFamiliarScreen } from '../screens/feed/FeedFamiliarScreen';
 import { ExperienceSelectorScreen } from '../screens/ExperienceSelectorScreen';
@@ -289,6 +290,7 @@ const PrivateNavigator = () => {
   // on every switch (which would dispose the runtime TWICE: once via
   // React unmount cleanup, once because we pass to a new key).
   return (
+    <HomeCloudScopeOwner>
     <PlannerReliabilityRuntimeOwner ownerSurface="AppShellPrivate">
     <PrivateStackInstance initialPrivateRoute={initialPrivateRoute}>
     <PrivateStack.Navigator
@@ -309,6 +311,7 @@ const PrivateNavigator = () => {
     </PrivateStack.Navigator>
     </PrivateStackInstance>
     </PlannerReliabilityRuntimeOwner>
+    </HomeCloudScopeOwner>
   );
 };
 

@@ -145,3 +145,75 @@ export function evaluateHomeCloudCapabilities(
     anyWrite: canWriteHomeCloud(projection),
   };
 }
+
+/**
+ * W1-A — DENY-ALL DESCRIPTOR (the one safe absence).
+ *
+ * Shared by reference on purpose: every surface that cannot resolve a
+ * projection MUST hand intake services this same object, so a failed
+ * capabilities read can never present itself as "this member simply has no
+ * actions" while also being a new object identity on every attempt.
+ */
+export const DENY_ALL_HOME_CLOUD_CAPABILITIES: HomeCloudCapabilityDescriptor = Object.freeze({
+  view: false,
+  contribute: false,
+  organize: false,
+  delete: false,
+  anyWrite: false,
+});
+
+/**
+ * W1-A — STABLE DESCRIPTOR IDENTITY.
+ *
+ * `evaluateHomeCloudCapabilities` is a pure function, so it necessarily
+ * allocates a new object per call. Intake surfaces (FileIntake, MemoryIntake)
+ * use the descriptor as a `useMemo` dependency and rebuild their service when
+ * that identity changes; the service owns `acceptedJobId`, its subscription
+ * and its presentation binding in closure state, so a useless identity change
+ * silently discards an accepted job.
+ *
+ * `evaluateStableHomeCloudCapabilities` therefore memoizes BY EFFECTIVE
+ * VALUE: while the five booleans are unchanged it returns the SAME frozen
+ * object, so a capabilities refetch that resolves the same projection cannot
+ * recreate an intake service. The value that is compared is always the result
+ * of the canonical pure evaluation — this adds identity stability only, it
+ * never changes which capabilities are granted, and it never widens access.
+ */
+let lastStableDescriptor: HomeCloudCapabilityDescriptor = DENY_ALL_HOME_CLOUD_CAPABILITIES;
+
+function sameEffectiveDescriptor(
+  a: HomeCloudCapabilityDescriptor,
+  b: HomeCloudCapabilityDescriptor,
+): boolean {
+  return (
+    a.view === b.view &&
+    a.contribute === b.contribute &&
+    a.organize === b.organize &&
+    a.delete === b.delete &&
+    a.anyWrite === b.anyWrite
+  );
+}
+
+/**
+ * Evaluate the capability matrix with a stable identity.
+ * Same effective values ⇒ same object reference (`Object.is`).
+ */
+export function evaluateStableHomeCloudCapabilities(
+  projection: HomeCloudCapabilitiesProjection | null | undefined,
+): HomeCloudCapabilityDescriptor {
+  const evaluated = evaluateHomeCloudCapabilities(projection);
+  // The deny-all fallback is returned by reference ALWAYS, so a failed read can
+  // never present itself as a new value on each attempt.
+  if (sameEffectiveDescriptor(evaluated, DENY_ALL_HOME_CLOUD_CAPABILITIES)) {
+    lastStableDescriptor = DENY_ALL_HOME_CLOUD_CAPABILITIES;
+    return DENY_ALL_HOME_CLOUD_CAPABILITIES;
+  }
+  if (sameEffectiveDescriptor(evaluated, lastStableDescriptor)) return lastStableDescriptor;
+  lastStableDescriptor = Object.freeze(evaluated);
+  return lastStableDescriptor;
+}
+
+/** Test-only: drop the memo slot so a case starts from DENY-ALL. */
+export function __resetHomeCloudCapabilityDescriptorMemoForTests(): void {
+  lastStableDescriptor = DENY_ALL_HOME_CLOUD_CAPABILITIES;
+}

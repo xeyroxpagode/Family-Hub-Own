@@ -81,6 +81,24 @@ const commands = {
       { env },
     );
   },
+  'homecloud-w1a-authority': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud W1-A compile authority/capabilities/invalidation tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_w1a_test.json'],
+    );
+    return runCommand(
+      'HomeCloud W1-A authority / capabilities / household invalidation tests',
+      'node',
+      ['scripts/compiled-w1a/scripts/homecloud_w1a_authority_tests.js'],
+      { env },
+    );
+  },
   'homecloud-3e-scanner': () => runCommand(
     'HomeCloud 3E scanner logic tests',
     'node',
@@ -765,6 +783,7 @@ const suites = {
     'homecloud-2c-frontend-structure',
     'homecloud-2a-upload-job',
     'homecloud-upload-recovery',
+    'homecloud-w1a-authority',
     'frontend-typecheck',
   ],
   'homecloud-slice01': [

@@ -9,8 +9,8 @@ import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
 import { listMemories } from '../services/homecloud/homecloudReadService';
 import { MemoryIntake } from '../services/homecloud/MemoryIntake';
-import { evaluateHomeCloudCapabilities } from '../services/homecloud/homecloudCapabilitiesAdapter';
-import { fetchHomeCloudCapabilities } from '../services/homecloudCapabilities';
+import { useHomeCloudCapabilities } from '../services/homecloud/useHomeCloudCapabilities';
+import { homeCloudCapabilitiesNotice } from '../services/homecloud/homecloudCapabilitiesNotice';
 import type { HomeCloudMemoryListItem } from '../services/homecloud/homecloudTypes';
 import {
   flattenTimelineForSectionList,
@@ -48,7 +48,13 @@ export function HomeCloudMemoriesView() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [capabilities, setCapabilities] = useState({ view: false, contribute: false, organize: false, delete: false, anyWrite: false });
+
+  // W1-A: the capabilities projection is read ONCE per scope through the
+  // canonical cached fetch and lives outside the Timeline load, so paging,
+  // refreshing and remounting the Timeline cannot re-request it, and its
+  // failure can never become "tus recuerdos no cargan".
+  const capabilities = useHomeCloudCapabilities();
+  const capabilitiesNotice = homeCloudCapabilitiesNotice(capabilities);
 
   const loadFirstPage = useCallback(async () => {
     if (!token || !currentHousehold?.id) {
@@ -61,9 +67,6 @@ export function HomeCloudMemoriesView() {
       const page = await listMemories(token, { limit: MEMORIES_PAGE_SIZE });
       setMemories([...page.memories]);
       setNextOffset(page.nextOffset);
-      void fetchHomeCloudCapabilities(token)
-        .then((projection) => setCapabilities(evaluateHomeCloudCapabilities(projection)))
-        .catch(() => setCapabilities({ view: false, contribute: false, organize: false, delete: false, anyWrite: false }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No pudimos cargar tus recuerdos.');
     } finally {
@@ -139,13 +142,25 @@ export function HomeCloudMemoriesView() {
             config={{
               householdId: currentHousehold.id,
               accessToken: token,
-              capabilities,
+              capabilities: capabilities.descriptor,
               intakeSource: 'homecloud:memories',
             }}
             onComplete={() => void refresh()}
           />
         ) : null}
       </View>
+      {capabilitiesNotice ? (
+        <View style={styles.notice}>
+          <AppText variant="caption" tone="secondary">{capabilitiesNotice}</AppText>
+          <AppButton
+            title="Reintentar"
+            size="sm"
+            variant="ghost"
+            onPress={capabilities.revalidate}
+            accessibilityLabel="Reintentar verificación de permisos de HomeCloud"
+          />
+        </View>
+      ) : null}
       {loading ? (
         <MemoriesLoadingSkeleton />
       ) : error && memories.length === 0 ? (
@@ -236,6 +251,14 @@ function MemoriesLoadingSkeleton() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background.base },
   headerTitle: { flex: 1 },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing[3],
+    paddingHorizontal: spacing[5],
+    paddingBottom: spacing[2],
+  },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',

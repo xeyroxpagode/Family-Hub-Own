@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-w1a"
+  },
+  "include": [
+    "../scripts/homecloud_w1a_authority_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudCapabilitiesAdapter.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudCapabilitiesNotice.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudReadFailure.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudScopeInvalidation.ts"
+  ],
+  "exclude": ["node_modules"]
+}
