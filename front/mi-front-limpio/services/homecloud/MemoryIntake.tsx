@@ -57,7 +57,7 @@ let nextMemoryIntakeInstanceId = 1;
  * Every reason the binary draft can disappear. There is NO path that clears it
  * without naming one, so a lost draft is always traceable to a cause.
  */
-type BinaryDraftClearReason = 'completed' | 'review_close' | 'focus_lost' | 'rerecord';
+type BinaryDraftClearReason = 'accepted' | 'completed' | 'review_close' | 'focus_lost' | 'rerecord';
 
 /**
  * HomeCloud STAGE 4C.1.1 — Memory create runtime recovery.
@@ -122,6 +122,7 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   const [binaryCaption, setBinaryCaption] = useState('');
   const [binaryAlbumId, setBinaryAlbumId] = useState<string | null>(initialAlbumId ?? null);
   const [picking, setPicking] = useState(false);
+  const [accepting, setAccepting] = useState(false);
   const [writtenText, setWrittenText] = useState('');
   const [writtenDate, setWrittenDate] = useState<SemanticDateDraft>(emptySemanticDateDraft);
   const [writtenAlbumId, setWrittenAlbumId] = useState<string | null>(initialAlbumId ?? null);
@@ -132,6 +133,10 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   // Local owner of the pending picker guard. A ref (not derived state) so a
   // double tap in the same tick is refused synchronously.
   const pickingRef = useRef(false);
+  // Synchronous per-review acceptance guard. React state cannot protect two
+  // presses that arrive before the first render commits.
+  const acceptedDraftRef = useRef<string | null>(null);
+  const acceptingRef = useRef(false);
   // Attempt ownership: only the newest attempt may commit its draft.
   const pickerAttemptRef = useRef(0);
   const mountedRef = useRef(true);
@@ -251,6 +256,7 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
     const draft = binaryDraftRef.current;
     memoryDevTrace('draft_clear', { reason, source: draft?.source ?? null, mimeType: draft?.artifact.mimeType ?? null });
     setBinaryDraft(null);
+    acceptedDraftRef.current = null;
     setReviewAttempt(null);
     setBinaryCaption('');
     setBinaryAlbumId(initialAlbumId ?? null);
@@ -277,11 +283,11 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
    * no submit is in flight. Source, kind and MIME are deliberately NOT part of
    * it, so no source can end up with a Save button the others do not have.
    */
-  const saveDisabled = !binaryDraft || active;
+  const saveDisabled = !binaryDraft || active || accepting;
 
   // The trigger depends on the LOCAL guard only. A remote status that could be
   // orphaned must never be able to disable the only entry point.
-  const triggerDisabled = !capabilities.contribute || active || picking;
+  const triggerDisabled = !capabilities.contribute || picking || accepting;
   // Owned by the service, not by local state: `pickMemory` clears the previous
   // error on every new attempt, so a failure is shown exactly where it happened
   // (the create sheet) and can never leak into the next Review.
@@ -302,6 +308,7 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
       if (!draft) return;
       if (!mountedRef.current || pickerAttemptRef.current !== attempt || !attemptAuthorityRef.current.owns(mediaAttempt)) return;
       setBinaryDraft(draft);
+      acceptedDraftRef.current = null;
       setReviewAttempt(mediaAttempt);
       setBinaryCaption('');
       setBinaryAlbumId(initialAlbumId ?? null);
@@ -391,10 +398,10 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
       setSheet('create');
       return;
     }
-    if (sheet === 'binary' && !active) {
+    if (sheet === 'binary' && !active && !accepting) {
       closeReview();
     }
-  }, [active, closeReview, sheet]);
+  }, [accepting, active, closeReview, sheet]);
 
   /**
    * Closing the recorder sheet from outside the recorder (close button,
@@ -422,7 +429,7 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
     });
     pickerAttemptRef.current += 1; pickingRef.current = false; attemptAuthorityRef.current.invalidate();
     setPicking(false); setPendingAudioDraft(null);
-    if (!service.hasActiveJob()) discardDraftArtifact(binaryDraft);
+    if (!service.hasActiveJob() && !acceptingRef.current) discardDraftArtifact(binaryDraft);
     clearBinaryDraft('focus_lost'); service.dismiss(); setSheet(null);
   }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, isFocused, service]);
 
@@ -436,16 +443,33 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
   }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, service]);
 
   const submitBinary = useCallback(async () => {
-    if (!binaryDraft || active) return;
+    const draftKey = reviewAttempt?.id ?? binaryDraft?.artifact.localUri;
+    if (!binaryDraft || active || !draftKey || acceptedDraftRef.current === draftKey) return;
+    acceptedDraftRef.current = draftKey;
+    acceptingRef.current = true;
+    setAccepting(true);
     const capture = binaryDraft.capture;
     if (reviewAttempt) memoryAttemptTrace(reviewAttempt, 'submit', { mimeType: binaryDraft.artifact.mimeType });
     else memoryDevTrace('submit_press', { source: binaryDraft.source, mimeType: binaryDraft.artifact.mimeType });
-    await service.createBinaryMemory(binaryDraft, {
+    const acceptedJobId = await service.createBinaryMemory(binaryDraft, {
       caption: binaryCaption.trim() || null,
       initialAlbumId: binaryAlbumId,
       ...memoryRegisterCaptureFields(capture),
     }, reviewAttempt ?? undefined);
-  }, [active, binaryAlbumId, binaryCaption, binaryDraft, reviewAttempt, service]);
+    if (!acceptedJobId) {
+      acceptedDraftRef.current = null;
+      acceptingRef.current = false;
+      if (mountedRef.current) setAccepting(false);
+      return;
+    }
+    memoryDevTrace('review_close_requested', { reason: 'durable_acceptance', jobId: acceptedJobId, source: binaryDraft.source });
+    // Ownership transferred to the durable job. Clear UI-only references only:
+    // never discard the artifact and never cancel/dismiss the accepted job.
+    clearBinaryDraft('accepted');
+    acceptingRef.current = false;
+    attemptAuthorityRef.current.invalidate(reviewAttempt ?? undefined);
+    if (mountedRef.current) { setAccepting(false); setSheet(null); }
+  }, [active, binaryAlbumId, binaryCaption, binaryDraft, clearBinaryDraft, reviewAttempt, service]);
 
   const submitWritten = useCallback(async () => {
     if (writtenSubmitting || !writtenText.trim() || semanticDateDraftError(writtenDate)) return;
@@ -483,12 +507,19 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
     setSheet('written');
   };
 
+  const openCreate = useCallback(() => {
+    // Starting a new draft detaches presentation from any previous accepted
+    // job. Execution remains owned by the household coordinator.
+    service.dismiss();
+    setSheet('create');
+  }, [service]);
+
   return (
     <>
       <AppButton
         variant="icon"
         size="sm"
-        onPress={() => setSheet('create')}
+        onPress={openCreate}
         disabled={triggerDisabled}
         accessibilityLabel="Crear recuerdo"
       >
@@ -525,15 +556,15 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
         title={sheet === 'binary' ? 'Revisar recuerdo' : 'Elegir contenido'}
         subtitle={sheet === 'binary' && binaryDraft ? formatMediaCaptureDate(binaryDraft.capture) : undefined}
         onRequestClose={handleSourceBinaryRequestClose}
-        closeDisabled={sheet === 'binary' && active}
+        closeDisabled={sheet === 'binary' && (active || accepting)}
         size={sheet === 'binary' ? 'scrollable-content' : 'content'}
         keyboardAware={sheet === 'binary'}
         footer={sheet === 'binary' ? (
           <AppButton
-            title={binarySubmitLabel(state.status)}
-            loading={active}
+            title={accepting ? 'Guardando…' : binarySubmitLabel(state.status)}
+            loading={active || accepting}
             disabled={saveDisabled}
-            onPress={() => { Keyboard.dismiss(); void (state.status === 'failed' ? service.retry() : submitBinary()); }}
+            onPress={() => { Keyboard.dismiss(); void submitBinary(); }}
           />
         ) : undefined}
       >

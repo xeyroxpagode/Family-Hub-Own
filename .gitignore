@@ -10,6 +10,7 @@ supabase/snippets/
 /scripts/compiled-reliability-frontend/
 /scripts/compiled-reliability-integration/
 /scripts/compiled-reliability-repro/
+/scripts/compiled-t1stale/
 /scripts/scripts/
 /.env
 /.env.local

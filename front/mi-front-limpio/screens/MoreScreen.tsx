@@ -8,7 +8,6 @@ import { InteractivePressable } from '../components/ui/InteractivePressable';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
-import { useAuth } from '../context/AuthContext';
 
 const MODULES = [
   {
@@ -55,7 +54,6 @@ const MODULES = [
 
 export function MoreScreen() {
   const navigation = useNavigation<any>();
-  const { session } = useAuth();
 
   const handleModulePress = (screen: string | null | undefined) => {
     if (!screen) {
@@ -101,29 +99,6 @@ export function MoreScreen() {
         </AppCard>
       </View>
 
-      {__DEV__ && session ? (
-        <View style={styles.devSection}>
-          <AppText variant="caption" tone="tertiary" weight="700" style={styles.devHeader}>DESARROLLO</AppText>
-          <AppCard variant="quiet" padding="compact">
-            <InteractivePressable
-              onPress={() => navigation.navigate('HomeCloudFileIntakeDev')}
-              style={styles.modulePressable}
-              accessibilityLabel="Abrir HomeCloud Intake"
-            >
-              <View style={styles.moduleRow}>
-                <View style={[styles.moduleIcon, { backgroundColor: colors.info.soft }]}>
-                  <HomePlusIcon name="flask-outline" size={22} color={colors.info.base} />
-                </View>
-                <View style={styles.moduleInfo}>
-                  <AppText variant="body" weight="700">HomeCloud Intake</AppText>
-                  <AppText variant="caption" tone="secondary">Harness de prueba para HC-2B / HC-2C</AppText>
-                </View>
-                <HomePlusIcon name="chevron-forward-outline" size={20} color={colors.text.tertiary} />
-              </View>
-            </InteractivePressable>
-          </AppCard>
-        </View>
-      ) : null}
     </AppScreen>
   );
 }

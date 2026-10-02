@@ -58,11 +58,14 @@ record(job.includes('deserializeUploadJob'), 'deserializeUploadJob exists');
 record(job.includes('isRestorableJob'), 'isRestorableJob validity check exists');
 record(job.includes('recoverEntryPoint'), 'recoverEntryPoint supports resume');
 
-// --- picker/capture agnostic ---
+// --- picker/capture agnostic + T1 memory safety ---
 record(types.includes('UploadLocalArtifact'), 'artifact representation is capture-agnostic');
 record(types.includes('UploadIntakeContext'), 'semantic intake context separate from artifact');
-record(engine.includes('createFetchArtifactReader'), 'engine injects artifact reader (picker agnostic)');
-record(engine.includes('UploadArtifactReader'), 'engine types a pluggable artifact reader');
+// T1: no JS-heap whole-file fallback exists anywhere in the upload path.
+record(!engine.includes('createFetchArtifactReader'), 'no fetch artifact reader (T1 deleted hazard)');
+record(!engine.includes('arrayBuffer()'), 'engine never loads whole-file bytes into JS heap');
+record(!engine.includes('normalizeSignedUploadUrlForRuntime'), 'no signed-URL host rewrite (T1 deleted hazard)');
+record(engine.includes('uploadTransport'), 'engine requires a native upload transport');
 
 // --- no direct picker/capture coupling ---
 for (const banned of ['DocumentPicker', 'ImagePicker', 'Scanner', 'Recorder', 'expo-document-picker', 'expo-image-picker']) {

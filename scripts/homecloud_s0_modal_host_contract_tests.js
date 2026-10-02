@@ -84,7 +84,7 @@ record(!/gallery-handoff|pendingBinaryReview|completeGalleryBinaryHandoff/.test(
 
 // gallery image and gallery video share this host and this Review primitive.
 record(host.includes('<MemoryMediaReview'), 'the binary Review lives inside the same host as the source chooser');
-record(host.includes('title={binarySubmitLabel(state.status)}'), 'the Guardar footer is inside the same host as the Review');
+record(host.includes("title={accepting ? 'Guardando…' : binarySubmitLabel(state.status)}"), 'the Guardar footer is inside the same host as the Review');
 record(review.includes('const kind = draft.artifact.mimeType.startsWith'), 'the Review picks a player by MIME, shared by every source and both kinds');
 record(!/draft\.source ===/.test(stripComments(review)), 'the Review never branches its player on the source');
 record(review.includes('pointerEvents="none"') && review.includes('fullscreenOptions={{ enable: false }}'), 'the video preview keeps touch routing correct and does not hijack fullscreen');
@@ -94,9 +94,9 @@ record(actionSheet.includes('backdropDismiss') && actionSheet.includes('modalOve
 record((host.match(/onRequestClose=/g) ?? []).length === 1, 'the host has exactly ONE close handler');
 record(host.includes('onRequestClose={handleSourceBinaryRequestClose}'), 'that handler is the content-aware close policy');
 record(closePolicy.includes("sheet === 'source'") && closePolicy.includes("setSheet('create')"), 'closing the source content returns to create');
-record(closePolicy.includes("sheet === 'binary' && !active") && closePolicy.includes('closeReview()'), 'closing an idle binary content abandons the review');
+record(closePolicy.includes("sheet === 'binary' && !active && !accepting") && closePolicy.includes('closeReview()'), 'closing an idle binary content abandons the review');
 record((closePolicy.slice(0, closePolicy.indexOf('const abandonRecorder')).match(/closeReview\(\)/g) ?? []).length === 1, 'there is exactly one door into closeReview, guarded by `!active`');
-record(host.includes("closeDisabled={sheet === 'binary' && active}"), 'a submitting binary cannot be discarded from any close affordance');
+record(host.includes("closeDisabled={sheet === 'binary' && (active || accepting)}"), 'an accepting/submitting binary cannot be discarded from any close affordance');
 record(actionSheet.includes('const requestClose = () => {') && actionSheetCode.includes('if (!closeDisabled) onRequestClose();'), 'X, backdrop and Android back all funnel through one guarded requestClose');
 record(!/Swipeable|panGesture|GestureDetector|presentationStyle|pageSheet|onSwipeComplete/.test(actionSheetCode), 'the sheet exposes no swipe gesture that could transition behind the close policy');
 

@@ -4,8 +4,7 @@ import { ActionSheet, FormActionRow } from '../../components/ui/ActionSheet';
 import { AppButton } from '../../components/ui/AppButton';
 import { AppText } from '../../components/ui/AppText';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, spacing, radius, touchTargets, motion } from '../../constants/theme';
-import { lightHaptic, mediumHaptic, successHaptic, errorHaptic } from '../../utils/haptics';
+import { colors, spacing, radius, touchTargets } from '../../constants/theme';
 import { createFileIntakeService } from './homecloudFileIntakeService';
 import type { FileIntakeConfig, FileIntakeState, FileIntakeDestination } from './homecloudFileIntakeTypes';
 
@@ -16,23 +15,32 @@ export interface FileIntakeProps {
 }
 
 export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
+  const { householdId, capabilities, initialFolderId, initialFolderName, intakeSource } = config;
   const accessTokenRef = React.useRef(config.accessToken);
   accessTokenRef.current = config.accessToken;
   const getAccessToken = React.useCallback(() => accessTokenRef.current || null, []);
   const [state, setState] = useState<FileIntakeState>({ status: 'idle' });
-  const [sourceSheetVisible, setSourceSheetVisible] = useState(false);
   const [destinationSheetVisible, setDestinationSheetVisible] = useState(false);
   const [destinations, setDestinations] = useState<FileIntakeDestination[]>([]);
   const [showInitialDestination, setShowInitialDestination] = useState(false);
 
-  const service = React.useMemo(() => createFileIntakeService({ ...config, getAccessToken }), [
-    config.householdId,
+  const service = React.useMemo(() => createFileIntakeService({
+    householdId,
+    // Long-running work reads the live ref through getAccessToken. This field
+    // only preserves the config shape for the service's initial construction.
+    accessToken: accessTokenRef.current,
     getAccessToken,
-    config.capabilities.contribute,
-    config.capabilities.organize,
-    config.initialFolderId,
-    config.initialFolderName,
-    config.intakeSource,
+    capabilities,
+    initialFolderId,
+    initialFolderName,
+    intakeSource,
+  }), [
+    householdId,
+    getAccessToken,
+    capabilities,
+    initialFolderId,
+    initialFolderName,
+    intakeSource,
   ]);
 
   useEffect(() => {
@@ -56,8 +64,13 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
 
   const handlePickFile = useCallback(async () => {
     await service.pickFile();
-    setSourceSheetVisible(false);
-  }, [service]);
+    if (service.getAcceptedJobId()) {
+      // Durable acceptance transfers ownership to the coordinator. Closing this
+      // UI must not cancel the job or delete its durable artifact.
+      service.dismiss();
+      onDismiss?.();
+    }
+  }, [onDismiss, service]);
 
   const handleSelectDestination = useCallback((folderId: string | null, folderName: string | null) => {
     service.selectDestination(folderId, folderName);
@@ -68,15 +81,6 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
   const handleRetry = useCallback(async () => {
     await service.retry();
   }, [service]);
-
-  const handleCancel = useCallback(() => {
-    service.cancel();
-  }, [service]);
-
-  const handleDismiss = useCallback(() => {
-    service.dismiss();
-    onDismiss?.();
-  }, [service, onDismiss]);
 
   const renderStatus = () => {
     switch (state.status) {
@@ -176,38 +180,9 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
     );
   };
 
-  const renderSourceSheet = () => {
-    if (!sourceSheetVisible) return null;
-
-    return (
-      <ActionSheet
-        visible={true}
-        title="Agregar archivo"
-        onRequestClose={() => setSourceSheetVisible(false)}
-        size="content"
-      >
-        <View style={styles.sourceSheetContent}>
-          <AppButton
-            variant="primary"
-            onPress={handlePickFile}
-            accessibilityLabel="Elegir archivo del dispositivo"
-            style={styles.sourceAction}
-          >
-            <View style={styles.sourceActionContent}>
-              <HomePlusIcon name="document-outline" size={24} color={colors.text.inverse} />
-              <AppText variant="bodyLarge" weight="600" style={{ marginLeft: spacing[3] }}>Elegir archivo</AppText>
-            </View>
-          </AppButton>
-        </View>
-      </ActionSheet>
-    );
-  };
-
   const renderTrigger = () => {
     const isActive = state.status === 'preparing' || state.status === 'uploading' || state.status === 'verifying' || state.status === 'finalizing';
     const isPicking = state.status === 'picking';
-    const isTerminal = state.status === 'idle' || state.status === 'failed' || state.status === 'completed' || state.status === 'cancelled';
-
     if (isActive || isPicking) {
       return (
         <View style={styles.activeTrigger}>
@@ -222,7 +197,13 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
     return (
       <AppButton
         variant="primary"
-        onPress={() => setSourceSheetVisible(true)}
+        // FileIntake is already rendered inside HomeCloudFilesView's native
+        // ActionSheet. Launching a second ActionSheet here and then presenting
+        // DocumentPicker created a three-controller stack (host → source sheet
+        // → picker). On return, closing both sheets in one turn could leave the
+        // native backdrop intercepting all touches. Keep this as the single
+        // application-modal host while the picker is presented.
+        onPress={() => void handlePickFile()}
         disabled={!config.capabilities.contribute || isActive || isPicking}
         style={styles.triggerButton}
       >
@@ -237,7 +218,6 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
       {renderTrigger()}
       {showInitialDestination && renderDestinationSelector()}
       {renderStatus()}
-      {renderSourceSheet()}
       {renderDestinationSheet()}
     </View>
   );
@@ -270,18 +250,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     lineHeight: 24,
     textAlign: 'center',
-  },
-  sourceSheetContent: {
-    paddingVertical: spacing[2],
-  },
-  sourceAction: {
-    paddingVertical: spacing[4],
-    paddingHorizontal: spacing[4],
-    width: '100%',
-  },
-  sourceActionContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   destinationList: {
     gap: spacing[2],

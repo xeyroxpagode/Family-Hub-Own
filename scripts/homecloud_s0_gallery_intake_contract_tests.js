@@ -130,14 +130,19 @@ record(review.includes('pointerEvents="none"') && review.includes('fullscreenOpt
 // One binary Review surface with one Guardar footer.
 record((intake.match(/const submitBinary = useCallback/g) ?? []).length === 1, 'exactly ONE submitBinary shared entry');
 record((intake.match(/service\.createBinaryMemory\(/g) ?? []).length === 1, 'submitBinary is the single createBinaryMemory call site');
-record(intake.includes('title={binarySubmitLabel(state.status)}'), 'the Guardar footer lives in the binary Review content');
-record((service.match(/engine\.createJob\(/g) ?? []).length === 1, 'the service creates the job once, via the shared engine');
+record(intake.includes("title={accepting ? 'Guardando…' : binarySubmitLabel(state.status)}"), 'the Guardar footer lives in the binary Review content');
+// T1 reconciliation: the single creation entry is now the shared queue
+// (`queue.enqueue` owns the one `createUploadJob`); the "once via shared
+// infrastructure" intent is unchanged, only the authority moved Files+Memories
+// onto one queue. Exactly ONE submit entry still exists.
+record((service.match(/queue\.enqueue\(/g) ?? []).length === 1, 'the service creates the job once, via the shared queue');
+record(!/engine\.createJob\(/.test(service), 'no parallel engine-direct creation path bypasses the queue');
 record(service.includes("memoryAttemptTrace(attempt, 'job_created'"), 'job_created stays traced on the same attempt');
 
 // REVIEW_READY is source-agnostic: draft + no active submit, nothing else.
 {
   const code = stripComments(intake);
-  record(code.includes('const saveDisabled = !binaryDraft || active;'), 'Save enable is ONE source-agnostic saveDisabled (draft + no active submit)');
+  record(code.includes('const saveDisabled = !binaryDraft || active || accepting;'), 'Save enable is ONE source-agnostic saveDisabled (draft + no active/accepting submit)');
   record(code.includes('disabled={saveDisabled}'), 'the Review footer is driven by saveDisabled');
   // Slice the footer prop itself: a wider window would reach the Review body and
   // flag its legitimate audio-only affordance instead of the Save gate.
@@ -151,7 +156,20 @@ record(service.includes("memoryAttemptTrace(attempt, 'job_created'"), 'job_creat
 {
   const code = stripComments(intake);
   const submitBody = code.slice(code.indexOf('const submitBinary = useCallback'), code.indexOf('}, [active, binaryAlbumId'));
-  record(submitBody.includes('if (!binaryDraft || active) return;'), 'the submit guard is exactly "no draft or a submit already active"');
+  // T1: the guard grew a synchronous per-review acceptance latch
+  // (acceptedDraftRef) because two presses in the same tick both see
+  // `active === false`. React state cannot protect that window, so repeated
+  // Save used to create several jobs for ONE draft. The guard must still be
+  // source-agnostic (no source/kind/mime branch below proves that) and must
+  // still refuse when there is no draft or a submit is already active.
+  record(
+    /if \(!binaryDraft \|\| active \|\| !draftKey \|\| acceptedDraftRef\.current === draftKey\) return;/.test(submitBody),
+    'the submit guard refuses no draft, active submit and an already-accepted draft',
+  );
+  record(
+    submitBody.includes('acceptedDraftRef.current = draftKey;'),
+    'the accepted-draft latch is set synchronously in the same tick (no double job from a double Save)',
+  );
   record(!/source ===|kind ===/.test(submitBody), 'the submit path has no source/kind branch (a kind never decides whether a memory saves)');
   record(!/mediaReady|playerReady|media_not_ready|mediaReadyRef/.test(submitBody), 'no media readiness gate blocks submit (player readiness is observability, not a guard)');
   record(!/setTimeout|setInterval|requestAnimationFrame/.test(submitBody), 'the submit path uses no timer or polling');
@@ -161,7 +179,7 @@ record(service.includes("memoryAttemptTrace(attempt, 'job_created'"), 'job_creat
 // Guardar stays an explicit user action; a failed save retries the same job.
 record((stripComments(intake).match(/submitBinary\(\)/g) ?? []).length === 1, 'submitBinary is reachable from exactly ONE explicit Guardar press (no auto-submit)');
 record(!/useEffect\([\s\S]{0,400}submitBinary/.test(stripComments(intake)), 'no effect auto-submits the draft');
-record(intake.includes("state.status === 'failed' ? service.retry() : submitBinary()"), 'a failed save retries through the same footer');
+record(intake.includes('onPress={() => { Keyboard.dismiss(); void submitBinary(); }}'), 'a pre-acceptance failure retries the same draft through the same footer');
 
 // No gallery+video special case anywhere in the flow.
 {

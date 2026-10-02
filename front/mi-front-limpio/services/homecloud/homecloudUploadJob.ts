@@ -234,6 +234,6 @@ export function recoverEntryPoint(job: UploadJob): UploadJobState {
 }
 
 /** Build the engine-level error object. */
-export function makeUploadJobError(code: string, message?: string): UploadJobError {
-  return { code, message };
+export function makeUploadJobError(code: string, message?: string, retryable?: boolean | null): UploadJobError {
+  return retryable === undefined ? { code, message } : { code, message, retryable };
 }

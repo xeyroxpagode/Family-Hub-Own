@@ -1,11 +1,24 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import type { UploadLocalArtifact } from './homecloudUploadTypes';
 import { memoryDevTrace } from './homecloudMemoryDiagnostics';
+import {
+  UPLOAD_WORKSPACE_DIR as UPLOAD_WORKSPACE,
+  PENDING_FOLDER_PATTERN as PENDING_FOLDER,
+  ORPHAN_SWEEP_MAX_AGE_MS,
+  sweepOrphanWorkspacesWithFs,
+  workspaceFolderUriOf,
+  type OrphanSweepFs,
+  type OrphanSweepReport,
+} from './homecloudOrphanSweepPolicy';
 
-const UPLOAD_WORKSPACE = 'homecloud-upload-jobs';
-
-/** Only this exact shape is ever created by `copyArtifactToDurableWorkspace`. */
-const PENDING_FOLDER = /^pending_\d+_[a-z0-9]+$/;
+export {
+  ORPHAN_SWEEP_MAX_AGE_MS,
+  workspaceFolderUriOf,
+  type OrphanSweepFs,
+  type OrphanSweepReport,
+};
+export type { OrphanWorkspaceCandidate } from './homecloudOrphanSweepPolicy';
+export { isOrphanWorkspaceCandidate, filterOrphanWorkspaceFolders } from './homecloudOrphanSweepPolicy';
 
 export class InvalidDurableArtifactError extends Error {
   readonly code = 'invalid_durable_artifact';
@@ -13,6 +26,26 @@ export class InvalidDurableArtifactError extends Error {
     super(message);
     this.name = 'InvalidDurableArtifactError';
   }
+}
+
+/**
+ * T1 — typed no-space failure for the durable workspace copy.
+ *
+ * Surfaces ENOSPC distinctly from a generic invalid artifact so UI can
+ * report "sin espacio" vs "elegí otro archivo". Never carries paths.
+ */
+export class DurableNoSpaceError extends Error {
+  readonly code = 'durable_nospace';
+  constructor(message = 'No hay espacio suficiente en el dispositivo para preparar este archivo.') {
+    super(message);
+    this.name = 'DurableNoSpaceError';
+  }
+}
+
+export function isDurableNoSpaceError(error: unknown): boolean {
+  if (error instanceof DurableNoSpaceError) return true;
+  const message = error instanceof Error ? `${error.message} ${(error as { code?: unknown }).code ?? ''}` : String(error ?? '');
+  return /enospc|no space left|storage.*full|not enough.*space|quota exceeded/i.test(message);
 }
 
 function safeName(name: string): string {
@@ -72,8 +105,13 @@ export async function copyArtifactToDurableWorkspace(
     memoryDevTrace('copy_end', { actualCopiedSize: info.size });
     return { ...artifact, localUri: targetUri, sizeBytes: info.size, extension };
   } catch (error) {
+    // Never leave a half-copied folder behind: a partial temp is not a valid
+    // artifact and must not become a ghost job. Cleanup is best-effort; the
+    // typed error below is what the caller observes.
     try { await FileSystem.deleteAsync(dirUri, { idempotent: true }); } catch { /* best effort */ }
+    if (error instanceof DurableNoSpaceError) throw error;
     if (error instanceof InvalidDurableArtifactError) throw error;
+    if (isDurableNoSpaceError(error)) throw new DurableNoSpaceError();
     throw new InvalidDurableArtifactError();
   }
 }
@@ -104,5 +142,85 @@ export async function discardDurableArtifact(artifact: UploadLocalArtifact): Pro
     // Best effort: a leftover copy is a storage concern, never an intake
     // failure. The flow must continue regardless.
   }
+}
+
+/**
+ * T1 — terminal job cleanup.
+ *
+ * COMPLETED / CANCELLED jobs must not retain workspace bytes. Recoverable or
+ * transient-failure jobs must NEVER be cleaned here; recovery needs their
+ * bytes. Returns whether the workspace copy is gone (true when there was
+ * nothing to delete, or deletion succeeded).
+ *
+ * Best-effort and observable: a `false` return lets the caller log/metric
+ * without failing an already-terminal job.
+ */
+export async function cleanupTerminalJobArtifact(artifact: UploadLocalArtifact): Promise<{ cleaned: boolean; error?: string }> {
+  const root = FileSystem.documentDirectory;
+  if (!root) return { cleaned: true };
+  const workspace = `${root}${UPLOAD_WORKSPACE}/`;
+  if (!artifact.localUri.startsWith(workspace)) return { cleaned: true };
+  try {
+    await discardDurableArtifact(artifact);
+    return { cleaned: true };
+  } catch (error) {
+    return { cleaned: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+// ── Startup orphan sweep (T1 TARGET A) ─────────────────────────────────────
+
+/**
+ * Startup sweep: delete `pending_*` workspace folders older than 24h ONLY when
+ * no live (non-terminal) job references them. Idempotent, best-effort per
+ * artifact, observable on failure, crash-safe (partial progress is kept).
+ *
+ * `liveJobs` = jobs whose bytes may still be needed (pending/registering/
+ * registered/uploading/verifying/finalizing/failed-retryable). Terminal
+ * completed/cancelled jobs are NOT live: their artifacts were cleaned at
+ * terminal time, so the sweep ignores them.
+ */
+export async function sweepOrphanDurableWorkspaces(
+  liveJobs: readonly { artifact: UploadLocalArtifact; state: string }[],
+): Promise<OrphanSweepReport> {
+  const root = FileSystem.documentDirectory;
+  if (!root) return { scanned: 0, deleted: 0, preserved: 0, errors: [] };
+  const liveFolderUris = new Set<string>();
+  for (const job of liveJobs) {
+    if (job.state === 'completed' || job.state === 'cancelled') continue;
+    const folderUri = workspaceFolderUriOf(job.artifact.localUri, root);
+    if (folderUri) liveFolderUris.add(folderUri);
+  }
+  const fs: OrphanSweepFs = {
+    documentDirectory: root,
+    now: () => Date.now(),
+    listWorkspace: async () => FileSystem.readDirectoryAsync(`${root}${UPLOAD_WORKSPACE}/`),
+    info: async (uri) => {
+      const meta = await FileSystem.getInfoAsync(uri) as { exists: boolean; modificationTime?: number | null };
+      return { exists: meta.exists, modificationTime: meta.modificationTime ?? null };
+    },
+    remove: async (uri) => {
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+    },
+  };
+  // A missing workspace dir is not an error: nothing to sweep.
+  try {
+    return await sweepOrphanWorkspacesWithFs(fs, liveFolderUris);
+  } catch (error) {
+    return {
+      scanned: 0,
+      deleted: 0,
+      preserved: 0,
+      errors: [{ uri: `${root}${UPLOAD_WORKSPACE}/`, message: error instanceof Error ? error.message : String(error) }],
+    };
+  }
+}
+
+/** Test seam: run the sweep against an injected filesystem. */
+export async function __sweepOrphansWithFsForTests(
+  fs: OrphanSweepFs,
+  liveFolderUris: ReadonlySet<string>,
+): Promise<OrphanSweepReport> {
+  return sweepOrphanWorkspacesWithFs(fs, liveFolderUris);
 }
 

@@ -1,44 +1,104 @@
-import { createUploadEngine, createFetchArtifactReader, createExpoFileSystemUploadTransport } from './homecloudUploadEngine';
+import { createUploadEngine, createExpoFileSystemUploadTransport } from './homecloudUploadEngine';
 import { getSharedUploadJobStore } from '../../storage/homecloudUploadJobStorage';
-import { AUTO_RECOVERABLE_STATES, listRecoverableJobs, recoverUploadJobs } from './homecloudUploadRecovery';
+import { createSharedUploadQueue } from './homecloudUploadQueue';
+import { ensureHomeCloudUploadRuntime } from './homecloudUploadRuntime';
+import { ensureUploadCoordinator } from './homecloudUploadCoordinator';
 import { fetchHomeCloudFoldersCached } from './homecloudReadService';
-import { copyArtifactToDurableWorkspace } from './homecloudDurableArtifact';
+import { copyArtifactToDurableWorkspace, cleanupTerminalJobArtifact, sweepOrphanDurableWorkspaces } from './homecloudDurableArtifact';
 import type { FileIntakeConfig, FileIntakeState, FileIntakeDestination } from './homecloudFileIntakeTypes';
 import type { UploadJob, UploadLocalArtifact } from './homecloudUploadTypes';
 import { homeCloudUploadErrorMessage } from './homecloudUploadError';
 
-export function createFileIntakeService(config: FileIntakeConfig) {
+type FilePickerOutcome =
+  | { success: true; artifact: UploadLocalArtifact }
+  | { success: false; cancelled: true }
+  | { success: false; cancelled: false; error: string };
+
+/** Test seams keep picker-return lifecycle behaviour executable without a native picker. */
+export type FileIntakeDependencies = {
+  pickFile?: () => Promise<FilePickerOutcome>;
+  copyToDurableWorkspace?: (artifact: UploadLocalArtifact) => Promise<UploadLocalArtifact>;
+};
+
+export function createFileIntakeService(config: FileIntakeConfig, dependencies: FileIntakeDependencies = {}) {
   const { householdId, accessToken, getAccessToken = () => accessToken, capabilities, initialFolderId, initialFolderName } = config;
 
   // Shared process-wide store: every intake surface (Files, Scanner, dev)
   // observes the same durable jobs, so a remount never loses the active job
   // and retry resumes it instead of registering a duplicate.
   const store = getSharedUploadJobStore();
-  const reader = createFetchArtifactReader();
   const uploadTransport = createExpoFileSystemUploadTransport();
 
   const engine = createUploadEngine({
     store,
-    readArtifact: reader,
     uploadTransport,
     getAccessToken,
     getHouseholdId: () => householdId,
+    cleanupDurableArtifact: async (artifact) => {
+      await cleanupTerminalJobArtifact(artifact);
+    },
   });
 
+  // ONE shared queue authority for HomeCloud binaries (Files + Memories):
+  // execution ownership (FIFO, single worker, household scope) lives in the
+  // shared queue module. This service is a domain adapter (file semantics);
+  // `currentJob` below is a COMPAT projection derived from the queue, never
+  // a separate mutable authority.
+  const queue = createSharedUploadQueue({
+    store,
+    householdId,
+    run: (jobId) => engine.run(jobId),
+    cleanupTerminalArtifact: async (artifact) => {
+      await cleanupTerminalJobArtifact(artifact);
+    },
+  });
+  const coordinator = ensureUploadCoordinator({ store, householdId, run: (jobId) => engine.run(jobId), cleanupTerminalArtifact: cleanupTerminalJobArtifact });
+
+  /**
+   * PRESENTATION OWNERSHIP (same contract as the Memory adapter).
+   *
+   * EXECUTION is global (one household coordinator). PRESENTATION is local:
+   * only the job this surface accepted (`acceptedJobId`) may project state,
+   * error or progress. No "first file job in the queue" and no "any job in the
+   * household" fallback, so a stale terminal job can never surface its error
+   * here and a foreign job can never make this surface look busy.
+   */
+  let acceptedJobId: string | null = null;
   let currentJob: UploadJob | null = null;
   let selectedFolderId: string | null = initialFolderId ?? null;
   let selectedFolderName: string | null = initialFolderName ?? null;
   let availableFolders: FileIntakeDestination[] = [];
   let foldersLoaded = false;
+  let picking = false;
   let stateListeners: Set<(state: FileIntakeState) => void> = new Set();
 
   const baseState: FileIntakeState = {
     status: 'idle',
   };
+  let currentState: FileIntakeState = baseState;
 
   function emitState(partial: Partial<FileIntakeState>) {
-    const newState = { ...baseState, ...partial };
-    stateListeners.forEach((listener) => listener(newState));
+    currentState = { ...currentState, ...partial };
+    stateListeners.forEach((listener) => listener(currentState));
+  }
+
+  /** The accepted job's latest durable snapshot, or null when none is bound. */
+  function acceptedJob(): UploadJob | null {
+    if (acceptedJobId === null) return null;
+    const snapshot = queue.getCurrentJob();
+    // The coordinator snapshot is preferred only when it IS this job.
+    if (snapshot && snapshot.id === acceptedJobId) return snapshot;
+    return queue.getQueue().find((job) => job.id === acceptedJobId) ?? store.get(acceptedJobId);
+  }
+
+  function refreshCurrentJobProjection(): void {
+    currentJob = acceptedJob();
+  }
+
+  function syncQueueState(): void {
+    refreshCurrentJobProjection();
+    if (!currentJob) return;
+    emitState({ status: mapEngineStateToIntakeState(currentJob), contentId: currentJob.contentId ?? undefined, error: currentJob.error?.message, folderId: selectedFolderId, folderName: selectedFolderName });
   }
 
   async function loadFolders(): Promise<void> {
@@ -87,22 +147,18 @@ export function createFileIntakeService(config: FileIntakeConfig) {
       return;
     }
 
+    if (picking) return;
+    picking = true;
     emitState({ status: 'picking' });
-
-    const { pickFile: pickFileImpl } = await import('./homecloudFilePicker');
-    const outcome = await pickFileImpl();
-
-    if (outcome.success === false && outcome.cancelled === true) {
-      emitState({ status: 'cancelled' });
-      return;
-    }
-
-    if (outcome.success === false) {
-      emitState({ status: 'failed', error: outcome.error });
-      return;
-    }
-
-    await submitArtifact(outcome.artifact);
+    try {
+      const pickFileImpl = dependencies.pickFile ?? (await import('./homecloudFilePicker')).pickFile;
+      const outcome = await pickFileImpl();
+      if (outcome.success === false && outcome.cancelled === true) { emitState({ status: 'cancelled' }); return; }
+      if (outcome.success === false) { emitState({ status: 'failed', error: outcome.error }); return; }
+      await submitArtifact(outcome.artifact);
+    } catch (error) {
+      emitState({ status: 'failed', error: homeCloudUploadErrorMessage(error, 'Error al seleccionar archivo.') });
+    } finally { picking = false; }
   }
 
   /**
@@ -110,42 +166,16 @@ export function createFileIntakeService(config: FileIntakeConfig) {
    * scanner, ...) can submit a local artifact and reuse the same durable
    * workspace copy, UploadJob lifecycle and retry semantics.
    *
-   * If this service instance already owns a job that is still moving forward,
-   * the SAME job is resumed (no new register/content_id). A genuinely new
-   * artifact after a terminal/failed job starts a new job; the failed record
-   * stays in the store for explicit retry and later cleanup.
+   * T1 shared-queue contract: EVERY submit creates and persists its own job.
+   * While job A is active, submit B persists B as pending — B never
+   * disappears, never replaces A, never needs re-picking. The shared queue
+   * advances FIFO when A terminates.
    */
   async function submitArtifact(artifact: UploadLocalArtifact): Promise<void> {
-    if (currentJob && AUTO_RECOVERABLE_STATES.has(currentJob.state)) {
-      const stored = store.get(currentJob.id) ?? currentJob;
-      currentJob = stored;
-      emitState({ status: 'preparing', folderId: selectedFolderId, folderName: selectedFolderName });
-      try {
-        const completedJob = await engine.run(stored.id);
-        currentJob = completedJob;
-        emitState({
-          status: mapEngineStateToIntakeState(completedJob),
-          contentId: completedJob.contentId ?? undefined,
-          folderId: selectedFolderId,
-          folderName: selectedFolderName,
-        });
-      } catch (error) {
-        const latest = store.get(stored.id);
-        if (latest) currentJob = latest;
-        emitState({
-          status: 'failed',
-          error: homeCloudUploadErrorMessage(error, 'Error al subir el archivo.'),
-          folderId: selectedFolderId,
-          folderName: selectedFolderName,
-        });
-      }
-      return;
-    }
-
     let durableArtifact: UploadLocalArtifact;
     try {
       // Idempotent: artifacts already inside the durable workspace pass through.
-      durableArtifact = await copyArtifactToDurableWorkspace(artifact);
+      durableArtifact = await (dependencies.copyToDurableWorkspace ?? copyArtifactToDurableWorkspace)(artifact);
     } catch (error) {
       emitState({
         status: 'failed',
@@ -156,17 +186,6 @@ export function createFileIntakeService(config: FileIntakeConfig) {
       return;
     }
 
-    const job = engine.createJob(
-      {
-        role: 'file',
-        intakeSource: config.intakeSource ?? 'files:picker',
-        initialFolderId: selectedFolderId,
-      },
-      durableArtifact
-    );
-
-    currentJob = job;
-
     emitState({
       status: 'preparing',
       folderId: selectedFolderId,
@@ -174,17 +193,28 @@ export function createFileIntakeService(config: FileIntakeConfig) {
     });
 
     try {
-      const completedJob = await engine.run(job.id);
-      currentJob = completedJob;
+      const job = await queue.enqueue(
+        {
+          role: 'file',
+          intakeSource: config.intakeSource ?? 'files:picker',
+          initialFolderId: selectedFolderId,
+        },
+        durableArtifact,
+      );
+      refreshCurrentJobProjection();
+      const latest = store.get(job.id) ?? job;
+      currentJob = latest;
+      // PRESENTATION BINDING: from this point the surface projects ONLY this job.
+      acceptedJobId = job.id;
       emitState({
-        status: mapEngineStateToIntakeState(completedJob),
-        contentId: completedJob.contentId ?? undefined,
+        status: mapEngineStateToIntakeState(latest),
+        contentId: latest.contentId ?? undefined,
+        error: latest.error?.message,
         folderId: selectedFolderId,
         folderName: selectedFolderName,
       });
     } catch (error) {
-      const latest = store.get(job.id);
-      if (latest) currentJob = latest;
+      refreshCurrentJobProjection();
       emitState({
         status: 'failed',
         error: homeCloudUploadErrorMessage(error, 'Error al subir el archivo.'),
@@ -202,22 +232,15 @@ export function createFileIntakeService(config: FileIntakeConfig) {
   }
 
   async function retry(): Promise<void> {
-    let job = currentJob;
-    if (!job) {
-      // Service instance recreated after remount: fall back to the most
-      // recent retryable job in the shared store (same Household + role),
-      // so retry resumes the SAME job instead of forcing a new upload.
-      const candidates = store
-        .all()
-        .filter((j) => j.householdId === householdId && j.role === 'file' && j.state !== 'completed' && j.state !== 'cancelled')
-        .sort((a, b) => (a.updatedAt < b.updatedAt ? -1 : a.updatedAt > b.updatedAt ? 1 : 0));
-      job = candidates[candidates.length - 1] ?? null;
-      currentJob = job;
-    }
+    // Bound to the accepted job only — no household-wide fallback, so a Retry
+    // can never resume a job this surface never accepted.
+    const job = acceptedJob();
     if (!job) return;
+    currentJob = job;
     emitState({ status: 'preparing', error: undefined });
     try {
-      const completedJob = await engine.run(job.id);
+      await coordinator.retry(job.id);
+      const completedJob = store.get(job.id) ?? job;
       currentJob = completedJob;
       emitState({
         status: mapEngineStateToIntakeState(completedJob),
@@ -235,21 +258,33 @@ export function createFileIntakeService(config: FileIntakeConfig) {
   }
 
   function cancel(): void {
-    if (currentJob) {
-      engine.cancel(currentJob.id);
-      emitState({ status: 'cancelled' });
+    const job = acceptedJob() ?? queue.getQueue().find((item) => item.role === 'file') ?? null;
+    if (job) {
+      // Single-job cancel: neighbors keep progressing via the queue pump.
+      void queue.cancelJob(job.id).then((cancelled) => {
+        refreshCurrentJobProjection();
+        if (cancelled) emitState({ status: 'cancelled' });
+      });
     }
   }
 
+  /**
+   * CLOSE contract: leave the surface ready to open again. Releases the picker
+   * guard (a native presentation that never settled must never brick
+   * "Agregar archivo"), drops the transient flags and the job binding.
+   */
   function dismiss(): void {
+    picking = false;
     currentJob = null;
+    acceptedJobId = null;
     emitState({ status: 'idle', error: undefined, contentId: undefined });
   }
 
   function subscribe(listener: (state: FileIntakeState) => void): () => void {
     stateListeners.add(listener);
-    listener(baseState);
-    return () => stateListeners.delete(listener);
+    listener(currentState);
+    const unsubscribeQueue = queue.subscribe(syncQueueState);
+    return () => { stateListeners.delete(listener); unsubscribeQueue(); };
   }
 
   function getAvailableDestinations(): FileIntakeDestination[] {
@@ -264,38 +299,34 @@ export function createFileIntakeService(config: FileIntakeConfig) {
     return availableFolders.length > 1;
   }
 
+  /**
+   * "Is there a job THIS surface owns?" — never "does the household have any
+   * job?". The household question made an unsubmitted draft look protected by
+   * a foreign job and let a foreign terminal failure decide this UI.
+   */
   function hasActiveJob(): boolean {
-    if (currentJob && currentJob.state !== 'completed' && currentJob.state !== 'cancelled') return true;
-    // Remount-safe: the in-memory handle may be gone while the durable job
-    // still exists in the shared store.
-    return listRecoverableJobs(store, householdId, 'file').length > 0
-      || store.all().some((j) => j.householdId === householdId && j.role === 'file' && j.state === 'failed');
+    refreshCurrentJobProjection();
+    return currentJob !== null && currentJob.state !== 'completed' && currentJob.state !== 'cancelled';
   }
 
   /**
-   * Canonical shared recovery entry point for file intake. Hydrates the
-   * durable store and resumes interrupted file jobs for this Household.
-   * Safe to call on every mount; no-ops when nothing is recoverable.
+   * Canonical shared recovery entry point for file intake. Ensures the ONE
+   * process-wide upload runtime (startup hydrate + sweep + reconnect owner)
+   * and resumes interrupted file jobs for this Household. Safe to call on
+   * every mount; no-ops when nothing is recoverable.
    */
   async function recover(): Promise<void> {
     if (!householdId || !getAccessToken()) return;
     try {
-      await recoverUploadJobs({
+      await ensureHomeCloudUploadRuntime({
         store,
         householdId,
-        role: 'file',
         run: (jobId) => engine.run(jobId),
-        onJob: (job) => {
-          currentJob = job;
-          emitState({
-            status: mapEngineStateToIntakeState(job),
-            contentId: job.contentId ?? undefined,
-            error: job.error?.message,
-            folderId: selectedFolderId,
-            folderName: selectedFolderName,
-          });
+        sweepOrphans: async (liveJobs) => {
+          await sweepOrphanDurableWorkspaces(liveJobs);
         },
-      });
+      }).start();
+      void coordinator.requestPump('file_mount');
     } catch {
       // Recovery is best-effort; explicit retry of the same job remains.
     }
@@ -315,5 +346,9 @@ export function createFileIntakeService(config: FileIntakeConfig) {
     loadFolders,
     hasActiveJob,
     recover,
+    /** The job this surface is bound to (null before the first submit). */
+    getAcceptedJobId: () => acceptedJobId,
+    /** Compat projection over the shared queue (never separate authority). */
+    getCurrentJob: () => queue.getCurrentJob(),
   };
 }

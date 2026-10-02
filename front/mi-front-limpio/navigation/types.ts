@@ -17,7 +17,6 @@ export type PrivateStackParamList = {
   AccessSuspendedFallback: undefined;
   ProfileScreen: undefined;
   FeedFamiliar: undefined;
-  HomeCloudFileIntakeDev: undefined;
 };
 
 export type HomeTabParamList = {

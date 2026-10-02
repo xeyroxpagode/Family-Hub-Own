@@ -53,7 +53,9 @@ test('download uses a native filesystem task, never a whole-object JS buffer', (
   assert.match(download, /await task\.downloadAsync\(\)/);
   assert.doesNotMatch(download, /arrayBuffer\(|base64|readAsStringAsync|fetch\(access\.signedUrl/);
   assert.match(filesScreen, /downloadHomeCloudOriginal/);
-  assert.match(download, /normalizeSignedStorageUrlForRuntime/);
+  // T1 server authority: the signed URL is used verbatim, never rewritten.
+  assert.doesNotMatch(download, /normalizeSignedStorageUrlForRuntime/);
+  assert.match(download, /access\.signedUrl/);
   assert.match(download, /Sharing\.shareAsync\(file\.uri/);
   assert.match(filesScreen, /Descargar y compartir original/);
 });

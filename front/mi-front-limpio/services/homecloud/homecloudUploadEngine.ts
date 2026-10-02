@@ -6,6 +6,19 @@
  * the safe lifecycle (register -> upload -> verify -> finalize) over the
  * backend intake endpoints.
  *
+ * T1 hardening (FSM of 9 states FROZEN, guardOwnership kept):
+ * - the native upload transport is REQUIRED: a consumer without a valid
+ *   transport fails at construction, never falls back to loading the whole
+ *   file into JS heap (no whole-file buffered read path exists anywhere here);
+ * - signed upload URLs are server authority: used verbatim, never rewritten
+ *   client-side (no scheme/host/port/path mutation);
+ * - failures are classified transient vs terminal on the side and persisted
+ *   with the job (`error.retryable`), without new FSM states;
+ * - terminal completed/cancelled jobs clean their durable workspace bytes
+ *   (best-effort, swept at startup when missed);
+ * - persistence uses the serialized chain (`putAsync` when available) and
+ *   surfaces failures instead of swallowing them.
+ *
  * It advances the durable UploadJob state machine and persists each transition
  * through an injected store so upstream UI can observe state cleanly without
  * embedding networking in screen components. Household/role/contentId ownership
@@ -14,10 +27,10 @@
 
 import { requestJson, createIdempotencyKey, OPERATION_KINDS } from '../api';
 import type {
-  UploadArtifactReader,
   UploadTransport,
   UploadJob,
   UploadJobRole,
+  UploadJobError,
   UploadLocalArtifact,
   UploadIntakeContext,
   UploadAuthorization,
@@ -28,21 +41,26 @@ import {
   guardOwnership,
   serializeUploadJob,
 } from './homecloudUploadJob';
+import { classifyUploadFailure, isStaleLifecycleError, STALE_LIFECYCLE_CODE } from './homecloudUploadFailure';
 import type { UploadJobStore } from '../../storage/homecloudUploadJobStorage';
 import { memoryDevTrace } from './homecloudMemoryDiagnostics';
-import { normalizeSignedStorageUrlForRuntime } from './homecloudSignedUrl';
+import { getUploadCoordinator } from './homecloudUploadCoordinator';
 
 export interface UploadEngineDeps {
   /** Durable job store (native persistence wired at app layer). */
   store: UploadJobStore;
-  /** Reads local artifact bytes from a local URI (picker/capture agnostic). */
-  readArtifact: UploadArtifactReader;
-  /** Uploads a local artifact to the server-issued signed URL. */
-  uploadTransport?: UploadTransport;
+  /**
+   * Native file-to-file upload transport. REQUIRED: Expo FileSystem streams
+   * file:// content without loading the original into JS memory. There is
+   * no JS-heap fallback; construction throws without it.
+   */
+  uploadTransport: UploadTransport;
   /** Current access token supplier (re-read at each step, never cached). */
   getAccessToken: () => string | null;
   /** Current canonical Household id (server-resolved by callers). */
   getHouseholdId: () => string | null;
+  /** Terminal durable cleanup (completed/cancelled). Best-effort. */
+  cleanupDurableArtifact?: (artifact: UploadLocalArtifact) => Promise<unknown>;
 }
 
 /** Register response (safe content DTO). */
@@ -59,28 +77,6 @@ export interface UploadEngine {
   cancel(jobId: string): UploadJob | null;
 }
 
-/**
- * Build a "read bytes" reader using global fetch (works for web and many RN URI
- * schemes). Injectable so tests/scanner/recorder can supply their own.
- */
-export function createFetchArtifactReader(): UploadArtifactReader {
-  return async (localUri: string) => {
-    const resp = await fetch(localUri);
-    if (!resp.ok) throw new Error(`artifact read failed: ${resp.status}`);
-    return resp.arrayBuffer();
-  };
-}
-
-/**
- * Supabase creates signed URLs with the backend Supabase origin. In local
- * development, that origin may be host-local (localhost/127.0.0.1) even though the
- * device must reach Supabase through its runtime origin. Replace ONLY origin;
- * path and signed query stay byte-for-byte from the server authorization.
- */
-export function normalizeSignedUploadUrlForRuntime(signedUploadUrl: string): string {
-  return normalizeSignedStorageUrlForRuntime(signedUploadUrl);
-}
-
 export function maskSignedUploadUrlForDiagnostics(url: string): string {
   try {
     const parsed = new URL(url);
@@ -93,13 +89,15 @@ export function maskSignedUploadUrlForDiagnostics(url: string): string {
 
 /**
  * Expo FileSystem native upload streams file:// content on Android/iOS without
- * first loading the original into JS memory.
+ * first loading the original into JS memory. The server-issued signed URL is
+ * used VERBATIM (server storage authority — never rewritten client-side). If
+ * development needs a reachable host, it must be configured where the signed
+ * URL is GENERATED (backend SUPABASE_URL), not patched here.
  */
 export function createExpoFileSystemUploadTransport(): UploadTransport {
   return async ({ signedUploadUrl, localUri, mimeType }) => {
     const FileSystem = await import('expo-file-system/legacy');
-    const targetUrl = normalizeSignedUploadUrlForRuntime(signedUploadUrl);
-    const response = await FileSystem.uploadAsync(targetUrl, localUri, {
+    const response = await FileSystem.uploadAsync(signedUploadUrl, localUri, {
       httpMethod: 'PUT',
       uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
       headers: {
@@ -111,8 +109,20 @@ export function createExpoFileSystemUploadTransport(): UploadTransport {
   };
 }
 
+type AsyncStore = UploadJobStore & {
+  putAsync?: (job: UploadJob) => Promise<void>;
+};
+
 export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
-  const { store, readArtifact, uploadTransport, getAccessToken, getHouseholdId } = deps;
+  const { store, uploadTransport, getAccessToken, getHouseholdId } = deps;
+  // Terminal cleanup is injected by the intake services (which already own
+  // the native durable module). The no-op fallback keeps plain-Node tests
+  // native-free; the startup orphan sweep backstops any missed delete.
+  const cleanupDurableArtifact = deps.cleanupDurableArtifact ?? (async () => undefined);
+
+  if (!uploadTransport || typeof uploadTransport !== 'function') {
+    throw new Error('createUploadEngine requires a native uploadTransport (no JS-heap fallback)');
+  }
 
   /**
    * Single-flight guard: concurrent run(jobId) calls for the SAME job share
@@ -134,8 +144,72 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     return job;
   }
 
-  function persist(job: UploadJob): void {
+  /**
+   * The single finalize call site (canonical lifecycle close AND stale
+   * reconciliation read-back), so both paths can never drift apart.
+   */
+  function requestFinalize(job: UploadJob, accessToken: string): Promise<{ content: RegisterResponseContent }> {
+    return requestJson<{ content: RegisterResponseContent }>(
+      `/api/homecloud/content/${job.contentId}/finalize`,
+      { method: 'POST', accessToken, operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION },
+    );
+  }
+
+  /** Terminal workspace cleanup. Never fails an already-terminal job. */
+  async function cleanupTerminalArtifact(job: UploadJob): Promise<void> {
+    try {
+      await cleanupDurableArtifact(job.artifact);
+    } catch {
+      // Never fail a terminal job on storage cleanup; the sweep is the backstop.
+    }
+  }
+
+  /**
+   * Record a terminal failure WITHOUT ever losing it.
+   *
+   * `transition` rejects a same-state edge (`canTransition` returns false when
+   * `from === to`), and `failed -> failed` is exactly the edge a RETRY needs:
+   * a job that already failed transiently, is resumed, and fails again. Calling
+   * `transition(job, 'failed')` there threw `Illegal upload job transition`
+   * BEFORE the new classification was persisted, so the job kept its previous
+   * `retryable` flag, stayed eligible and was re-selected by every following
+   * pump — the endless `verify -> upload -> 409` cycle.
+   *
+   * The frozen 9-state FSM is untouched: this only refreshes the error of a job
+   * that is already `failed`, which is data, not a new state.
+   */
+  function failJob(job: UploadJob, error: UploadJob['error']): UploadJob {
+    if (job.state === 'failed') {
+      return { ...job, state: 'failed', error, updatedAt: new Date().toISOString() };
+    }
+    return transition(job, 'failed', { error });
+  }
+
+  /**
+   * T1: cancel authority. The coordinator/UI owns `cancelled`, so an in-flight
+   * `run` must never resurrect a job the user cancelled while a network step
+   * was pending. Returns the terminal job when the durable store says the job
+   * already reached a terminal state that this execution must not overwrite.
+   */
+  function terminalElse(job: UploadJob): UploadJob | null {
+    const latest = store.get(job.id);
+    if (latest && (latest.state === 'cancelled' || latest.state === 'completed')) return latest;
+    return null;
+  }
+
+  async function persist(job: UploadJob): Promise<void> {
+    // A cancelled/completed job is final: writing a stale intermediate
+    // transition over it would silently restart work the user stopped.
+    const terminal = terminalElse(job);
+    if (terminal) return;
+    const asyncStore = store as AsyncStore;
+    if (typeof asyncStore.putAsync === 'function') {
+      await asyncStore.putAsync(job);
+      getUploadCoordinator(job.householdId)?.notifyJob();
+      return;
+    }
     store.put(job);
+    getUploadCoordinator(job.householdId)?.notifyJob();
   }
 
   /**
@@ -165,7 +239,7 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     if (guard) throw new Error(guard);
 
     let job2 = transition(job, 'registering');
-    persist(job2);
+    await persist(job2);
 
     const accessToken = requireAccessToken();
     const payload = {
@@ -205,7 +279,7 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     );
 
     job2 = transition(job2, 'registered', { contentId: resp.content.id });
-    persist(job2);
+    await persist(job2);
     if (job.role === 'memory') memoryDevTrace('register_end', { jobId: job.id });
     return job2;
   }
@@ -220,6 +294,15 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     // verify contract first: if the original is already there, skip the
     // re-upload (the signed PUT uses x-upsert=false, so a blind re-PUT could
     // fail on an object that already exists).
+    //
+    // VERIFY-FIRST ERROR HANDLING: only a NEGATIVE verify
+    // (`verified === false`, i.e. the object is missing) authorises spending a
+    // PUT. A thrown error is NOT "not verified": it is classified and
+    // propagated. A domain refusal such as `homecloud_not_staging` is terminal
+    // and must never be converted into "let's upload again" — that conversion
+    // is what produced the endless `verify 409 → upload 409` pair on stale
+    // content. A transient transport condition still falls through, because
+    // re-issuing the PUT is exactly the right response to it.
     if (job.state === 'uploading' && job.contentId) {
       try {
         const resumed = await requestJson<{ verified: boolean }>(
@@ -228,55 +311,41 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
         );
         if (resumed.verified) {
           const verifyingJob = transition(job, 'verifying');
-          persist(verifyingJob);
+          await persist(verifyingJob);
           if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id, resumed: true });
           return verifyingJob;
         }
-      } catch {
-        // Verify unavailable/negative on resume: fall through to re-upload.
+        // `verified === false`: the original is genuinely absent. Fall through.
+      } catch (error) {
+        if (classifyUploadFailure(error) === 'terminal') throw error;
+        // Transient: fall through to re-upload (retryable transport condition).
       }
     }
 
     const uploadingJob = job.state === 'registered'
       ? transition(job, 'uploading')
       : job;
-    persist(uploadingJob);
+    await persist(uploadingJob);
 
     const authResp = await requestJson<UploadAuthorization>(
       `/api/homecloud/content/${job.contentId}/upload`,
       { method: 'POST', accessToken, operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION },
     );
 
-    if (uploadTransport) {
-      const result = await uploadTransport({
-        signedUploadUrl: authResp.signedUploadUrl,
-        localUri: uploadingJob.artifact.localUri,
-        mimeType: uploadingJob.artifact.mimeType,
-      });
-      if (!result.ok) {
-        if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id, ok: false, status: result.status });
-        throw new Error(`upload transport failed: ${result.status}`);
-      }
-    } else {
-      const bytes = await readArtifact(uploadingJob.artifact.localUri);
-      const putResp = await fetch(normalizeSignedUploadUrlForRuntime(authResp.signedUploadUrl), {
-        method: 'PUT',
-        headers: {
-          'content-type': uploadingJob.artifact.mimeType || 'application/octet-stream',
-          'x-upsert': 'false',
-        },
-        body: bytes,
-      });
-      if (!putResp.ok) {
-        if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id, ok: false, status: putResp.status });
-        throw new Error(`upload transport failed: ${putResp.status}`);
-      }
+    const result = await uploadTransport({
+      signedUploadUrl: authResp.signedUploadUrl,
+      localUri: uploadingJob.artifact.localUri,
+      mimeType: uploadingJob.artifact.mimeType,
+    });
+    if (!result.ok) {
+      if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id, ok: false, status: result.status });
+      throw new Error(`upload transport failed: ${result.status}`);
     }
 
     // Durable BEFORE the next fragile step: a reload/remount here must resume
     // at verify, never strand the job at `uploading` again.
     const verifyingJob = transition(uploadingJob, 'verifying');
-    persist(verifyingJob);
+    await persist(verifyingJob);
     if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id, ok: true });
     return verifyingJob;
   }
@@ -293,7 +362,7 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
       throw new Error('upload verification failed: original missing or mismatched');
     }
     const finalizingJob = transition(job, 'finalizing');
-    persist(finalizingJob);
+    await persist(finalizingJob);
     if (job.role === 'memory') memoryDevTrace('verify_end', { jobId: job.id, verified: true });
     return finalizingJob;
   }
@@ -301,16 +370,52 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
   async function runFinalize(job: UploadJob): Promise<UploadJob> {
     if (job.role === 'memory') memoryDevTrace('finalize_start', { jobId: job.id });
     const accessToken = requireAccessToken();
-    await requestJson<{ content: RegisterResponseContent }>(
-      `/api/homecloud/content/${job.contentId}/finalize`,
-      { method: 'POST', accessToken, operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION },
-    );
+    await requestFinalize(job, accessToken);
     // finalize is idempotent server-side (staging -> active guarded; active
     // replay returns success), so persisting completed is always safe here.
     const completedJob = transition(job, 'completed');
-    persist(completedJob);
+    await persist(completedJob);
+    // Terminal cleanup: completed jobs must not retain workspace bytes.
+    // Best-effort: the startup orphan sweep is the backstop.
+    await cleanupTerminalArtifact(completedJob);
     if (job.role === 'memory') memoryDevTrace('finalize_end', { jobId: job.id });
     return completedJob;
+  }
+
+  /**
+   * STALE JOB RECONCILIATION (bounded, exactly one extra request).
+   *
+   * The server answered `homecloud_not_staging` for the content THIS job
+   * registered. That alone proves nothing, so completion is never declared
+   * from the 409 itself. `finalize` is the existing idempotent read-back on the
+   * same contentId: when the content is already `active` it returns 200 with
+   * the content DTO (a binary `finalize` also re-checks that the original
+   * exists before flipping the lifecycle), which is positive proof that this
+   * intake already landed. When it refuses again (trashed, foreign, missing)
+   * the caller keeps the job TERMINAL — no completion is inferred.
+   *
+   * No new endpoint, no new state, no retry loop: at most ONE finalize.
+   */
+  async function reconcileStaleContent(job: UploadJob): Promise<UploadJob | null> {
+    if (!job.contentId) return null;
+    const accessToken = getAccessToken();
+    if (!accessToken) return null;
+    try {
+      await requestFinalize(job, accessToken);
+    } catch {
+      // Completion could not be proven: the caller parks the job as terminal.
+      return null;
+    }
+    // `failed -> finalizing -> completed` are both legal transitions of the
+    // frozen 9-state FSM, so the reconciliation needs no new state and the
+    // durable record only ever stores the real terminal outcome.
+    const parked = failJob(job, { code: STALE_LIFECYCLE_CODE, message: 'stale content reconciled', retryable: false });
+    const finalizing = transition(parked, 'finalizing');
+    const completed = transition(finalizing, 'completed');
+    await persist(completed);
+    await cleanupTerminalArtifact(completed);
+    if (job.role === 'memory') memoryDevTrace('finalize_end', { jobId: job.id, reconciled: true });
+    return completed;
   }
 
   async function runInner(jobId: string): Promise<UploadJob> {
@@ -319,9 +424,17 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     // effects. Recovery filters these out; this is defense in depth.
     if (job.state === 'completed') return job;
     if (job.state === 'cancelled') throw new Error('job cancelled');
+    // A cancel that landed while this execution awaited a network step wins:
+    // stop before spending another request on a job the user already stopped.
+    const stopIfCancelled = (): UploadJob | null => {
+      const latest = store.get(jobId);
+      return latest?.state === 'cancelled' ? latest : null;
+    };
     try {
       if (job.state === 'pending' || job.state === 'registering' || (job.state === 'failed' && !job.contentId)) {
-        job = await runRegister(job);
+        job = await runRegister(job.state === 'failed' ? transition(job, 'registering') : job);
+        const stopped = stopIfCancelled();
+        if (stopped) return stopped;
       }
       // A failed job that already owns a contentId re-enters through the
       // upload stage (verify-first): if the original never reached storage,
@@ -329,28 +442,48 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
       // if it did, the PUT is skipped and the job continues at verify.
       if (job.state === 'registered' || job.state === 'uploading' || (job.state === 'failed' && job.contentId)) {
         job = await runUpload(job.state === 'failed' ? transition(job, 'uploading') : job);
+        const stopped = stopIfCancelled();
+        if (stopped) return stopped;
       }
       if (job.state === 'verifying') {
         job = await runVerify(job);
+        const stopped = stopIfCancelled();
+        if (stopped) return stopped;
       }
       if (job.state === 'finalizing') {
         job = await runFinalize(job);
       }
       if (job.state === 'completed') {
-        persist(job);
+        await persist(job);
         return job;
       }
       if (job.state === 'cancelled') {
         throw new Error('job cancelled');
       }
 
-      persist(job);
+      await persist(job);
       return job;
     } catch (error) {
-      const failed = transition(job, 'failed', {
-        error: { code: 'upload_engine_error', message: error instanceof Error ? error.message : String(error) },
+      // STALE SERVER-LIFECYCLE: `homecloud_not_staging` is terminal by contract.
+      // Before parking it, spend the ONE bounded reconciliation request that
+      // can PROVE this same content already landed (idempotent finalize). If the
+      // proof fails, the job is terminal-failed with `retryable: false` and can
+      // never be selected again by a pump, a reconnect or a remount.
+      if (isStaleLifecycleError(error) && job.contentId && job.state !== 'completed' && job.state !== 'cancelled') {
+        const reconciled = await reconcileStaleContent(job).catch(() => null);
+        if (reconciled) return reconciled;
+      }
+      // T1: classify transient vs terminal on the side (FSM unchanged) and
+      // persist the flag with the failure so reconnect/startup eligibility
+      // can auto-retry transient jobs without ever auto-looping terminal
+      // ones. Persistence failures stay VISIBLE (thrown to the caller).
+      const failureClass = classifyUploadFailure(error);
+      const failed = failJob(job, {
+        code: isStaleLifecycleError(error) ? STALE_LIFECYCLE_CODE : 'upload_engine_error',
+        message: error instanceof Error ? error.message : String(error),
+        retryable: failureClass === 'transient',
       });
-      persist(failed);
+      await persist(failed);
       throw error;
     }
   }
@@ -370,7 +503,14 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
       const householdId = getHouseholdId();
       if (!householdId) throw new Error('no active household');
       const job = createUploadJob(householdId, ctx, artifact);
-      persist(job);
+      const asyncStore = store as AsyncStore;
+      if (typeof asyncStore.putAsync === 'function') {
+        // Durable-first callers await pump/enqueue; fire-and-observe here for
+        // the legacy sync return shape (failure recorded on the chain).
+        void asyncStore.putAsync(job).catch(() => {});
+      } else {
+        store.put(job);
+      }
       return job;
     },
     getJob(id) {
@@ -381,7 +521,14 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
       const job = store.get(id);
       if (!job) return null;
       const cancelled = transition(job, 'cancelled');
-      persist(cancelled);
+      const asyncStore = store as AsyncStore;
+      if (typeof asyncStore.putAsync === 'function') {
+        void asyncStore.putAsync(cancelled).catch(() => {});
+      } else {
+        store.put(cancelled);
+      }
+      // Terminal cleanup best-effort; the sweep backstops missed deletes.
+      void cleanupDurableArtifact(cancelled.artifact).catch(() => {});
       return cancelled;
     },
   };

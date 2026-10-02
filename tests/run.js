@@ -50,6 +50,37 @@ const commands = {
       { env },
     );
   },
+  'homecloud-t1-queue-persistence': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'HomeCloud T1 queue/persistence corruption tests',
+      'node',
+      ['scripts/compiled/scripts/homecloud_t1_queue_persistence_tests.js'],
+      { env },
+    );
+  },
+  'homecloud-t1-stale-job': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud T1 compile stale-job / UI-ownership tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_t1_stale_test.json'],
+    );
+    return runCommand(
+      'HomeCloud T1 stale job reconciliation / per-job UI ownership tests',
+      'node',
+      ['scripts/compiled-t1stale/scripts/homecloud_t1_stale_job_tests.js'],
+      { env },
+    );
+  },
   'homecloud-3e-scanner': () => runCommand(
     'HomeCloud 3E scanner logic tests',
     'node',
@@ -703,7 +734,7 @@ const suites = {
   'core-frontend': ['compile-frontend-tests', 'core-frontend'],
   core: ['testing-core', 'core-backend', 'compile-frontend-tests', 'core-frontend'],
   'homecloud-2a': ['homecloud-2a-backend-structure', 'homecloud-2a-intake-validation', 'homecloud-2a-runtime-intake', 'homecloud-2a-frontend-structure', 'compile-frontend-tests', 'homecloud-2a-upload-job', 'homecloud-upload-recovery'],
-  'homecloud-recovery': ['homecloud-upload-recovery'],
+  'homecloud-recovery': ['homecloud-upload-recovery', 'homecloud-t1-queue-persistence', 'homecloud-t1-stale-job'],
   'homecloud-2c': ['homecloud-2c-intake-validation', 'homecloud-2c-runtime-intake', 'homecloud-2c-frontend-structure', 'compile-frontend-tests'],
   'homecloud-3e': ['compile-frontend-tests', 'homecloud-3e-scanner'],
   'homecloud-4a2': ['homecloud-4a2-written-validation', 'homecloud-4a2-schema', 'homecloud-4a2-written-runtime'],
@@ -742,7 +773,9 @@ const suites = {
     'homecloud-4c1-compile',
     'homecloud-stage-a1-capture-recovery',
     'homecloud-3e-scanner',
-    'homecloud-upload-recovery',
+'homecloud-upload-recovery',
+    'homecloud-t1-queue-persistence',
+    'homecloud-t1-stale-job',
     'homecloud-slice01-integrity',
     'homecloud-slice01-storage-runtime',
   ],

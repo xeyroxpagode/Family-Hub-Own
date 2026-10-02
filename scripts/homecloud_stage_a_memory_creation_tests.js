@@ -57,7 +57,7 @@ test('service uses only shared upload engine', () => assert.match(service, /crea
 test('no source-specific upload engine exists', () => assert.doesNotMatch(intake + picker + service, /CameraUploadService|AudioUploadEngine|VideoUploadEngine|GalleryUploadEngine/));
 test('register/upload/verify/finalize instrumentation exists', () => ['register_start','register_end','upload_start','upload_end','verify_start','verify_end','finalize_start','finalize_end'].forEach((event) => assert.ok(engine.includes(`'${event}'`), event)));
 test('diagnostics never receive secrets', () => assert.doesNotMatch(intake + picker + service + engine, /memoryDevTrace\([^\n]*(accessToken|signedUploadUrl|exif:)/i));
-test('after createJob the sheet cannot delete the original', () => assert.match(intake, /if \(!service\.hasActiveJob\(\)\) discardDraftArtifact/));
+test('after createJob the sheet cannot delete the original', () => assert.match(intake, /if \(!service\.hasActiveJob\(\) && !acceptingRef\.current\) discardDraftArtifact/));
 test('before createJob cancel removes its durable draft', () => assert.match(intake, /discardMemoryMedia\(draft\.artifact\)/));
 test('attempt ownership protects late picker resolves', () => assert.match(intake, /pickerAttemptRef\.current !== attempt/));
 test('written remains register/finalize', () => assert.ok(written.includes('/api/homecloud/register') && written.includes('/finalize')));
@@ -68,10 +68,21 @@ test('expo runtime plugins are configured', () => assert.ok(config.includes('exp
 test('official media dependencies are SDK-pinned', () => { assert.equal(pkg.dependencies['expo-video'], '~57.0.5'); assert.equal(pkg.dependencies['expo-audio'], '~57.0.5'); assert.equal(pkg.dependencies['expo-image-manipulator'], '~57.0.20'); });
 test('forbidden media dependencies remain absent', () => ['expo-media-library','ffmpeg','video-thumbnails'].forEach((name) => assert.equal(pkg.dependencies[name], undefined)));
 test('no fake media UX exists', () => assert.doesNotMatch(intake + picker + review + recorder, /simulateUpload|fake waveform|fake poster|placeholder.*media/i));
-test('engine keeps stable job recovery path', () => assert.match(service, /recoverUploadJobs/));
+// T1 topology: intake does NOT own recovery. It starts the ONE process-wide
+// runtime owner, and the runtime routes to the canonical recovery entry.
+// The path must stay intact end to end, just relocated.
+test('engine keeps stable job recovery path', () => {
+  const runtime = read('front/mi-front-limpio/services/homecloud/homecloudUploadRuntime.ts');
+  assert.match(service, /ensureHomeCloudUploadRuntime/);
+  assert.match(runtime, /recoverUploadJobs/);
+});
 test('stale terminal job reference never rejects a new gallery draft', () => {
-  assert.match(service, /if \(currentJob && !\['completed', 'failed', 'cancelled'\]\.includes\(currentJob\.state\)\) return;/);
-  assert.match(service, /function hasActiveJob\(\): boolean \{[\s\S]*return currentJob !== null;/);
+  // T1 reconciliation: the historic single-slot early-return drop is deleted —
+  // EVERY submit queues its own job via the shared queue, so no draft is ever
+  // rejected regardless of the previous job's state.
+  assert.doesNotMatch(service, /if \(currentJob && !\['completed', 'failed', 'cancelled'\]\.includes\(currentJob\.state\)\) return;/);
+  assert.match(service, /queue\.enqueue\(/);
+  assert.match(service, /function hasActiveJob\(\): boolean \{[\s\S]*?queue\.getCurrentJob\(\)/);
 });
 
 // ── HOMECLOUD_MEMORIES_STAGE_A1_2_CONFIRMED_BLOCKERS_RECOVERY ──────────────

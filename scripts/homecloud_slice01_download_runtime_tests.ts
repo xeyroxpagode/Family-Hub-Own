@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { validateDownloadedFile } from '../front/mi-front-limpio/services/homecloud/homecloudDownloadPolicy.ts';
-import { normalizeSignedStorageUrlForRuntime } from '../front/mi-front-limpio/services/homecloud/homecloudSignedUrl.ts';
 
 const root = process.cwd();
 const read = (relative: string) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -17,37 +16,16 @@ function test(name: string, run: () => void): void {
 
 console.log('\n=== HOMECLOUD SLICE 01 DOWNLOAD RUNTIME RECOVERY ===\n');
 
-test('localhost signed origin is normalized', () => {
-  assert.equal(
-    normalizeSignedStorageUrlForRuntime('http://localhost:56221/storage/v1/object/sign/a?token=x', 'http://192.168.0.26:56221'),
-    'http://192.168.0.26:56221/storage/v1/object/sign/a?token=x',
-  );
+// T1 server authority: signed URLs are used VERBATIM (no client host rewrite).
+// Reachability is an environment contract (backend SUPABASE_URL), proven by
+// S0 device QA on Cloudflare/Supabase. The rewrite helper is deleted.
+test('no client-side signed-URL host rewrite exists', () => {
+  assert.doesNotMatch(download, /normalizeSignedStorageUrlForRuntime/);
+  assert.match(download, /access\.signedUrl/);
 });
 
-test('127.0.0.1 signed origin is normalized', () => {
-  assert.equal(
-    normalizeSignedStorageUrlForRuntime('http://127.0.0.1:56221/storage/v1/object/sign/a?token=x', 'http://192.168.0.26:56221'),
-    'http://192.168.0.26:56221/storage/v1/object/sign/a?token=x',
-  );
-});
-
-test('remote hosted signed URL remains unchanged', () => {
-  const remote = 'https://storage.example.com/storage/v1/object/sign/a?token=x';
-  assert.equal(normalizeSignedStorageUrlForRuntime(remote, 'http://192.168.0.26:56221'), remote);
-});
-
-test('encoded pathname is preserved byte-for-byte', () => {
-  const source = 'http://127.0.0.1:56221/storage/v1/object/sign/a%2Fb/%E2%9C%93';
-  const normalized = normalizeSignedStorageUrlForRuntime(source, 'http://192.168.0.26:56221');
-  assert.equal(normalized.slice('http://192.168.0.26:56221'.length), source.slice('http://127.0.0.1:56221'.length));
-});
-
-test('signed query is preserved byte-for-byte', () => {
-  const suffix = '/storage/v1/object/sign/a?token=a%2Bb%2F%3D&x=one+two&x=three';
-  assert.equal(
-    normalizeSignedStorageUrlForRuntime(`http://localhost:56221${suffix}`, 'http://192.168.0.26:56221'),
-    `http://192.168.0.26:56221${suffix}`,
-  );
+test('the signed-URL module is deleted (server authority)', () => {
+  assert.equal(fs.existsSync(path.join(root, 'front/mi-front-limpio/services/homecloud/homecloudSignedUrl.ts')), false);
 });
 
 test('successful local result must exist and have positive size', () => {

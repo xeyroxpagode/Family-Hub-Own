@@ -64,6 +64,13 @@ export interface UploadIntakeContext {
 export interface UploadJobError {
   readonly code: string;
   readonly message?: string;
+  /**
+   * T1 — transient vs terminal classification, persisted with the job.
+   * `true` = the failure is retryable without user action (offline, timeout,
+   * temporary tunnel outage); `false`/absent = manual retry only. Never a new
+   * FSM state: the job stays `failed`, recovery eligibility reads this flag.
+   */
+  readonly retryable?: boolean | null;
 }
 
 /** Durable client upload job. */

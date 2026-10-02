@@ -133,7 +133,6 @@ function makeEngine(
 ) {
   return createUploadEngine({
     store,
-    readArtifact: async () => new ArrayBuffer(8),
     uploadTransport: makeTransport(backend),
     getAccessToken: () => 'tok-test',
     getHouseholdId: () => householdId,
@@ -351,7 +350,6 @@ async function main() {
     const store = createInMemoryUploadJobStore();
     const engine = createUploadEngine({
       store,
-      readArtifact: async () => new ArrayBuffer(0),
       uploadTransport: async () => ({ status: 200, ok: true }),
       getAccessToken: () => token,
       getHouseholdId: () => 'hh-1',

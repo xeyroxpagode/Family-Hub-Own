@@ -140,10 +140,12 @@ test('4. success clears the draft and the transient picker state', () => {
 });
 
 test('5. failure preserves the draft for retry and never blocks the picker', () => {
-  // The Review keeps binaryDraft, so Reintentar re-runs the same job.
-  assert.match(component, /state\.status === 'failed' \? service\.retry\(\) : submitBinary\(\)/);
-  // The trigger depends on the LOCAL guard only, never on a remote status.
-  assert.match(component, /const triggerDisabled = !capabilities\.contribute \|\| active \|\| picking;/);
+  // A pre-acceptance failure keeps binaryDraft and the same footer retries
+  // acceptance. Post-acceptance failures belong to global job activity.
+  assert.match(component, /acceptedDraftRef\.current = null;[\s\S]*setAccepting\(false\);[\s\S]*return;/);
+  assert.match(component, /onPress=\{\(\) => \{ Keyboard\.dismiss\(\); void submitBinary\(\); \}\}/);
+  // A detached background upload never blocks opening a new intake.
+  assert.match(component, /const triggerDisabled = !capabilities\.contribute \|\| picking \|\| accepting;/);
   assert.doesNotMatch(component, /disabled=\{[^}]*state\.status === 'picking'/);
 });
 
@@ -422,10 +424,11 @@ test('31. the optional album stays intact on both forms', () => {
 
 test('CANCEL/CLOSE do not leak the durable artifact copy', () => {
   assert.match(component, /void import\('\.\/homecloudMemoryPicker'\)[\s\S]*discardMemoryMedia\(draft\.artifact\)/);
-  assert.match(component, /if \(!service\.hasActiveJob\(\)\) discardDraftArtifact\(binaryDraft\);/);
+  assert.match(component, /if \(!service\.hasActiveJob\(\) && !acceptingRef\.current\) discardDraftArtifact\(binaryDraft\);/);
   assert.match(picker, /export async function discardMemoryMedia/);
-  // Only a folder this module created can ever be deleted.
-  assert.match(durable, /const PENDING_FOLDER = \/\^pending_\\d\+_\[a-z0-9\]\+\$\/;/);
+  // Only a folder this module created can ever be deleted (T1: the strict
+  // shape lives in the shared sweep policy; the durable module enforces it).
+  assert.match(read('front/mi-front-limpio/services/homecloud/homecloudOrphanSweepPolicy.ts'), /PENDING_FOLDER_PATTERN = \/\^pending_\\d\+_\[a-z0-9\]\+\$\//);
   assert.match(durable, /if \(parent !== workspace\) return;/);
   assert.match(durable, /deleteAsync\(fileDir, \{ idempotent: true \}\)/);
 });
@@ -438,7 +441,8 @@ test('no remount of the surrounding surface is required to recover', () => {
   // The `+` trigger ITSELF is the reachable door. A bare
   // `onPress={() => setSheet('create')}` also matches the source sheet's "Volver"
   // ghost button, so it proved nothing about the trigger.
-  assert.match(component, /onPress=\{\(\) => setSheet\('create'\)\}\s*\n\s*disabled=\{triggerDisabled\}\s*\n\s*accessibilityLabel="Crear recuerdo"/);
+  assert.match(component, /const openCreate = useCallback[\s\S]*service\.dismiss\(\);[\s\S]*setSheet\('create'\);/);
+  assert.match(component, /onPress=\{openCreate\}\s*\n\s*disabled=\{triggerDisabled\}\s*\n\s*accessibilityLabel="Crear recuerdo"/);
 });
 
 test('ALBUM: no CRUD, no "Nuevo álbum", and an empty album list does not block Create', () => {
@@ -532,13 +536,13 @@ test('36. the Review keeps its draft on every close path while the engine owns i
   // Same single authority (X / backdrop / Android back) and a close policy that
   // varies per content: only an IDLE binary may be abandoned, and a submitting
   // one cannot be discarded from any affordance.
-  assert.match(hostForm, /closeDisabled=\{sheet === 'binary' && active\}/);
-  assert.match(sourceBinaryClosePolicy, /if \(sheet === 'binary' && !active\) \{/);
+  assert.match(hostForm, /closeDisabled=\{sheet === 'binary' && \(active \|\| accepting\)\}/);
+  assert.match(sourceBinaryClosePolicy, /if \(sheet === 'binary' && !active && !accepting\) \{/);
   // Exactly one door into closeReview from the host: no unguarded variant.
   assert.equal((sourceBinaryClosePolicy.match(/closeReview\(\)/g) ?? []).length, 1);
   // closeReview names its reason, so an abandoned draft is always attributable.
   assert.match(component, /const clearBinaryDraft = useCallback\(\(reason: BinaryDraftClearReason\) => \{/);
-  for (const reason of ['completed', 'review_close', 'focus_lost', 'rerecord']) {
+  for (const reason of ['accepted', 'completed', 'review_close', 'focus_lost', 'rerecord']) {
     assert.ok(component.includes(`clearBinaryDraft('${reason}')`), reason);
   }
 });

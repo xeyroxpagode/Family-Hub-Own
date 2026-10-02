@@ -1,6 +1,9 @@
-import { createUploadEngine, createFetchArtifactReader, createExpoFileSystemUploadTransport } from './homecloudUploadEngine';
+import { createUploadEngine, createExpoFileSystemUploadTransport } from './homecloudUploadEngine';
 import { getSharedUploadJobStore } from '../../storage/homecloudUploadJobStorage';
-import { recoverUploadJobs } from './homecloudUploadRecovery';
+import { createSharedUploadQueue } from './homecloudUploadQueue';
+import { ensureHomeCloudUploadRuntime } from './homecloudUploadRuntime';
+import { ensureUploadCoordinator } from './homecloudUploadCoordinator';
+import { cleanupTerminalJobArtifact, sweepOrphanDurableWorkspaces } from './homecloudDurableArtifact';
 import { fetchHomeCloudAlbumsCached } from './homecloudReadService';
 import type { BinaryMemoryDraft, BinaryMemoryMetadata, MemoryIntakeConfig, MemoryIntakeState, MemoryIntakeDestination } from './homecloudMemoryIntakeTypes';
 import type { UploadJob } from './homecloudUploadTypes';
@@ -10,7 +13,7 @@ import type { MemoryAttempt } from './homecloudMemoryAttempt';
 import { homeCloudUploadErrorMessage } from './homecloudUploadError';
 
 /**
- * HomeCloud HC-2C — Memory Intake service.
+ * HomeCloud HC-2C â€” Memory Intake service.
  *
  * Reuses the HC-2A Shared Upload Engine (picker-agnostic). The picker adapter
  * produces a neutral UploadLocalArtifact; this service owns Memory semantics:
@@ -23,18 +26,43 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   // Shared process-wide store: every intake surface observes the same durable
   // jobs, so a remount never loses the active job.
   const store = getSharedUploadJobStore();
-  const reader = createFetchArtifactReader();
   const uploadTransport = createExpoFileSystemUploadTransport();
 
   const engine = createUploadEngine({
     store,
-    readArtifact: reader,
     uploadTransport,
     getAccessToken,
     getHouseholdId: () => householdId,
+    cleanupDurableArtifact: async (artifact) => {
+      await cleanupTerminalJobArtifact(artifact);
+    },
   });
 
-  let currentJob: UploadJob | null = null;
+  // ONE shared queue authority for HomeCloud binaries (Files + Memories).
+  // The shared queue is the only mutable execution authority.
+  const queue = createSharedUploadQueue({
+    store,
+    householdId,
+    run: (jobId) => engine.run(jobId),
+    cleanupTerminalArtifact: async (artifact) => {
+      await cleanupTerminalJobArtifact(artifact);
+    },
+  });
+  const coordinator = ensureUploadCoordinator({ store, householdId, run: (jobId) => engine.run(jobId), cleanupTerminalArtifact: cleanupTerminalJobArtifact });
+
+  /**
+   * PRESENTATION OWNERSHIP.
+   *
+   * EXECUTION is global (one household coordinator runs Memory and File jobs
+   * FIFO). PRESENTATION is local: this adapter projects state, error and
+   * progress ONLY for the job this Review accepted (`acceptedJobId`). It never
+   * reads "the first memory job in the queue", "the latest failed job" or any
+   * other household job, so a stale failed job from an older attempt can never
+   * paint its error over the Review of a job that is still uploading.
+   */
+  let acceptedJobId: string | null = null;
+  let acceptedDraftKey: string | null = null;
+  let acceptanceInFlight: { key: string; promise: Promise<string | null> } | null = null;
   let selectedAlbumId: string | null = initialAlbumId ?? null;
   let selectedAlbumName: string | null = initialAlbumName ?? null;
   let availableAlbums: MemoryIntakeDestination[] = [];
@@ -50,10 +78,20 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     stateListeners.forEach((listener) => listener(currentState));
   }
 
+  /** The accepted job's latest durable snapshot, or null when none is bound. */
+  function acceptedJob(): UploadJob | null {
+    if (acceptedJobId === null) return null;
+    const snapshot = queue.getCurrentJob();
+    // The coordinator snapshot is preferred only when it IS this job.
+    if (snapshot && snapshot.id === acceptedJobId) return snapshot;
+    return queue.getQueue().find((job) => job.id === acceptedJobId) ?? store.get(acceptedJobId);
+  }
+
   /** Drop every transient flag left behind by a previous attempt. */
   function resetTransientState(): void {
     emitState({ error: undefined, contentId: undefined, invalidAlbum: false, permissionDenied: false, canAskAgain: undefined });
   }
+
 
 
   async function loadAlbums(): Promise<void> {
@@ -120,6 +158,18 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     }, attempt, owns);
   }
 
+  /** The oldest memory job still in the queue. NEVER used to project state. */
+  function firstMemoryQueueJob(): UploadJob | null {
+    return queue.getQueue().find((job) => job.role === 'memory') ?? null;
+  }
+
+  function syncQueueState(): void {
+    const job = acceptedJob();
+    if (!job) return;
+    emitState({ status: mapEngineStateToIntakeState(job), contentId: job.contentId ?? undefined, error: job.error?.message });
+  }
+
+
   async function pickAudio(attempt?: MemoryAttempt, owns: (attempt: MemoryAttempt) => boolean = () => true): Promise<BinaryMemoryDraft | null> {
     return runSourcePicker(async () => {
       const { pickAudioMemory } = await import('./homecloudMemoryPicker');
@@ -167,56 +217,66 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   }
 
 
-  async function createBinaryMemory(draft: BinaryMemoryDraft, metadata: BinaryMemoryMetadata, attempt?: MemoryAttempt): Promise<void> {
+  function createBinaryMemory(draft: BinaryMemoryDraft, metadata: BinaryMemoryMetadata, attempt?: MemoryAttempt): Promise<string | null> {
+    const key = attempt?.id ?? draft.artifact.localUri;
+    if (acceptedDraftKey === key && acceptedJobId) return Promise.resolve(acceptedJobId);
+    if (acceptanceInFlight?.key === key) return acceptanceInFlight.promise;
+    const promise = createBinaryMemoryInner(draft, metadata, attempt).then((jobId) => {
+      if (jobId) acceptedDraftKey = key;
+      return jobId;
+    }).finally(() => { if (acceptanceInFlight?.promise === promise) acceptanceInFlight = null; });
+    acceptanceInFlight = { key, promise };
+    return promise;
+  }
+
+  async function createBinaryMemoryInner(draft: BinaryMemoryDraft, metadata: BinaryMemoryMetadata, attempt?: MemoryAttempt): Promise<string | null> {
     if (!capabilities.contribute) {
       emitState({ status: 'failed', error: 'No tienes permiso para agregar recuerdos.' });
-      return;
+      return null;
     }
-    if (currentJob && !['completed', 'failed', 'cancelled'].includes(currentJob.state)) return;
-
-    const job = engine.createJob(
-      {
-        role: 'memory',
-        intakeSource: config.intakeSource ?? 'memories:picker',
-        initialAlbumId: metadata.initialAlbumId,
-        caption: metadata.caption,
-        capturedAt: metadata.capturedAt,
-        capturedYear: metadata.capturedYear,
-        capturedMonth: metadata.capturedMonth,
-        capturePrecision: metadata.capturePrecision,
-      },
-      draft.artifact,
-    );
-
-    currentJob = job;
-    if (attempt) memoryAttemptTrace(attempt, 'job_created', { jobId: job.id });
-    memoryDevTrace('createJob', { source: draft.source, jobId: job.id });
-
-    emitState({
-      status: 'preparing',
-      albumId: metadata.initialAlbumId,
-      albumName: availableAlbums.find((album) => album.id === metadata.initialAlbumId)?.name ?? null,
-    });
-
+    // T1 shared-queue contract: EVERY submit creates and persists its own
+    // job. A second submit while one is active queues behind it â€” it is
+    // never dropped. The picker already staged the artifact durable.
+    let job: UploadJob;
     try {
-      const completedJob = await engine.run(job.id);
-      currentJob = completedJob;
-      emitState({
-        status: mapEngineStateToIntakeState(completedJob),
-        contentId: completedJob.contentId ?? undefined,
-        albumId: metadata.initialAlbumId,
-        albumName: availableAlbums.find((album) => album.id === metadata.initialAlbumId)?.name ?? null,
-      });
+      job = await queue.enqueue(
+        {
+          role: 'memory',
+          intakeSource: config.intakeSource ?? 'memories:picker',
+          initialAlbumId: metadata.initialAlbumId,
+          caption: metadata.caption,
+          capturedAt: metadata.capturedAt,
+          capturedYear: metadata.capturedYear,
+          capturedMonth: metadata.capturedMonth,
+          capturePrecision: metadata.capturePrecision,
+        },
+        draft.artifact,
+      );
     } catch (error) {
-      const latest = store.get(job.id);
-      if (latest) currentJob = latest;
       emitState({
         status: 'failed',
         error: homeCloudUploadErrorMessage(error, 'No pudimos guardar este recuerdo.'),
         albumId: metadata.initialAlbumId,
         albumName: availableAlbums.find((album) => album.id === metadata.initialAlbumId)?.name ?? null,
       });
+      return null;
     }
+
+    if (attempt) memoryAttemptTrace(attempt, 'job_created', { jobId: job.id });
+    memoryDevTrace('createJob', { source: draft.source, jobId: job.id });
+
+    // PRESENTATION BINDING: from this point the Review projects ONLY this job.
+    acceptedJobId = job.id;
+
+    const latest = store.get(job.id) ?? job;
+    emitState({
+      status: mapEngineStateToIntakeState(latest),
+      contentId: latest.contentId ?? undefined,
+      error: latest.error?.message,
+      albumId: metadata.initialAlbumId,
+      albumName: availableAlbums.find((album) => album.id === metadata.initialAlbumId)?.name ?? null,
+    });
+    return job.id;
   }
 
   function selectDestination(albumId: string | null, albumName: string | null): void {
@@ -227,30 +287,21 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   }
 
   async function retry(): Promise<void> {
-    let job = currentJob;
-    if (!job) {
-      // Service instance recreated after remount: resume the most recent
-      // retryable memory job from the shared store instead of losing it.
-      const candidates = store
-        .all()
-        .filter((j) => j.householdId === householdId && j.role === 'memory' && j.state !== 'completed' && j.state !== 'cancelled')
-        .sort((a, b) => (a.updatedAt < b.updatedAt ? -1 : a.updatedAt > b.updatedAt ? 1 : 0));
-      job = candidates[candidates.length - 1] ?? null;
-      currentJob = job;
-    }
+    // Retry is bound to the accepted job ONLY. There is deliberately no
+    // "most recent memory job in the household" fallback: that fallback is what
+    // let a Review re-run a job the user never accepted.
+    const job = acceptedJob();
     if (!job) return;
     emitState({ status: 'preparing', error: undefined });
     try {
-      const completedJob = await engine.run(job.id);
-      currentJob = completedJob;
+      await coordinator.retry(job.id);
+      const completedJob = store.get(job.id) ?? job;
       emitState({
         status: mapEngineStateToIntakeState(completedJob),
         contentId: completedJob.contentId ?? undefined,
         error: undefined,
       });
     } catch (error) {
-      const latest = store.get(job.id);
-      if (latest) currentJob = latest;
       emitState({
         status: 'failed',
         error: homeCloudUploadErrorMessage(error, 'No pudimos guardar este recuerdo.'),
@@ -259,28 +310,37 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   }
 
   function cancel(): void {
-    if (currentJob) {
-      engine.cancel(currentJob.id);
-      emitState({ status: 'cancelled' });
+    // Cancel targets the accepted job; the queue fallback exists only so the
+    // surface can still stop a pending memory job it created in this session.
+    const job = acceptedJob() ?? firstMemoryQueueJob();
+    if (job) {
+      // Single-job cancel: neighbors keep progressing via the queue pump.
+      void queue.cancelJob(job.id).then((cancelled) => {
+        if (cancelled) emitState({ status: 'cancelled' });
+      });
     }
   }
 
   /**
    * CLOSE contract: leave the surface ready to open again. Releases the picker
    * guard (so a native presentation that never settled can never brick Create)
-   * and drops every transient flag.
+   * and drops every transient flag AND the job binding, so the next Review
+   * starts from a clean owner.
    */
   function dismiss(): void {
     picking = false;
-    currentJob = null;
+    acceptedJobId = null;
+    acceptedDraftKey = null;
     resetTransientState();
     emitState({ status: 'idle' });
   }
 
+
   function subscribe(listener: (state: MemoryIntakeState) => void): () => void {
     stateListeners.add(listener);
     listener(currentState);
-    return () => stateListeners.delete(listener);
+    const unsubscribeQueue = queue.subscribe(syncQueueState);
+    return () => { stateListeners.delete(listener); unsubscribeQueue(); };
   }
 
   function getAvailableDestinations(): MemoryIntakeDestination[] {
@@ -296,29 +356,23 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   }
 
   /**
-   * Canonical shared recovery entry point for memory intake. Hydrates the
-   * durable store and resumes interrupted memory jobs for this Household.
-   * Safe to call on every mount; no-ops when nothing is recoverable.
+   * Canonical shared recovery entry point for memory intake. Ensures the ONE
+   * process-wide upload runtime (startup hydrate + sweep + reconnect owner)
+   * and resumes interrupted memory jobs for this Household. Safe to call on
+   * every mount; no-ops when nothing is recoverable.
    */
   async function recover(): Promise<void> {
     if (!householdId || !getAccessToken()) return;
     try {
-      await recoverUploadJobs({
+      await ensureHomeCloudUploadRuntime({
         store,
         householdId,
-        role: 'memory',
         run: (jobId) => engine.run(jobId),
-        onJob: (job) => {
-          currentJob = job;
-          emitState({
-            status: mapEngineStateToIntakeState(job),
-            contentId: job.contentId ?? undefined,
-            error: job.error?.message,
-            albumId: selectedAlbumId,
-            albumName: selectedAlbumName,
-          });
+        sweepOrphans: async (liveJobs) => {
+          await sweepOrphanDurableWorkspaces(liveJobs);
         },
-      });
+      }).start();
+      void coordinator.requestPump('memory_mount');
     } catch {
       // Recovery is best-effort; explicit retry of the same job remains.
     }
@@ -326,12 +380,18 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
   function canShowDestinationSelector(): boolean {
     // Root + at least one Album, and no inherited Album context (context already
-    // resolved intent → don't ask again).
+    // resolved intent â†’ don't ask again).
     return availableAlbums.length > 1 && !hasAlbumContext();
   }
 
+  /**
+   * "Is there a job THIS Review owns?" â€” never "does the household have any
+   * job?". Answering the household question made an unsubmitted draft look
+   * protected by a foreign job and let a foreign failure decide this UI.
+   */
   function hasActiveJob(): boolean {
-    return currentJob !== null;
+    const job = acceptedJob();
+    return job !== null && job.state !== 'completed' && job.state !== 'cancelled';
   }
 
   return {
@@ -350,5 +410,9 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     loadAlbums,
     recover,
     hasActiveJob,
+    /** The job this surface is bound to (null before the first submit). */
+    getAcceptedJobId: () => acceptedJobId,
+    /** Compat projection over the shared queue (never separate authority). */
+    getCurrentJob: () => queue.getCurrentJob(),
   };
 }

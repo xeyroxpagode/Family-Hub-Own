@@ -3,7 +3,6 @@ import * as Sharing from 'expo-sharing';
 import { requestJson } from '../api';
 import { runtimeTrace } from '../runtimeTrace';
 import { InvalidDownloadedFileError, validateDownloadedFile } from './homecloudDownloadPolicy';
-import { normalizeSignedStorageUrlForRuntime } from './homecloudSignedUrl';
 import type { HomeCloudFile } from './homecloudTypes';
 
 type ContentAccessResponse = { signedUrl: string; contentId: string; variant: 'original' };
@@ -68,8 +67,13 @@ export async function downloadHomeCloudOriginal(accessToken: string, content: Ho
     const destination = new File(directory, safeFileName(content.displayName));
 
     stage = 'transfer';
+    // T1 server authority: the signed URL is used VERBATIM (scheme, host,
+    // port, path and query byte-for-byte from the server). The client never
+    // rewrites it. Reachability is an environment contract: backend
+    // SUPABASE_URL must be device-reachable (Cloudflare/Supabase in the
+    // current deployment already is — S0 device QA passed on it).
     task = File.createDownloadTask(
-      normalizeSignedStorageUrlForRuntime(access.signedUrl),
+      access.signedUrl,
       destination,
       { sessionType: 'foreground' },
     );

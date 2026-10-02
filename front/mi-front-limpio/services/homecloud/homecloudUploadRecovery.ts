@@ -17,6 +17,7 @@
 
 import type { UploadJob, UploadJobRole, UploadJobState } from './homecloudUploadTypes';
 import type { AsyncUploadJobStore, UploadJobStore } from '../../storage/homecloudUploadJobStorage';
+import { ensureUploadCoordinator } from './homecloudUploadCoordinator';
 
 export interface UploadRecoveryDeps {
   /** Durable store (shared singleton in production). */
@@ -41,10 +42,13 @@ export interface UploadRecoveryResult {
 /**
  * States eligible for AUTOMATIC resume on runtime readiness: the job was
  * moving forward when it was interrupted (reload/remount/process death) and
- * never recorded an engine error. `failed` is deliberately excluded: it
- * carries an explicit error and resumes only through user-initiated retry of
- * the SAME job (no new registration), so abandoned failures are never
- * silently re-uploaded on every app start.
+ * never recorded an engine error. `failed` is NOT in this set on purpose:
+ * a failed job auto-resumes ONLY when its persisted error is explicitly
+ * marked retryable (transient: offline, timeout, temporary tunnel outage —
+ * see homecloudUploadFailure.ts and isAutoRecoverableJob below). Terminal
+ * failures (validation, ownership, capacity, policy) resume only through
+ * user-initiated retry of the SAME job, so abandoned terminal failures are
+ * never silently re-uploaded on every app start and never auto-loop.
  */
 export const AUTO_RECOVERABLE_STATES: ReadonlySet<UploadJobState> = new Set([
   'pending',
@@ -54,6 +58,18 @@ export const AUTO_RECOVERABLE_STATES: ReadonlySet<UploadJobState> = new Set([
   'verifying',
   'finalizing',
 ]);
+
+/**
+ * T1 — recovery eligibility WITHOUT new FSM states. A job auto-resumes when
+ * it is mid-flight, OR when it is failed *with a persisted transient flag*.
+ * Terminal failed jobs (retryable !== true, including legacy jobs without
+ * the flag) stay manual-only.
+ */
+export function isAutoRecoverableJob(job: UploadJob): boolean {
+  if (AUTO_RECOVERABLE_STATES.has(job.state)) return true;
+  if (job.state === 'failed' && job.error?.retryable === true) return true;
+  return false;
+}
 
 /** Non-terminal jobs for a Household (and optional role), oldest first. */
 export function listRecoverableJobs(
@@ -65,7 +81,7 @@ export function listRecoverableJobs(
     .all()
     .filter((job) => job.householdId === householdId)
     .filter((job) => (role ? job.role === role : true))
-    .filter((job) => AUTO_RECOVERABLE_STATES.has(job.state))
+    .filter((job) => isAutoRecoverableJob(job))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? -1 : a.updatedAt > b.updatedAt ? 1 : 0));
 }
 
@@ -98,23 +114,17 @@ async function recoverInner(deps: UploadRecoveryDeps): Promise<UploadRecoveryRes
 
   const jobs = listRecoverableJobs(store, householdId, role);
   const householdTotal = store.all().filter((job) => job.householdId === householdId).length;
-  let completed = 0;
-  let failed = 0;
-  for (const job of jobs) {
-    try {
-      const finalJob = await run(job.id);
-      completed += 1;
-      onJob?.(finalJob);
-    } catch (error) {
-      failed += 1;
-      try {
-        const latest = store.get(job.id);
-        if (latest) onJob?.(latest);
-      } catch {
-        // Observer best-effort only; recovery accounting already recorded.
-      }
-      void error;
-    }
+  // Recovery is a trigger, never an independent runner. Role remains useful to
+  // callers for observation/accounting, but execution joins the household owner.
+  const coordinator = ensureUploadCoordinator({ store, householdId, run });
+  const before = new Map(jobs.map((job) => [job.id, job.state]));
+  await coordinator.requestPump(`recovery:${role ?? '*'}`);
+  let completed = 0; let failed = 0;
+  for (const id of before.keys()) {
+    const latest = store.get(id);
+    if (latest?.state === 'completed') completed += 1;
+    else if (latest?.state === 'failed') failed += 1;
+    if (latest) onJob?.(latest);
   }
   return { resumed: jobs.length, completed, failed, skipped: Math.max(0, householdTotal - jobs.length) };
 }
