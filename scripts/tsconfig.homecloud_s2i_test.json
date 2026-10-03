@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-s2i"
+  },
+  "include": [
+    "../scripts/homecloud_s2i_durable_recovery_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadTypes.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadJob.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadEngine.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadCoordinator.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadRecovery.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadRuntime.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadRuntimeOwnership.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadMaintenance.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadFailure.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudDurableArtifact.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudOrphanSweepPolicy.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryDiagnostics.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudReadReconciliation.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudReadService.ts",
+    "../front/mi-front-limpio/storage/homecloudUploadJobStorage.ts"
+  ],
+  "exclude": ["node_modules"]
+}

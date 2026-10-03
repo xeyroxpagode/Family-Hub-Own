@@ -162,6 +162,24 @@ const commands = {
       { env },
     );
   },
+  'homecloud-s2i-durable-recovery': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud S2-i compile durable recovery / cold start tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_s2i_test.json'],
+    );
+    return runCommand(
+      'HomeCloud S2-i durable recovery / cold start lifecycle tests',
+      'node',
+      ['scripts/compiled-s2i/scripts/homecloud_s2i_durable_recovery_tests.js'],
+      { env },
+    );
+  },
   'homecloud-w1a-authority': () => {
     const env = {
       ...process.env,
@@ -913,7 +931,16 @@ const suites = {
   'core-frontend': ['compile-frontend-tests', 'core-frontend'],
   core: ['testing-core', 'core-backend', 'compile-frontend-tests', 'core-frontend'],
   'homecloud-2a': ['homecloud-2a-backend-structure', 'homecloud-2a-intake-validation', 'homecloud-2a-runtime-intake', 'homecloud-2a-frontend-structure', 'compile-frontend-tests', 'homecloud-2a-upload-job', 'homecloud-upload-recovery'],
-  'homecloud-recovery': ['homecloud-upload-recovery', 'homecloud-t1-queue-persistence', 'homecloud-t1-stale-job', 'homecloud-t2-d1-native-upload'],
+  'homecloud-recovery': ['homecloud-upload-recovery', 'homecloud-t1-queue-persistence', 'homecloud-t1-stale-job', 'homecloud-t2-d1-native-upload', 'homecloud-s2i-durable-recovery'],
+  'homecloud-s2i': [
+    'homecloud-s2i-durable-recovery',
+    'homecloud-upload-recovery',
+    'homecloud-t1-queue-persistence',
+    'homecloud-t1-stale-job',
+    'homecloud-t2-d1-native-upload',
+    'homecloud-w1bc-pagination-reconciliation',
+    'frontend-typecheck',
+  ],
   'homecloud-t2-d1': ['homecloud-t2-d1-native-upload'],
   'homecloud-2c': ['homecloud-2c-intake-validation', 'homecloud-2c-runtime-intake', 'homecloud-2c-frontend-structure', 'compile-frontend-tests'],
   'homecloud-3e': ['compile-frontend-tests', 'homecloud-3e-scanner'],

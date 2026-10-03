@@ -16,6 +16,7 @@ import { UpdatePasswordScreen } from '../screens/UpdatePassword';
 import { StandardShell } from './StandardShell';
 import { PlannerReliabilityRuntimeOwner } from '../components/planner/PlannerReliabilityRuntimeOwner';
 import { HomeCloudScopeOwner } from '../components/homecloud/HomeCloudScopeOwner';
+import { HomeCloudUploadRuntimeOwner } from '../components/homecloud/HomeCloudUploadRuntimeOwner';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { FeedFamiliarScreen } from '../screens/feed/FeedFamiliarScreen';
 import { ExperienceSelectorScreen } from '../screens/ExperienceSelectorScreen';
@@ -291,6 +292,7 @@ const PrivateNavigator = () => {
   // React unmount cleanup, once because we pass to a new key).
   return (
     <HomeCloudScopeOwner>
+    <HomeCloudUploadRuntimeOwner ownerSurface="AppShellPrivate">
     <PlannerReliabilityRuntimeOwner ownerSurface="AppShellPrivate">
     <PrivateStackInstance initialPrivateRoute={initialPrivateRoute}>
     <PrivateStack.Navigator
@@ -311,6 +313,7 @@ const PrivateNavigator = () => {
     </PrivateStack.Navigator>
     </PrivateStackInstance>
     </PlannerReliabilityRuntimeOwner>
+    </HomeCloudUploadRuntimeOwner>
     </HomeCloudScopeOwner>
   );
 };
