@@ -22,6 +22,11 @@
  *     The canonical content authority stays homecloud_contents; Album
  *     membership authority stays homecloud_album_items and is only
  *     projected as ids, never duplicated as embedded Album objects.
+ *
+ * MO-A1 — Albums contract / read model:
+ *   - An Album is a shared ORGANIZATION over Memories, not storage ownership.
+ *   - mapAlbumRowToDto requires an EXACT aggregate (itemCount, coverContentId)
+ *     and never derives a cover URL, a signed URL, a bucket or a storage path.
  */
 
 /** Canonical Memory kinds derived from the persisted row shape. */
@@ -126,6 +131,40 @@ function mapMemoryRowToReadDto(row, albumIds = []) {
 }
 
 /**
+ * Non-throwing sibling of deriveMemoryKind.
+ *
+ * Used by the Album aggregate to classify a candidate cover WITHOUT turning a
+ * structurally unexpected row into a 500. Returns null when the kind cannot be
+ * derived, and such a row is simply NOT a cover candidate.
+ *
+ * @param {Object} row homecloud_contents row
+ * @returns {'written'|'image'|'video'|'audio'|null}
+ */
+function tryDeriveMemoryKind(row) {
+  try {
+    return deriveMemoryKind(row);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Memory kinds eligible to be an Album cover.
+ *
+ * V1 cover contract: the OLDEST suitable ACTIVE VISUAL Memory in canonical
+ * Album order. "Visual" means image or video. A written Memory (no binary) and
+ * an audio Memory are organizationally valid Album members but are NOT cover
+ * candidates, so an Album can legitimately have coverContentId = null.
+ */
+const HOME_CLOUD_ALBUM_COVER_KINDS = Object.freeze(['image', 'video']);
+
+/** True when the row is an active Memory whose derived kind may be a cover. */
+function isAlbumCoverCandidate(row) {
+  const kind = tryDeriveMemoryKind(row);
+  return kind !== null && HOME_CLOUD_ALBUM_COVER_KINDS.includes(kind);
+}
+
+/**
  * Safe folder mapper: DB row -> canonical HomeCloud Folder DTO.
  * Minimal representation per HC-1F Product Truth.
  */
@@ -141,15 +180,47 @@ function mapFolderRowToDto(row) {
 
 /**
  * Safe album mapper: DB row -> canonical HomeCloud Album DTO.
- * Minimal representation per HC-1F Product Truth (active only).
+ *
+ * MO-A1 Album contract: an Album is a shared ORGANIZATION over Memories, so
+ * the DTO exposes the two derived presentation facts the Album surface needs:
+ *
+ *   - itemCount      EXACT number of ACTIVE Memories in the Album
+ *                    (integer >= 0). Never a page length, never a visible tile
+ *                    count, never a raw membership count that includes
+ *                    staging/trashed content.
+ *   - coverContentId OLDEST suitable ACTIVE visual Memory (image/video) in
+ *                    canonical Album order, or null when there is none.
+ *                    A content id only: the frontend resolves it through the
+ *                    existing preview path. NO cover URL, NO signed URL, NO
+ *                    bucket, NO storage path, and NO persisted cover column.
+ *
+ * `aggregate` is REQUIRED and MUST carry an exact non-negative integer
+ * `itemCount`. Failing loudly here is deliberate: a silent default would ship
+ * an approximate or fabricated count through the API, which the frozen
+ * contract forbids.
+ *
+ * @param {Object} row homecloud_albums row
+ * @param {{itemCount: number, coverContentId?: string|null}} aggregate
+ * @returns {Object} canonical Album DTO
  */
-function mapAlbumRowToDto(row) {
+function mapAlbumRowToDto(row, aggregate) {
+  const itemCount = aggregate?.itemCount;
+  if (!Number.isInteger(itemCount) || itemCount < 0) {
+    throw new Error('homecloud_album_dto_requires_exact_item_count');
+  }
+  const coverContentId = aggregate?.coverContentId ?? null;
+  if (coverContentId !== null && typeof coverContentId !== 'string') {
+    throw new Error('homecloud_album_dto_requires_content_id_cover');
+  }
+
   return {
     id: row.id,
     name: row.name,
     createdByMemberId: row.created_by_member_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    itemCount,
+    coverContentId,
   };
 }
 
@@ -157,7 +228,10 @@ module.exports = {
   mapContentRowToDto,
   mapMemoryRowToReadDto,
   deriveMemoryKind,
+  tryDeriveMemoryKind,
+  isAlbumCoverCandidate,
   HOME_CLOUD_MEMORY_KINDS,
+  HOME_CLOUD_ALBUM_COVER_KINDS,
   mapFolderRowToDto,
   mapAlbumRowToDto,
 };

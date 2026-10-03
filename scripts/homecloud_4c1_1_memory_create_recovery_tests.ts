@@ -418,8 +418,18 @@ test('31. the optional album stays intact on both forms', () => {
   assert.match(service, /initialAlbumId: metadata\.initialAlbumId/);
   // No album is a valid choice, and Create is never blocked by an empty list.
   assert.match(component, /albums\.length === 0 \? <FilterChip label="Sin álbum" selected disabled=\{disabled\} \/>/);
-  // Albums CRUD stays out of this patch.
+  // Scope boundary (evolved with MO-A1): Album CRUD now EXISTS as a backend and
+  // client contract, but the intake FORM still owns no Album UI. This guard used
+  // to assert that Albums CRUD did not exist at all; it is narrowed to the
+  // surface that is actually under test, so it keeps guarding instead of
+  // freezing a superseded slice.
   assert.doesNotMatch(component, /Nuevo álbum|createAlbum|Nuevo album/);
+  assert.doesNotMatch(service, /Nuevo álbum|createAlbum|deleteAlbum|renameAlbum/);
+  // The Album client contract is asserted where it now lives, not denied.
+  assert.match(
+    read('front/mi-front-limpio/services/homecloud/homecloudReadService.ts'),
+    /export async function createAlbum\(/,
+  );
 });
 
 test('CANCEL/CLOSE do not leak the durable artifact copy', () => {
@@ -445,10 +455,23 @@ test('no remount of the surrounding surface is required to recover', () => {
   assert.match(component, /onPress=\{openCreate\}\s*\n\s*disabled=\{triggerDisabled\}\s*\n\s*accessibilityLabel="Crear recuerdo"/);
 });
 
-test('ALBUM: no CRUD, no "Nuevo álbum", and an empty album list does not block Create', () => {
-  assert.doesNotMatch(component + service, /Nuevo álbum|createAlbum|deleteAlbum|renameAlbum/);
+test('ALBUM: the intake owns no Album UI, an empty album list never blocks Create, and the CRUD contract lives elsewhere', () => {
+  // MO-A1 intent change: Albums CRUD now exists as contract (service layer
+  // only, NO screen/route/tile/selection UI). The previous guard denied the
+  // identifiers globally, which is superseded. It is retargeted at the surface
+  // under test so it still enforces a real boundary.
+  assert.doesNotMatch(component, /Nuevo álbum|createAlbum|deleteAlbum|renameAlbum/);
   assert.doesNotMatch(component, /AlbumDetail|albumDetail/);
   assert.doesNotMatch(component, /disabled=\{[^}]*albums\.length === 0/);
+  // And the contract is proven to exist where it belongs, still UI-free.
+  const readService = read('front/mi-front-limpio/services/homecloud/homecloudReadService.ts');
+  for (const contract of ['createAlbum', 'renameAlbum', 'deleteAlbum', 'addMemoryToAlbum', 'removeMemoryFromAlbum']) {
+    assert.match(readService, new RegExp(`export async function ${contract}\\(`));
+  }
+  const albumTypes = read('front/mi-front-limpio/services/homecloud/homecloudTypes.ts');
+  assert.match(albumTypes, /readonly itemCount: number;/);
+  assert.match(albumTypes, /readonly coverContentId: string \| null;/);
+  assert.doesNotMatch(readService, /AlbumTile|AlbumScreen/);
 });
 
 test('VIEWER stays deferred: cards remain non-interactive', () => {

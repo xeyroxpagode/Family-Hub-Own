@@ -14,6 +14,12 @@
  *
  * And DO expose:
  * - hasPreview correctly (false when preview_storage_path NULL, true when non-null)
+ *
+ * MO-A1 (intentional contract change): the Album DTO now exposes `itemCount`
+ * (EXACT active-Memory count) and `coverContentId` (a content id or null). The
+ * former `itemCount === undefined` expectation froze an earlier slice and is
+ * replaced. All leak guards are preserved, and the cover is proven to be a
+ * content id only: no URL, no signed URL, no bucket, no storage path.
  */
 
 const path = require('node:path');
@@ -268,7 +274,14 @@ record(
   'Folder DTO does NOT contain totalBytes (no product aggregates)',
 );
 
-// Test 8: Album DTO - minimal, no storage fields
+// Test 8: Album DTO - exact aggregates, no storage fields
+//
+// MO-A1 (intentional contract change): the Album DTO NOW exposes
+//   itemCount      EXACT number of active Memories in the Album
+//   coverContentId OLDEST suitable active visual Memory in Album order, or null
+// The previous `itemCount === undefined` expectation froze an earlier slice's
+// lack of aggregates and is stale: it is replaced by the approved contract.
+// Every unrelated leak guard below is preserved unchanged.
 const albumRow = {
   id: 'aaa-aaa',
   household_id: 'hhh-hhh',
@@ -281,7 +294,7 @@ const albumRow = {
   updated_at: '2024-01-01T00:00:00Z',
 };
 
-const albumDto = mapAlbumRowToDto(albumRow);
+const albumDto = mapAlbumRowToDto(albumRow, { itemCount: 3, coverContentId: 'bbb-bbb' });
 record(
   albumDto.id === 'aaa-aaa',
   'Album DTO has id',
@@ -307,12 +320,52 @@ record(
   'Album DTO does NOT contain bucket',
 );
 record(
-  albumDto.itemCount === undefined,
-  'Album DTO does NOT contain itemCount (no product aggregates)',
+  albumDto.itemCount === 3 && Number.isInteger(albumDto.itemCount) && albumDto.itemCount >= 0,
+  'Album DTO exposes the EXACT active-Memory itemCount as an integer >= 0 (MO-A1)',
 );
 record(
-  albumDto.derivedCover === undefined,
-  'Album DTO does NOT contain derivedCover (no product aggregates)',
+  albumDto.coverContentId === 'bbb-bbb',
+  'Album DTO exposes coverContentId as a content id (MO-A1)',
+);
+
+// An Album with no suitable active visual Memory has a NULL cover.
+const albumWithoutCover = mapAlbumRowToDto(albumRow, { itemCount: 2, coverContentId: null });
+record(
+  albumWithoutCover.coverContentId === null,
+  'Album DTO reports coverContentId = null when there is no suitable visual Memory (MO-A1)',
+);
+const emptyAlbumDto = mapAlbumRowToDto(albumRow, { itemCount: 0, coverContentId: null });
+record(
+  emptyAlbumDto.itemCount === 0 && emptyAlbumDto.coverContentId === null,
+  'An empty Album reports itemCount 0 and a null cover (MO-A1)',
+);
+
+// The DTO can never be projected with a fabricated / truncated count.
+for (const badAggregate of [undefined, {}, { itemCount: null }, { itemCount: 1.5 }, { itemCount: -1 }]) {
+  let threw = false;
+  try {
+    mapAlbumRowToDto(albumRow, badAggregate);
+  } catch {
+    threw = true;
+  }
+  record(threw, `Album DTO refuses a non-exact itemCount (${JSON.stringify(badAggregate ?? null)})`);
+}
+
+// The cover is a CONTENT ID only: no URL, no signed URL, no bucket, no path.
+for (const forbiddenCoverKey of [
+  'coverUrl', 'cover_url', 'coverSignedUrl', 'signedUrl', 'signed_url',
+  'previewUrl', 'preview_url', 'previewStoragePath', 'preview_storage_path',
+  'originalStoragePath', 'original_storage_path', 'bucket', 'derivedCover',
+  'household_id', 'householdId', 'lifecycle', 'trashed_at', 'trashedAt',
+]) {
+  record(
+    albumDto[forbiddenCoverKey] === undefined,
+    `Album DTO does NOT contain ${forbiddenCoverKey}`,
+  );
+}
+record(
+  !JSON.stringify(albumDto).includes('storage_path') && !JSON.stringify(albumDto).includes('signed'),
+  'Serialized Album DTO carries no storage path and no signed URL',
 );
 
 // Test 9: JSON serialization check - ensure no hidden fields leak
@@ -354,6 +407,10 @@ const serializedAlbum = JSON.stringify(albumDto);
 record(
   !serializedAlbum.includes('original_storage_path'),
   'Serialized Album DTO does not contain "original_storage_path"',
+);
+record(
+  !serializedAlbum.includes('preview_storage_path') && !serializedAlbum.includes('bucket'),
+  'Serialized Album DTO does not contain "preview_storage_path" or "bucket"',
 );
 
 // Test 10: Discriminated union TypeScript narrowing works at runtime (structure check)

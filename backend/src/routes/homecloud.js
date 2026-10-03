@@ -5,6 +5,7 @@ const storageController = require('../controllers/homecloud.storage.controller')
 const readController = require('../controllers/homecloud.read.controller')
 const intakeController = require('../controllers/homecloud.intake.controller')
 const filesController = require('../controllers/homecloud.files.controller')
+const albumsController = require('../controllers/homecloud.albums.controller')
 
 const router = express.Router()
 
@@ -39,9 +40,11 @@ router.get('/content/:contentId/access', storageController.getHomeCloudContentAc
 router.get('/content/:contentId', readController.getContentByIdController)
 
 // Stage 4B.1: Memories read model (Memories Root / Timeline data source).
-// Active memories only (role=memory, lifecycle=active), canonical Timeline
-// order, stable limit/offset pagination, derived kind + album memberships.
-// Query: limit, offset, year, albumId, query, kind
+// Active memories only (role=memory, lifecycle=active), stable limit/offset
+// pagination, derived kind + album memberships.
+// Query: limit, offset, year, albumId, query, kind, order
+// `order` defaults to the global Timeline (newest -> oldest); `order=album`
+// with `albumId` selects the EXPLICIT Album presentation mode (oldest -> newest).
 router.get('/memories', readController.listMemoriesController)
 
 // Folders: list and get by ID (protected, household-scoped)
@@ -60,6 +63,16 @@ router.patch('/content/:contentId/file', filesController.updateFile)
 // Stable ordering by name
 router.get('/albums', readController.listAlbumsController)
 router.get('/albums/:albumId', readController.getAlbumByIdController)
+
+// MO-A1 Album organization mutations (require homecloud.organize).
+// An Album is a shared ORGANIZATION over Memories: none of these endpoints
+// creates, modifies, trashes or purges a Memory, and DELETE is a HARD delete of
+// the grouping only (membership rows disappear through the FK cascade).
+router.post('/albums', albumsController.createAlbumController)
+router.patch('/albums/:albumId', albumsController.renameAlbumController)
+router.delete('/albums/:albumId', albumsController.deleteAlbumController)
+router.post('/albums/:albumId/items', albumsController.addAlbumItemController)
+router.delete('/albums/:albumId/items/:contentId', albumsController.removeAlbumItemController)
 
 // Album items primitive (protected, household-scoped)
  // Low-level repository primitive for Stage 4 composition

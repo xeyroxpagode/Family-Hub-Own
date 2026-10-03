@@ -236,10 +236,40 @@ const commands = {
     ['scripts/homecloud_s0_modal_host_contract_tests.js'],
   ),
 
-  'homecloud-4c1-compile': () => runCommand(
+'homecloud-4c1-compile': () => runCommand(
     'Compile HomeCloud 4C1 focused tests',
     'npm',
     ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_4c1_test.json'],
+  ),
+
+  // MO-A1 — Albums contract / backend / read model.
+  //
+  // homecloud-moa1-album-contract is deterministic (no database, no network):
+  // capability model, Album DTO contract, Album order vs Timeline order, cover
+  // suitability, mutation route surface, schema freeze, read-model boundaries
+  // and shared-foundation decoupling.
+  //
+  // homecloud-moa1-album-runtime is ENVIRONMENT-DEPENDENT: it exercises the REAL
+  // backend services against the LOCAL Supabase reported by `supabase status`
+  // and refuses any non-local URL. It is the runtime proof for the five Album
+  // mutations, the exact itemCount (including >1000), the derived cover, the
+  // Album read mode and the capability/household authority. Without a running
+  // local Supabase it reports RUNTIME_REQUIRED and fails; it never degrades to a
+  // pretend pass.
+  'homecloud-moa1-album-contract': () => runCommand(
+    'HomeCloud MO-A1 Album contract deterministic tests',
+    'node',
+    ['scripts/homecloud_moa1_album_contracts_tests.js'],
+  ),
+  'homecloud-moa1-album-runtime': () => runCommand(
+    'HomeCloud MO-A1 Album runtime tests (local Supabase)',
+    'node',
+    ['scripts/homecloud_moa1_album_runtime_tests.js'],
+  ),
+  'homecloud-1f-dto-leak': () => runCommand(
+    'HomeCloud 1F DTO leak regression tests',
+    'node',
+    ['scripts/homecloud_1f_dto_leak_tests.js'],
   ),
   'homecloud-stage-a1-capture-recovery': () => runCommand(
     'HomeCloud Stage A1 in-app capture runtime recovery tests',
@@ -854,7 +884,7 @@ const suites = {
     'homecloud-4b1-preview',
     'homecloud-4a2-written-validation',
   ],
-  'homecloud-4c1': [
+'homecloud-4c1': [
     'homecloud-4c1-compile',
     'homecloud-4c1-memory-create',
     'homecloud-4c1-1-memory-create-recovery',
@@ -868,6 +898,19 @@ const suites = {
     'homecloud-w1a-authority',
     'homecloud-w1bc-pagination-reconciliation',
     'homecloud-w1c-scanner-acceptance',
+    'frontend-typecheck',
+  ],
+  // MO-A1 gate. Every new MO-A1 evidence belongs here; there are no orphan
+  // scripts. The two `*-runtime` members need a local Supabase and classify
+  // themselves as RUNTIME_REQUIRED when it is not available.
+  'homecloud-moa1': [
+    'homecloud-moa1-album-contract',
+    'homecloud-1f-dto-leak',
+    'homecloud-moa1-album-runtime',
+    'homecloud-4b1-memories-read-model',
+    'homecloud-4b2-timeline',
+    'homecloud-4a2-written-validation',
+    'homecloud-4a2-written-runtime',
     'frontend-typecheck',
   ],
   'homecloud-w1': [

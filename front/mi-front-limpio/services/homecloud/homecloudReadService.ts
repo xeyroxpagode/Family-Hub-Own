@@ -6,6 +6,7 @@ import type {
   HomeCloudFolder,
   HomeCloudAlbum,
   HomeCloudAlbumItem,
+  HomeCloudAlbumMembership,
   HomeCloudAccessVariant,
   HomeCloudAccessResult,
   HomeCloudMemoriesQuery,
@@ -24,7 +25,8 @@ import type {
  * - list albums
  * - get album by ID
  * - album membership primitive
- * - list Memories (STAGE 4B.1 read model)
+ * - album organization mutations (MO-A1 contract, no UI)
+ * - list Memories (STAGE 4B.1 read model, incl. the Album presentation mode)
  * - private content access (contentId + variant)
  *
  * Uses existing plannerCache/plannerKeys infrastructure.
@@ -345,6 +347,103 @@ export async function fetchHomeCloudAlbumItemsCached(
   }
 }
 
+// --- Album organization mutations (MO-A1 client contract) ---
+
+/**
+ * Album organization mutations (MO-A1).
+ *
+ * Contract only: NO screen, route, tile or selection UI is built here.
+ *
+ * Semantics the backend guarantees and this layer must not re-derive:
+ *   - create / rename / delete require `homecloud.organize`;
+ *   - deleteAlbum is a HARD delete of the organization only. It removes the
+ *     Album and its memberships and never deletes, trashes or alters a Memory;
+ *   - addMemoryToAlbum inserts one membership row and never creates a second
+ *     Memory; repeating it is idempotent success;
+ *   - removeMemoryFromAlbum removes one membership row only, and the Memory
+ *     survives.
+ *
+ * Household identity is never sent: the server derives it from the
+ * authenticated context.
+ *
+ * After a successful mutation the household read state is invalidated through
+ * the EXISTING `invalidateHomeCloudHousehold`. This is deliberately not a new
+ * cache architecture, not an event bus and not optimistic UI: the owner
+ * refetches and presents the result.
+ */
+
+async function invalidateAlbumReads(scope?: HomeCloudScope): Promise<void> {
+  if (scope) invalidateHomeCloudHousehold(scope);
+}
+
+/** Create an active Album in the authenticated household. */
+export async function createAlbum(
+  accessToken: string,
+  name: string,
+  scope?: HomeCloudScope,
+): Promise<HomeCloudAlbum> {
+  const resp = await requestJson<{ album: HomeCloudAlbum }>(
+    '/api/homecloud/albums',
+    { method: 'POST', accessToken, body: { name } },
+  );
+  await invalidateAlbumReads(scope);
+  return resp.album;
+}
+
+/** Rename an Album of the authenticated household. */
+export async function renameAlbum(
+  accessToken: string,
+  albumId: string,
+  name: string,
+  scope?: HomeCloudScope,
+): Promise<HomeCloudAlbum> {
+  const resp = await requestJson<{ album: HomeCloudAlbum }>(
+    `/api/homecloud/albums/${albumId}`,
+    { method: 'PATCH', accessToken, body: { name } },
+  );
+  await invalidateAlbumReads(scope);
+  return resp.album;
+}
+
+/** Delete an Album (the organization only). Answers 204. */
+export async function deleteAlbum(
+  accessToken: string,
+  albumId: string,
+  scope?: HomeCloudScope,
+): Promise<void> {
+  await requestJson<void>(`/api/homecloud/albums/${albumId}`, { method: 'DELETE', accessToken });
+  await invalidateAlbumReads(scope);
+}
+
+/** Add an EXISTING Memory to an Album. Idempotent for an existing membership. */
+export async function addMemoryToAlbum(
+  accessToken: string,
+  albumId: string,
+  contentId: string,
+  scope?: HomeCloudScope,
+): Promise<HomeCloudAlbumMembership> {
+  const resp = await requestJson<{ membership: HomeCloudAlbumMembership }>(
+    `/api/homecloud/albums/${albumId}/items`,
+    { method: 'POST', accessToken, body: { contentId } },
+  );
+  await invalidateAlbumReads(scope);
+  return resp.membership;
+}
+
+/** Remove one Memory from one Album. The Memory survives. Answers 204. */
+export async function removeMemoryFromAlbum(
+  accessToken: string,
+  albumId: string,
+  contentId: string,
+  scope?: HomeCloudScope,
+): Promise<void> {
+  await requestJson<void>(
+    `/api/homecloud/albums/${albumId}/items/${contentId}`,
+    { method: 'DELETE', accessToken },
+  );
+  await invalidateAlbumReads(scope);
+}
+
 // --- Memories read model (STAGE 4B.1) ---
 
 /**
@@ -359,6 +458,7 @@ function memoriesQueryString(query?: HomeCloudMemoriesQuery): string {
   if (query?.albumId !== undefined) params.set('albumId', query.albumId);
   if (query?.query !== undefined) params.set('query', query.query);
   if (query?.kind !== undefined) params.set('kind', query.kind);
+  if (query?.order !== undefined) params.set('order', query.order);
   const encoded = params.toString();
   return encoded ? `?${encoded}` : '';
 }
@@ -369,6 +469,11 @@ function memoriesQueryString(query?: HomeCloudMemoriesQuery): string {
  * The single read primitive a future Memories Root / Timeline needs: canonical
  * server order, stable limit/offset pagination, derived kind and album
  * memberships included in the response. No screen is built here.
+ *
+ * Presentation order is explicit: the default `timeline` mode is newest ->
+ * oldest, and `{ albumId, order: 'album' }` returns the Album presentation
+ * order oldest -> newest from the SAME read model. Both are total orders, so
+ * pagination never duplicates or skips.
  *
  * Preview access is NOT included: a card reads `hasPreview` and, only when
  * true, asks fetchHomeCloudContentAccess(contentId, 'preview') for a bounded
