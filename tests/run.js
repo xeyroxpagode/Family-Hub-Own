@@ -9,6 +9,77 @@ const frontendRoot = path.join(repositoryRoot, frontend);
 const backendRoot = path.join(repositoryRoot, 'backend');
 const compileFrontendTests = ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.test.json'];
 
+/**
+ * Evidence classes. A gate only promises what it can run anywhere.
+ *
+ *   DETERMINISTIC          - node + repository dependencies are enough.
+ *   LOCAL_RUNTIME_REQUIRED - needs the local Supabase/backend stack. It is
+ *                            reported as SKIPPED, never as a failure, when the
+ *                            stack is absent, and it is QA evidence.
+ *   DEVICE_REQUIRED        - needs a device/emulator or real storage. QA only.
+ */
+const EVIDENCE_CLASSES = {
+  DETERMINISTIC: 'node + repository dependencies',
+  LOCAL_RUNTIME_REQUIRED: 'local Supabase/backend stack (skipped when absent)',
+  DEVICE_REQUIRED: 'device/emulator or real storage (QA only)',
+};
+
+const RUNTIME_ENVIRONMENT = {
+  // The acceptance script registers real content, so it needs both the local
+  // stack AND the deployment size policy the backend is configured with.
+  'homecloud-3a-3d-acceptance': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'HOMECLOUD_MAX_UPLOAD_BYTES',
+  ],
+};
+
+const suiteClass = {
+  'homecloud-files': 'DETERMINISTIC (+ LOCAL_RUNTIME_REQUIRED step, skipped when absent)',
+  'homecloud-3a-3d': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-3a-3d-acceptance': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-4a2': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-4b1': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-4b2': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-4c1': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-slice01': 'DEVICE_REQUIRED',
+  'homecloud-stage-a1-capture-recovery': 'DEVICE_REQUIRED',
+  'homecloud-recovery': 'DETERMINISTIC',
+  'homecloud-t2-d1': 'DETERMINISTIC',
+  'homecloud-w1': 'DETERMINISTIC',
+  'homecloud-s4i-files-wiring': 'DETERMINISTIC',
+};
+
+/** Probes the local runtime without failing the deterministic gate. */
+function runtimeRequiredEnvironment(commandName) {
+  const required = RUNTIME_ENVIRONMENT[commandName];
+  if (!required) return { required: [], available: true };
+  try {
+    // Required lazily: the environment helper needs backend dependencies, and a
+    // deterministic gate must not depend on them being installed.
+    const { loadTestEnvironment } = require('./helpers/environment');
+    const environment = loadTestEnvironment({ required });
+    environment.cleanup();
+    return { required, available: true };
+  } catch (error) {
+    return { required, available: false, reason: error.message };
+  }
+}
+
+function runClassifiedCommand(commandName) {
+  const command = commands[commandName];
+  const label = typeof command === 'function' ? commandName : command.label;
+  const probe = runtimeRequiredEnvironment(commandName);
+  if (!probe.available) {
+    console.log(`\n=== ${label} ===`);
+    console.log(`SKIPPED (LOCAL_RUNTIME_REQUIRED): ${probe.reason}`);
+    console.log('RESULT: skipped');
+    return { exitCode: 0, skipped: true };
+  }
+  return typeof command === 'function' ? command() : command.run();
+}
+
 const commands = {
   'backend-syntax': () => runCommand('Backend/test syntax', 'node', ['tests/static/backend-syntax.js']),
   'migration-uniqueness': () => runCommand('Migration uniqueness guard', 'node', ['tests/static/migration-uniqueness.js']),
@@ -43,10 +114,15 @@ const commands = {
       EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
       NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
     };
+    runCommand(
+      'HomeCloud shared upload runtime compile',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_runtime_test.json'],
+    );
     return runCommand(
       'HomeCloud shared upload runtime recovery tests',
       'node',
-      ['scripts/compiled/scripts/homecloud_upload_recovery_tests.js'],
+      ['scripts/compiled-hcruntime/scripts/homecloud_upload_recovery_tests.js'],
       { env },
     );
   },
@@ -56,10 +132,15 @@ const commands = {
       EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
       NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
     };
+    runCommand(
+      'HomeCloud T1 queue/persistence compile',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_runtime_test.json'],
+    );
     return runCommand(
       'HomeCloud T1 queue/persistence corruption tests',
       'node',
-      ['scripts/compiled/scripts/homecloud_t1_queue_persistence_tests.js'],
+      ['scripts/compiled-hcruntime/scripts/homecloud_t1_queue_persistence_tests.js'],
       { env },
     );
   },
@@ -193,6 +274,32 @@ const commands = {
       'HomeCloud T2-D1 native PUT progress/cancel tests',
       'node',
       ['scripts/compiled-t2d1/scripts/homecloud_t2_d1_native_upload_tests.js'],
+      { env },
+    );
+  },
+  'homecloud-3a-3d-acceptance': {
+    label: 'HomeCloud 3A-3D acceptance (search, folders, document_date, authority)',
+    run: () => runCommand(
+      'HomeCloud 3A-3D acceptance (search, folders, document_date, authority)',
+      'node',
+      ['scripts/homecloud_3a_3d_acceptance_tests.js'],
+    ),
+  },
+  'homecloud-s4i-files-wiring': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud S4-i compile Files read wiring tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_s4i_test.json'],
+    );
+    return runCommand(
+      'HomeCloud S4-i Files surface -> pagination controller -> browser read tests',
+      'node',
+      ['scripts/compiled-s4i/scripts/homecloud_s4i_files_wiring_tests.js'],
       { env },
     );
   },
@@ -852,6 +959,16 @@ const suites = {
     'homecloud-4b2-timeline',
     'frontend-typecheck',
   ],
+  'homecloud-files': [
+    'homecloud-w1a-authority',
+    'homecloud-w1bc-pagination-reconciliation',
+    'homecloud-upload-recovery',
+    'homecloud-t1-queue-persistence',
+    'homecloud-t2-d1-native-upload',
+    'homecloud-s4i-files-wiring',
+    'homecloud-3a-3d-acceptance',
+  ],
+  'homecloud-3a-3d': ['homecloud-3a-3d-acceptance'],
   'homecloud-slice01': [
     'homecloud-slice01-auth-runtime',
     'homecloud-slice01-download-runtime',
@@ -946,6 +1063,7 @@ const suites = {
     'frontend-typecheck', 'test-typecheck', 'backend-syntax', 'migration-uniqueness', 'backend-eslint', 'frontend-lint',
     'testing-core', 'core-backend', 'compile-frontend-tests', 'core-frontend', 'g0.3',
     'g0.4-contracts', 'runtime-smoke', 'db', 'coverage', 'secrets', 'ci-syntax', 'whitespace',
+    'homecloud-files',
   ],
   g0: [
     'frontend-typecheck', 'test-typecheck', 'backend-syntax', 'backend-eslint', 'frontend-lint',
@@ -954,19 +1072,31 @@ const suites = {
   ],
 };
 
+function usage() {
+  console.error(`Unknown suite: ${process.argv[2] || '[missing]'}`);
+  console.error(`Available suites: ${Object.keys(suites).sort().join(', ')}`);
+  console.error(`Available steps: ${Object.keys(commands).sort().join(', ')}`);
+  console.error(`Evidence classes: ${Object.entries(EVIDENCE_CLASSES).map(([name, meaning]) => `${name} = ${meaning}`).join('; ')}`);
+  const classified = Object.entries(suiteClass).sort(([left], [right]) => left.localeCompare(right));
+  console.error(`HomeCloud evidence: ${classified.map(([name, klass]) => `${name} [${klass}]`).join(', ')}`);
+  process.exitCode = 2;
+}
+
 async function main() {
   process.chdir(repositoryRoot);
   const suiteName = process.argv[2];
   const suite = suites[suiteName];
-  if (!suite) {
-    console.error(`Unknown suite: ${suiteName || '[missing]'}`);
-    console.error(`Available: ${Object.keys(suites).sort().join(', ')}`);
-    process.exitCode = 2;
+  // A suite always wins; a single step is also runnable on its own so evidence
+  // never exists only as part of a group.
+  const singleStep = suite ? null : (Object.prototype.hasOwnProperty.call(commands, suiteName) ? suiteName : null);
+  if (!suite && !singleStep) {
+    usage();
     return;
   }
+  const steps = suite || [singleStep];
   const startedAt = Date.now();
-  for (const commandName of suite) commands[commandName]();
-  console.log(`\nHOMEPLUS TEST SUITE: ${suiteName} PASSED (${suite.length} commands, ${Date.now() - startedAt} ms)`);
+  for (const commandName of steps) runClassifiedCommand(commandName);
+  console.log(`\nHOMEPLUS TEST SUITE: ${suiteName} PASSED (${steps.length} commands, ${Date.now() - startedAt} ms)`);
 }
 
 main().catch((error) => {

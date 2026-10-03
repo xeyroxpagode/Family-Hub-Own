@@ -31,6 +31,8 @@
     "test:planner:m10": "node tests/run.js planner-m10",
     "test:runtime-smoke": "node scripts/runtime_smoke_test.js",
     "test:home": "node tests/run.js home",
+    "test:homecloud-files": "node tests/run.js homecloud-files",
+    "test:homecloud-3a-3d": "node tests/run.js homecloud-3a-3d",
     "test:g0.2": "node tests/integration/run.js --suite=g0.2",
     "test:g0.3": "node tests/run.js g0.3",
     "test:g0.4:runtime": "node tests/integration/run.js --suite=g0.4",
