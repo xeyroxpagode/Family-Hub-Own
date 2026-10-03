@@ -15,6 +15,7 @@ supabase/snippets/
 /scripts/compiled-w1bc/
 /scripts/compiled-w1cscanner/
 /scripts/compiled-t2d1/
+/scripts/compiled-s2i/
 /scripts/scripts/
 /.env
 /.env.local
