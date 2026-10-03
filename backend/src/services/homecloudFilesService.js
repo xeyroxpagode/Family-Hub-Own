@@ -6,6 +6,8 @@ const { getHomeCloudContext } = require('./homecloud.context.service');
 const { resolveHomeCloudCapabilities, assertHomeCloudCapability } = require('../lib/homecloudCapabilities');
 const { createHttpError } = require('../lib/httpErrors');
 const { mapContentRowToDto, mapFolderRowToDto } = require('../lib/homecloudMappers');
+const { buildFilesSearchOrFilter, literalContainsPattern } = require('../lib/homecloudFilesSearch');
+const { normalizeDocumentDate } = require('../lib/homecloudDocumentDate');
 
 const CONTENT_FIELDS = 'id, household_id, role, display_name, mime_type, extension, size_bytes, original_storage_path, preview_storage_path, uploaded_by_member_id, uploaded_at, document_date, note, caption, written_text, captured_at, captured_year, captured_month, capture_precision, hidden_from_resurfacing, folder_id, lifecycle';
 
@@ -37,16 +39,16 @@ async function assertFolderInHousehold(folderId, householdId) {
 }
 
 function contentQuery(householdId, folderId, search, sort) {
-  // Commas would split the PostgREST `.or()` filter list, so normalize them
-  // to spaces before interpolating user input into `ilike` patterns.
-  const safeSearch = typeof search === 'string' ? search.replace(/,/g, ' ') : search;
   let query = supabaseAdmin.from('homecloud_contents').select(CONTENT_FIELDS).eq('household_id', householdId).eq('role', 'file').eq('lifecycle', 'active');
   // Root listing shows only loose files (folder_id IS NULL) so files inside
   // folders never duplicate at root. Root SEARCH is global per the frozen
   // Files V1 contract: it must also match files inside folders.
-  if (folderId === null && !safeSearch) query = query.is('folder_id', null);
+  if (folderId === null && !search) query = query.is('folder_id', null);
   else if (folderId) query = query.eq('folder_id', folderId);
-  if (safeSearch) query = query.or(`display_name.ilike.%${safeSearch}%,note.ilike.%${safeSearch}%`);
+  // The search text is USER DATA: it is encoded as a literal substring, never
+  // as SQL LIKE / PostgREST syntax, so `%`, `_`, `\`, `"`, `,`, `(`, `)` cannot
+  // act as wildcards nor break the `.or()` grammar.
+  if (search) query = query.or(buildFilesSearchOrFilter(search));
   if (sort === 'name') query = query.order('display_name', { ascending: true }).order('id', { ascending: true });
   else query = query.order('uploaded_at', { ascending: false, nullsFirst: false }).order('id', { ascending: false });
   return query;
@@ -63,7 +65,7 @@ async function browseFiles(req, { folderId = null, query = '', sort = 'recent', 
   let folders = [];
   if (folderId === null) {
     let foldersQuery = supabaseAdmin.from('homecloud_folders').select('id, household_id, name, created_by_member_id, created_at, updated_at').eq('household_id', context.householdId).order('name', { ascending: true });
-    if (q) foldersQuery = foldersQuery.ilike('name', `%${q}%`);
+    if (q) foldersQuery = foldersQuery.ilike('name', literalContainsPattern(q));
     const { data, error: foldersError } = await foldersQuery;
     if (foldersError) throw createHttpError(500, foldersError.message, 'homecloud_folders_list_failed');
     folders = (data ?? []).map(mapFolderRowToDto);
@@ -100,8 +102,7 @@ async function updateFile(req, contentId, changes) {
   if (Object.prototype.hasOwnProperty.call(changes, 'displayName')) patch.display_name = normalizedName(changes.displayName);
   if (Object.prototype.hasOwnProperty.call(changes, 'folderId')) { await assertFolderInHousehold(changes.folderId, context.householdId); patch.folder_id = changes.folderId || null; }
   if (Object.prototype.hasOwnProperty.call(changes, 'documentDate')) {
-    if (changes.documentDate !== null && (typeof changes.documentDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(changes.documentDate))) throw createHttpError(400, 'Fecha inválida.', 'homecloud_invalid_document_date');
-    patch.document_date = changes.documentDate;
+    patch.document_date = normalizeDocumentDate(changes.documentDate);
   }
   if (Object.prototype.hasOwnProperty.call(changes, 'note')) patch.note = normalizeOptionalText(changes.note);
   if (!Object.keys(patch).length) throw createHttpError(400, 'No hay cambios para guardar.', 'homecloud_no_file_changes');

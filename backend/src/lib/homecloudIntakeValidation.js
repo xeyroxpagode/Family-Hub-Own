@@ -30,6 +30,7 @@
  */
 
 const { createHttpError } = require('./httpErrors');
+const { normalizeDocumentDate } = require('./homecloudDocumentDate');
 
 const VALID_ROLES = Object.freeze(['file', 'memory']);
 const VALID_PRECISIONS = Object.freeze(['exact', 'month_year', 'year', 'unknown']);
@@ -267,7 +268,10 @@ function validateRegisterPayload(body) {
     if (hiddenFromResurfacing) {
       throw createHttpError(400, 'hiddenFromResurfacing no aplica a archivos.', 'homecloud_invalid_hidden_from_resurfacing');
     }
-    documentDate = typeof body.documentDate === 'string' && body.documentDate.length > 0 ? body.documentDate : null;
+    // documentDate shares the canonical Files contract with the metadata
+    // update seam: absent/null are the canonical absence, a non-null value must
+    // be a real YYYY-MM-DD calendar date, everything else is a typed 400.
+    documentDate = normalizeDocumentDate(body.documentDate);
     note = typeof body.note === 'string' && body.note.length > 0 ? body.note : null;
   } else {
     // role === 'memory' (binary or written)

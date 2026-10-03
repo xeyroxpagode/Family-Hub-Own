@@ -33,6 +33,12 @@ const RUNTIME_ENVIRONMENT = {
     'SUPABASE_SERVICE_ROLE_KEY',
     'HOMECLOUD_MAX_UPLOAD_BYTES',
   ],
+  'homecloud-s4ii-search-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'HOMECLOUD_MAX_UPLOAD_BYTES',
+  ],
 };
 
 const suiteClass = {
@@ -49,6 +55,8 @@ const suiteClass = {
   'homecloud-t2-d1': 'DETERMINISTIC',
   'homecloud-w1': 'DETERMINISTIC',
   'homecloud-s4i-files-wiring': 'DETERMINISTIC',
+  'homecloud-s4ii': 'DETERMINISTIC',
+  'homecloud-s4ii-search-runtime': 'LOCAL_RUNTIME_REQUIRED',
 };
 
 /** Probes the local runtime without failing the deterministic gate. */
@@ -321,6 +329,24 @@ const commands = {
       { env },
     );
   },
+  'homecloud-s4ii-search-contract': () => runCommand(
+    'HomeCloud S4-ii Files literal search contract tests',
+    'node',
+    ['scripts/homecloud_s4ii_search_contract_tests.js'],
+  ),
+  'homecloud-s4ii-search-runtime': {
+    label: 'HomeCloud S4-ii Files literal search (real PostgREST)',
+    run: () => runCommand(
+      'HomeCloud S4-ii Files literal search (real PostgREST)',
+      'node',
+      ['scripts/homecloud_s4ii_search_runtime_tests.js'],
+    ),
+  },
+  'homecloud-s4ii-document-date': () => runCommand(
+    'HomeCloud S4-ii canonical documentDate contract tests',
+    'node',
+    ['scripts/homecloud_s4ii_document_date_contract_tests.js'],
+  ),
   'homecloud-4c1-memory-create': () => runCommand(
     'HomeCloud 4C1 memory create tests',
     'node',
@@ -993,8 +1019,12 @@ const suites = {
     'homecloud-t1-queue-persistence',
     'homecloud-t2-d1-native-upload',
     'homecloud-s4i-files-wiring',
+    'homecloud-s4ii-search-contract',
+    'homecloud-s4ii-document-date',
+    'homecloud-s4ii-search-runtime',
     'homecloud-3a-3d-acceptance',
   ],
+  'homecloud-s4ii': ['homecloud-s4ii-search-contract', 'homecloud-s4ii-document-date'],
   'homecloud-3a-3d': ['homecloud-3a-3d-acceptance'],
   'homecloud-slice01': [
     'homecloud-slice01-auth-runtime',
