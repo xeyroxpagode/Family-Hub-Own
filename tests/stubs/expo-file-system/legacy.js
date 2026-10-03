@@ -12,6 +12,7 @@ const documentDirectory = 'file:///stub-documents/';
 module.exports = {
   documentDirectory,
   FileSystemUploadType: { BINARY_CONTENT: 1, UPLOAD_AS_FILES: 0 },
+  FileSystemSessionType: { BACKGROUND: 0, FOREGROUND: 1 },
   EncodingType: { UTF8: 'utf8', Base64: 'base64' },
   getInfoAsync: async () => ({ exists: false, size: 0, modificationTime: 0, isDirectory: false }),
   makeDirectoryAsync: async () => undefined,
@@ -23,4 +24,11 @@ module.exports = {
   writeAsStringAsync: async () => undefined,
   createDownloadResumable: async () => ({ downloadAsync: async () => ({ status: 200 }) }),
   uploadAsync: async () => ({ status: 200, body: '' }),
+  createUploadTask: (_url, _fileUri, _options, callback) => ({
+    uploadAsync: async () => {
+      callback?.({ totalBytesSent: 1, totalBytesExpectedToSend: 1 });
+      return { status: 200, body: '', headers: {}, mimeType: null };
+    },
+    cancelAsync: async () => undefined,
+  }),
 };

@@ -178,6 +178,24 @@ const commands = {
       { env },
     );
   },
+  'homecloud-t2-d1-native-upload': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud T2-D1 compile native upload tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_t2_d1_test.json'],
+    );
+    return runCommand(
+      'HomeCloud T2-D1 native PUT progress/cancel tests',
+      'node',
+      ['scripts/compiled-t2d1/scripts/homecloud_t2_d1_native_upload_tests.js'],
+      { env },
+    );
+  },
   'homecloud-4c1-memory-create': () => runCommand(
     'HomeCloud 4C1 memory create tests',
     'node',
@@ -788,7 +806,8 @@ const suites = {
   'core-frontend': ['compile-frontend-tests', 'core-frontend'],
   core: ['testing-core', 'core-backend', 'compile-frontend-tests', 'core-frontend'],
   'homecloud-2a': ['homecloud-2a-backend-structure', 'homecloud-2a-intake-validation', 'homecloud-2a-runtime-intake', 'homecloud-2a-frontend-structure', 'compile-frontend-tests', 'homecloud-2a-upload-job', 'homecloud-upload-recovery'],
-  'homecloud-recovery': ['homecloud-upload-recovery', 'homecloud-t1-queue-persistence', 'homecloud-t1-stale-job'],
+  'homecloud-recovery': ['homecloud-upload-recovery', 'homecloud-t1-queue-persistence', 'homecloud-t1-stale-job', 'homecloud-t2-d1-native-upload'],
+  'homecloud-t2-d1': ['homecloud-t2-d1-native-upload'],
   'homecloud-2c': ['homecloud-2c-intake-validation', 'homecloud-2c-runtime-intake', 'homecloud-2c-frontend-structure', 'compile-frontend-tests'],
   'homecloud-3e': ['compile-frontend-tests', 'homecloud-3e-scanner'],
   'homecloud-4a2': ['homecloud-4a2-written-validation', 'homecloud-4a2-schema', 'homecloud-4a2-written-runtime'],

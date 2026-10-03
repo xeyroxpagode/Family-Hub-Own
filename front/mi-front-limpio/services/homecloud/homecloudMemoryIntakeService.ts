@@ -44,11 +44,12 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     store,
     householdId,
     run: (jobId) => engine.run(jobId),
+    cancelActiveUpload: (jobId) => engine.cancelActiveUpload(jobId),
     cleanupTerminalArtifact: async (artifact) => {
       await cleanupTerminalJobArtifact(artifact);
     },
   });
-  const coordinator = ensureUploadCoordinator({ store, householdId, run: (jobId) => engine.run(jobId), cleanupTerminalArtifact: cleanupTerminalJobArtifact });
+  const coordinator = ensureUploadCoordinator({ store, householdId, run: (jobId) => engine.run(jobId), cancelActiveUpload: (jobId) => engine.cancelActiveUpload(jobId), cleanupTerminalArtifact: cleanupTerminalJobArtifact });
 
   /**
    * PRESENTATION OWNERSHIP.

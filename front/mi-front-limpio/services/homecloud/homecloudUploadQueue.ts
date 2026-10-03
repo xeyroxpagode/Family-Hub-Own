@@ -4,7 +4,7 @@ import { ensureUploadCoordinator, __resetUploadCoordinatorsForTests, type Upload
 import type { UploadIntakeContext, UploadJob, UploadLocalArtifact } from './homecloudUploadTypes';
 import type { UploadJobStore } from '../../storage/homecloudUploadJobStorage';
 
-export interface SharedQueueDeps { store: UploadJobStore; run: (jobId: string) => Promise<UploadJob>; householdId: string; cleanupTerminalArtifact?: (artifact: UploadLocalArtifact) => Promise<unknown>; }
+export interface SharedQueueDeps { store: UploadJobStore; run: (jobId: string) => Promise<UploadJob>; householdId: string; cancelActiveUpload?: (jobId: string) => void; cleanupTerminalArtifact?: (artifact: UploadLocalArtifact) => Promise<unknown>; }
 export interface SharedUploadQueue { readonly householdId: string; enqueue(ctx: UploadIntakeContext, artifact: UploadLocalArtifact): Promise<UploadJob>; pump(): Promise<void>; cancelJob(jobId: string): Promise<UploadJob | null>; getCurrentJob(): UploadJob | null; getQueue(): UploadJob[]; subscribe(listener: () => void): () => void; }
 function persist(store: UploadJobStore, job: UploadJob): Promise<void> { const asyncStore = store as UploadJobStore & { putAsync?: (value: UploadJob) => Promise<void> }; return typeof asyncStore.putAsync === 'function' ? asyncStore.putAsync(job) : Promise.resolve(store.put(job)); }
 function current(coordinator: UploadCoordinator): UploadJob | null { const state = coordinator.getSnapshot(); return (state.activeJobId ? state.jobs.find((job) => job.id === state.activeJobId) : null) ?? state.jobs[0] ?? null; }

@@ -19,7 +19,11 @@ export function HomeCloudUploadActivity({ householdId }: { householdId: string |
     if (failed) return { label: `No se pudo subir ${failed.artifact.displayName}`, failedId: failed.id };
     const active = snapshot.activeJobId ? snapshot.jobs.find((job) => job.id === snapshot.activeJobId) : null;
     if (active?.state === 'verifying' || active?.state === 'finalizing') return { label: 'Terminando…', failedId: null };
-    if (active) return { label: `Subiendo ${snapshot.jobs.length} elemento${snapshot.jobs.length === 1 ? '' : 's'}…`, failedId: null };
+    if (active && snapshot.activeUpload?.jobId === active.id) {
+      const percentage = Math.round(snapshot.activeUpload.progress * 100);
+      return { label: `Subiendo ${snapshot.activeUpload.displayName} · ${percentage}%`, failedId: null, cancelId: active.id };
+    }
+    if (active) return { label: `Subiendo ${snapshot.jobs.length} elemento${snapshot.jobs.length === 1 ? '' : 's'}…`, failedId: null, cancelId: active.id };
     if (snapshot.jobs.length > 0) return { label: snapshot.jobs.length === 1 ? 'Pendiente de subir' : `${snapshot.jobs.length} elementos pendientes`, failedId: null };
     return null;
   }, [snapshot]);
@@ -28,6 +32,7 @@ export function HomeCloudUploadActivity({ householdId }: { householdId: string |
     <View style={styles.row}>
       <AppText variant="caption" tone={activity.failedId ? 'danger' : 'secondary'}>{activity.label}</AppText>
       {activity.failedId ? <AppButton title="Reintentar" size="sm" variant="secondary" onPress={() => void coordinator?.retry(activity.failedId!)} /> : null}
+      {'cancelId' in activity && activity.cancelId ? <AppButton title="Cancelar" size="sm" variant="secondary" onPress={() => void coordinator?.cancel(activity.cancelId)} /> : null}
     </View>
   );
 }

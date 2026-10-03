@@ -142,8 +142,17 @@ export interface UploadAuthorization {
 export type UploadArtifactReader = (localUri: string) => Promise<ArrayBuffer>;
 
 /** Native/local-file upload transport. Avoids loading large originals into JS memory. */
+export interface UploadTransportProgress {
+  readonly bytesSent: number;
+  readonly totalBytes: number;
+}
+
 export type UploadTransport = (params: {
   readonly signedUploadUrl: string;
   readonly localUri: string;
   readonly mimeType: string;
+  /** Cancels the one native attempt; never persisted across process death. */
+  readonly signal: AbortSignal;
+  /** Raw native byte counters. Validation/monotonicity belongs to the engine. */
+  readonly onProgress: (progress: UploadTransportProgress) => void;
 }) => Promise<{ readonly status: number; readonly ok: boolean }>;

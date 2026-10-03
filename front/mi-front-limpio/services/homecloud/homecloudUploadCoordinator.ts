@@ -4,11 +4,29 @@ import type { UploadJobStore } from '../../storage/homecloudUploadJobStorage';
 import { transition } from './homecloudUploadJob';
 import { reconcileHomeCloudReadAfterCompletion } from './homecloudReadReconciliation';
 
-export type UploadCoordinatorSnapshot = { householdId: string; activeJobId: string | null; jobs: UploadJob[] };
+export type ActiveUploadProgress = {
+  jobId: string;
+  attemptId: string;
+  contentId: string | null;
+  displayName: string;
+  status: 'uploading';
+  bytesSent: number;
+  totalBytes: number;
+  progress: number;
+  canCancel: true;
+};
+export type UploadCoordinatorSnapshot = {
+  householdId: string;
+  activeJobId: string | null;
+  jobs: UploadJob[];
+  /** Ephemeral native transfer truth. It is intentionally never persisted. */
+  activeUpload: ActiveUploadProgress | null;
+};
 export type UploadCoordinatorDeps = {
   store: UploadJobStore;
   householdId: string;
   run: (jobId: string) => Promise<UploadJob>;
+  cancelActiveUpload?: (jobId: string) => void;
   cleanupTerminalArtifact?: (artifact: UploadLocalArtifact) => Promise<unknown>;
 };
 
@@ -21,6 +39,8 @@ export interface UploadCoordinator {
   getSnapshot(): UploadCoordinatorSnapshot;
   subscribe(listener: (snapshot: UploadCoordinatorSnapshot) => void): () => void;
   notifyJob(): void;
+  reportProgress(progress: ActiveUploadProgress): void;
+  clearProgress(jobId: string, attemptId: string): void;
 }
 
 const coordinators = new Map<string, UploadCoordinator>();
@@ -72,10 +92,12 @@ export function ensureUploadCoordinator(initial: UploadCoordinatorDeps): UploadC
   if (existing) { existing.configure(initial); return existing; }
   let deps = initial;
   let activeJobId: string | null = null;
+  let activeUpload: ActiveUploadProgress | null = null;
+  let activeCancel: ((jobId: string) => void) | null = null;
   let pump: Promise<void> | null = null;
   const retryIds = new Set<string>();
   const listeners = new Set<(snapshot: UploadCoordinatorSnapshot) => void>();
-  const snapshot = (): UploadCoordinatorSnapshot => ({ householdId: deps.householdId, activeJobId, jobs: ordered(deps.store, deps.householdId) });
+  const snapshot = (): UploadCoordinatorSnapshot => ({ householdId: deps.householdId, activeJobId, jobs: ordered(deps.store, deps.householdId), activeUpload });
   const notify = () => { const value = snapshot(); listeners.forEach((listener) => listener(value)); };
   const cleanup = async (job: UploadJob) => {
     if (job.state === 'completed' || job.state === 'cancelled') {
@@ -114,11 +136,12 @@ export function ensureUploadCoordinator(initial: UploadCoordinatorDeps): UploadC
         // Capture the currently configured runner once. No other coordinator path
         // may invoke it while this pump promise owns the household.
         const run = deps.run;
+        activeCancel = deps.cancelActiveUpload ?? null;
         const finished = await run(next.id);
         reconcileReadState(finished);
         await cleanup(finished);
       } catch { /* failure is persisted by the engine; decide from latest below */ }
-      finally { activeJobId = null; notify(); }
+      finally { activeJobId = null; activeUpload = null; activeCancel = null; notify(); }
       const latest = deps.store.get(next.id);
       if (latest?.state === 'failed' && latest.error?.retryable === true) return;
     }
@@ -127,7 +150,12 @@ export function ensureUploadCoordinator(initial: UploadCoordinatorDeps): UploadC
     householdId: initial.householdId,
     configure(next) {
       // Store/household identity is fixed; live runner and cleanup are deliberately replaceable.
-      deps = { ...deps, run: next.run, cleanupTerminalArtifact: next.cleanupTerminalArtifact ?? deps.cleanupTerminalArtifact };
+      deps = {
+        ...deps,
+        run: next.run,
+        cancelActiveUpload: next.cancelActiveUpload ?? deps.cancelActiveUpload,
+        cleanupTerminalArtifact: next.cleanupTerminalArtifact ?? deps.cleanupTerminalArtifact,
+      };
     },
     requestPump(_trigger) {
       if (pump) return pump;
@@ -145,6 +173,10 @@ export function ensureUploadCoordinator(initial: UploadCoordinatorDeps): UploadC
     async cancel(jobId) {
       const job = deps.store.get(jobId);
       if (!job || job.householdId !== deps.householdId || job.state === 'completed' || job.state === 'cancelled') return null;
+      // Abort first so no more bytes are intentionally sent while the durable
+      // terminal transition is being serialized. The engine/transport make
+      // this primitive idempotent and reject late progress/completion.
+      (activeJobId === jobId ? activeCancel : deps.cancelActiveUpload)?.(jobId);
       let cancelled: UploadJob;
       try { cancelled = transition(job, 'cancelled'); } catch { return deps.store.get(jobId); }
       await persist(deps.store, cancelled);
@@ -157,6 +189,17 @@ export function ensureUploadCoordinator(initial: UploadCoordinatorDeps): UploadC
     getSnapshot: snapshot,
     subscribe(listener) { listeners.add(listener); listener(snapshot()); return () => listeners.delete(listener); },
     notifyJob: notify,
+    reportProgress(progress) {
+      if (activeJobId !== progress.jobId) return;
+      if (activeUpload?.attemptId === progress.attemptId && progress.bytesSent < activeUpload.bytesSent) return;
+      activeUpload = progress;
+      notify();
+    },
+    clearProgress(jobId, attemptId) {
+      if (activeUpload?.jobId !== jobId || activeUpload.attemptId !== attemptId) return;
+      activeUpload = null;
+      notify();
+    },
   };
   coordinators.set(initial.householdId, coordinator);
   return coordinator;

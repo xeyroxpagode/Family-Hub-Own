@@ -75,6 +75,8 @@ export interface UploadEngine {
   /** Advance the full lifecycle to completion. Returns the final job. */
   run(jobId: string): Promise<UploadJob>;
   cancel(jobId: string): UploadJob | null;
+  /** Abort only the current native transfer; durable cancellation is coordinator-owned. */
+  cancelActiveUpload(jobId: string): void;
 }
 
 export function maskSignedUploadUrlForDiagnostics(url: string): string {
@@ -93,19 +95,52 @@ export function maskSignedUploadUrlForDiagnostics(url: string): string {
  * used VERBATIM (server storage authority — never rewritten client-side). If
  * development needs a reachable host, it must be configured where the signed
  * URL is GENERATED (backend SUPABASE_URL), not patched here.
+ *
+ * V1 TRANSPORT (frozen): native PUT with REAL progress (native byte counters)
+ * and REAL cancel (`cancelAsync`). There is NO byte resume in V1: every attempt
+ * is a fresh PUT from byte 0; when a job resumes after an incomplete upload,
+ * verify-first may skip retransmission if the complete object already exists.
  */
-export function createExpoFileSystemUploadTransport(): UploadTransport {
-  return async ({ signedUploadUrl, localUri, mimeType }) => {
-    const FileSystem = await import('expo-file-system/legacy');
-    const response = await FileSystem.uploadAsync(signedUploadUrl, localUri, {
+type ExpoLegacyFileSystem = typeof import('expo-file-system/legacy');
+
+export function createExpoFileSystemUploadTransport(
+  loadFileSystem: () => Promise<ExpoLegacyFileSystem> = () => import('expo-file-system/legacy'),
+): UploadTransport {
+  return async ({ signedUploadUrl, localUri, mimeType, signal, onProgress }) => {
+    const FileSystem = await loadFileSystem();
+    let abortRequested = signal.aborted;
+    let nativeCancelStarted = false;
+    let task: ReturnType<typeof FileSystem.createUploadTask> | null = null;
+    const cancelNativeOnce = () => {
+      abortRequested = true;
+      if (!task || nativeCancelStarted) return;
+      nativeCancelStarted = true;
+      void task.cancelAsync().catch(() => undefined);
+    };
+    signal.addEventListener('abort', cancelNativeOnce, { once: true });
+    if (abortRequested || signal.aborted) cancelNativeOnce();
+    task = FileSystem.createUploadTask(signedUploadUrl, localUri, {
       httpMethod: 'PUT',
       uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      // Best-effort across a brief iOS suspension. Durable job recovery, not
+      // this native session, remains the authority after process termination.
+      sessionType: FileSystem.FileSystemSessionType.BACKGROUND,
       headers: {
         'content-type': mimeType || 'application/octet-stream',
         'x-upsert': 'false',
       },
+    }, ({ totalBytesSent, totalBytesExpectedToSend }) => {
+      if (!signal.aborted) onProgress({ bytesSent: totalBytesSent, totalBytes: totalBytesExpectedToSend });
     });
-    return { status: response.status, ok: response.status >= 200 && response.status < 300 };
+    if (signal.aborted) cancelNativeOnce();
+    try {
+      const response = await task.uploadAsync();
+      if (!response) throw new Error(signal.aborted ? 'upload cancelled' : 'native upload ended without a response');
+      return { status: response.status, ok: response.status >= 200 && response.status < 300 };
+    } finally {
+      signal.removeEventListener('abort', cancelNativeOnce);
+      task = null;
+    }
   };
 }
 
@@ -131,6 +166,17 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
    * shared durable store + canonical recovery (one owner resumes each job).
    */
   const inFlight = new Map<string, Promise<UploadJob>>();
+  type ActiveAttempt = { attemptId: string; controller: AbortController; lastBytesSent: number; closed: boolean };
+  const activeAttempts = new Map<string, ActiveAttempt>();
+  let attemptSequence = 0;
+
+  function cancelActiveUpload(jobId: string): void {
+    const attempt = activeAttempts.get(jobId);
+    if (!attempt || attempt.closed || attempt.controller.signal.aborted) return;
+    attempt.closed = true;
+    attempt.controller.abort();
+    getUploadCoordinator(requireJob(jobId).householdId)?.clearProgress(jobId, attempt.attemptId);
+  }
 
   function requireAccessToken(): string {
     const token = getAccessToken();
@@ -327,16 +373,63 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
       : job;
     await persist(uploadingJob);
 
-    const authResp = await requestJson<UploadAuthorization>(
-      `/api/homecloud/content/${job.contentId}/upload`,
-      { method: 'POST', accessToken, operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION },
-    );
-
-    const result = await uploadTransport({
-      signedUploadUrl: authResp.signedUploadUrl,
-      localUri: uploadingJob.artifact.localUri,
-      mimeType: uploadingJob.artifact.mimeType,
+    const attempt: ActiveAttempt = {
+      attemptId: `${uploadingJob.id}:${++attemptSequence}`,
+      controller: new AbortController(),
+      lastBytesSent: 0,
+      closed: false,
+    };
+    activeAttempts.set(uploadingJob.id, attempt);
+    const coordinator = getUploadCoordinator(uploadingJob.householdId);
+    const expectedSize = uploadingJob.artifact.sizeBytes;
+    coordinator?.reportProgress({
+      jobId: uploadingJob.id,
+      attemptId: attempt.attemptId,
+      contentId: uploadingJob.contentId,
+      displayName: uploadingJob.artifact.displayName,
+      status: 'uploading',
+      bytesSent: 0,
+      totalBytes: expectedSize,
+      progress: 0,
+      canCancel: true,
     });
+
+    try {
+      const authResp = await requestJson<UploadAuthorization>(
+        `/api/homecloud/content/${job.contentId}/upload`,
+        { method: 'POST', accessToken, operationKind: OPERATION_KINDS.NON_VERSIONED_MUTATION },
+      );
+      if (attempt.controller.signal.aborted || terminalElse(uploadingJob)) return store.get(job.id) ?? uploadingJob;
+
+      const result = await uploadTransport({
+        signedUploadUrl: authResp.signedUploadUrl,
+        localUri: uploadingJob.artifact.localUri,
+        mimeType: uploadingJob.artifact.mimeType,
+        signal: attempt.controller.signal,
+        onProgress: ({ bytesSent, totalBytes }) => {
+          if (activeAttempts.get(uploadingJob.id) !== attempt || attempt.closed || attempt.controller.signal.aborted) return;
+          if (!Number.isFinite(bytesSent) || !Number.isFinite(totalBytes)) return;
+          if (bytesSent < attempt.lastBytesSent || bytesSent < 0) return;
+          // The durable artifact size is authority. A native callback claiming
+          // a different known total cannot be presented as truthful progress.
+          if (expectedSize > 0 && totalBytes > 0 && totalBytes !== expectedSize) return;
+          const trustedTotal = expectedSize > 0 ? expectedSize : totalBytes;
+          if (trustedTotal <= 0 || bytesSent > trustedTotal) return;
+          attempt.lastBytesSent = bytesSent;
+          coordinator?.reportProgress({
+            jobId: uploadingJob.id,
+            attemptId: attempt.attemptId,
+            contentId: uploadingJob.contentId,
+            displayName: uploadingJob.artifact.displayName,
+            status: 'uploading',
+            bytesSent,
+            totalBytes: trustedTotal,
+            progress: Math.max(0, Math.min(1, bytesSent / trustedTotal)),
+            canCancel: true,
+          });
+        },
+      });
+      if (attempt.controller.signal.aborted || terminalElse(uploadingJob)) return store.get(job.id) ?? uploadingJob;
     if (!result.ok) {
       if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id, ok: false, status: result.status });
       throw new Error(`upload transport failed: ${result.status}`);
@@ -348,6 +441,11 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     await persist(verifyingJob);
     if (job.role === 'memory') memoryDevTrace('upload_end', { jobId: job.id, ok: true });
     return verifyingJob;
+    } finally {
+      attempt.closed = true;
+      if (activeAttempts.get(uploadingJob.id) === attempt) activeAttempts.delete(uploadingJob.id);
+      coordinator?.clearProgress(uploadingJob.id, attempt.attemptId);
+    }
   }
 
   async function runVerify(job: UploadJob): Promise<UploadJob> {
@@ -464,6 +562,8 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
       await persist(job);
       return job;
     } catch (error) {
+      const terminal = terminalElse(job);
+      if (terminal) return terminal;
       // STALE SERVER-LIFECYCLE: `homecloud_not_staging` is terminal by contract.
       // Before parking it, spend the ONE bounded reconciliation request that
       // can PROVE this same content already landed (idempotent finalize). If the
@@ -518,9 +618,12 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     },
     run,
     cancel(id) {
+      cancelActiveUpload(id);
       const job = store.get(id);
       if (!job) return null;
-      const cancelled = transition(job, 'cancelled');
+      if (job.state === 'cancelled' || job.state === 'completed') return job;
+      let cancelled: UploadJob;
+      try { cancelled = transition(job, 'cancelled'); } catch { return store.get(id); }
       const asyncStore = store as AsyncStore;
       if (typeof asyncStore.putAsync === 'function') {
         void asyncStore.putAsync(cancelled).catch(() => {});
@@ -531,6 +634,7 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
       void cleanupDurableArtifact(cancelled.artifact).catch(() => {});
       return cancelled;
     },
+    cancelActiveUpload,
   };
 }
 
