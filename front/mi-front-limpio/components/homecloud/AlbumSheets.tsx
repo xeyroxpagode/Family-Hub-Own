@@ -103,6 +103,7 @@ export function AlbumActionsSheet({
   error,
   onClose,
   onRename,
+  onAddMemories,
   onDelete,
 }: {
   album: HomeCloudAlbum | null;
@@ -111,6 +112,12 @@ export function AlbumActionsSheet({
   error: string | null;
   onClose: () => void;
   onRename: () => void;
+  /**
+   * MO-A3 entry A: the `...` route into the Selection Surface. It REPLACED the
+   * retired AlbumMemoryPicker modal, and it opens exactly the same flow as the
+   * empty-Album CTA.
+   */
+  onAddMemories: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -126,6 +133,13 @@ export function AlbumActionsSheet({
             render-disabled unusable mutation is offered. */}
         {canOrganize ? (
           <>
+            <AppButton
+              title="Agregar recuerdos"
+              variant="secondary"
+              disabled={deleting}
+              onPress={onAddMemories}
+              accessibilityLabel="Agregar recuerdos existentes a este álbum"
+            />
             <AppButton title="Renombrar" variant="secondary" disabled={deleting} onPress={onRename} />
             <AppButton
               title={deleting ? 'Eliminando…' : 'Eliminar álbum'}

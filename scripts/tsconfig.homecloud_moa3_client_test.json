@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-moa3client"
+  },
+  "include": [
+    "../front/mi-front-limpio/services/homecloud/homecloudReadService.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudAlbumScope.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryCollectionsPagination.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryMutations.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemorySelection.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryDrag.ts"
+  ],
+  "exclude": ["node_modules"]
+}

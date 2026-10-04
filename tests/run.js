@@ -308,6 +308,50 @@ const commands = {
       { env },
     );
   },
+  // MO-A3 — MEMORY SELECTION + ALBUM INTEGRATION.
+  //
+  // homecloud-moa3-selection is deterministic: it EXECUTES the framework-free
+  // selection session, drag state machine, mounted-row registry + hit testing,
+  // edge auto-scroll solver/ticker, collection read contracts and membership
+  // composer, and it reads the real component sources for the boundaries only a
+  // source can prove (no Viewer, no route, no delete, no global store, no smart
+  // collection). It also carries the HC-1 order closure: an explicit
+  // characterization of the pre-existing Album visual-order gap plus the exact
+  // Timeline-unchanged / Album-corrected proof.
+  //
+  // homecloud-moa3-selection-runtime is ENVIRONMENT-DEPENDENT: it boots the REAL
+  // backend HomeCloud routes in process on an EPHEMERAL local port and drives the
+  // REAL compiled frontend client AND the REAL pure modules over HTTP against the
+  // LOCAL Supabase reported by `supabase status`. It refuses a non-local URL.
+  'homecloud-moa3-selection': () => {
+    runCommand(
+      'HomeCloud MO-A3 compile selection / drag / collections / order tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa3_test.json'],
+    );
+    return runCommand(
+      'HomeCloud MO-A3 memory selection deterministic tests',
+      'node',
+      ['scripts/compiled-moa3/scripts/homecloud_moa3_memory_selection_tests.js'],
+    );
+  },
+  'homecloud-moa3-selection-runtime': () => {
+    runCommand(
+      'HomeCloud MO-A3 compile the selection client contract',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa3_client_test.json'],
+    );
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'HomeCloud MO-A3 memory selection runtime tests (local Supabase, real client over HTTP)',
+      'node',
+      ['scripts/homecloud_moa3_memory_selection_runtime_tests.js'],
+      { env },
+    );
+  },
   'homecloud-1f-dto-leak': () => runCommand(
     'HomeCloud 1F DTO leak regression tests',
     'node',
@@ -973,6 +1017,29 @@ const suites = {
     'homecloud-4a2-written-validation',
     'homecloud-4a2-written-runtime',
     'homecloud-4c1-1-memory-create-recovery',
+    'homecloud-w1a-authority',
+    'homecloud-w1bc-pagination-reconciliation',
+    'frontend-typecheck',
+  ],
+  // MO-A3 gate. Every new MO-A3 evidence belongs here; there are no orphan
+  // scripts. It carries its own selection + runtime evidence AND the whole MO-A2
+  // / MO-A1 album contract, because the selection slice must never weaken the
+  // contract it consumes. The three `*-runtime` members need a local Supabase and
+  // classify themselves as ENVIRONMENT_FAILURE / RUNTIME_REQUIRED when it is not
+  // available; they never degrade to a pretend pass.
+  'homecloud-moa3': [
+    'homecloud-moa3-selection',
+    'homecloud-moa3-selection-runtime',
+    'homecloud-moa2-album-surface',
+    'homecloud-moa2-album-runtime',
+    'homecloud-moa1-album-contract',
+    'homecloud-moa1-album-runtime',
+    'homecloud-1f-dto-leak',
+    'homecloud-4b1-memories-read-model',
+    'homecloud-4b1-preview',
+    'homecloud-4b2-timeline',
+    'homecloud-2c-frontend-structure',
+    'homecloud-upload-recovery',
     'homecloud-w1a-authority',
     'homecloud-w1bc-pagination-reconciliation',
     'frontend-typecheck',

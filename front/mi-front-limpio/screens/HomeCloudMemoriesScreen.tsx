@@ -1,14 +1,27 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, RefreshControl, SectionList, StyleSheet, View } from 'react-native';
+import {
+  AppState,
+  BackHandler,
+  RefreshControl,
+  ScrollView,
+  SectionList,
+  StyleSheet,
+  View,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
 import { AppButton, AppText, ErrorState, Skeleton } from '../components/ui';
+import { ActionSheet } from '../components/ui/ActionSheet';
 import { AlbumDetailView } from '../components/homecloud/AlbumDetailView';
 import { AlbumsRail } from '../components/homecloud/AlbumsRail';
 import { AlbumActionsSheet, AlbumNameSheet, type AlbumEditorMode } from '../components/homecloud/AlbumSheets';
-import { AlbumMemoryPicker, type AlbumAddOutcome } from '../components/homecloud/AlbumMemoryPicker';
-import { MemoryCard } from '../components/homecloud/MemoryCards';
+import { MemoryCollectionAlbumTile, MemoryCollectionTile } from '../components/homecloud/MemoryCollectionTile';
+import { MemorySelectionHeader, type MemorySelectionSourceTab } from '../components/homecloud/MemorySelectionHeader';
+import { MemoryTimelineRow, type MemoryTimelineCell, type MemoryTimelineRowEntry } from '../components/homecloud/MemoryTimelineRow';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
 import {
@@ -30,6 +43,59 @@ import {
   ALBUM_DETAIL_INITIAL,
   createAlbumDetailController,
 } from '../services/homecloud/homecloudAlbumDetailPagination';
+import {
+  MEMORY_COLLECTIONS_INITIAL,
+  MEMORY_TYPE_COLLECTIONS,
+  buildMemoryCollectionQuery,
+  createMemoryCollectionsController,
+  memoryCollectionId,
+  memoryCollectionTitle,
+  parseMemoryCollectionId,
+  type MemoryCollectionRef,
+  type MemoryCollectionsState,
+} from '../services/homecloud/homecloudMemoryCollectionsPagination';
+import {
+  MEMORY_DRAG_IDLE,
+  armMemoryDrag,
+  beginMemoryDrag,
+  clearMemoryRowRegistry,
+  createMemoryEdgeTicker,
+  createMemoryRowRegistry,
+  endMemoryDrag,
+  memoryRowZones,
+  moveMemoryDragPointer,
+  registerMemoryRow,
+  resolveMemoryAtPoint,
+  stepMemoryDrag,
+  unregisterMemoryRow,
+  type MemoryDragState,
+  type MemoryEdgeTicker,
+  type MemoryRowRegistry,
+} from '../services/homecloud/homecloudMemoryDrag';
+import {
+  canConfirmMemorySelection,
+  cancelMemorySelection,
+  confirmMemorySelection,
+  createMemorySelectionSession,
+  enterMemorySelection,
+  isMemorySelecting,
+  resetMemorySelectionScope,
+  setMemorySelectionExclusions,
+  setMemorySelectionSource,
+  toggleMemorySelection,
+  toggleMemorySelectionMany,
+  MEMORY_SELECTION_SOURCE_COLLECTIONS_ROOT,
+  MEMORY_SELECTION_SOURCE_LIBRARY,
+  type MemorySelectionSource,
+  type MemorySelectionState,
+} from '../services/homecloud/homecloudMemorySelection';
+import {
+  isTerminalDestinationFailure,
+  runMemoryAlbumMutation,
+  toMemorySelectionFailure,
+  type MemoryMutationDirection,
+  type MemorySelectionFailure,
+} from '../services/homecloud/homecloudMemoryMutations';
 import { subscribeHomeCloudReadReconciliation } from '../services/homecloud/homecloudReadReconciliation';
 import { MemoryIntake } from '../services/homecloud/MemoryIntake';
 import { useHomeCloudCapabilities } from '../services/homecloud/useHomeCloudCapabilities';
@@ -43,12 +109,43 @@ import {
   groupMemoriesForTimeline,
   memoryPrimaryText,
   memorySemanticLabel,
+  type TimelineGroupingMode,
   type TimelineListSection,
+  type TimelineRow,
 } from '../services/homecloud/homecloudMemoriesTimeline';
+import { lightHaptic } from '../utils/haptics';
 
 const MEMORIES_PAGE_SIZE = 50;
 const ALBUM_PAGE_SIZE = 50;
+const COLLECTION_PAGE_SIZE = 50;
 const TIMELINE_COLUMNS = 3;
+/**
+ * Scroll events are needed for two things only: the live offset the drag hit test
+ * and hit testing reads, and restoring an offset per source. Both tolerate ~60 Hz
+ * because the offset is stored in a REF, so an onScroll event never re-renders.
+ */
+const DRAG_SCROLL_THROTTLE = 16;
+
+const COLLECTIONS_ROOT_TITLE = 'Colecciones';
+const COLLECTIONS_BACK_LABEL = 'Colecciones';
+const TYPE_COLLECTIONS_TITLE = 'Tipos';
+const NO_ALBUMS_DESTINATION_TITLE = 'No hay álbumes disponibles';
+const NO_ALBUMS_DESTINATION_BODY =
+  'Creá un álbum desde la barra de álbumes de Recuerdos para agrupar estos recuerdos.';
+
+const EMPTY_EXCLUSIONS: ReadonlySet<string> = new Set<string>();
+
+/**
+ * The grid host handle.
+ *
+ * `SectionList` forwards its ref to the underlying `VirtualizedList`, which is
+ * where `scrollToOffset` really lives; the published class type does not declare
+ * it. The edge auto-scroll and the per-source offset restore both need it, so the
+ * handle is declared explicitly instead of casting at each call site.
+ */
+type MemoryGridListHandle = SectionList<TimelineRow, TimelineListSection> & {
+  scrollToOffset: (params: { offset: number; animated?: boolean }) => void;
+};
 
 /**
  * HomeCloud STAGE 4B.2 — Memories Root (productive Timeline surface).
@@ -59,8 +156,7 @@ const TIMELINE_COLUMNS = 3;
  * - Real backend data only: no fixtures, no mocks, no local arrays.
  * - States: loading (skeletons) / empty / error+retry / success / refresh
  *   (pull-to-refresh, same pattern as the rest of the app). No polling.
- * - Grouping uses the semantic date only (never uploadedAt). Unknown dates
- *   render last as "Sin fecha" per the productive backend contract.
+ * - Grouping uses the semantic date only (never uploadedAt).
  * - Create is productive: binary memories use the Shared Upload Engine and
  *   written memories register/finalize without manufacturing a binary.
  *
@@ -86,6 +182,28 @@ const TIMELINE_COLUMNS = 3;
  * EXISTING household invalidation actually drop the Album read keys, and then the
  * owner refetches explicitly. No generic event bus, no extension of the shared
  * reconciliation module and no modelling of an Album mutation as an upload.
+ *
+ * MO-A3 — MEMORY SELECTION + ALBUM INTEGRATION
+ * ---------------------------------------------
+ * Memories become a selectable library and the AlbumMemoryPicker modal is
+ * retired as the productive "add existing Memories" UX.
+ *
+ *  - ONE selection session (`homecloudMemorySelection`), owned here, with no
+ *    global context and no store. Identity is `contentId` and nothing else, so
+ *    Recuerdos, a type collection and an Album collection agree on "is this
+ *    selected?" without any synchronization mechanism.
+ *  - Recuerdos inside selection is the SAME canonical Timeline: same `memories`,
+ *    same grouped sections, same previews, same pagination. Selection overlays
+ *    interaction; it never forks the library read.
+ *  - Colecciones is LOCAL source state, not a route: Albums plus the four
+ *    deterministic type collections (Fotos / Videos / Audios / Notas). Its back
+ *    action returns to the Collections root and does NOT cancel the operation.
+ *  - ONE BackHandler owner with an explicit priority, ONE AppState listener for
+ *    gesture cleanup only, and the ONE household reset effect extended (never
+ *    duplicated) to clear the whole session.
+ *  - ONE grid host: the selection surface and the normal Timeline are the same
+ *    SectionList, so normal scrolling is never disabled by entering selection
+ *    and there is never more than one mounted-row registry in play.
  */
 export function HomeCloudMemoriesView() {
   const { session } = useAuth();
@@ -254,7 +372,7 @@ export function HomeCloudMemoriesView() {
   const [openAlbumId, setOpenAlbumId] = useState<string | null>(null);
   const [detail, setDetail] = useState(ALBUM_DETAIL_INITIAL);
   const [removingContentId, setRemovingContentId] = useState<string | null>(null);
-  // Latest-value mirror, so the sequential add can NAME a failed Memory without
+  // Latest-value mirror, so a bulk composer can NAME a failed Memory without
   // making its own identity depend on the loaded pages.
   const detailMemoriesRef = useRef<readonly HomeCloudMemoryListItem[]>(detail.memories);
   detailMemoriesRef.current = detail.memories;
@@ -302,16 +420,6 @@ export function HomeCloudMemoriesView() {
     [openAlbumId, rail.albums],
   );
 
-  // Android hardware Back closes the Album instead of the whole HomeCloud screen.
-  useEffect(() => {
-    if (openAlbumId === null) return;
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      closeAlbum();
-      return true;
-    });
-    return () => subscription.remove();
-  }, [closeAlbum, openAlbumId]);
-
   // =========================================================================
   // MO-A2 — Sheet ownership + mutations
   // =========================================================================
@@ -321,8 +429,6 @@ export function HomeCloudMemoriesView() {
   const [sheetError, setSheetError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
   /**
    * The intake destination list must follow every Album change. Intake owns NO
    * Album management: it only re-reads its own destinations through the existing
@@ -403,48 +509,54 @@ export function HomeCloudMemoriesView() {
   }, [actionsAlbum, bumpDestinations, closeAlbum, deleting, openAlbumId, readFirstPage, reloadRail, scope, token]);
 
   /**
-   * Add existing Memories to the open Album.
+   * THE ONE MEMBERSHIP COMPOSER.
    *
-   * The backend mutation is per contentId, so the selections run sequentially.
-   * A partial failure is reported honestly: successful memberships stay
-   * successful, the failed Memory is NAMED, and nothing is rolled back.
+   * `runAlbumMemberships('add' | 'remove', albumId, contentIds)` is the ONLY bulk
+   * membership path: the Album surface, the generic Timeline selection and the
+   * bulk removal all go through it, so a partial failure can never be reported
+   * differently depending on how the operation was started. It runs one MO-A1
+   * mutation per contentId, sequentially, with the mandatory `{ householdId }`
+   * scope, and reports exactly which ids were committed and which failed.
+   *
+   * Nothing is ever rolled back: a committed membership stays committed and the
+   * failed ids stay selected, so a retry IS the retry.
    */
-  const addMemoriesToAlbum = useCallback(async (contentIds: string[]): Promise<AlbumAddOutcome> => {
-    if (!token || !scope || !openAlbumId) {
-      return {
-        added: [],
-        failures: contentIds.map((contentId) => ({ contentId, label: contentId, message: 'El álbum ya no está abierto.' })),
-      };
-    }
-    setAdding(true);
-    const added: string[] = [];
-    const failures: { contentId: string; label: string; message: string }[] = [];
-    const labels = new Map<string, string>();
-    for (const memory of detailMemoriesRef.current) labels.set(memory.id, pickerLabel(memory));
-    try {
-      for (const contentId of contentIds) {
-        try {
-          await addMemoryToAlbum(token, openAlbumId, contentId, scope);
-          added.push(contentId);
-        } catch (error) {
-          failures.push({
-            contentId,
-            label: labels.get(contentId) ?? 'Un recuerdo',
-            message: error instanceof Error ? error.message : 'No pudimos agregarlo.',
-          });
-        }
+  const runAlbumMemberships = useCallback(
+    async (
+      direction: MemoryMutationDirection,
+      albumId: string,
+      contentIds: readonly string[],
+    ): Promise<MemorySelectionFailure> => {
+      const labels = new Map<string, string>();
+      for (const memory of [...memoriesRef.current, ...detailMemoriesRef.current, ...collectionsMemoriesRef.current]) {
+        labels.set(memory.id, memoryFailureLabel(memory));
       }
-      if (added.length > 0) {
-        await detailControllerRef.current!.refresh();
+      const outcome = await runMemoryAlbumMutation({
+        direction,
+        albumId,
+        contentIds,
+        labelFor: (contentId) => labels.get(contentId) ?? 'Un recuerdo',
+        mutate: async (targetAlbumId, contentId) => {
+          if (!token) throw new Error('La sesión venció.');
+          if (direction === 'add') {
+            await addMemoryToAlbum(token, targetAlbumId, contentId, scope ?? undefined);
+          } else {
+            await removeMemoryFromAlbum(token, targetAlbumId, contentId, scope ?? undefined);
+          }
+        },
+      });
+      if (outcome.committed.length > 0) {
+        // The exact refetch table, identical for both directions: the Album
+        // detail when that Album is the open one, the Albums rail, and Timeline
+        // page 0, whose projected `albumIds` just changed.
+        if (openAlbumIdRef.current === albumId) await detailControllerRef.current!.refresh();
         await reloadRail();
-        // Timeline page 0 so the projected albumIds are honest immediately.
         await readFirstPage().catch(() => undefined);
       }
-      return { added, failures };
-    } finally {
-      setAdding(false);
-    }
-  }, [openAlbumId, readFirstPage, reloadRail, scope, token]);
+      return toMemorySelectionFailure(direction, outcome);
+    },
+    [readFirstPage, reloadRail, scope, token],
+  );
 
   /** Remove ONE Memory from the CURRENT Album. The Memory itself survives. */
   const removeMemoryFromOpenAlbum = useCallback(async (memory: HomeCloudMemoryListItem) => {
@@ -464,51 +576,877 @@ export function HomeCloudMemoriesView() {
   }, [openAlbumId, readFirstPage, reloadRail, removingContentId, scope, token]);
 
   // =========================================================================
-  // Household reset — nothing from household A may render in household B
+  // MO-A3 — the SELECTION SESSION
+  // =========================================================================
+
+  const [selection, setSelection] = useState<MemorySelectionState>(createMemorySelectionSession);
+  const [selectionBusy, setSelectionBusy] = useState(false);
+  const [selectionFailure, setSelectionFailure] = useState<MemorySelectionFailure | null>(null);
+  /** The generic-purpose destination picker (opened by `✓` with no destination). */
+  const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
+
+  // Latest-value mirrors. Every gesture seam below is a STABLE callback that
+  // reads these, which is what makes the memoized rows safe: their interaction
+  // props never change identity.
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  const memoriesRef = useRef(memories);
+  memoriesRef.current = memories;
+  const openAlbumIdRef = useRef(openAlbumId);
+  openAlbumIdRef.current = openAlbumId;
+  const railRef = useRef(rail);
+  railRef.current = rail;
+
+  // MO-A3 — Collections read owner (ONE active collection).
+  const [collections, setCollections] = useState<MemoryCollectionsState>(MEMORY_COLLECTIONS_INITIAL);
+  const collectionsReadRef = useRef({ token });
+  collectionsReadRef.current = { token };
+  const collectionsControllerRef = useRef<ReturnType<typeof createMemoryCollectionsController> | null>(null);
+  if (collectionsControllerRef.current === null) {
+    collectionsControllerRef.current = createMemoryCollectionsController({
+      limit: COLLECTION_PAGE_SIZE,
+      onState: setCollections,
+      read: async ({ ref, limit, offset }) => {
+        const currentToken = collectionsReadRef.current.token;
+        if (!currentToken) return { memories: [], nextOffset: null };
+        // THE EXISTING READ MODEL. A type collection filters by `kind` in
+        // Timeline order; an Album collection reads `albumId` in Album order.
+        const page = await listMemories(currentToken, buildMemoryCollectionQuery(ref, limit, offset));
+        return { memories: page.memories, nextOffset: page.nextOffset };
+      },
+    });
+  }
+  const collectionsMemoriesRef = useRef<readonly HomeCloudMemoryListItem[]>(collections.memories);
+  collectionsMemoriesRef.current = collections.memories;
+
+  const selecting = isMemorySelecting(selection);
+
+  // =========================================================================
+  // MO-A3 — DRAG: refs only, never React state per pointer event
+  // =========================================================================
+
+  const dragRef = useRef<MemoryDragState>(MEMORY_DRAG_IDLE);
+  /** Mounted rows only. A row that unmounts removes its own entry. */
+  const rowRegistryRef = useRef<MemoryRowRegistry | null>(null);
+  if (rowRegistryRef.current === null) rowRegistryRef.current = createMemoryRowRegistry();
+  const fingerRef = useRef<{ x: number; y: number } | null>(null);
+  const listRef = useRef<MemoryGridListHandle | null>(null);
+  const rootScrollRef = useRef<ScrollView | null>(null);
+  const viewportHeightRef = useRef(0);
+  /** Scroll offset per source. Refs: an onScroll event must never re-render. */
+  const scrollOffsetsRef = useRef(new Map<string, number>());
+  const edgeTickerRef = useRef<MemoryEdgeTicker | null>(null);
+
+  const sourceKey = selecting
+    ? selection.source.kind === 'collection'
+      ? selection.source.collectionId
+      : selection.source.kind
+    : 'library';
+  const sourceKeyRef = useRef(sourceKey);
+  sourceKeyRef.current = sourceKey;
+
+  const stopEdgeScroll = useCallback(() => {
+    edgeTickerRef.current?.stop();
+  }, []);
+
+  const abortDrag = useCallback(() => {
+    dragRef.current = endMemoryDrag(dragRef.current);
+    fingerRef.current = null;
+    stopEdgeScroll();
+  }, [stopEdgeScroll]);
+
+  /**
+   * ONE POINTER EVENT: hit test, apply the crossed ids, feed the edge ticker.
+   *
+   * Batched: one `setSelection` per pointer event regardless of how many cells
+   * the finger crossed, and NO state write at all when nothing new was crossed.
+   */
+  const applyDragAt = useCallback((x: number, y: number) => {
+    const drag = dragRef.current;
+    if (!drag.active) return;
+    fingerRef.current = { x, y };
+    const hit = resolveMemoryAtPoint(memoryRowZones(rowRegistryRef.current as MemoryRowRegistry), x, y);
+    const crossed = hit === null ? [] : [hit.contentId];
+    const outcome = stepMemoryDrag(drag, crossed);
+    dragRef.current = moveMemoryDragPointer(outcome.state, x, y);
+    if (outcome.step.kind === 'applied') {
+      const ids = outcome.step.contentIds;
+      const mode = outcome.step.mode;
+      setSelection((previous) => toggleMemorySelectionMany(previous, ids, mode));
+    }
+    edgeTickerRef.current?.update(y);
+  }, []);
+
+  const scrollByRef = useCallback((deltaPx: number) => {
+    const key = sourceKeyRef.current;
+    const current = scrollOffsetsRef.current.get(key) ?? 0;
+    const next = Math.max(0, current + deltaPx);
+    scrollOffsetsRef.current.set(key, next);
+    // NEVER an animated scroll command: animated commands would stack and fight
+    // the ticker's cadence.
+    listRef.current?.scrollToOffset({ offset: next, animated: false });
+  }, []);
+
+  const onScrolledRef = useCallback(() => {
+    // After a programmatic scroll, new rows may now be under a stationary
+    // finger, so the hit test is re-run with the LAST finger position.
+    const finger = fingerRef.current;
+    if (finger === null) return;
+    applyDragAt(finger.x, finger.y);
+  }, [applyDragAt]);
+
+  if (edgeTickerRef.current === null) {
+    edgeTickerRef.current = createMemoryEdgeTicker({
+      schedule: (tick, ms) => setInterval(tick, ms),
+      cancel: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+      viewportHeight: () => viewportHeightRef.current,
+      scrollBy: scrollByRef,
+      onScrolled: onScrolledRef,
+    });
+  }
+
+  const registerRow = useCallback((entry: MemoryTimelineRowEntry) => {
+    const registry = rowRegistryRef.current as MemoryRowRegistry;
+    const grew = registerMemoryRow(
+      registry,
+      entry.rowKey,
+      entry.bounds === null
+        ? null
+        : { rowKey: entry.rowKey, bounds: entry.bounds, cells: entry.cells },
+      entry,
+    );
+    if (!grew) return;
+    // First measurement of this row: the mounted set just grew, so an in-flight
+    // drag re-evaluates immediately instead of waiting for the next move.
+    const finger = fingerRef.current;
+    if (dragRef.current.active && finger !== null) applyDragAt(finger.x, finger.y);
+  }, [applyDragAt]);
+
+  const unregisterRow = useCallback((entry: MemoryTimelineRowEntry) => {
+    unregisterMemoryRow(rowRegistryRef.current as MemoryRowRegistry, entry.rowKey, entry);
+  }, []);
+
+  // --- stable interaction seams (identity never changes) -------------------
+
+  const handleToggle = useCallback((contentId: string) => {
+    setSelection((previous) => toggleMemorySelection(previous, contentId));
+  }, []);
+
+  /**
+   * Long press in NORMAL mode enters selection; long press while ALREADY
+   * selecting only arms the drag.
+   *
+   * The arming itself is `handleDragArm`; this callback owns the decision to
+   * CREATE an operation, and it is a no-op when one already exists — which is why
+   * a second long press inside a selection never resets the pending selection.
+   */
+  const handleLongPress = useCallback((contentId: string) => {
+    setSelection((previous) => {
+      if (isMemorySelecting(previous)) return previous;
+      return enterMemorySelection(previous, {
+        purpose: { kind: 'generic' },
+        source: MEMORY_SELECTION_SOURCE_LIBRARY,
+        initialContentIds: [contentId],
+        excludedIds: [],
+      });
+    });
+    // ONE subtle haptic when entering selection mode, and never per dragged cell.
+    void lightHaptic();
+  }, []);
+
+  const handleDragArm = useCallback((contentId: string, isSelected: boolean) => {
+    const armed = armMemoryDrag(dragRef.current);
+    if (!armed.armed) return;
+    // The mode comes from the ORIGIN cell only: a drag that starts on an
+    // unselected Memory selects everything it crosses, and one that starts on a
+    // selected Memory deselects everything it crosses.
+    dragRef.current = beginMemoryDrag(armed, contentId, () => isSelected);
+  }, []);
+
+  const handleDragMove = useCallback((pageX: number, pageY: number) => {
+    applyDragAt(pageX, pageY);
+  }, [applyDragAt]);
+
+  const handleDragEnd = useCallback(() => {
+    abortDrag();
+  }, [abortDrag]);
+
+  // --- enter / cancel / confirm -------------------------------------------
+
+  /** Entry A and B: the Album surface, populated or empty. ONE flow. */
+  const enterAddToAlbum = useCallback((albumId: string) => {
+    if (!canOrganize) return;
+    setSelectionFailure(null);
+    setSelection((previous) =>
+      enterMemorySelection(previous, {
+        purpose: { kind: 'addToAlbum', albumId },
+        source: MEMORY_SELECTION_SOURCE_LIBRARY,
+        excludedIds: memoriesRef.current
+          .filter((memory) => memory.albumIds.includes(albumId))
+          .map((memory) => memory.id),
+      }),
+    );
+    void lightHaptic();
+  }, [canOrganize]);
+
+  /** Entry D: a long press inside the Album detail removes MEMBERSHIPS. */
+  const enterRemoveFromAlbum = useCallback((albumId: string, firstContentId: string) => {
+    if (!canOrganize) return;
+    setSelectionFailure(null);
+    void collectionsControllerRef.current!.open({ kind: 'album', albumId });
+    setSelection((previous) =>
+      enterMemorySelection(previous, {
+        purpose: { kind: 'removeFromAlbum', albumId },
+        // The Album collection of the CURRENT album: every visible Memory
+        // already belongs to it, which is exactly what this purpose means.
+        source: { kind: 'collection', collectionId: memoryCollectionId({ kind: 'album', albumId }) },
+        initialContentIds: [firstContentId],
+      }),
+    );
+    void lightHaptic();
+  }, [canOrganize]);
+
+  const switchTab = useCallback((tab: MemorySelectionSourceTab) => {
+    setSelection((previous) => {
+      if (!isMemorySelecting(previous)) return previous;
+      // Switching the visible source NEVER touches the pending selection, the
+      // operation or the destination.
+      const next: MemorySelectionSource =
+        tab === 'library'
+          ? MEMORY_SELECTION_SOURCE_LIBRARY
+          : previous.source.kind === 'collection'
+            ? previous.source
+            : MEMORY_SELECTION_SOURCE_COLLECTIONS_ROOT;
+      return setMemorySelectionSource(previous, next);
+    });
+  }, []);
+
+  const openCollection = useCallback((ref: MemoryCollectionRef) => {
+    void collectionsControllerRef.current!.open(ref);
+    setSelection((previous) =>
+      setMemorySelectionSource(previous, { kind: 'collection', collectionId: memoryCollectionId(ref) }),
+    );
+  }, []);
+
+  const backToCollectionsRoot = useCallback(() => {
+    // A LOCAL back action: it returns to the Collections root and does NOT
+    // cancel the operation, leave the Album-origin operation or clear any
+    // selected id.
+    setSelection((previous) => setMemorySelectionSource(previous, MEMORY_SELECTION_SOURCE_COLLECTIONS_ROOT));
+  }, []);
+
+  const cancelSelection = useCallback(() => {
+    abortDrag();
+    setSelectionFailure(null);
+    setDestinationPickerOpen(false);
+    setSelection((previous) => cancelMemorySelection(previous));
+  }, [abortDrag]);
+
+  const finishSelection = useCallback(() => {
+    abortDrag();
+    setSelectionFailure(null);
+    setDestinationPickerOpen(false);
+    setSelection((previous) => cancelMemorySelection(previous));
+  }, [abortDrag]);
+
+  /**
+   * CONFIRM.
+   *
+   * `addToAlbum` and `removeFromAlbum` mutate their known destination directly.
+   * `generic` mutates NOTHING here: it opens the destination Album sheet built
+   * from the Albums the owner ALREADY loaded, and that choice then runs the SAME
+   * composer. There is no duplicate mutation logic and no invented destination.
+   */
+  const confirmSelection = useCallback(async () => {
+    const current = selectionRef.current;
+    if (selectionBusy || !canConfirmMemorySelection(current)) return;
+    const result = confirmMemorySelection(current);
+    if (result === null) return;
+
+    if (result.purpose.kind === 'generic') {
+      // "Agregar a álbum" is only meaningful with `homecloud.organize`; without
+      // it the affordance is not advertised at all.
+      if (!canOrganize) return;
+      setDestinationPickerOpen(true);
+      return;
+    }
+
+    setSelectionBusy(true);
+    try {
+      const direction: MemoryMutationDirection =
+        result.purpose.kind === 'addToAlbum' ? 'add' : 'remove';
+      const albumId = result.purpose.albumId;
+
+      // DESTINATION VALIDATION against the CANONICAL current scope: an
+      // authoritative read, never the cached rail, so a destination deleted
+      // remotely cannot receive a single request.
+      let destinationAlive = false;
+      if (token) {
+        try {
+          const albums = await fetchHomeCloudAlbums(token);
+          destinationAlive = albums.some((album) => album.id === albumId);
+        } catch {
+          destinationAlive = false;
+        }
+      }
+      if (!destinationAlive) {
+        setSelectionFailure(
+          toMemorySelectionFailure(direction, {
+            committed: [],
+            destinationMissing: true,
+            failures: result.contentIds.map((contentId) => ({
+              contentId,
+              label: 'Un recuerdo',
+              message: 'El álbum ya no está disponible.',
+            })),
+          }),
+        );
+        await reloadRail().catch(() => undefined);
+        return;
+      }
+
+      const failure = await runAlbumMemberships(direction, albumId, result.contentIds);
+      if (failure.failures.length > 0) {
+        // PARTIAL FAILURE, represented honestly: the committed memberships stay
+        // committed, the failed Memories are NAMED, and ONLY they stay selected
+        // so a retry is exactly the retry.
+        setSelectionFailure(failure);
+        setSelection((previous) => ({
+          ...previous,
+          selectedIds: new Set(failure.failures.map((item) => item.contentId)),
+        }));
+        return;
+      }
+      finishSelection();
+    } finally {
+      setSelectionBusy(false);
+    }
+  }, [canOrganize, finishSelection, reloadRail, runAlbumMemberships, selectionBusy, token]);
+
+  /** Retry ONLY the failed ids. The committed ones are never resubmitted. */
+  const retryFailed = useCallback(async () => {
+    const failure = selectionFailure;
+    const current = selectionRef.current;
+    if (failure === null || isTerminalDestinationFailure(failure) || selectionBusy) return;
+    const result = confirmMemorySelection(current);
+    if (result === null || result.purpose.kind === 'generic') return;
+    setSelectionBusy(true);
+    try {
+      const next = await runAlbumMemberships(
+        failure.direction,
+        result.purpose.albumId,
+        failure.failures.map((item) => item.contentId),
+      );
+      if (next.failures.length > 0) {
+        setSelectionFailure(next);
+        setSelection((previous) => ({
+          ...previous,
+          selectedIds: new Set(next.failures.map((item) => item.contentId)),
+        }));
+        return;
+      }
+      finishSelection();
+    } finally {
+      setSelectionBusy(false);
+    }
+  }, [finishSelection, runAlbumMemberships, selectionBusy, selectionFailure]);
+
+  const chooseDestinationAlbum = useCallback(
+    async (albumId: string) => {
+      const current = selectionRef.current;
+      const contentIds = [...current.selectedIds].filter((id) => !current.excludedIds.has(id));
+      setDestinationPickerOpen(false);
+      if (contentIds.length === 0) return;
+      setSelectionBusy(true);
+      try {
+        const failure = await runAlbumMemberships('add', albumId, contentIds);
+        if (failure.failures.length > 0) {
+          setSelectionFailure(failure);
+          setSelection((previous) => ({
+            ...previous,
+            selectedIds: new Set(failure.failures.map((item) => item.contentId)),
+          }));
+          return;
+        }
+        finishSelection();
+      } finally {
+        setSelectionBusy(false);
+      }
+    },
+    [finishSelection, runAlbumMemberships],
+  );
+
+  // =========================================================================
+  // MO-A3 — derived selection data
+  // =========================================================================
+
+  const activeCollectionId =
+    selecting && selection.source.kind === 'collection' ? selection.source.collectionId : null;
+  const activeCollection = useMemo(
+    () => (activeCollectionId === null ? null : parseMemoryCollectionId(activeCollectionId)),
+    [activeCollectionId],
+  );
+
+  /**
+   * The visible dataset of the ACTIVE source.
+   *
+   * Recuerdos inside selection is the SAME canonical library: `memories`, the
+   * same loaded pages and the same previews. Only a collection source swaps the
+   * dataset, and that dataset belongs to the collections controller.
+   */
+  const gridMemories = selecting
+    ? selection.source.kind === 'collection'
+      ? collections.memories
+      : memories
+    : memories;
+
+  /**
+   * GROUPING MODE FOLLOWS THE READ CONTRACT.
+   *
+   * An Album collection was read with `order: 'album'`, whose canonical sequence
+   * puts an unknown date FIRST and a year-only Memory first within its year, so
+   * it is grouped with `album` placement. The Timeline and a kind collection are
+   * both read with `order: 'timeline'` and keep the DEFAULT Timeline placement,
+   * byte-for-byte. The grouper never re-sorts either way.
+   */
+  const gridGroupingMode: TimelineGroupingMode = activeCollection?.kind === 'album' ? 'album' : 'timeline';
+
+  /**
+   * The Timeline grouping, with NO mode argument: the global Timeline keeps the
+   * pre-MO-A3 placement exactly, and this memo is what the normal surface renders.
+   */
+  const sections = useMemo<TimelineListSection[]>(
+    () => flattenTimelineForSectionList(groupMemoriesForTimeline(memories), TIMELINE_COLUMNS),
+    [memories],
+  );
+
+  const gridSections = useMemo<TimelineListSection[]>(() => {
+    if (!selecting) return sections;
+    return flattenTimelineForSectionList(
+      groupMemoriesForTimeline(gridMemories, gridGroupingMode),
+      TIMELINE_COLUMNS,
+    );
+  }, [gridGroupingMode, gridMemories, sections, selecting]);
+
+  /**
+   * ALREADY-MEMBER EXCLUSIONS, re-derived from the CURRENT read model.
+   *
+   * They are recomputed whenever the visible dataset or the operation changes,
+   * and they PRUNE anything already selected, so the pending selection can only
+   * ever hold Memories whose membership does not exist yet.
+   */
+  const excludedIds = useMemo<ReadonlySet<string>>(() => {
+    const current = selection;
+    if (!isMemorySelecting(current) || current.purpose === null || current.purpose.kind !== 'addToAlbum') {
+      return EMPTY_EXCLUSIONS;
+    }
+    const albumId = current.purpose.albumId;
+    return new Set(
+      gridMemories.filter((memory) => memory.albumIds.includes(albumId)).map((memory) => memory.id),
+    );
+  }, [gridMemories, selection]);
+
+  useEffect(() => {
+    if (!selecting) return;
+    setSelection((previous) => setMemorySelectionExclusions(previous, excludedIds));
+  }, [excludedIds, selecting]);
+
+  /**
+   * PER-CARD PRIMITIVES, derived by the owner.
+   *
+   * The whole `selectedIds` Set is deliberately NOT handed to every row: each row
+   * receives one `{ contentId, selected, unselectable }` descriptor per card, so a
+   * change to one Memory re-renders exactly one cell.
+   */
+  const rowCells = useMemo(() => {
+    const map = new Map<string, MemoryTimelineCell[]>();
+    if (!selecting) return map;
+    for (const section of gridSections) {
+      for (const row of section.data) {
+        map.set(
+          row.key,
+          row.items.map((memory) => ({
+            contentId: memory.id,
+            selected: selection.selectedIds.has(memory.id),
+            unselectable: selection.excludedIds.has(memory.id),
+          })),
+        );
+      }
+    }
+    return map;
+  }, [gridSections, selecting, selection]);
+
+  // =========================================================================
+  // MO-A3 — scroll, list ownership and edge auto-scroll
+  // =========================================================================
+
+  const handleGridScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    // A REF, never React state: this fires at up to 60 Hz.
+    scrollOffsetsRef.current.set(sourceKeyRef.current, event.nativeEvent.contentOffset.y);
+  }, []);
+
+  const handleRootScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollOffsetsRef.current.set(sourceKeyRef.current, event.nativeEvent.contentOffset.y);
+  }, []);
+
+  const handleGridLayout = useCallback((event: LayoutChangeEvent) => {
+    // The viewport height is what the edge bands are a fraction of.
+    viewportHeightRef.current = event.nativeEvent.layout.height;
+  }, []);
+
+  // Restore the offset of the source being entered, so Recuerdos -> Colecciones
+  // -> Recuerdos comes back exactly where it was, without ever re-reading data.
+  useEffect(() => {
+    const offset = scrollOffsetsRef.current.get(sourceKey) ?? 0;
+    if (offset <= 0) return;
+    if (sourceKey === 'collectionsRoot') {
+      rootScrollRef.current?.scrollTo({ y: offset, animated: false });
+      return;
+    }
+    listRef.current?.scrollToOffset({ offset, animated: false });
+  }, [sourceKey]);
+
+  // =========================================================================
+  // MO-A3 — BackHandler (ONE owner, explicit priority) and AppState
+  // =========================================================================
+
+  const collectionDetailOpen = selecting && selection.source.kind === 'collection';
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      // 1. An ACTIVE DRAG aborts the drag and NOTHING else: a half-finished
+      //    sweep must not also close the surface it was sweeping.
+      if (dragRef.current.active) {
+        abortDrag();
+        return true;
+      }
+      // 2. A collection detail returns to the Collections root: no mutation, no
+      //    cancellation and no selected id is lost.
+      if (collectionDetailOpen) {
+        backToCollectionsRoot();
+        return true;
+      }
+      // 3. Selection mode cancels and restores the exact origin.
+      if (selecting) {
+        cancelSelection();
+        return true;
+      }
+      // 4. The Album detail closes instead of the whole HomeCloud screen.
+      if (openAlbumIdRef.current !== null) {
+        closeAlbum();
+        return true;
+      }
+      // 5. Otherwise the existing navigation behaviour applies.
+      return false;
+    });
+    return () => subscription.remove();
+  }, [abortDrag, backToCollectionsRoot, cancelSelection, closeAlbum, collectionDetailOpen, selecting]);
+
+  /**
+   * APPSTATE — GESTURE CLEANUP ONLY.
+   *
+   * There is no offline, background or sync product behaviour here. What must not
+   * survive a backgrounding is an ACTIVE DRAG: the ticker and the visited set are
+   * transient by definition. The selection session itself MAY survive, so Back
+   * returns to exactly what the user was doing.
+   */
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (status) => {
+      if (status === 'active') return;
+      abortDrag();
+    });
+    return () => subscription.remove();
+  }, [abortDrag]);
+
+  // A ticker's lifetime can never outlive the component.
+  useEffect(
+    () => () => {
+      abortDrag();
+      clearMemoryRowRegistry(rowRegistryRef.current as MemoryRowRegistry);
+      scrollOffsetsRef.current.clear();
+    },
+    [abortDrag],
+  );
+
+  // =========================================================================
+  // MO-A2 — Household reset — nothing from household A may render in household B
   // =========================================================================
   useEffect(() => {
     setOpenAlbumId(null);
     setRemovingContentId(null);
     setEditor(null);
     setActionsAlbum(null);
-    setPickerOpen(false);
     setSheetError(null);
     setSaving(false);
     setDeleting(false);
-    setAdding(false);
     setDetail(ALBUM_DETAIL_INITIAL);
     detailControllerRef.current!.reset();
     railControllerRef.current!.reset();
-  }, [householdId]);
+    // MO-A3 extends THIS effect — the one and only scope authority — with the
+    // whole transient selection surface. A sign-out clears `token` and a
+    // household switch clears `householdId`, so both land here.
+    abortDrag();
+    clearMemoryRowRegistry(rowRegistryRef.current as MemoryRowRegistry);
+    scrollOffsetsRef.current.clear();
+    setSelectionFailure(null);
+    setSelectionBusy(false);
+    setDestinationPickerOpen(false);
+    setSelection(resetMemorySelectionScope());
+    setCollections(MEMORY_COLLECTIONS_INITIAL);
+    collectionsControllerRef.current!.reset();
+  }, [abortDrag, householdId, token]);
 
-  const sections = useMemo<TimelineListSection[]>(
-    () => flattenTimelineForSectionList(groupMemoriesForTimeline(memories), TIMELINE_COLUMNS),
-    [memories],
+  const showAlbumDetail = !selecting && openAlbumId !== null;
+
+  // =========================================================================
+  // Render
+  // =========================================================================
+
+  const purposeKind: 'generic' | 'addToAlbum' | 'removeFromAlbum' =
+    selecting && selection.purpose !== null ? selection.purpose.kind : 'generic';
+  const purposeAlbumId =
+    selecting && selection.purpose !== null && selection.purpose.kind !== 'generic'
+      ? selection.purpose.albumId
+      : null;
+  const destinationName =
+    purposeAlbumId === null
+      ? null
+      : rail.albums.find((album) => album.id === purposeAlbumId)?.name ?? null;
+  const selectionTab: MemorySelectionSourceTab = selecting
+    ? selection.source.kind === 'library'
+      ? 'library'
+      : 'collections'
+    : 'library';
+
+  const collectionBackHeader =
+    activeCollection !== null ? (
+      <View style={styles.collectionHeader}>
+        <AppButton
+          variant="icon"
+          size="sm"
+          onPress={backToCollectionsRoot}
+          accessibilityLabel={`Volver a ${COLLECTIONS_BACK_LABEL}`}
+        >
+          <HomePlusIcon name="arrow-back" size={20} color={colors.text.primary} />
+        </AppButton>
+        <AppText variant="bodySmall" weight="700" numberOfLines={1} style={styles.collectionTitle}>
+          {memoryCollectionTitle(
+            activeCollection,
+            activeCollection.kind === 'album'
+              ? rail.albums.find((album) => album.id === activeCollection.albumId)?.name ?? null
+              : null,
+          )}
+        </AppText>
+      </View>
+    ) : null;
+
+  const gridFooter =
+    selecting && selection.source.kind === 'collection'
+      ? collections.nextOffset !== null || collections.pageError !== null
+        ? (
+          <View style={styles.footer}>
+            {collections.pageError !== null ? (
+              <AppText variant="caption" tone="danger" align="center">
+                {collections.pageError}
+              </AppText>
+            ) : null}
+            {collections.nextOffset !== null ? (
+              <AppButton
+                title={collections.loadingMore ? 'Cargando…' : 'Mostrar más recuerdos'}
+                variant="secondary"
+                disabled={collections.loadingMore}
+                onPress={() => void collectionsControllerRef.current!.loadMore()}
+              />
+            ) : null}
+          </View>
+        )
+        : null
+      : nextOffset !== null
+        ? (
+          <View style={styles.footer}>
+            <AppButton
+              title={loadingMore ? 'Cargando…' : 'Mostrar más recuerdos'}
+              variant="secondary"
+              disabled={loadingMore}
+              onPress={() => void loadMore()}
+            />
+          </View>
+        )
+        : null;
+
+  const gridList = (
+    <SectionList
+      key={selecting ? `selection-${sourceKey}` : 'timeline'}
+      ref={listRef}
+      sections={gridSections}
+      keyExtractor={(row) => row.key}
+      contentContainerStyle={styles.list}
+      stickySectionHeadersEnabled={false}
+      onScroll={handleGridScroll}
+      scrollEventThrottle={DRAG_SCROLL_THROTTLE}
+      onLayout={handleGridLayout}
+      refreshControl={
+        selecting && selection.source.kind === 'collection' ? undefined : (
+          <RefreshControl
+            refreshing={selecting ? false : refreshing}
+            onRefresh={() => {
+              if (selecting && selection.source.kind === 'collection') {
+                void collectionsControllerRef.current!.refresh();
+                return;
+              }
+              void refresh();
+            }}
+          />
+        )
+      }
+      ListHeaderComponent={
+        selecting
+          ? collectionBackHeader
+          : (
+            <AlbumsRail
+              albums={rail.albums}
+              loading={rail.loading}
+              error={rail.error}
+              canOrganize={canOrganize}
+              accessToken={token}
+              onOpenAlbum={openAlbum}
+              onAlbumActions={openAlbumActions}
+              onCreateAlbum={openCreateAlbum}
+              onRetry={() => void reloadRail()}
+            />
+          )
+      }
+      renderSectionHeader={({ section }) => (
+        <View style={styles.sectionHeader}>
+          {section.yearTitle && section.yearTitle !== section.title ? (
+            <AppText variant="title3" weight="800">
+              {section.yearTitle}
+            </AppText>
+          ) : null}
+          <AppText variant="bodySmall" tone="secondary" weight="600">
+            {section.yearTitle && section.yearTitle !== section.title ? section.title : section.yearTitle ?? section.title}
+          </AppText>
+        </View>
+      )}
+      renderItem={({ item }) => (
+        <MemoryTimelineRow
+          rowKey={item.key}
+          items={item.items}
+          cells={rowCells.get(item.key) ?? []}
+          accessToken={token}
+          columns={TIMELINE_COLUMNS}
+          selecting={selecting}
+          measureRows={selecting}
+          disabled={selectionBusy}
+          onToggle={handleToggle}
+          onLongPress={handleLongPress}
+          onDragArm={handleDragArm}
+          onDragMove={handleDragMove}
+          onDragEnd={handleDragEnd}
+          registerRow={registerRow}
+          unregisterRow={unregisterRow}
+        />
+      )}
+      ListFooterComponent={gridFooter}
+    />
+  );
+
+  const collectionsRoot = (
+    <ScrollView
+      ref={rootScrollRef}
+      style={styles.collectionsRoot}
+      contentContainerStyle={styles.collectionsContent}
+      onScroll={handleRootScroll}
+      scrollEventThrottle={DRAG_SCROLL_THROTTLE}
+    >
+      <AppText variant="title3" weight="800">
+        {COLLECTIONS_ROOT_TITLE}
+      </AppText>
+      <AppText variant="bodySmall" tone="secondary" weight="700">
+        {'Álbumes'}
+      </AppText>
+      {rail.error !== null && rail.albums.length === 0 ? (
+        <ErrorState
+          title="No pudimos cargar tus álbumes"
+          description={rail.error}
+          retryLabel="Reintentar"
+          onRetry={() => void reloadRail()}
+        />
+      ) : rail.loading ? (
+        <Skeleton variant="card" height={120} style={styles.collectionSkeleton} />
+      ) : rail.albums.length === 0 ? (
+        <AppText variant="caption" tone="secondary">
+          {'Todavía no hay álbumes'}
+        </AppText>
+      ) : (
+        <View style={styles.collectionGrid}>
+          {rail.albums.map((album) => (
+            <MemoryCollectionAlbumTile
+              key={album.id}
+              album={album}
+              accessToken={token}
+              canOrganize={canOrganize}
+              onPress={() => openCollection({ kind: 'album', albumId: album.id })}
+              onMore={() => openAlbumActions(album)}
+            />
+          ))}
+        </View>
+      )}
+      <AppText variant="bodySmall" tone="secondary" weight="700">
+        {TYPE_COLLECTIONS_TITLE}
+      </AppText>
+      <View style={styles.collectionGrid}>
+        {MEMORY_TYPE_COLLECTIONS.map((ref) => (
+          <MemoryCollectionTile
+            key={memoryCollectionId(ref)}
+            title={memoryCollectionTitle(ref)}
+            memoryKind={ref.kind === 'type' ? ref.memoryKind : ''}
+            onPress={() => openCollection(ref)}
+          />
+        ))}
+      </View>
+    </ScrollView>
   );
 
   return (
     <View style={styles.screen}>
-      <View style={styles.titleRow}>
-        <AppText variant="title3" weight="800" style={styles.headerTitle}>
-          {'Recuerdos'}
-        </AppText>
-        <AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar recuerdos">
-          <HomePlusIcon name="refresh" size={21} color={colors.text.secondary} />
-        </AppButton>
-        {token && currentHousehold ? (
-          <MemoryIntake
-            config={{
-              householdId: currentHousehold.id,
-              accessToken: token,
-              capabilities: capabilities.descriptor,
-              intakeSource: 'homecloud:memories',
-            }}
-            destinationsRevision={destinationsRevision}
-            onComplete={() => void refresh()}
-          />
-        ) : null}
-      </View>
-      {capabilitiesNotice ? (
+      {selecting ? (
+        <MemorySelectionHeader
+          selectedCount={selection.selectedIds.size}
+          tab={selectionTab}
+          purpose={purposeKind}
+          destinationName={destinationName}
+          canAddToAlbum={canOrganize}
+          onCancel={cancelSelection}
+          onTabChange={switchTab}
+          onConfirm={() => void confirmSelection()}
+          busy={selectionBusy}
+          failure={selectionFailure}
+          onRetryFailed={() => void retryFailed()}
+        />
+      ) : (
+        <View style={styles.titleRow}>
+          <AppText variant="title3" weight="800" style={styles.headerTitle}>
+            {'Recuerdos'}
+          </AppText>
+          <AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar recuerdos">
+            <HomePlusIcon name="refresh" size={21} color={colors.text.secondary} />
+          </AppButton>
+          {token && currentHousehold ? (
+            <MemoryIntake
+              config={{
+                householdId: currentHousehold.id,
+                accessToken: token,
+                capabilities: capabilities.descriptor,
+                intakeSource: 'homecloud:memories',
+              }}
+              destinationsRevision={destinationsRevision}
+              onComplete={() => void refresh()}
+            />
+          ) : null}
+        </View>
+      )}
+      {capabilitiesNotice && !selecting ? (
         <View style={styles.notice}>
           <AppText variant="caption" tone="secondary">{capabilitiesNotice}</AppText>
           <AppButton
@@ -520,7 +1458,35 @@ export function HomeCloudMemoriesView() {
           />
         </View>
       ) : null}
-      {loading ? (
+
+      {selecting ? (
+        selection.source.kind === 'collectionsRoot' ? (
+          collectionsRoot
+        ) : collections.loading && gridMemories.length === 0 ? (
+          <View style={styles.skeletonWrap}>
+            <Skeleton variant="card" height={128} />
+            <Skeleton variant="card" height={128} />
+          </View>
+        ) : collections.error !== null && gridMemories.length === 0 && activeCollection?.kind === 'album' ? (
+          <View style={styles.center}>
+            <ErrorState
+              title="No pudimos cargar este álbum"
+              description={collections.error}
+              retryLabel="Reintentar"
+              onRetry={() => void collectionsControllerRef.current!.refresh()}
+            />
+          </View>
+        ) : gridMemories.length === 0 ? (
+          <View style={styles.center}>
+            <HomePlusIcon name="image-outline" size={34} color={colors.text.tertiary} />
+            <AppText variant="bodySmall" tone="secondary" align="center">
+              {'Esta colección todavía no tiene recuerdos.'}
+            </AppText>
+          </View>
+        ) : (
+          gridList
+        )
+      ) : loading ? (
         <MemoriesLoadingSkeleton />
       ) : error && memories.length === 0 ? (
         <View style={styles.center}>
@@ -542,85 +1508,36 @@ export function HomeCloudMemoriesView() {
           </AppText>
         </View>
       ) : (
-        <SectionList
-          sections={sections}
-          keyExtractor={(row) => row.key}
-          contentContainerStyle={styles.list}
-          stickySectionHeadersEnabled={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
-          // MO-A2: the Albums rail is the HEADER of the Memories list. It is
-          // never a Timeline section, so the grouping architecture is untouched.
-          ListHeaderComponent={
-            <AlbumsRail
-              albums={rail.albums}
-              loading={rail.loading}
-              error={rail.error}
-              canOrganize={canOrganize}
-              accessToken={token}
-              onOpenAlbum={openAlbum}
-              onAlbumActions={openAlbumActions}
-              onCreateAlbum={openCreateAlbum}
-              onRetry={() => void reloadRail()}
-            />
-          }
-          renderSectionHeader={({ section }) => (
-            <View style={styles.sectionHeader}>
-              {section.yearTitle && section.yearTitle !== section.title ? (
-                <AppText variant="title3" weight="800">
-                  {section.yearTitle}
-                </AppText>
-              ) : null}
-              <AppText variant="bodySmall" tone="secondary" weight="600">
-                {section.yearTitle && section.yearTitle !== section.title ? section.title : section.yearTitle ?? section.title}
-              </AppText>
-            </View>
-          )}
-          renderItem={({ item }) => (
-            <View style={styles.row}>
-              {/* Timeline MemoryCards receive NO albumScopeAction: the Timeline
-                  keeps exactly the pre-MO-A2 card behavior. */}
-              {item.items.map((memory) => (
-                <MemoryCard key={memory.id} memory={memory} accessToken={token} />
-              ))}
-              {Array.from({ length: TIMELINE_COLUMNS - item.items.length }).map((_, index) => (
-                <View key={`spacer-${index}`} style={styles.rowSpacer} />
-              ))}
-            </View>
-          )}
-          ListFooterComponent={
-            nextOffset !== null ? (
-              <View style={styles.footer}>
-                <AppButton
-                  title={loadingMore ? 'Cargando…' : 'Mostrar más recuerdos'}
-                  variant="secondary"
-                  disabled={loadingMore}
-                  onPress={() => void loadMore()}
-                />
-              </View>
-            ) : null
-          }
-        />
+        gridList
       )}
 
       {/*
        * Album detail as an OVERLAY, not a route and not a swap. The SectionList
        * above stays mounted for the whole time the Album is open, so its loaded
        * pages, its grouped dataset and its scroll offset all survive Back.
+       *
+       * While the SELECTION SURFACE is active it is NOT rendered: the selection
+       * grid IS the surface. `openAlbumId` is deliberately KEPT, which is what
+       * makes cancel and confirm return to the exact same Album context.
        */}
-      {openAlbumId !== null ? (
+      {showAlbumDetail ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <AlbumDetailView
             album={openAlbumRecord}
             state={detail}
             accessToken={token}
             canOrganize={canOrganize}
+            selecting={selecting}
             removingContentId={removingContentId}
             onBack={closeAlbum}
             onOpenActions={() => { if (openAlbumRecord) openAlbumActions(openAlbumRecord); }}
             onRefresh={refreshDetail}
             onLoadMore={loadMoreDetail}
-            onAddMemories={() => setPickerOpen(true)}
+            onAddMemories={() => { if (openAlbumId !== null) enterAddToAlbum(openAlbumId); }}
             onRemoveMemory={(memory) => void removeMemoryFromOpenAlbum(memory)}
+            onLongPressMemory={(contentId) => {
+              if (openAlbumId !== null) enterRemoveFromAlbum(openAlbumId, contentId);
+            }}
           />
         </View>
       ) : null}
@@ -641,25 +1558,64 @@ export function HomeCloudMemoriesView() {
         error={sheetError}
         onClose={() => { if (!deleting) { setActionsAlbum(null); setSheetError(null); } }}
         onRename={() => { if (actionsAlbum) openRenameAlbum(actionsAlbum); }}
+        onAddMemories={() => {
+          if (actionsAlbum === null) return;
+          const target = actionsAlbum.id;
+          setActionsAlbum(null);
+          enterAddToAlbum(target);
+        }}
         onDelete={() => void confirmDeleteAlbum()}
       />
-      {openAlbumRecord ? (
-        <AlbumMemoryPicker
-          visible={pickerOpen}
-          album={openAlbumRecord}
-          accessToken={token ?? ''}
-          householdId={householdId ?? ''}
-          adding={adding}
-          onClose={() => setPickerOpen(false)}
-          onAdd={addMemoriesToAlbum}
-        />
-      ) : null}
+
+      {/*
+       * The generic-selection DESTINATION sheet. It is built from the Albums the
+       * owner already loaded (`rail.albums`): no second read, no invented
+       * destination and no "create an Album from here" — the ordinary Albums rail
+       * remains the creation surface.
+       */}
+      <ActionSheet
+        visible={destinationPickerOpen}
+        title="Agregar a un álbum"
+        onRequestClose={() => setDestinationPickerOpen(false)}
+        closeDisabled={selectionBusy}
+        size="content"
+      >
+        <View style={styles.destination}>
+          {rail.albums.length === 0 ? (
+            <>
+              <AppText variant="bodySmall" weight="700">
+                {NO_ALBUMS_DESTINATION_TITLE}
+              </AppText>
+              <AppText variant="caption" tone="secondary">
+                {NO_ALBUMS_DESTINATION_BODY}
+              </AppText>
+            </>
+          ) : (
+            rail.albums.map((album) => (
+              <AppButton
+                key={album.id}
+                title={album.name}
+                variant="secondary"
+                disabled={selectionBusy}
+                onPress={() => void chooseDestinationAlbum(album.id)}
+                accessibilityLabel={`Agregar la selección al álbum ${album.name}`}
+              />
+            ))
+          )}
+          <AppButton
+            title="Cancelar"
+            variant="ghost"
+            disabled={selectionBusy}
+            onPress={() => setDestinationPickerOpen(false)}
+          />
+        </View>
+      </ActionSheet>
     </View>
   );
 }
 
-/** Honest short label for one Memory, used to name a failed add. */
-function pickerLabel(memory: HomeCloudMemoryListItem): string {
+/** Honest short label for one Memory, used to name a failed mutation. */
+function memoryFailureLabel(memory: HomeCloudMemoryListItem): string {
   const primary = memoryPrimaryText(memory);
   return primary.length > 0 ? primary : memorySemanticLabel(memory);
 }
@@ -702,10 +1658,21 @@ const styles = StyleSheet.create({
   },
   list: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] },
   sectionHeader: { paddingTop: spacing[3], paddingBottom: spacing[2], gap: 2 },
-  row: { flexDirection: 'row', gap: spacing[2], marginBottom: spacing[3] },
-  rowSpacer: { flex: 1 },
   footer: { paddingVertical: spacing[4], alignItems: 'center' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] },
   skeletonRow: { flexDirection: 'row', gap: spacing[2], marginVertical: spacing[2] },
   skeletonTile: { flex: 1, borderRadius: radius.lg },
+  skeletonWrap: { paddingHorizontal: spacing[5], gap: spacing[3] },
+  collectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    paddingBottom: spacing[3],
+  },
+  collectionTitle: { flex: 1 },
+  collectionsRoot: { flex: 1 },
+  collectionsContent: { padding: spacing[5], gap: spacing[3] },
+  collectionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing[3] },
+  collectionSkeleton: { height: 120, borderRadius: radius.lg },
+  destination: { gap: spacing[2], paddingBottom: spacing[3] },
 });

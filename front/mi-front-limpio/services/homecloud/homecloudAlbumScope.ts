@@ -90,10 +90,15 @@ export function albumItemCountLabel(itemCount: number): string {
 }
 
 /**
- * The "Add selected" label of the Album picker. Kept here so the count in the
- * CTA can never disagree with the selection it describes.
+ * `Quitar 1 del álbum` / `Quitar N del álbum` — the frozen copy of the bulk
+ * removal confirmation inside an Album.
+ *
+ * The verb is `Quitar` and the object is `del álbum`: a MEMBERSHIP change. It is
+ * never `Eliminar`, `Borrar`, `Papelera`, `Trash`, `Purge` nor `Quitar de
+ * HomeCloud`, because none of those is what happens — the Memory, its bytes and
+ * every other Album membership survive untouched.
  */
-export function albumAddSelectionLabel(selectedCount: number): string {
-  if (!Number.isInteger(selectedCount) || selectedCount <= 0) return 'Agregar';
-  return `Agregar (${selectedCount})`;
+export function albumRemoveSelectionLabel(selectedCount: number): string {
+  if (!Number.isInteger(selectedCount) || selectedCount <= 0) return 'Quitar del álbum';
+  return `Quitar ${selectedCount} del álbum`;
 }

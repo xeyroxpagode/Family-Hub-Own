@@ -18,6 +18,8 @@ supabase/snippets/
 /scripts/compiled-s2i/
 /scripts/compiled-moa2/
 /scripts/compiled-moa2client/
+/scripts/compiled-moa3/
+/scripts/compiled-moa3client/
 /scripts/scripts/
 /.env
 /.env.local

@@ -15,7 +15,7 @@ import {
 } from '../../services/homecloud/homecloudMemoriesTimeline';
 import type { HomeCloudAlbum, HomeCloudMemoryListItem } from '../../services/homecloud/homecloudTypes';
 import { AppButton, AppText, ErrorState, Skeleton } from '../ui';
-import { MemoryCard } from './MemoryCards';
+import { MemorySelectableCard } from './MemorySelectableCard';
 
 /**
  * HomeCloud MO-A2 — Album detail.
@@ -27,22 +27,36 @@ import { MemoryCard } from './MemoryCards';
  *
  * The read is the EXISTING Memories read model in its Album presentation mode
  * (`albumId` + `order: 'album'`, oldest -> newest). This view never sorts: the
- * server order IS the Album order, and the existing grouping primitives are
- * reused unmodified.
+ * server order IS the Album order. It only asks the grouper for the matching
+ * PLACEMENT (`album` mode), which is what makes an unknown date lead the Album and
+ * a year-only Memory lead its year instead of contradicting the order the server
+ * actually sent.
  *
- * `MemoryCard` is reused exactly as the Timeline reuses it. The only difference
- * is ONE optional Album-scope action seam, and only when organize is granted:
- * remove THIS Memory from THIS Album. The Memory itself is never deleted, it
- * never becomes a Viewer destination, and it is never mutated in the Timeline.
+ * MO-A3 — TWO PRODUCTIVE ACTIONS, ONE SESSION
+ * -------------------------------------------
+ *  - `onAddMemories` (the `...` sheet and the empty-Album CTA) opens the SELECTION
+ *    SURFACE, not a modal picker: the retired AlbumMemoryPicker flow is gone.
+ *  - `onLongPressMemory` enters the SAME selection session with
+ *    `removeFromAlbum(currentAlbumId)`, which is how 1..N memberships are removed.
+ *
+ * `MemoryCard` is still reused exactly as the Timeline reuses it, through the
+ * MO-A3 interaction wrapper. The ONE remaining contextual action is the per-tile
+ * `Quitar del álbum`, it stays organize-only, and while the Selection Mode is
+ * active it is NOT rendered: a competing tap target under a drag is a bug, not a
+ * feature.
  */
 
 const ALBUM_COLUMNS = 3;
+
+/** Stable no-op seams: the detail never owns a selection interaction itself. */
+const noop = (..._args: unknown[]) => {};
 
 export function AlbumDetailView({
   album,
   state,
   accessToken,
   canOrganize,
+  selecting,
   removingContentId,
   onBack,
   onOpenActions,
@@ -50,11 +64,17 @@ export function AlbumDetailView({
   onLoadMore,
   onAddMemories,
   onRemoveMemory,
+  onLongPressMemory,
 }: {
   album: HomeCloudAlbum | null;
   state: AlbumDetailState;
   accessToken: string | null;
   canOrganize: boolean;
+  /**
+   * MO-A3: while the Selection Mode is active the per-tile Album action is not
+   * rendered, so the grid offers exactly one interaction per cell.
+   */
+  selecting: boolean;
   /** The Memory whose remove mutation is in flight, if any. */
   removingContentId: string | null;
   onBack: () => void;
@@ -63,9 +83,14 @@ export function AlbumDetailView({
   onLoadMore: () => void;
   onAddMemories: () => void;
   onRemoveMemory: (memory: HomeCloudMemoryListItem) => void;
+  /** MO-A3 entry D: a long press starts a bulk removal from THIS Album. */
+  onLongPressMemory: (contentId: string) => void;
 }) {
+  // The Album read used `order: 'album'`, so the grouper is asked for the
+  // `album` placement: unknown FIRST, year-only FIRST within its year. The
+  // Timeline grouping of the same primitive is untouched.
   const sections = useMemo(
-    () => flattenTimelineForSectionList(groupMemoriesForTimeline(state.memories), ALBUM_COLUMNS),
+    () => flattenTimelineForSectionList(groupMemoriesForTimeline(state.memories, 'album'), ALBUM_COLUMNS),
     [state.memories],
   );
 
@@ -153,18 +178,29 @@ export function AlbumDetailView({
           renderItem={({ item }) => (
             <View style={styles.row}>
               {item.items.map((memory) => (
-                <MemoryCard
+                <MemorySelectableCard
                   key={memory.id}
                   memory={memory}
                   accessToken={accessToken}
+                  selecting={false}
+                  selected={false}
+                  unselectable={false}
+                  // §35: the single contextual "Quitar del álbum" stays in
+                  // NORMAL Album detail, organize-only, and is NOT rendered
+                  // while the Selection Mode is active.
                   albumScopeAction={
-                    canOrganize
+                    canOrganize && !selecting
                       ? {
                           onRemoveFromAlbum: () => onRemoveMemory(memory),
                           removing: removingContentId === memory.id,
                         }
                       : undefined
                   }
+                  onToggle={noop}
+                  onLongPress={onLongPressMemory}
+                  onDragArm={noop}
+                  onDragMove={noop}
+                  onDragEnd={noop}
                 />
               ))}
               {Array.from({ length: ALBUM_COLUMNS - item.items.length }).map((_, index) => (

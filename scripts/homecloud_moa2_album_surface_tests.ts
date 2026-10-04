@@ -25,10 +25,13 @@ import {
   ALBUM_MISSING_BACK_LABEL,
   ALBUM_MISSING_TITLE,
   HOMECLOUD_ALBUM_NOT_FOUND_CODE,
-  albumAddSelectionLabel,
   albumItemCountLabel,
   isAlbumMissingFailure,
 } from '../front/mi-front-limpio/services/homecloud/homecloudAlbumScope';
+import {
+  memorySelectionAddLabel,
+  memorySelectionCountLabel,
+} from '../front/mi-front-limpio/services/homecloud/homecloudMemorySelection';
 import {
   ALBUMS_RAIL_INITIAL,
   createAlbumsRailController,
@@ -50,6 +53,14 @@ const read = (relative: string): string =>
   fs.readFileSync(path.join(root, relative), 'utf8').replace(/\r\n/g, '\n');
 const readCode = (relative: string): string =>
   read(relative).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/gm, '$1');
+/**
+ * MO-A3 retired `AlbumMemoryPicker.tsx` as the productive flow and then DELETED
+ * it. These readers keep the rest of this suite meaningful: an absent file reads
+ * as an empty string, so every assertion that used to inspect the picker now
+ * asserts its ABSENCE instead of failing on a missing path.
+ */
+const readOptional = (relative: string): string =>
+  fs.existsSync(path.join(root, relative)) ? read(relative) : '';
 
 let passCount = 0;
 let failCount = 0;
@@ -135,8 +146,7 @@ const TILE = read('front/mi-front-limpio/components/homecloud/AlbumTile.tsx');
 const TILE_CODE = readCode('front/mi-front-limpio/components/homecloud/AlbumTile.tsx');
 const SHEETS = read('front/mi-front-limpio/components/homecloud/AlbumSheets.tsx');
 const SHEETS_CODE = readCode('front/mi-front-limpio/components/homecloud/AlbumSheets.tsx');
-const PICKER = read('front/mi-front-limpio/components/homecloud/AlbumMemoryPicker.tsx');
-const PICKER_CODE = readCode('front/mi-front-limpio/components/homecloud/AlbumMemoryPicker.tsx');
+const PICKER = readOptional('front/mi-front-limpio/components/homecloud/AlbumMemoryPicker.tsx');
 const DETAIL = read('front/mi-front-limpio/components/homecloud/AlbumDetailView.tsx');
 const DETAIL_CODE = readCode('front/mi-front-limpio/components/homecloud/AlbumDetailView.tsx');
 const CARDS = read('front/mi-front-limpio/components/homecloud/MemoryCards.tsx');
@@ -144,6 +154,24 @@ const CARDS_CODE = readCode('front/mi-front-limpio/components/homecloud/MemoryCa
 const READ_FAILURE = read('front/mi-front-limpio/services/homecloud/homecloudReadFailure.ts');
 const READ_FAILURE_CODE = readCode('front/mi-front-limpio/services/homecloud/homecloudReadFailure.ts');
 const NAV_TYPES = read('front/mi-front-limpio/navigation/types.ts');
+
+/**
+ * Every Album-touching source, concatenated for the capability-freeze checks.
+ *
+ * MO-A3 added the Selection Surface, so the freeze must cover it too: an Album
+ * capability can never widen into the selection surface either.
+ */
+const ALBUM_SURFACES = [
+  SHEETS_CODE,
+  TILE_CODE,
+  RAIL_CODE,
+  DETAIL_CODE,
+  SCREEN_CODE,
+  readCode('front/mi-front-limpio/components/homecloud/MemorySelectionHeader.tsx'),
+  readCode('front/mi-front-limpio/components/homecloud/MemoryCollectionTile.tsx'),
+  readCode('front/mi-front-limpio/components/homecloud/MemorySelectableCard.tsx'),
+  readCode('front/mi-front-limpio/components/homecloud/MemoryTimelineRow.tsx'),
+].join('\n');
 
 console.log('\n=== MO-A2 ALBUM SURFACE TESTS ===\n');
 
@@ -169,9 +197,17 @@ record(
   SCREEN.includes('ListHeaderComponent={') && SCREEN.includes('<AlbumsRail'),
   'the Albums rail is the ListHeaderComponent of the Memories SectionList',
 );
+// MO-A3 RETARGET: MO-A2 forbade the literal `kind: 'album'`, which was a proxy
+// for "no synthetic Album section". MO-A3 legitimately uses `{ kind: 'album' }`
+// as the MemoryCollectionRef discriminant for an Album collection, so the
+// literal is no longer a usable proxy. What the assertion actually protects is
+// that the Timeline SECTION KIND vocabulary never gained an Album member.
 record(
-  !/sections=\{\[\.\.\./.test(SCREEN_CODE) && !SCREEN_CODE.includes('kind: \'album\''),
-  'Albums is NOT injected as a synthetic Timeline section',
+  !/sections=\{\[\.\.\./.test(SCREEN_CODE)
+  && /export type TimelineSectionKind = 'month' \| 'year' \| 'unknown';/.test(
+    read('front/mi-front-limpio/services/homecloud/homecloudMemoriesTimeline.ts'),
+  ),
+  'Albums is NOT injected as a synthetic Timeline section (the section-kind vocabulary is unchanged)',
 );
 record(
   !/album/i.test(NAV_TYPES),
@@ -495,18 +531,23 @@ record(
   !SCREEN_CODE.includes('fetchHomeCloudAlbumItems') && !DETAIL_CODE.includes('fetchHomeCloudAlbumItems'),
   'the legacy GET /albums/:albumId/items primitive is never consumed by the detail',
 );
+// MO-A3 RETARGET: the detail now asks the SAME grouper for the `album`
+// placement, because the Album read mode's canonical sequence puts an unknown
+// date FIRST and a year-only Memory first within its year. The primitive is
+// still reused and still never re-sorts; only the explicit placement mode is new.
 record(
-  DETAIL_CODE.includes('groupMemoriesForTimeline(state.memories)')
+  DETAIL_CODE.includes("groupMemoriesForTimeline(state.memories, 'album')")
   && DETAIL_CODE.includes('flattenTimelineForSectionList('),
-  'the detail reuses the frozen grouping primitives unmodified',
+  'the detail reuses the frozen grouping primitives, asking only for the album placement',
 );
 record(
   !/\.sort\(/.test(DETAIL_CODE),
   'the Album detail never re-sorts: the server order IS the Album order',
 );
 record(
-  DETAIL_CODE.includes('<MemoryCard') && !DETAIL_CODE.includes('AlbumMemory'),
-  'the detail reuses MemoryCard and invents no Album-specific Memory DTO',
+  DETAIL_CODE.includes('<MemorySelectableCard')
+  && !DETAIL_CODE.includes('AlbumMemory'),
+  'the detail renders MemoryCard through the MO-A3 wrapper and invents no Album-specific Memory DTO',
 );
 record(
   DETAIL_CODE.includes('ALBUM_MISSING_TITLE') && DETAIL_CODE.includes('ALBUM_MISSING_BACK_LABEL'),
@@ -540,7 +581,7 @@ for (const [call, label] of [
   ['createAlbum(token, name, scope)', 'createAlbum'],
   ['renameAlbum(token, editor.album.id, name, scope)', 'renameAlbum'],
   ['deleteAlbum(token, actionsAlbum.id, scope)', 'deleteAlbum'],
-  ['addMemoryToAlbum(token, openAlbumId, contentId, scope)', 'addMemoryToAlbum'],
+  ['addMemoryToAlbum(token, targetAlbumId, contentId, scope ?? undefined)', 'addMemoryToAlbum'],
   ['removeMemoryFromAlbum(token, openAlbumId, memory.id, scope)', 'removeMemoryFromAlbum'],
 ] as const) {
   record(SCREEN.includes(call), `${label} is called with the mandatory { householdId } scope`);
@@ -549,9 +590,21 @@ record(
   SCREEN_CODE.includes('useMemo<HomeCloudScope | null>') && SCREEN.includes('householdId ? { householdId } : null'),
   'the scope is built from the CURRENT household and nothing else',
 );
+// MO-A3 RETARGET: MO-A2 froze "exactly five mutation call sites in the Album
+// surface". MO-A3 replaced the per-item loops with ONE composer
+// (`homecloudMemoryMutations`) that all three callers share, so the count is no
+// longer five. What actually matters is preserved and asserted instead: the five
+// MO-A1 mutations are still reached, each from the composer or the single-remove
+// path, and each one receives the mandatory scope.
 record(
-  (SCREEN_CODE.match(/createAlbum\(|renameAlbum\(|deleteAlbum\(|addMemoryToAlbum\(|removeMemoryFromAlbum\(/g) ?? []).length === 5,
-  'each of the five client mutations is called exactly once from the Album surface',
+  ['createAlbum(', 'renameAlbum(', 'deleteAlbum(', 'addMemoryToAlbum(', 'removeMemoryFromAlbum(']
+    .every((call) => SCREEN_CODE.includes(call)),
+  'all five MO-A1 Album mutations are still reached from the Memories surface',
+);
+record(
+  /addMemoryToAlbum\(token, targetAlbumId, contentId, scope \?\? undefined\)/.test(SCREEN_CODE)
+  && /removeMemoryFromAlbum\(token, targetAlbumId, contentId, scope \?\? undefined\)/.test(SCREEN_CODE),
+  'both bulk directions route through the composer, and each request carries the scope',
 );
 
 // create -> rail
@@ -569,29 +622,36 @@ record(
   /const wasOpen = openAlbumId === actionsAlbum\.id;[\s\S]*?if \(wasOpen\) closeAlbum\(\);[\s\S]*?await reloadRail\(\);[\s\S]*?await readFirstPage\(\)[\s\S]*?bumpDestinations\(\);/.test(SCREEN_CODE),
   'delete exits the detail when the deleted Album is open, then refetches rail, Timeline page 0 and intake',
 );
-// add -> detail page 0 + rail + timeline
+// MO-A3 RETARGET: the exact refetch table is unchanged, but it now lives in the
+// ONE composer instead of in two bespoke loops. Same three reads, same conditions.
 record(
-  /if \(added\.length > 0\) \{[\s\S]*?detailControllerRef\.current!\.refresh\(\);[\s\S]*?await reloadRail\(\);[\s\S]*?await readFirstPage\(\)/.test(SCREEN_CODE),
-  'a successful add refetches Album detail page 0, the rail and Timeline page 0',
+  /if \(outcome\.committed\.length > 0\) \{[\s\S]*?detailControllerRef\.current!\.refresh\(\);[\s\S]*?await reloadRail\(\);[\s\S]*?await readFirstPage\(\)/.test(SCREEN_CODE),
+  'a successful bulk mutation refetches Album detail, the rail and Timeline page 0',
 );
 // remove -> detail + rail + timeline
 record(
   /await removeMemoryFromAlbum\(token, openAlbumId, memory\.id, scope\);[\s\S]*?detailControllerRef\.current!\.refresh\(\);[\s\S]*?await reloadRail\(\);[\s\S]*?await readFirstPage\(\)/.test(SCREEN_CODE),
   'remove refetches Album detail, the rail and Timeline page 0',
 );
-// partial failure honesty
+// MO-A3 RETARGET: MO-A2 froze the screen's own per-item loop and the picker's
+// close-on-full-success behaviour. Both moved into the ONE composer, which is the
+// durable contract: sequential attribution, nothing rolled back, and a close only
+// when every requested membership succeeded.
+const COMPOSER = readCode('front/mi-front-limpio/services/homecloud/homecloudMemoryMutations.ts');
 record(
-  /for \(const contentId of contentIds\) \{[\s\S]*?added\.push\(contentId\);[\s\S]*?failures\.push\(/m.test(SCREEN_CODE),
-  'additions run sequentially and a failure is collected instead of swallowed',
+  /for \(const contentId of input\.contentIds\) \{/.test(COMPOSER)
+  && COMPOSER.includes('committed.push(contentId)')
+  && COMPOSER.includes('failures.push('),
+  'the shared composer runs the memberships sequentially and collects a failure instead of swallowing it',
 );
 record(
-  PICKER.includes('outcome.failures.length === 0') && PICKER.includes('onClose()'),
-  'the picker closes ONLY when every requested membership succeeded',
+  SCREEN.includes('setSelectionFailure(failure)')
+  && SCREEN.includes('selectedIds: new Set(failure.failures.map((item) => item.contentId))'),
+  'a partial failure names the failed Memories and keeps ONLY them selected, so a retry is exactly the retry',
 );
 record(
-  PICKER.includes('setFailures([...outcome.failures])')
-  && PICKER.includes('Los que sí se agregaron ya están en el álbum.'),
-  'a partial failure names the failed Memories and states that the rest are already saved',
+  SCREEN.includes('if (failure.failures.length > 0) {') && SCREEN.includes('finishSelection();'),
+  'the selection surface closes ONLY when every requested membership succeeded',
 );
 record(
   !SCREEN_CODE.includes('rollback'),
@@ -635,11 +695,11 @@ record(
   'a delete failure is shown inline and the sheet stays usable',
 );
 record(
-  !/homecloud\.delete/.test(SHEETS_CODE + TILE_CODE + RAIL_CODE + DETAIL_CODE + PICKER_CODE + SCREEN_CODE),
+  !/homecloud\.delete/.test(ALBUM_SURFACES),
   'no Album surface references homecloud.delete',
 );
 record(
-  !/manage_albums/.test(SHEETS_CODE + TILE_CODE + RAIL_CODE + DETAIL_CODE + PICKER_CODE + SCREEN_CODE),
+  !/manage_albums/.test(ALBUM_SURFACES),
   'no Album surface invents manage_albums',
 );
 record(
@@ -648,52 +708,80 @@ record(
 );
 
 // ===========================================================================
-section('8. Add-existing picker: local selection only');
+section('8. Add-existing: the Selection Surface replaced the local picker set');
 // ===========================================================================
+//
+// MO-A3 RETARGET. MO-A2 froze "a LOCAL Set<contentId> owned by the picker, no
+// selection mode, no selectedIds in the screen". Those were assertions about the
+// OLD implementation, and MO-A3 deliberately supersedes them. What is NOT
+// superseded — and is asserted below — is every real invariant they were
+// protecting: no global store, no context, the existing read model, the SERVER
+// nextOffset, already-member truth and the honest empty state.
 
 record(
-  PICKER.includes('useState<Set<string>>') && PICKER.includes('new Set()'),
-  'the selection is a LOCAL Set<contentId> owned by the picker',
+  PICKER === '' && !SCREEN_CODE.includes('AlbumMemoryPicker') && !SCREEN_CODE.includes('AlbumAddOutcome'),
+  'the AlbumMemoryPicker modal is gone and nothing imports it: it is no longer the productive flow',
 );
 record(
-  !PICKER.includes('createContext') && !PICKER.includes('useContext'),
-  'the picker introduces no global selection store or context',
+  SCREEN.includes('createMemorySelectionSession')
+  && SCREEN.includes('enterMemorySelection')
+  && SCREEN.includes('confirmMemorySelection'),
+  'the productive flow is the reusable selection session owned by the Memories surface',
 );
 record(
-  !SCREEN.includes('selectedIds') && !SCREEN.includes('selectionMode') && !SCREEN.includes('ActionBar'),
-  'no Timeline-level selection mode, selectedIds store or shared action bar exists',
+  SCREEN.includes('homecloudMemorySelection') || SCREEN.includes('toggleMemorySelectionMany'),
+  'selection membership is delegated to the pure session module, not re-invented in the screen',
 );
 record(
-  /listMemories\(accessToken, \{ order: 'timeline', limit: PICKER_PAGE_SIZE, offset: 0 \}\)/.test(PICKER_CODE),
-  'the picker reads the existing Memories read model in Timeline order',
+  !/createContext/.test(SCREEN) && !/useContext/.test(SCREEN),
+  'the selection session introduces no global selection store or context',
 );
 record(
-  PICKER_CODE.includes('nextOffset') && PICKER.includes('Cargar más recuerdos'),
-  'the picker paginates with the SERVER nextOffset',
+  /listMemories\(token, \{ limit: MEMORIES_PAGE_SIZE \}\)/.test(SCREEN_CODE)
+  && SCREEN.includes('const [memories, setMemories] = useState<HomeCloudMemoryListItem[]>([])'),
+  'Recuerdos keeps ONE library read; selection overlays it instead of forking it',
 );
 record(
-  PICKER_CODE.includes('memory.albumIds.includes(albumId)'),
+  /listMemories\(currentToken, buildMemoryCollectionQuery\(ref, limit, offset\)\)/.test(SCREEN_CODE)
+  && SCREEN.includes('createMemoryCollectionsController'),
+  'collections are read through the existing read model by the collections controller',
+);
+record(
+  SCREEN.includes('nextOffset') && SCREEN.includes('Mostrar más recuerdos'),
+  'pagination still follows the SERVER nextOffset',
+);
+record(
+  SCREEN.includes('memory.albumIds.includes(albumId)'),
   'already-member detection uses the albumIds the read model projects',
 );
 record(
-  PICKER.includes('Ya está en el álbum') && PICKER_CODE.includes('if (alreadyMember) return;'),
-  'an already-included Memory is marked and cannot be selected again',
-);
-record(albumAddSelectionLabel(0) === 'Agregar', 'the CTA is honest with nothing selected');
-record(albumAddSelectionLabel(3) === 'Agregar (3)', 'the CTA states the exact selection count');
-record(
-  /\[albumId, householdId, loadFirstPage, resetSelection, visible\]/.test(PICKER_CODE)
-  && PICKER_CODE.includes('generationRef.current += 1')
-  && PICKER_CODE.includes('resetSelection();'),
-  'a household or Album change resets the picker selection entirely',
+  SCREEN.includes("{'Ya está en el álbum'}") || read('front/mi-front-limpio/components/homecloud/MemorySelectableCard.tsx').includes('Ya está en el álbum'),
+  'an already-included Memory stays VISIBLE and says so instead of being hidden',
 );
 record(
-  PICKER.includes('Todavía no hay recuerdos'),
+  /if \(!selecting \|\| unselectable\) return;/.test(
+    readCode('front/mi-front-limpio/components/homecloud/MemorySelectableCard.tsx'),
+  ),
+  'an already-included Memory cannot be toggled',
+);
+record(memorySelectionAddLabel('Vacaciones') === 'Agregar a Vacaciones', 'the destination line names the Album');
+record(memorySelectionAddLabel(null) === 'Agregar a álbum', 'the destination line is honest when no Album is known');
+record(memorySelectionCountLabel(0) === '0 seleccionados', 'the count line is honest with nothing selected');
+record(memorySelectionCountLabel(1) === '1 seleccionado', 'the count line is singular for exactly one');
+record(memorySelectionCountLabel(3) === '3 seleccionados', 'the count line states the exact selection count');
+record(
+  /\[abortDrag, householdId, token\]/.test(SCREEN_CODE)
+  && SCREEN.includes('resetMemorySelectionScope()'),
+  'a household change (or a sign-out) resets the picker/session selection entirely',
+);
+record(
+  SCREEN.includes('Esta colección todavía no tiene recuerdos.')
+  || SCREEN.includes('Aún no hay recuerdos'),
   'an empty library is an honest empty state, not a failure',
 );
 
 // ===========================================================================
-section('9. Remove: single, current Album only, no Viewer');
+section('9. Remove: single stays, albumScopeAction only in the Album detail');
 // ===========================================================================
 
 record(
@@ -711,24 +799,27 @@ record(
   'MemoryCard still contains no navigation, no router and no Viewer destination',
 );
 record(
-  !SCREEN_CODE.match(/<MemoryCard[^>]*albumScopeAction/),
-  'the Timeline MemoryCard call site never supplies the seam (Timeline behavior unchanged)',
+  !SCREEN_CODE.includes('albumScopeAction'),
+  'the Timeline call site never supplies the seam (Timeline behavior unchanged)',
 );
 record(
-  DETAIL_CODE.includes('albumScopeAction='),
-  'the seam is attached only inside the Album detail',
-);
-record(
-  DETAIL_CODE.includes('removing: removingContentId === memory.id'),
-  'only the affected Memory disables while its removal is in flight',
+  /albumScopeAction=\{/.test(DETAIL_CODE)
+  && DETAIL_CODE.includes('canOrganize && !selecting')
+  && DETAIL_CODE.includes('removing: removingContentId === memory.id'),
+  'the seam is attached ONLY inside the Album detail, in NORMAL mode, and only the affected Memory disables',
 );
 record(
   /catch \{[\s\S]{0,220}?setRemovingContentId\(null\);/.test(SCREEN_CODE),
   'a failed removal leaves the Memory rendered and releases the affordance',
 );
 record(
-  !/trash|restore|purge/i.test(DETAIL_CODE + PICKER_CODE + SHEETS_CODE + TILE_CODE + RAIL_CODE),
+  !/trash|restore|purge/i.test(DETAIL_CODE + SHEETS_CODE + TILE_CODE + RAIL_CODE),
   'no Album trash, restore or purge affordance exists',
+);
+record(
+  DETAIL_CODE.includes('<MemorySelectableCard')
+  && !/Viewer/.test(DETAIL_CODE),
+  'the Album detail reaches its cards through the MO-A3 wrapper and still has no Viewer',
 );
 
 // ===========================================================================

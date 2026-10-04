@@ -492,14 +492,15 @@ const uiFiles = [...fs.readdirSync(homeCloudComponentDir), ...fs.readdirSync(hom
  * Memories subtree, and it never leaks into the read client, the navigation
  * layer, the backend or the frozen shared infrastructure.
  *
- * The check is an ALLOW-LIST, not a prohibition: a new Album surface file must be
- * added here deliberately, so the boundary cannot silently widen.
+ * MO-A3 retarget: `AlbumMemoryPicker.tsx` left this allow-list because MO-A3
+ * replaced it with the Selection Surface and deleted the file. The allow-list
+ * stays an allow-list on purpose: a new Album surface file must be added here
+ * deliberately, so the boundary cannot silently widen.
  */
 const APPROVED_ALBUM_UI_FILES = [
   'AlbumTile.tsx',
   'AlbumsRail.tsx',
   'AlbumSheets.tsx',
-  'AlbumMemoryPicker.tsx',
   'AlbumDetailView.tsx',
 ];
 
