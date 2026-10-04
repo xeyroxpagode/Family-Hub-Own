@@ -1,6 +1,7 @@
 # HomeCloud Files UX/UI Freeze V1
 
-Status: **frozen product contract for Stage 3**.  This document records the
+Status: **frozen product contract for Stage 3**, amended by the Files Core
+basic-operations slice (file selection + bulk Move).  This document records the
 Files V1 agreement; it does not redesign it.
 
 ## Mission and entry
@@ -33,6 +34,23 @@ Original binaries are never fetched merely to decorate the grid.
 There is no folders rail, files-row-list, recents surface, duplicate content
 surface, permanent global FAB, or temporary file-detail/viewer. A file tap is
 reserved for the Stage 5 Viewer. File Info and overflow actions remain real.
+
+### Selection (Files V1)
+
+File multi-select and a bulk Move **are** part of Files V1. The gesture contract
+is explicit and does not move the reserved tap:
+
+- a file tap **remains reserved for the Viewer** and is never a selection gesture;
+- selection is **entered** by a long press on a File or by the explicit
+  **Seleccionar** control, so the hidden gesture is never the only way in;
+- **only while selection mode is active** does a tap toggle a File.
+
+Selection belongs to the current browser context alone. It is cleared by a folder
+change, a query change, a sort change, a Household change, and by leaving
+selection mode; it **survives loading more rows**; and after a reconciliation a
+selected id that is no longer visible is pruned. There is no cross-folder and no
+cross-Household selection, folders are not selectable in bulk, and selection is
+never persisted.
 
 ## Search and sort
 
@@ -74,6 +92,32 @@ filler labels. Technical information is discrete and humanized. Existing
 content identity, binary, and storage path are unchanged by organization or
 metadata edits.
 
+### Canonical File actions
+
+Every File operation has exactly one home: one per-File ActionSheet host owns the
+action grammar, in canonical order — **Información**, **Renombrar**, **Mover**,
+**Descargar**, **Compartir** — with each row gated by the capability it needs.
+There is no second menu that can perform a File operation.
+
+**Descargar** and **Compartir** are distinct intents over the same signed
+original, not one conjoined action: Descargar keeps a validated local copy of the
+original on the device, Compartir hands that copy to the platform share sheet.
+Both **Mover** paths — a single File and the selection — resolve a destination
+through the **same** picker, which offers root (**Archivos**, `folder_id = NULL`)
+or any same-Household folder. There is one destination grammar, not two.
+
+A bulk Move is N of the **existing** single-file mutations
+(`PATCH /api/homecloud/content/:contentId/file` carrying only `folderId`), one per
+selected File. It adds no bulk or transaction endpoint, no schema change and no
+migration, it moves no bytes, and it is deliberately **not atomic**: a per-item
+failure is reported as such, the Files that already moved are **not** rolled back,
+and the batch reconciles **once** through the window-preserving refresh.
+
+**Favorito**, **Abrir** and **Mover a la papelera** are declared extension seams
+in that grammar. They are ordered and named there so a later addition is a
+declaration plus a handler, and they are **not offered** while they have no
+backend: no row is ever painted for an action that cannot work.
+
 ## Authority, safety, and states
 
 All requests derive the authenticated user and active Household server-side.
@@ -92,6 +136,11 @@ works in Light, Dark, and System themes.
 
 ## Explicit exclusions
 
-No Memories product, full viewer, temporary file detail, nested folders,
-selection/bulk actions, trash UI, advanced filters, OCR, semantic search, or
-fake preview behavior is introduced by Stage 3.
+Stage 3 introduced no Memories product, full viewer, temporary file detail,
+nested folders, selection/bulk actions, trash UI, advanced filters, OCR, semantic
+search, or fake preview behavior.
+
+The Files Core basic-operations slice then added file multi-select and a bulk Move
+to Files V1, as recorded above. Still **not** part of Files: the full Viewer (a
+file tap stays reserved for it), Lifecycle and Trash, Personal Favorites,
+multi-file intake, and copy/duplicate, tags, offline library or version history.

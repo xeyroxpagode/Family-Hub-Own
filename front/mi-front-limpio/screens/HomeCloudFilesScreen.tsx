@@ -3,7 +3,10 @@ import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
-import { AppButton, AppInput, AppText, ActionSheet, DatePickerSheet, ErrorState, FormActionRow } from '../components/ui';
+import { AppButton, AppInput, AppText, ActionSheet, ErrorState } from '../components/ui';
+import { FileActionHost, type FilePatch } from '../services/homecloud/FileActionHost';
+import { FileMoveDestinationPicker } from '../services/homecloud/FileMoveDestinationPicker';
+import { FileSelectionBar } from '../services/homecloud/FileSelectionBar';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
 import { FileIntake } from '../services/homecloud/FileIntake';
@@ -11,6 +14,20 @@ import { useHomeCloudCapabilities } from '../services/homecloud/useHomeCloudCapa
 import { homeCloudCapabilitiesNotice } from '../services/homecloud/homecloudCapabilitiesNotice';
 import { createHomeCloudFolder, deleteHomeCloudFolder, fetchFilesBrowser, renameHomeCloudFolder, type FileSort, updateHomeCloudFile, FILES_BROWSER_MAX_LIMIT } from '../services/homecloud/homecloudFilesService';
 import { createFilesPagination, hasMoreFilesPages, type FilesPaginationState } from '../services/homecloud/homecloudFilesPagination';
+import {
+  beginFileSelectionAt,
+  emptyFileSelection,
+  enterFileSelection,
+  fileSelectionCount,
+  fileSelectionSummary,
+  isFileSelected,
+  leaveFileSelection,
+  pruneFileSelection,
+  selectedFileIds,
+  toggleFileSelection,
+  type FileSelection,
+} from '../services/homecloud/homecloudFileSelection';
+import { bulkMoveFeedback, bulkMoveFiles, bulkMoveInFlight, type BulkMoveFeedback } from '../services/homecloud/homecloudBulkMove';
 import { downloadHomeCloudOriginal, HomeCloudDownloadError, shareHomeCloudDownloadedFile } from '../services/homecloud/homecloudDownloadService';
 import { fetchHomeCloudFoldersCached, invalidateHomeCloudHousehold } from '../services/homecloud/homecloudReadService';
 import { subscribeHomeCloudReadReconciliation } from '../services/homecloud/homecloudReadReconciliation';
@@ -18,6 +35,9 @@ import { classifyHomeCloudReadFailure, homeCloudReadFailureDetail, homeCloudRead
 import type { HomeCloudFile, HomeCloudFolder } from '../services/homecloud/homecloudTypes';
 
 type GridItem = { kind: 'folder'; value: HomeCloudFolder } | { kind: 'file'; value: HomeCloudFile };
+
+/** Which Move intent the ONE destination picker is currently serving. */
+type MoveTarget = 'file' | 'bulk';
 
 /**
  * W1-B — the page size of the EXISTING backend contract.
@@ -48,8 +68,16 @@ export function HomeCloudFilesView() {
   const [query, setQuery] = useState(''); const [sort, setSort] = useState<FileSort>('recent');
   const [error, setError] = useState<string | null>(null);
   const [readFailure, setReadFailure] = useState<{ kind: HomeCloudReadFailure; message: string; detail?: string } | null>(null);
-  const [addOpen, setAddOpen] = useState(false); const [uploadOpen, setUploadOpen] = useState(false); const [folderEditor, setFolderEditor] = useState<{ mode: 'create' | 'rename'; item?: HomeCloudFolder } | null>(null); const [folderName, setFolderName] = useState(''); const [folderActions, setFolderActions] = useState<HomeCloudFolder | null>(null); const [fileInfo, setFileInfo] = useState<HomeCloudFile | null>(null); const [saving, setSaving] = useState(false);
+  const [addOpen, setAddOpen] = useState(false); const [uploadOpen, setUploadOpen] = useState(false); const [folderEditor, setFolderEditor] = useState<{ mode: 'create' | 'rename'; item?: HomeCloudFolder } | null>(null); const [folderName, setFolderName] = useState(''); const [folderActions, setFolderActions] = useState<HomeCloudFolder | null>(null); const [actionTarget, setActionTarget] = useState<HomeCloudFile | null>(null); const [saving, setSaving] = useState(false);
   const [downloadFeedback, setDownloadFeedback] = useState<{ tone: 'secondary' | 'danger' | 'success'; message: string } | null>(null);
+  // Selection belongs to the CURRENT browser context and is never persisted.
+  const [selection, setSelection] = useState<FileSelection>(emptyFileSelection());
+  // The one destination picker, serving either a single File or the selection.
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  // The batch outcome is stated OUTSIDE the selection bar on purpose: when every
+  // moved File left the folder the selection itself ends, and the member must
+  // still be told what happened.
+  const [bulkFeedback, setBulkFeedback] = useState<BulkMoveFeedback | null>(null);
   const [page, setPage] = useState<FilesPaginationState>(() => ({
     folders: [], files: [], nextOffset: null, loading: true, loadingMore: false, pageError: null, contextKey: null,
   }));
@@ -225,6 +253,52 @@ export function HomeCloudFilesView() {
     setFolder(null); setQuery(''); setError(null); setReadFailure(null);
   }, []);
 
+  // ── selection ────────────────────────────────────────────────────────────
+  //
+  // Product decision: a plain tap on a File is RESERVED for the Viewer and is
+  // therefore never a selection gesture. Selection is ENTERED by a long press or
+  // by the explicit "Seleccionar" control, and only while the mode is active does
+  // a tap toggle.
+
+  /** The discoverable entry, so nobody has to know the hidden long-press gesture. */
+  const enterSelectionMode = useCallback(() => {
+    setBulkFeedback(null);
+    setSelection(enterFileSelection);
+  }, []);
+  /** A long press enters the mode and selects the pressed File in one intent. */
+  const beginSelectionAt = useCallback((fileId: string) => {
+    setBulkFeedback(null);
+    setSelection((previous) => beginFileSelectionAt(previous, fileId));
+  }, []);
+  /**
+   * A tap is a toggle ONLY while selection mode is active. Outside it the tap is
+   * unassigned — reserved for the Viewer, which is not implemented in this slice —
+   * so it changes nothing at all. The guard lives in the production model, not in
+   * a render closure, so it cannot go stale while rows are memoised.
+   */
+  const toggleSelectionAt = useCallback((fileId: string) => {
+    setSelection((previous) => (previous.mode ? toggleFileSelection(previous, fileId) : previous));
+  }, []);
+  const leaveSelectionMode = useCallback(() => {
+    setBulkFeedback(null);
+    setSelection(leaveFileSelection());
+  }, []);
+
+  /**
+   * Selection is scoped to ONE browser context. A folder, query, sort or
+   * household change means the selected ids no longer describe what the member is
+   * looking at, so they are discarded — there is no cross-folder and no
+   * cross-household selection. A `loadMore` does NOT change this key, so paging
+   * through the same context keeps every selection.
+   */
+  const selectionScope = `${currentHousehold?.id ?? ''}\u0000${contextKey}`;
+  useEffect(() => {
+    setSelection((previous) => (
+      previous.mode === false && previous.ids.size === 0 ? previous : leaveFileSelection()
+    ));
+    setBulkFeedback((previous) => (previous === null ? previous : null));
+  }, [selectionScope]);
+
   // W1-C: READ reconciliation is global, not a property of this screen. The
   // FileIntake that accepted the job is already unmounted by the time the job
   // finalizes, so correctness must not depend on its `onComplete`. This
@@ -280,24 +354,89 @@ export function HomeCloudFilesView() {
       await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : 'No pudimos eliminar la carpeta.'); } finally { setSaving(false); }
   };
-  const saveFile = async (patch: Parameters<typeof updateHomeCloudFile>[2]) => {
-    if (!token || !fileInfo || saving) return;
+  // The ONE single-file mutation path. A single File's Move comes through here
+  // too, so renaming, dating, noting and moving one File stay one mutation each.
+  const saveFile = async (patch: FilePatch) => {
+    if (!token || !actionTarget || saving) return;
     setSaving(true);
     try {
-      await updateHomeCloudFile(token, fileInfo.id, patch);
-      setFileInfo(null);
+      await updateHomeCloudFile(token, actionTarget.id, patch);
+      setActionTarget(null);
       // A move can take the file out of the folder being viewed, so the SAME
       // context is re-read (window preserved) rather than reset to page one.
       await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : 'No pudimos guardar el archivo.'); } finally { setSaving(false); }
   };
 
+  /**
+   * BULK MOVE — N of the EXISTING single-file mutations and nothing else.
+   *
+   * No bulk endpoint, no transaction endpoint, no schema change, no migration and
+   * no byte movement: `updateHomeCloudFile` with only `folderId` is the whole
+   * contract. The batch is deliberately NOT atomic, so `bulkMoveFiles` aggregates
+   * per-item outcomes and the ones that already moved are never rolled back.
+   */
+  const moveSelectedFiles = async (destinationFolderId: string | null) => {
+    if (!token || saving) return;
+    const contentIds = selectedFileIds(selection);
+    if (contentIds.length === 0) return;
+    setSaving(true);
+    setBulkFeedback(bulkMoveInFlight(contentIds.length));
+    try {
+      const result = await bulkMoveFiles({
+        contentIds,
+        destinationFolderId,
+        moveFile: (contentId, changes) => updateHomeCloudFile(token, contentId, changes),
+      });
+      setBulkFeedback(bulkMoveFeedback(result));
+      // EXACTLY ONE reconciliation for the whole batch, through the
+      // window-preserving path: not one re-read per PATCH, and no page-1
+      // collapse. The selection is then pruned against these new rows, so a File
+      // that left this folder can never stay selected.
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No pudimos mover los archivos.');
+    } finally { setSaving(false); }
+  };
+
+  /** The ONE destination picker: both Move intents resolve a destination here. */
+  const handleMoveDestination = (folderId: string | null) => {
+    const target = moveTarget;
+    setMoveTarget(null);
+    if (target === 'bulk') { void moveSelectedFiles(folderId); return; }
+    if (target === 'file') void saveFile({ folderId });
+  };
+
+  /**
+   * DESCARGAR — keep a validated copy of the ORIGINAL on the device.
+   *
+   * Honest limitation, recorded rather than hidden: with the primitives Files
+   * V1 has there is no system destination chooser available, so the copy lands in
+   * the app's own documents directory and the member is told its name. This is a
+   * real, persistent local copy and it is NOT the share sheet.
+   */
   const downloadFile = async () => {
-    if (!token || !fileInfo || saving) return;
+    if (!token || !actionTarget || saving) return;
     setSaving(true); setDownloadFeedback({ tone: 'secondary', message: 'Descargando…' });
     try {
-      const local = await downloadHomeCloudOriginal(token, fileInfo);
-      setDownloadFeedback({ tone: 'success', message: 'Listo para compartir' });
+      const local = await downloadHomeCloudOriginal(token, actionTarget);
+      setDownloadFeedback({ tone: 'success', message: `Guardado como ${local.name}.` });
+    } catch {
+      setDownloadFeedback({ tone: 'danger', message: 'No pudimos descargar este archivo.' });
+    } finally { setSaving(false); }
+  };
+
+  /**
+   * COMPARTIR — the same signed original, handed to the platform share sheet.
+   * Two distinct intents, one existing transfer: "send this to another app" is
+   * not "keep this on my device".
+   */
+  const shareFile = async () => {
+    if (!token || !actionTarget || saving) return;
+    setSaving(true); setDownloadFeedback({ tone: 'secondary', message: 'Descargando para compartir…' });
+    try {
+      const local = await downloadHomeCloudOriginal(token, actionTarget);
+      setDownloadFeedback({ tone: 'secondary', message: 'Listo para compartir' });
       await shareHomeCloudDownloadedFile(local);
     } catch (e) {
       const message = e instanceof HomeCloudDownloadError && e.stage === 'share'
@@ -306,32 +445,109 @@ export function HomeCloudFilesView() {
       setDownloadFeedback({ tone: 'danger', message });
     } finally { setSaving(false); }
   };
+
+  /**
+   * Reconciliation applied to selection. After a re-read, a selected id that is
+   * no longer in the visible context is stale and is pruned, so the stated count
+   * and the bulk target can never name a File that is not on screen. While the
+   * loaded rows do not belong to the current context nothing is pruned: the
+   * previous context's rows are not evidence about the current one.
+   */
+  useEffect(() => {
+    if (!rowsAreCurrent) return;
+    setSelection((previous) => {
+      const pruned = pruneFileSelection(previous, files.map((file) => file.id));
+      // An empty selection is not a selection: the mode ends with its last File.
+      return pruned.ids.size === 0 && pruned.mode ? leaveFileSelection() : pruned;
+    });
+  }, [rowsAreCurrent, files]);
+
+  const selectionCount = fileSelectionCount(selection);
+  /** The destination the picker marks as current; `undefined` marks none. */
+  const bulkCurrentFolderId = useMemo(() => {
+    const ids = selectedFileIds(selection);
+    if (ids.length === 0) return undefined;
+    const chosen = new Set(ids);
+    const rows = files.filter((file) => chosen.has(file.id));
+    if (rows.length !== ids.length) return undefined;
+    const first = rows[0].folderId;
+    return rows.every((row) => row.folderId === first) ? first : undefined;
+  }, [files, selection]);
   const canAdd = caps.contribute; const canOrganize = caps.organize;
   return <View style={styles.screen}>
     <View style={styles.search}><AppInput value={query} onChangeText={setQuery} placeholder={folder ? 'Buscar en esta carpeta' : 'Buscar en archivos'} variant="search" label="Buscar" /></View>
-    <View style={styles.titleRow}>{folder ? <AppButton variant="icon" size="sm" onPress={leaveFolder} accessibilityLabel="Volver a Archivos"><HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} /></AppButton> : null}<AppText variant="title3" weight="800" style={styles.title}>{folder?.name ?? 'Archivos'}</AppText><View style={styles.titleActions}><AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar archivos"><HomePlusIcon name="refresh" size={20} color={colors.text.secondary} /></AppButton><AppButton variant="secondary" size="sm" title={sort === 'recent' ? 'Recientes' : 'A–Z'} onPress={() => setSort(sort === 'recent' ? 'name' : 'recent')} />{canAdd ? <AppButton variant="icon" size="sm" onPress={() => setAddOpen(true)} accessibilityLabel="Agregar"><HomePlusIcon name="add" size={24} color={colors.brand} /></AppButton> : null}</View></View>
+    <View style={styles.titleRow}>{folder ? <AppButton variant="icon" size="sm" onPress={leaveFolder} accessibilityLabel="Volver a Archivos"><HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} /></AppButton> : null}<AppText variant="title3" weight="800" style={styles.title}>{folder?.name ?? 'Archivos'}</AppText><View style={styles.titleActions}><AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar archivos"><HomePlusIcon name="refresh" size={20} color={colors.text.secondary} /></AppButton><AppButton variant="secondary" size="sm" title={sort === 'recent' ? 'Recientes' : 'A–Z'} onPress={() => setSort(sort === 'recent' ? 'name' : 'recent')} />{!selection.mode ? <AppButton variant="ghost" size="sm" title="Seleccionar" disabled={files.length === 0} onPress={enterSelectionMode} accessibilityLabel="Seleccionar archivos" /> : null}{canAdd ? <AppButton variant="icon" size="sm" onPress={() => setAddOpen(true)} accessibilityLabel="Agregar"><HomePlusIcon name="add" size={24} color={colors.brand} /></AppButton> : null}</View></View>
     {capabilitiesNotice ? <View style={styles.notice}><AppText variant="caption" tone="secondary">{capabilitiesNotice}</AppText><AppButton title="Reintentar" size="sm" variant="ghost" onPress={capabilities.revalidate} accessibilityLabel="Reintentar verificación de permisos de HomeCloud" /></View> : null}
-    {loading || !rowsAreCurrent ? <View style={styles.center}><ActivityIndicator color={colors.brand} /></View> : readFailure ? <View style={styles.center}><ErrorState title={homeCloudReadFailureTitle(readFailure.kind, 'tus archivos')} description={readFailure.message} detail={readFailure.detail} retryLabel="Reintentar" onRetry={() => void load()} /></View> : error ? <View style={styles.center}><AppText variant="body" tone="danger" align="center">{error}</AppText><AppButton title="Reintentar" variant="secondary" onPress={() => void load()} style={{ marginTop: spacing[3] }} /></View> : items.length === 0 ? <View style={styles.center}><HomePlusIcon name="folder-open-outline" size={38} color={colors.text.tertiary} /><AppText variant="title3" weight="800">{folder ? 'Esta carpeta está vacía' : query ? 'Sin resultados' : 'Todavía no hay archivos'}</AppText>{canAdd && !query ? <AppButton title="Agregar archivo" onPress={() => setAddOpen(true)} style={{ marginTop: spacing[3] }} /> : null}</View> : <FlatList data={items} numColumns={2} key="files-grid" keyExtractor={(item) => `${item.kind}-${item.value.id}`} contentContainerStyle={styles.grid} columnWrapperStyle={styles.gridRow} renderItem={({ item }) => item.kind === 'folder' ? <FolderTile folder={item.value} onPress={() => openFolder(item.value)} onMore={() => setFolderActions(item.value)} /> : <FileTile file={item.value} onMore={() => setFileInfo(item.value)} />} ListFooterComponent={hasMore || pageError ? <View style={styles.footer}>{pageError ? <View style={styles.pageError}><AppText variant="caption" tone="danger" align="center">{pageError}</AppText><AppButton title="Reintentar" size="sm" variant="secondary" onPress={() => void loadMore()} accessibilityLabel="Reintentar cargar más archivos" /></View> : null}{hasMore ? <AppButton title={loadingMore ? 'Cargando…' : 'Mostrar más archivos'} variant="secondary" disabled={loadingMore} onPress={() => void loadMore()} /> : null}</View> : null} />}
+    {bulkFeedback ? <View style={styles.banner}><AppText variant="caption" tone={bulkFeedback.tone} align="center">{bulkFeedback.message}</AppText></View> : null}
+    {loading || !rowsAreCurrent ? <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>
+    : readFailure ? <View style={styles.center}><ErrorState title={homeCloudReadFailureTitle(readFailure.kind, 'tus archivos')} description={readFailure.message} detail={readFailure.detail} retryLabel="Reintentar" onRetry={() => void load()} /></View>
+    : error ? <View style={styles.center}><AppText variant="body" tone="danger" align="center">{error}</AppText><AppButton title="Reintentar" variant="secondary" onPress={() => void load()} style={{ marginTop: spacing[3] }} /></View>
+    : items.length === 0 ? <View style={styles.center}><HomePlusIcon name="folder-open-outline" size={38} color={colors.text.tertiary} /><AppText variant="title3" weight="800">{folder ? 'Esta carpeta está vacía' : query ? 'Sin resultados' : 'Todavía no hay archivos'}</AppText>{canAdd && !query ? <AppButton title="Agregar archivo" onPress={() => setAddOpen(true)} style={{ marginTop: spacing[3] }} /> : null}</View>
+    : <FlatList data={items} numColumns={2} key="files-grid" keyExtractor={(item) => `${item.kind}-${item.value.id}`} contentContainerStyle={styles.grid} columnWrapperStyle={styles.gridRow}
+      // The selected visual state is part of the row's own data, and `data` does
+      // not change when only the selection does — without this a selected row
+      // would keep painting itself as unselected.
+      extraData={selection}
+      renderItem={({ item }) => item.kind === 'folder' ? <FolderTile folder={item.value} onPress={() => openFolder(item.value)} onMore={() => setFolderActions(item.value)} /> : <FileTile file={item.value} selectionMode={selection.mode} selected={isFileSelected(selection, item.value.id)} onPress={() => toggleSelectionAt(item.value.id)} onLongPress={() => beginSelectionAt(item.value.id)} onMore={() => setActionTarget(item.value)} />}
+      ListFooterComponent={hasMore || pageError ? <View style={styles.footer}>{pageError ? <View style={styles.pageError}><AppText variant="caption" tone="danger" align="center">{pageError}</AppText><AppButton title="Reintentar" size="sm" variant="secondary" onPress={() => void loadMore()} accessibilityLabel="Reintentar cargar más archivos" /></View> : null}{hasMore ? <AppButton title={loadingMore ? 'Cargando…' : 'Mostrar más archivos'} variant="secondary" disabled={loadingMore} onPress={() => void loadMore()} /> : null}</View> : null} />}
+    {selection.mode ? <FileSelectionBar count={selectionCount} summary={fileSelectionSummary(selection)} canOrganize={canOrganize} busy={saving} onMove={() => setMoveTarget('bulk')} onCancel={leaveSelectionMode} /> : null}
     <ActionSheet visible={addOpen} title="Agregar" onRequestClose={() => setAddOpen(false)} size="content"><View style={styles.sheetList}><AppButton title="Elegir archivo" onPress={() => { setAddOpen(false); setUploadOpen(true); }} /><AppButton title="Escanear documento" variant="secondary" onPress={() => { setAddOpen(false); navigation.navigate('HomeCloudScanner', { folderId: folder?.id ?? null, folderName: folder?.name ?? null, capabilities: caps }); }} /><AppButton title="Nueva carpeta" variant="secondary" disabled={!!folder || !canOrganize} onPress={() => { setAddOpen(false); setFolderName(''); setFolderEditor({ mode: 'create' }); }} /></View></ActionSheet>
     <ActionSheet visible={uploadOpen} title="Elegir archivo" onRequestClose={() => setUploadOpen(false)} size="content"><FileIntake config={{ householdId: currentHousehold?.id ?? '', accessToken: token ?? '', capabilities: caps, initialFolderId: folder?.id ?? null, initialFolderName: folder?.name ?? null, intakeSource: 'homecloud:files' }} onComplete={() => { setUploadOpen(false); void refresh(); }} onDismiss={() => setUploadOpen(false)} /></ActionSheet>
     <ActionSheet visible={!!folderEditor} title={folderEditor?.mode === 'rename' ? 'Renombrar carpeta' : 'Nueva carpeta'} onRequestClose={() => setFolderEditor(null)} size="content" footer={<AppButton title="Guardar" disabled={!folderName.trim() || saving} onPress={() => void saveFolder()} />}><AppInput value={folderName} onChangeText={setFolderName} label="Nombre" autoFocus /></ActionSheet>
     <ActionSheet visible={!!folderActions} title={folderActions?.name ?? 'Carpeta'} onRequestClose={() => setFolderActions(null)} size="content"><View style={styles.sheetList}><AppButton title="Renombrar" variant="secondary" disabled={!canOrganize} onPress={() => { setFolderName(folderActions!.name); setFolderEditor({ mode: 'rename', item: folderActions! }); setFolderActions(null); }} /><AppButton title="Eliminar carpeta" variant="danger" disabled={!canOrganize || saving} onPress={() => void removeFolder()} /><AppText variant="caption" tone="secondary">Los archivos no se eliminan: volverán a Archivos.</AppText></View></ActionSheet>
-    <FileInfoSheet file={fileInfo} folders={allFolders.length > 0 ? allFolders : folders} canOrganize={canOrganize} onClose={() => { setFileInfo(null); setDownloadFeedback(null); }} onSave={saveFile} onDownload={downloadFile} saving={saving} downloadFeedback={downloadFeedback} />
+    {/* The canonical per-File action host. It is always mounted and decides its own
+        visibility, so there is never a second place that can open a File menu. */}
+    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} downloadFeedback={downloadFeedback} onClose={() => { setActionTarget(null); setDownloadFeedback(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveTarget('file')} onDownload={() => void downloadFile()} onShare={() => void shareFile()} />
+    {/* The ONE destination picker, for a single File's Move and for the selection's
+        Move alike. It reads the same household catalogue the host does, never the
+        browser payload, which is empty inside a folder. */}
+    <FileMoveDestinationPicker visible={moveTarget !== null} title={moveTarget === 'bulk' ? `Mover ${selectionCount} ${selectionCount === 1 ? 'archivo' : 'archivos'}` : 'Mover a'} folders={allFolders.length > 0 ? allFolders : folders} currentFolderId={moveTarget === 'bulk' ? bulkCurrentFolderId : actionTarget ? actionTarget.folderId : undefined} busy={saving} onSelect={handleMoveDestination} onClose={() => setMoveTarget(null)} />
   </View>;
 }
 
-function FolderTile({ folder, onPress, onMore }: { folder: HomeCloudFolder; onPress: () => void; onMore: () => void }) { return <View style={styles.tile}><AppButton variant="icon" size="sm" onPress={onMore} style={styles.more}><HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} /></AppButton><AppButton variant="secondary" onPress={onPress} style={styles.visual}><HomePlusIcon name="folder" size={48} color={colors.terracotta[500]} /></AppButton><AppText variant="bodySmall" weight="700" numberOfLines={2}>{folder.name}</AppText></View>; }
-function FileTile({ file, onMore }: { file: HomeCloudFile; onMore: () => void }) { const icon = file.mimeType.startsWith('image/') ? 'image-outline' : file.mimeType === 'application/pdf' ? 'document-text-outline' : 'document-outline'; return <View style={styles.tile}><AppButton variant="icon" size="sm" onPress={onMore} style={styles.more}><HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} /></AppButton><View style={styles.visual}><HomePlusIcon name={icon as any} size={44} color={colors.info.base} /></View><AppText variant="bodySmall" weight="700" numberOfLines={2}>{file.displayName}</AppText></View>; }
-function FileInfoSheet({ file, folders, canOrganize, onClose, onSave, onDownload, saving, downloadFeedback }: { file: HomeCloudFile | null; folders: HomeCloudFolder[]; canOrganize: boolean; onClose: () => void; onSave: (patch: any) => void; onDownload: () => void; saving: boolean; downloadFeedback: { tone: 'secondary' | 'danger' | 'success'; message: string } | null }) {
-  const [name, setName] = useState(''); const [note, setNote] = useState(''); const [folderPicker, setFolderPicker] = useState(false); const [datePicker, setDatePicker] = useState(false);
-  useEffect(() => { setName(file?.displayName ?? ''); setNote(file?.note ?? ''); }, [file?.id]);
-  if (!file) return null;
-  const folderName = folders.find(f => f.id === file.folderId)?.name ?? 'Archivos';
-  return <>
-    <ActionSheet visible title="Información del archivo" onRequestClose={onClose} size="content" footer={<View style={styles.sheetList}>{downloadFeedback ? <AppText variant="bodySmall" tone={downloadFeedback.tone}>{downloadFeedback.message}</AppText> : null}<AppButton title={saving && downloadFeedback?.message === 'Descargando…' ? 'Descargando…' : 'Descargar y compartir original'} variant="secondary" disabled={saving} onPress={onDownload} /><AppButton title="Guardar cambios" disabled={!canOrganize || saving} onPress={() => onSave({ displayName: name, note })} /></View>}><View style={styles.sheetList}><AppInput label="Nombre" value={name} onChangeText={setName} editable={canOrganize} /><AppInput label="Nota" value={note} onChangeText={setNote} editable={canOrganize} multiline /><FormActionRow label="Carpeta" value={folderName} disabled={!canOrganize} onPress={() => setFolderPicker(true)} /><FormActionRow label="Fecha del documento" value={file.documentDate ?? 'Agregar fecha'} disabled={!canOrganize} onPress={() => setDatePicker(true)} /></View></ActionSheet>
-    <ActionSheet visible={folderPicker} title="Mover a" onRequestClose={() => setFolderPicker(false)} size="content"><View style={styles.sheetList}><AppButton title="Archivos" variant={file.folderId === null ? 'primary' : 'secondary'} onPress={() => { setFolderPicker(false); onSave({ folderId: null }); }} />{folders.map(item => <AppButton key={item.id} title={item.name} variant={file.folderId === item.id ? 'primary' : 'secondary'} onPress={() => { setFolderPicker(false); onSave({ folderId: item.id }); }} />)}</View></ActionSheet>
-    <DatePickerSheet visible={datePicker} value={file.documentDate ?? new Date().toISOString().slice(0, 10)} onClose={() => setDatePicker(false)} onConfirm={(documentDate) => { setDatePicker(false); onSave({ documentDate }); }} />
-  </>;
+function FolderTile({ folder, onPress, onMore }: { folder: HomeCloudFolder; onPress: () => void; onMore: () => void }) { return <View style={styles.tile}><AppButton variant="icon" size="sm" onPress={onMore} style={styles.more} accessibilityLabel={`Acciones de la carpeta ${folder.name}`}><HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} /></AppButton><AppButton variant="secondary" onPress={onPress} style={styles.visual} accessibilityLabel={`Abrir carpeta ${folder.name}`}><HomePlusIcon name="folder" size={48} color={colors.terracotta[500]} /></AppButton><AppText variant="bodySmall" weight="700" numberOfLines={2}>{folder.name}</AppText></View>; }
+
+/**
+ * A File tile. Three gestures, one owner:
+ *
+ *   long press             -> enter selection mode and select this File
+ *   tap, mode active       -> toggle this File
+ *   tap, mode inactive     -> RESERVED for the Viewer: deliberately unassigned
+ *
+ * The overflow stays exactly where it was: it opens the canonical action host.
+ */
+export function FileTile({
+  file,
+  selectionMode,
+  selected,
+  onPress,
+  onLongPress,
+  onMore,
+}: {
+  file: HomeCloudFile;
+  selectionMode: boolean;
+  selected: boolean;
+  onPress: () => void;
+  onLongPress: () => void;
+  onMore: () => void;
+}) {
+  const icon = file.mimeType.startsWith('image/') ? 'image-outline' : file.mimeType === 'application/pdf' ? 'document-text-outline' : 'document-outline';
+  const showCheck = selectionMode && selected;
+  return <View style={[styles.tile, showCheck ? styles.tileSelected : null]}>
+    <AppButton variant="icon" size="sm" onPress={onMore} style={styles.more} accessibilityLabel={`Acciones de ${file.displayName}`}><HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} /></AppButton>
+    <AppButton
+      variant="secondary"
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={[styles.visual, showCheck ? styles.visualSelected : null]}
+      accessibilityRole={selectionMode ? 'checkbox' : 'button'}
+      accessibilityState={{ selected: selectionMode ? selected : undefined }}
+      accessibilityLabel={selectionMode ? `${file.displayName}${selected ? ', seleccionado' : ', no seleccionado'}` : file.displayName}
+    >
+      {showCheck ? <HomePlusIcon name="checkmark" size={26} color={colors.text.inverse} /> : <HomePlusIcon name={icon as any} size={44} color={colors.info.base} />}
+    </AppButton>
+    <AppText variant="bodySmall" weight="700" numberOfLines={2}>{file.displayName}</AppText>
+  </View>;
 }
 
-const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, titleRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, grid: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4] }, tile: { flex: 1, minHeight: 174, gap: spacing[2], position: 'relative' }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, more: { position: 'absolute', right: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] } });
+const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, titleRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, grid: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4] }, tile: { flex: 1, minHeight: 174, gap: spacing[2], position: 'relative', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent' }, tileSelected: { borderColor: colors.brand }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, visualSelected: { backgroundColor: colors.brand, borderColor: colors.brand }, more: { position: 'absolute', right: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, banner: { paddingHorizontal: spacing[5], paddingBottom: spacing[3] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] } });

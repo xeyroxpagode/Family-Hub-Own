@@ -72,6 +72,47 @@ try {
   assert.match(memories, /listMemories/);
   assert.doesNotMatch(memories, /const\s+MEMORIES\s*=\s*\[/);
 
+  // ── Files selection: the CURRENT contract, not the one the Stage-3 freeze had.
+  //
+  // A file tap stays RESERVED for the Viewer, so it is never a selection gesture.
+  // Selection is ENTERED by a long press or by the explicit, labelled "Seleccionar"
+  // control — nobody has to know a hidden gesture — and only while the mode is
+  // active does a tap toggle.
+  assert.match(files, /onLongPress=\{\(\) => beginSelectionAt\(item\.value\.id\)\}/);
+  assert.match(files, /accessibilityLabel="Seleccionar archivos"/);
+  assert.match(files, /previous\.mode \? toggleFileSelection\(previous, fileId\) : previous/);
+  assert.match(files, /selectionScope/);
+  assert.match(files, /pruneFileSelection\(previous, files\.map\(\(file\) => file\.id\)\)/);
+
+  // ONE canonical action host, ONE shared move destination picker: no second menu
+  // can perform a File operation, and a move has a single destination grammar.
+  assert.equal((files.match(/<FileActionHost /g) || []).length, 1);
+  assert.equal((files.match(/<FileMoveDestinationPicker /g) || []).length, 1);
+  assert.doesNotMatch(files, /Descargar y compartir/);
+
+  // The seams are DECLARED in the grammar and never offered while they have no
+  // backend, and nothing outside this slice is implemented.
+  const grammar = read('front/mi-front-limpio/services/homecloud/homecloudFileActions.ts');
+  assert.match(grammar, /HOMECLOUD_FILE_ACTION_SEAMS/);
+  assert.match(grammar, /\.filter\(\(action\) => action\.implemented\)/);
+  assert.doesNotMatch(grammar, /favorite:\s*boolean|isFavorite|favoriteId/);
+  assert.doesNotMatch(files, /favorit/i);
+  assert.doesNotMatch(files, /papelera|trash/i);
+  assert.doesNotMatch(files, /navigate\(['"]Viewer|HomeCloudViewer/);
+
+  // Bulk Move is N of the EXISTING single-file mutation, with one reconciliation.
+  const bulk = read('front/mi-front-limpio/services/homecloud/homecloudBulkMove.ts');
+  // The orchestrator is transport-free: it is handed the EXISTING mutation and
+  // only classifies its typed errors, so it can never grow a second endpoint.
+  assert.match(bulk, /import \{ ApiError \} from '\.\.\/api'/);
+  assert.doesNotMatch(bulk, /requestJson|fetch\(|XMLHttpRequest|axios/);
+  assert.match(bulk, /await input\.moveFile\(contentId, \{ folderId: input\.destinationFolderId \}\)/);
+  const moveBody = files.slice(files.indexOf('const moveSelectedFiles'), files.indexOf('const moveSelectedFiles') + 1400);
+  assert.match(moveBody, /updateHomeCloudFile/);
+  assert.match(moveBody, /await refresh\(\)/);
+  assert.equal((moveBody.match(/await refresh\(\)/g) || []).length, 1);
+  assert.doesNotMatch(moveBody, /controllerRef\.current!\.load\(\)/);
+
   console.log('Selection system + HomeCloud single-surface contracts: PASS');
 } finally {
   Module._extensions['.ts'] = previousTs;

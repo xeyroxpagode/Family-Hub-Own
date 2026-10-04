@@ -1,0 +1,38 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-files-slice1"
+  },
+  "include": [
+    "../scripts/homecloud_files_selection_bulk_tests.ts",
+    "../front/mi-front-limpio/screens/HomeCloudFilesScreen.tsx",
+    "../front/mi-front-limpio/services/homecloud/homecloudFileSelection.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudBulkMove.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudFileActions.ts",
+    "../front/mi-front-limpio/services/homecloud/FileActionHost.tsx",
+    "../front/mi-front-limpio/services/homecloud/FileMoveDestinationPicker.tsx",
+    "../front/mi-front-limpio/services/homecloud/FileSelectionBar.tsx",
+    "../front/mi-front-limpio/services/homecloud/homecloudFilesPagination.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudFileIntakeService.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudFileIntakeTypes.ts",
+    "../front/mi-front-limpio/services/homecloud/FileIntake.tsx",
+    "../front/mi-front-limpio/services/homecloud/homecloudReadService.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudReadReconciliation.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudCapabilities.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudCapabilitiesAdapter.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudCapabilitiesNotice.ts",
+    "../front/mi-front-limpio/services/homecloud/useHomeCloudCapabilities.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadCoordinator.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadJob.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadEngine.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadQueue.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadRuntime.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadTypes.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadError.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudDurableArtifact.ts",
+    "../front/mi-front-limpio/storage/homecloudUploadJobStorage.ts"
+  ],
+  "exclude": ["node_modules"]
+}

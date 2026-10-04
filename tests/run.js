@@ -371,6 +371,29 @@ const commands = {
     'node',
     ['scripts/homecloud_s4iii_files_hasmore_tests.js'],
   ),
+  'homecloud-files-slice1-selection-bulk': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud Files slice 1 compile selection / bulk-move tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_files_selection_test.json'],
+    );
+    return runCommand(
+      'HomeCloud Files slice 1 selection model / surface / bulk-move tests',
+      'node',
+      ['scripts/compiled-files-slice1/scripts/homecloud_files_selection_bulk_tests.js'],
+      { env },
+    );
+  },
+  'selection-system': () => runCommand(
+    'Segmented-control selection system + HomeCloud single-surface contracts',
+    'node',
+    ['scripts/selection_system_tests.js'],
+  ),
   'homecloud-4c1-memory-create': () => runCommand(
     'HomeCloud 4C1 memory create tests',
     'node',
@@ -1048,6 +1071,8 @@ const suites = {
     'homecloud-s4ii-search-runtime',
     'homecloud-s4iii-files-hasmore',
     'homecloud-s4iii-files-surface',
+    'homecloud-files-slice1-selection-bulk',
+    'selection-system',
     'homecloud-3a-3d-acceptance',
   ],
   'homecloud-s4ii': ['homecloud-s4ii-search-contract', 'homecloud-s4ii-document-date'],

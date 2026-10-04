@@ -77,6 +77,7 @@ export function AppButton({
   leftSlot,
   rightSlot,
   accessibilityLabel,
+  accessibilityState,
   style,
   textStyle,
   haptic,
@@ -109,7 +110,11 @@ export function AppButton({
     <InteractivePressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
-      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      // Composed, never replaced: a caller that needs to add its own state (a
+      // selection-mode tile declaring `selected`) must not be able to erase what
+      // this control knows about itself — whether it is disabled, and whether it
+      // is busy.
+      accessibilityState={{ ...accessibilityState, disabled: isDisabled, busy: loading }}
       disabled={isDisabled}
       {...props}
       haptic={haptic ?? (variant === 'primary' || variant === 'danger' ? 'medium' : variant === 'icon' ? 'light' : 'none')}

@@ -19,6 +19,7 @@ supabase/snippets/
 /scripts/compiled-s4i/
 /scripts/compiled-s2i/
 /scripts/compiled-s4iii/
+/scripts/compiled-files-slice1/
 /scripts/scripts/
 /.env
 /.env.local
