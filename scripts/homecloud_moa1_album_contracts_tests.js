@@ -476,15 +476,95 @@ record(
   && !frontendReadService.includes('AlbumScreen')
   && !frontendReadService.includes('navigation.')
   && !frontendReadService.includes('router.'),
-  'MO-A1 implements no Album screen, route, tile or navigation',
+  'the client contract stays a pure read/mutation client: no Album tile, no Album screen, no navigation, no router',
 );
 
 const homeCloudComponentDir = path.join(root, 'front', 'mi-front-limpio', 'components', 'homecloud');
 const homeCloudScreenDir = path.join(root, 'front', 'mi-front-limpio', 'screens');
 const uiFiles = [...fs.readdirSync(homeCloudComponentDir), ...fs.readdirSync(homeCloudScreenDir)];
+
+/**
+ * MO-A2 retarget (the guard this assertion used to be).
+ *
+ * It used to assert that NO Album UI file existed, because MO-A2 had not been
+ * built. MO-A2 now OWNS the surface, so the invariant it must keep enforcing is
+ * the real one: the Album surface exists ONLY in the approved components of the
+ * Memories subtree, and it never leaks into the read client, the navigation
+ * layer, the backend or the frozen shared infrastructure.
+ *
+ * The check is an ALLOW-LIST, not a prohibition: a new Album surface file must be
+ * added here deliberately, so the boundary cannot silently widen.
+ */
+const APPROVED_ALBUM_UI_FILES = [
+  'AlbumTile.tsx',
+  'AlbumsRail.tsx',
+  'AlbumSheets.tsx',
+  'AlbumMemoryPicker.tsx',
+  'AlbumDetailView.tsx',
+];
+
+const APPROVED_ALBUM_SERVICE_FILES = [
+  'homecloudAlbumScope.ts',
+  'homecloudAlbumsPagination.ts',
+  'homecloudAlbumDetailPagination.ts',
+];
+
+const albumUiFiles = uiFiles.filter((name) => /album/i.test(name));
 record(
-  !uiFiles.some((name) => /album/i.test(name)),
-  'no Album UI file exists yet (MO-A2 owns the surface)',
+  albumUiFiles.length > 0,
+  'the Album surface exists (MO-A2 owns the UI, not MO-A1)',
+);
+record(
+  albumUiFiles.every((name) => APPROVED_ALBUM_UI_FILES.includes(name)),
+  `every Album UI file is one of the approved Memories-subtree components (${albumUiFiles.join(', ') || 'none'})`,
+);
+record(
+  !albumUiFiles.some((name) => {
+    const file = path.join(root, 'front', 'mi-front-limpio', 'components', 'homecloud', name);
+    return fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('navigation.');
+  }),
+  'no Album component introduces navigation',
+);
+
+const homeCloudServiceDir = path.join(root, 'front', 'mi-front-limpio', 'services', 'homecloud');
+const albumServiceFiles = fs.readdirSync(homeCloudServiceDir).filter((name) => /album/i.test(name));
+record(
+  albumServiceFiles.every((name) => APPROVED_ALBUM_SERVICE_FILES.includes(name)),
+  `every Album service module is an approved framework-free helper/controller (${albumServiceFiles.join(', ') || 'none'})`,
+);
+record(
+  !albumServiceFiles.some((name) => name.endsWith('.tsx')),
+  'the Albums service layer stays framework free: no React module is added under services/homecloud',
+);
+
+const albumUiSources = APPROVED_ALBUM_UI_FILES.map((name) => ({
+  name,
+  source: read(`front/mi-front-limpio/components/homecloud/${name}`),
+}));
+const albumUiCode = albumUiSources.map(({ source }) => source.replace(/\/\*[\s\S]*?\*\//g, '')).join('\n');
+
+record(
+  !/from '\.\.\/\.\.\/services\/(planner|api)|plannerCache|requestJson/.test(albumUiCode),
+  'no Album UI component reaches into plannerCache or requestJson directly: reads go through the existing client contract',
+);
+record(
+  !albumUiCode.includes('homecloudReadReconciliation'),
+  'the Album surface extends no shared reconciliation module',
+);
+record(
+  !albumUiCode.includes('homecloud.delete') && !albumUiCode.includes('homecloud.manage_albums'),
+  'no Album UI component references homecloud.delete or invents manage_albums',
+);
+record(
+  !/fetchHomeCloudAlbumItems/.test(albumUiCode)
+  && !/fetchHomeCloudAlbumItems/.test(read('front/mi-front-limpio/screens/HomeCloudMemoriesScreen.tsx')),
+  'the Album detail never consumes the legacy GET /albums/:albumId/items primitive',
+);
+
+const navTypes = read('front/mi-front-limpio/navigation/types.ts');
+record(
+  !/album/i.test(navTypes) && !/album/i.test(read('front/mi-front-limpio/navigation/HomeTabNavigator.tsx')),
+  'no Album navigation route or param was introduced (Album detail is nested state)',
 );
 
 // ---------------------------------------------------------------------------

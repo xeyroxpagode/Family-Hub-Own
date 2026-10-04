@@ -8,6 +8,7 @@ import {
   memoryPrimaryText,
   memorySemanticLabel,
 } from '../../services/homecloud/homecloudMemoriesTimeline';
+import { AppButton } from '../ui/AppButton';
 import { AppText } from '../ui/AppText';
 import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
 
@@ -33,28 +34,74 @@ import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
  * metadata and is never rendered here; a media Memory without caption falls
  * back to its honest semantic date ("12 ene 2024" / "Sin fecha").
  *
- * Cards are intentionally NON-INTERACTIVE in this slice: there is no
- * productive Viewer V2 destination yet, so no fake navigation, modal or
- * viewer is wired. Roles stay descriptive (image/text), never button.
+ * IDEMPOTENCE: cards are NON-INTERACTIVE by default. There is no productive
+ * Viewer V2 destination yet, so a card never navigates, never opens a modal and
+ * never pretends to be tappable.
+ *
+ * MO-A2 — THE ONE OPTIONAL ALBUM-SCOPE ACTION SEAM
+ * ------------------------------------------------
+ * `albumScopeAction` is the ONLY interaction a card can receive, and it exists
+ * for exactly one situation: the card is rendered inside an Album detail and the
+ * member may organize. It removes THIS Memory from THIS Album — a membership,
+ * not the Memory. It is NEVER a Viewer destination, and it is never attached in
+ * the Timeline, so Timeline rendering and behavior are unchanged when the prop is
+ * absent (which is the Timeline case).
  */
+export type MemoryAlbumScopeAction = {
+  readonly onRemoveFromAlbum: () => void;
+  /** Only THIS card's affordance is disabled while its mutation is in flight. */
+  readonly removing: boolean;
+};
 
 export function MemoryCard({
   memory,
   accessToken,
+  albumScopeAction,
 }: {
   memory: HomeCloudMemoryListItem;
   accessToken: string | null;
+  albumScopeAction?: MemoryAlbumScopeAction;
 }) {
   switch (memory.kind) {
     case 'image':
-      return <MemoryImageTile memory={memory} accessToken={accessToken} />;
+      return <MemoryImageTile memory={memory} accessToken={accessToken} albumScopeAction={albumScopeAction} />;
     case 'video':
-      return <MemoryVideoTile memory={memory} />;
+      return <MemoryVideoTile memory={memory} albumScopeAction={albumScopeAction} />;
     case 'audio':
-      return <MemoryAudioTile memory={memory} />;
+      return <MemoryAudioTile memory={memory} albumScopeAction={albumScopeAction} />;
     case 'written':
-      return <MemoryWrittenTile memory={memory} />;
+      return <MemoryWrittenTile memory={memory} albumScopeAction={albumScopeAction} />;
   }
+}
+
+/**
+ * The Album-scope affordance, or nothing at all.
+ *
+ * Rendered only when the caller supplies the action, so the Timeline keeps
+ * exactly the tree it had before MO-A2.
+ */
+function AlbumScopeRemove({
+  action,
+  label,
+}: {
+  action: MemoryAlbumScopeAction | undefined;
+  label: string;
+}) {
+  if (!action) return null;
+  return (
+    <View style={styles.albumScope}>
+      <AppButton
+        variant="icon"
+        size="sm"
+        loading={action.removing}
+        disabled={action.removing}
+        onPress={action.onRemoveFromAlbum}
+        accessibilityLabel={`Quitar del álbum ${label}`}
+      >
+        <HomePlusIcon name="close" size={16} color={colors.text.secondary} />
+      </AppButton>
+    </View>
+  );
 }
 
 function TileCaption({ memory }: { memory: HomeCloudMemoryListItem }) {
@@ -106,9 +153,11 @@ function NeutralVisual({
 function MemoryImageTile({
   memory,
   accessToken,
+  albumScopeAction,
 }: {
   memory: HomeCloudMemoryListItem;
   accessToken: string | null;
+  albumScopeAction?: MemoryAlbumScopeAction;
 }) {
   const label = tileAccessibilityLabel(memory, 'Foto');
   const preview = useMemoryPreviewUrl(accessToken, memory.id, memory.hasPreview);
@@ -138,11 +187,18 @@ function MemoryImageTile({
         />
       )}
       <TileCaption memory={memory} />
+      <AlbumScopeRemove action={albumScopeAction} label={label} />
     </View>
   );
 }
 
-function MemoryVideoTile({ memory }: { memory: HomeCloudMemoryListItem }) {
+function MemoryVideoTile({
+  memory,
+  albumScopeAction,
+}: {
+  memory: HomeCloudMemoryListItem;
+  albumScopeAction?: MemoryAlbumScopeAction;
+}) {
   const label = tileAccessibilityLabel(memory, 'Video');
   return (
     <View style={styles.tile}>
@@ -155,11 +211,18 @@ function MemoryVideoTile({ memory }: { memory: HomeCloudMemoryListItem }) {
         </View>
       </View>
       <TileCaption memory={memory} />
+      <AlbumScopeRemove action={albumScopeAction} label={label} />
     </View>
   );
 }
 
-function MemoryAudioTile({ memory }: { memory: HomeCloudMemoryListItem }) {
+function MemoryAudioTile({
+  memory,
+  albumScopeAction,
+}: {
+  memory: HomeCloudMemoryListItem;
+  albumScopeAction?: MemoryAlbumScopeAction;
+}) {
   const label = tileAccessibilityLabel(memory, 'Audio');
   return (
     <View style={styles.tile}>
@@ -170,11 +233,18 @@ function MemoryAudioTile({ memory }: { memory: HomeCloudMemoryListItem }) {
         iconColor={colors.brand}
       />
       <TileCaption memory={memory} />
+      <AlbumScopeRemove action={albumScopeAction} label={label} />
     </View>
   );
 }
 
-function MemoryWrittenTile({ memory }: { memory: HomeCloudMemoryListItem }) {
+function MemoryWrittenTile({
+  memory,
+  albumScopeAction,
+}: {
+  memory: HomeCloudMemoryListItem;
+  albumScopeAction?: MemoryAlbumScopeAction;
+}) {
   const text = memoryPrimaryText(memory);
   const label = memorySemanticLabel(memory);
   return (
@@ -191,6 +261,7 @@ function MemoryWrittenTile({ memory }: { memory: HomeCloudMemoryListItem }) {
       <AppText variant="caption" tone="secondary" numberOfLines={1}>
         {label}
       </AppText>
+      <AlbumScopeRemove action={albumScopeAction} label={label} />
     </View>
   );
 }
@@ -236,5 +307,12 @@ const styles = StyleSheet.create({
   },
   writtenText: {
     lineHeight: 17,
+  },
+  albumScope: {
+    position: 'absolute',
+    right: spacing[1],
+    top: spacing[1],
+    zIndex: 2,
+    backgroundColor: colors.surface.card,
   },
 });

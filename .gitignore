@@ -16,6 +16,8 @@ supabase/snippets/
 /scripts/compiled-w1cscanner/
 /scripts/compiled-t2d1/
 /scripts/compiled-s2i/
+/scripts/compiled-moa2/
+/scripts/compiled-moa2client/
 /scripts/scripts/
 /.env
 /.env.local

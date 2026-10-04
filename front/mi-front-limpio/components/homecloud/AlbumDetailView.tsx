@@ -1,0 +1,260 @@
+import React, { useMemo } from 'react';
+import { RefreshControl, SectionList, StyleSheet, View } from 'react-native';
+
+import { colors, spacing } from '../../constants/theme';
+import { HomePlusIcon } from '../../constants/icons';
+import {
+  ALBUM_EMPTY_TITLE,
+  ALBUM_MISSING_BACK_LABEL,
+  ALBUM_MISSING_TITLE,
+} from '../../services/homecloud/homecloudAlbumScope';
+import type { AlbumDetailState } from '../../services/homecloud/homecloudAlbumDetailPagination';
+import {
+  flattenTimelineForSectionList,
+  groupMemoriesForTimeline,
+} from '../../services/homecloud/homecloudMemoriesTimeline';
+import type { HomeCloudAlbum, HomeCloudMemoryListItem } from '../../services/homecloud/homecloudTypes';
+import { AppButton, AppText, ErrorState, Skeleton } from '../ui';
+import { MemoryCard } from './MemoryCards';
+
+/**
+ * HomeCloud MO-A2 — Album detail.
+ *
+ * NESTED STATE, NOT A ROUTE. This component is rendered by the Memories subtree
+ * while the global Timeline stays mounted underneath it, so Back restores the
+ * Timeline with its loaded pages and its grouped dataset intact. No navigation
+ * route, no router, no new screen and no `navigation/types.ts` change.
+ *
+ * The read is the EXISTING Memories read model in its Album presentation mode
+ * (`albumId` + `order: 'album'`, oldest -> newest). This view never sorts: the
+ * server order IS the Album order, and the existing grouping primitives are
+ * reused unmodified.
+ *
+ * `MemoryCard` is reused exactly as the Timeline reuses it. The only difference
+ * is ONE optional Album-scope action seam, and only when organize is granted:
+ * remove THIS Memory from THIS Album. The Memory itself is never deleted, it
+ * never becomes a Viewer destination, and it is never mutated in the Timeline.
+ */
+
+const ALBUM_COLUMNS = 3;
+
+export function AlbumDetailView({
+  album,
+  state,
+  accessToken,
+  canOrganize,
+  removingContentId,
+  onBack,
+  onOpenActions,
+  onRefresh,
+  onLoadMore,
+  onAddMemories,
+  onRemoveMemory,
+}: {
+  album: HomeCloudAlbum | null;
+  state: AlbumDetailState;
+  accessToken: string | null;
+  canOrganize: boolean;
+  /** The Memory whose remove mutation is in flight, if any. */
+  removingContentId: string | null;
+  onBack: () => void;
+  onOpenActions: () => void;
+  onRefresh: () => void;
+  onLoadMore: () => void;
+  onAddMemories: () => void;
+  onRemoveMemory: (memory: HomeCloudMemoryListItem) => void;
+}) {
+  const sections = useMemo(
+    () => flattenTimelineForSectionList(groupMemoriesForTimeline(state.memories), ALBUM_COLUMNS),
+    [state.memories],
+  );
+
+  // TERMINAL: the Album was deleted (or is not accessible) while it was open.
+  // There is nothing to retry and nothing to empty out: the honest state is the
+  // way back to Recuerdos.
+  if (state.missing) {
+    return (
+      <View style={styles.screen}>
+        <Header
+          title={album?.name ?? 'Álbum'}
+          onBack={onBack}
+          canOrganize={false}
+          onOpenActions={onOpenActions}
+        />
+        <View style={styles.center}>
+          <AppText variant="title3" weight="800" align="center">
+            {ALBUM_MISSING_TITLE}
+          </AppText>
+          <AppText variant="body" tone="secondary" align="center">
+            {'Puede que otro miembro lo haya eliminado. Los recuerdos no cambian.'}
+          </AppText>
+          <AppButton title={ALBUM_MISSING_BACK_LABEL} variant="secondary" onPress={onBack} />
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.screen} accessibilityViewIsModal>
+      <Header
+        title={album?.name ?? 'Álbum'}
+        onBack={onBack}
+        canOrganize={canOrganize}
+        onOpenActions={onOpenActions}
+      />
+      {state.loading ? (
+        <View style={styles.body}>
+          <Skeleton variant="card" height={128} />
+          <Skeleton variant="card" height={128} />
+          <Skeleton variant="card" height={128} />
+        </View>
+      ) : state.error !== null && state.memories.length === 0 ? (
+        <View style={styles.center}>
+          <ErrorState
+            title="No pudimos cargar este álbum"
+            description={state.error}
+            retryLabel="Reintentar"
+            onRetry={onRefresh}
+          />
+        </View>
+      ) : state.memories.length === 0 ? (
+        <View style={styles.center}>
+          <HomePlusIcon name="albums-outline" size={36} color={colors.text.tertiary} />
+          <AppText variant="title3" weight="800" align="center">
+            {ALBUM_EMPTY_TITLE}
+          </AppText>
+          {/* An empty Album is NOT a dead end when organize is granted. Without
+              organize there is no action to offer, so none is rendered. */}
+          {canOrganize ? (
+            <AppButton title="Agregar recuerdos" variant="secondary" onPress={onAddMemories} />
+          ) : null}
+        </View>
+      ) : (
+        <SectionList
+          sections={sections}
+          keyExtractor={(row) => row.key}
+          contentContainerStyle={styles.list}
+          stickySectionHeadersEnabled={false}
+          refreshControl={
+            <RefreshControl refreshing={state.refreshing} onRefresh={onRefresh} />
+          }
+          renderSectionHeader={({ section }) => (
+            <View style={styles.sectionHeader}>
+              {section.yearTitle && section.yearTitle !== section.title ? (
+                <AppText variant="title3" weight="800">
+                  {section.yearTitle}
+                </AppText>
+              ) : null}
+              <AppText variant="bodySmall" tone="secondary" weight="600">
+                {section.yearTitle && section.yearTitle !== section.title ? section.title : section.yearTitle ?? section.title}
+              </AppText>
+            </View>
+          )}
+          renderItem={({ item }) => (
+            <View style={styles.row}>
+              {item.items.map((memory) => (
+                <MemoryCard
+                  key={memory.id}
+                  memory={memory}
+                  accessToken={accessToken}
+                  albumScopeAction={
+                    canOrganize
+                      ? {
+                          onRemoveFromAlbum: () => onRemoveMemory(memory),
+                          removing: removingContentId === memory.id,
+                        }
+                      : undefined
+                  }
+                />
+              ))}
+              {Array.from({ length: ALBUM_COLUMNS - item.items.length }).map((_, index) => (
+                <View key={`spacer-${index}`} style={styles.rowSpacer} />
+              ))}
+            </View>
+          )}
+          ListFooterComponent={
+            state.nextOffset !== null || state.pageError !== null ? (
+              <View style={styles.footer}>
+                {state.pageError !== null ? (
+                  <View style={styles.pageError}>
+                    <AppText variant="caption" tone="danger" align="center">
+                      {state.pageError}
+                    </AppText>
+                    <AppButton
+                      title="Reintentar"
+                      size="sm"
+                      variant="secondary"
+                      onPress={onLoadMore}
+                      accessibilityLabel="Reintentar cargar más recuerdos del álbum"
+                    />
+                  </View>
+                ) : null}
+                {state.nextOffset !== null ? (
+                  <AppButton
+                    title={state.loadingMore ? 'Cargando…' : 'Mostrar más recuerdos'}
+                    variant="secondary"
+                    disabled={state.loadingMore}
+                    onPress={onLoadMore}
+                  />
+                ) : null}
+              </View>
+            ) : null
+          }
+        />
+      )}
+    </View>
+  );
+}
+
+function Header({
+  title,
+  onBack,
+  canOrganize,
+  onOpenActions,
+}: {
+  title: string;
+  onBack: () => void;
+  canOrganize: boolean;
+  onOpenActions: () => void;
+}) {
+  return (
+    <View style={styles.header}>
+      <AppButton variant="icon" size="sm" onPress={onBack} accessibilityLabel="Volver a los recuerdos">
+        <HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} />
+      </AppButton>
+      <AppText variant="title3" weight="800" style={styles.headerTitle} numberOfLines={1}>
+        {title}
+      </AppText>
+      {canOrganize ? (
+        <AppButton
+          variant="icon"
+          size="sm"
+          onPress={onOpenActions}
+          accessibilityLabel={`Acciones del álbum ${title}`}
+        >
+          <HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} />
+        </AppButton>
+      ) : null}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.background.base },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing[5],
+    paddingVertical: spacing[4],
+    gap: spacing[2],
+  },
+  headerTitle: { flex: 1 },
+  body: { paddingHorizontal: spacing[5], gap: spacing[3] },
+  list: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] },
+  sectionHeader: { paddingTop: spacing[3], paddingBottom: spacing[2], gap: 2 },
+  row: { flexDirection: 'row', gap: spacing[2], marginBottom: spacing[3] },
+  rowSpacer: { flex: 1 },
+  footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] },
+  pageError: { alignItems: 'center', gap: spacing[2] },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] },
+});

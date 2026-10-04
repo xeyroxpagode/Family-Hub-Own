@@ -266,6 +266,48 @@ const commands = {
     'node',
     ['scripts/homecloud_moa1_album_runtime_tests.js'],
   ),
+  // MO-A2 — Albums SURFACE (the UI slice that consumes the closed MO-A1
+  // contract).
+  //
+  // homecloud-moa2-album-surface is deterministic: it EXECUTES the two
+  // framework-free Album controllers (generations, stale-answer rejection,
+  // replace vs append, dedupe, terminal missing-Album, reset) and reads the real
+  // component sources for the boundaries that only source can prove.
+  //
+  // homecloud-moa2-album-runtime is ENVIRONMENT-DEPENDENT: it boots the REAL
+  // backend HomeCloud routes in process on an EPHEMERAL local port and drives
+  // the REAL compiled frontend client over HTTP against the LOCAL Supabase
+  // reported by `supabase status`, so every Album request shape, status and
+  // typed refusal is exercised as the app sends it. It refuses a non-local URL.
+  'homecloud-moa2-album-surface': () => {
+    runCommand(
+      'HomeCloud MO-A2 compile Album surface/controller tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa2_test.json'],
+    );
+    return runCommand(
+      'HomeCloud MO-A2 Album surface / controller deterministic tests',
+      'node',
+      ['scripts/compiled-moa2/scripts/homecloud_moa2_album_surface_tests.js'],
+    );
+  },
+  'homecloud-moa2-album-runtime': () => {
+    runCommand(
+      'HomeCloud MO-A2 compile the Album client contract',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa2_client_test.json'],
+    );
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'HomeCloud MO-A2 Album runtime tests (local Supabase, real client over HTTP)',
+      'node',
+      ['scripts/homecloud_moa2_album_runtime_tests.js'],
+      { env },
+    );
+  },
   'homecloud-1f-dto-leak': () => runCommand(
     'HomeCloud 1F DTO leak regression tests',
     'node',
@@ -911,6 +953,28 @@ const suites = {
     'homecloud-4b2-timeline',
     'homecloud-4a2-written-validation',
     'homecloud-4a2-written-runtime',
+    'frontend-typecheck',
+  ],
+  // MO-A2 gate. Every new MO-A2 evidence belongs here; there are no orphan
+  // scripts. It carries its own surface + runtime evidence AND the whole MO-A1
+  // album contract, because the UI slice must never weaken the contract it
+  // consumes. The two `*-runtime` members need a local Supabase and classify
+  // themselves as RUNTIME_REQUIRED / ENVIRONMENT_FAILURE when it is not
+  // available; they never degrade to a pretend pass.
+  'homecloud-moa2': [
+    'homecloud-moa2-album-surface',
+    'homecloud-moa2-album-runtime',
+    'homecloud-moa1-album-contract',
+    'homecloud-moa1-album-runtime',
+    'homecloud-1f-dto-leak',
+    'homecloud-4b1-memories-read-model',
+    'homecloud-4b1-preview',
+    'homecloud-4b2-timeline',
+    'homecloud-4a2-written-validation',
+    'homecloud-4a2-written-runtime',
+    'homecloud-4c1-1-memory-create-recovery',
+    'homecloud-w1a-authority',
+    'homecloud-w1bc-pagination-reconciliation',
     'frontend-typecheck',
   ],
   'homecloud-w1': [

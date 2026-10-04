@@ -67,7 +67,10 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   let selectedAlbumId: string | null = initialAlbumId ?? null;
   let selectedAlbumName: string | null = initialAlbumName ?? null;
   let availableAlbums: MemoryIntakeDestination[] = [];
-  let albumsLoaded = false;
+  // Destinations are re-readable, NOT loaded once and forgotten. The previous
+  // one-shot flag made the picker offer Albums that had been renamed or deleted
+  // elsewhere, and it could never recover without a remount.
+  let destinationsInFlight: Promise<void> | null = null;
   let picking = false;
   let stateListeners: Set<(state: MemoryIntakeState) => void> = new Set();
 
@@ -95,26 +98,49 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
 
 
-  async function loadAlbums(): Promise<void> {
-    if (albumsLoaded) return;
-    try {
-      const token = getAccessToken();
-      if (!token) throw new Error('no access token');
-      const albums = await fetchHomeCloudAlbumsCached(token, { householdId });
-      availableAlbums = [
-        { id: 'root', name: 'Recuerdos', isCurrent: selectedAlbumId === null },
-        ...albums.map((a) => ({ id: a.id, name: a.name, isCurrent: a.id === selectedAlbumId })),
-      ];
-      // If the inherited Album context no longer resolves, surface it instead of
-      // silently continuing as root Memories.
-      if (selectedAlbumId && !albums.some((a) => a.id === selectedAlbumId)) {
-        emitState({ invalidAlbum: true });
+/**
+   * Reload the Album destinations through the EXISTING cached read.
+   *
+   * This is a re-runnable seam, not a one-shot load:
+   *  - it is safe to call on every sheet open, so the picker always reflects the
+   *    Albums that exist NOW;
+   *  - concurrent calls share ONE in-flight read instead of racing two answers
+   *    over the same list;
+   *  - the read is the SAME `fetchHomeCloudAlbumsCached` the surface already
+   *    used. No second Albums fetcher is introduced here, and this module owns NO
+   *    Album management: it can neither create, rename nor delete an Album.
+   *
+   * Album MUTATIONS elsewhere invalidate the household Album read keys, so once
+   * they have run this reload is guaranteed to miss the cache and re-read.
+   */
+  async function reloadDestinations(): Promise<void> {
+    if (destinationsInFlight) return destinationsInFlight;
+    const run = (async () => {
+      try {
+        const token = getAccessToken();
+        if (!token) throw new Error('no access token');
+        const albums = await fetchHomeCloudAlbumsCached(token, { householdId });
+        availableAlbums = [
+          { id: 'root', name: 'Recuerdos', isCurrent: selectedAlbumId === null },
+          ...albums.map((a) => ({ id: a.id, name: a.name, isCurrent: a.id === selectedAlbumId })),
+        ];
+        // An inherited Album context that no longer resolves is SURFACED, never
+        // silently retargeted to root and never silently kept as if it existed.
+        if (selectedAlbumId && !albums.some((a) => a.id === selectedAlbumId)) {
+          emitState({ invalidAlbum: true });
+        } else if (selectedAlbumId) {
+          emitState({ albumName: albums.find((a) => a.id === selectedAlbumId)?.name ?? selectedAlbumName, invalidAlbum: false });
+        }
+      } catch {
+        // An empty Album list must NEVER block Memory creation: "Sin álbum"
+        // stays valid, so the only destination offered is the root one.
+        availableAlbums = [{ id: 'root', name: 'Recuerdos', isCurrent: selectedAlbumId === null }];
+      } finally {
+        destinationsInFlight = null;
       }
-      albumsLoaded = true;
-    } catch {
-      availableAlbums = [{ id: 'root', name: 'Recuerdos', isCurrent: selectedAlbumId === null }];
-      albumsLoaded = true;
-    }
+    })();
+    destinationsInFlight = run;
+    return run;
   }
 
   function mapEngineStateToIntakeState(job: UploadJob): MemoryIntakeState['status'] {
@@ -408,7 +434,11 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     getInitialAlbum,
     canShowDestinationSelector,
     hasAlbumContext,
-    loadAlbums,
+    /**
+     * Re-read the Album destinations. Neutral by design: this service owns no
+     * Album management, so it never names a create/rename/delete operation.
+     */
+    reloadDestinations,
     recover,
     hasActiveJob,
     /** The job this surface is bound to (null before the first submit). */

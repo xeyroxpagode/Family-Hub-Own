@@ -474,9 +474,31 @@ test('ALBUM: the intake owns no Album UI, an empty album list never blocks Creat
   assert.doesNotMatch(readService, /AlbumTile|AlbumScreen/);
 });
 
-test('VIEWER stays deferred: cards remain non-interactive', () => {
-  assert.match(cardsSource, /Cards are intentionally NON-INTERACTIVE in this slice/);
-  assert.doesNotMatch(cardsSource, /onPress|navigation\.|router\./);
+test('VIEWER stays deferred: a card is never a destination, and the only new affordance is an Album-scope removal', () => {
+  // MO-A2 retarget. The guard used to be "no onPress anywhere in MemoryCards",
+  // which froze a superseded implementation detail: the Album detail needs ONE
+  // contextual affordance. The real invariants are now asserted directly, so the
+  // guard keeps protecting the Viewer boundary instead of the absence of a prop.
+  const cardsCode = stripComments(cardsSource);
+  // NO navigation, NO router, NO Viewer destination, at any point.
+  assert.doesNotMatch(cardsCode, /navigation\.|router\.|useNavigate|navigate\(|push\(/);
+  assert.doesNotMatch(cardsCode, /Viewer|MediaViewer|fullscreen/i);
+  // The one seam is OPTIONAL and structural: absent action renders nothing.
+  assert.match(cardsSource, /albumScopeAction\?: MemoryAlbumScopeAction;/);
+  assert.match(cardsSource, /if \(!action\) return null;/);
+  // And it is a MEMBERSHIP removal, so the Mutation it triggers is not a
+  // Memory mutation and the card stays non-navigational.
+  assert.match(cardsSource, /onPress=\{action\.onRemoveFromAlbum\}/);
+  assert.doesNotMatch(cardsCode, /deleteMemory|removeMemory|trashMemory/);
+  // The Timeline call site NEVER supplies it, so Timeline rendering and
+  // behavior are unchanged when the prop is absent.
+  const memoriesScreen = read('front/mi-front-limpio/screens/HomeCloudMemoriesScreen.tsx');
+  const timelineList = stripComments(memoriesScreen.slice(
+    memoriesScreen.indexOf('<SectionList'),
+    memoriesScreen.indexOf('ListFooterComponent', memoriesScreen.indexOf('<SectionList')),
+  ));
+  assert.match(timelineList, /<MemoryCard key=\{memory\.id\} memory=\{memory\} accessToken=\{token\} \/>/);
+  assert.doesNotMatch(timelineList, /albumScopeAction/);
   assert.doesNotMatch(component, /zoom|Viewer|viewer/);
 });
 

@@ -31,6 +31,15 @@ import { MemoryAttemptAuthority, type MemoryAttempt } from './homecloudMemoryAtt
 export interface MemoryIntakeProps {
   config: MemoryIntakeConfig;
   onComplete?: (contentId: string) => void;
+  /**
+   * MO-A2 — a NEUTRAL change signal for the Album destination list.
+   *
+   * The surface that owns Albums (create / rename / delete) bumps this counter,
+   * and intake re-reads its own destinations through the existing service path.
+   * Intake owns NO Album management: this is a re-read trigger, not an
+   * operation, and it is deliberately not an event bus or a shared store.
+   */
+  destinationsRevision?: number;
 }
 
 type Sheet = 'create' | 'source' | 'camera' | 'binary' | 'recorder' | 'audio-handoff' | 'written' | null;
@@ -107,7 +116,7 @@ type BinaryDraftClearReason = 'accepted' | 'completed' | 'review_close' | 'focus
  * is `visible` and nothing else; `handleSourceBinaryRequestClose` is the single
  * close authority, and its policy varies per content (see below).
  */
-export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
+export function MemoryIntake({ config, onComplete, destinationsRevision }: MemoryIntakeProps) {
   const isFocused = useIsFocused();
   const { householdId, accessToken, capabilities, initialAlbumId, initialAlbumName, intakeSource } = config;
   const accessTokenRef = useRef(accessToken);
@@ -236,10 +245,32 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
       changedFields: [...changedFields],
     });
 
-    void service.loadAlbums().then(() => { if (activeSubscription) setAlbums(service.getAvailableDestinations()); });
+    void service.reloadDestinations().then(() => { if (activeSubscription) setAlbums(service.getAvailableDestinations()); });
     void service.recover();
     return () => { activeSubscription = false; unsubscribe(); };
   }, [service]);
+
+  /**
+   * MO-A2 — the Album destination list must never go stale while this surface
+   * stays mounted. The destinations are re-read through the SAME service path on
+   * three honest triggers:
+   *   1. this sheet is about to open (see `openCreate` / `openWritten`);
+   *   2. the service instance is (re)created;
+   *   3. the Albums owner reports that a destination changed.
+   *
+   * It is a re-read of existing destinations, never a second Albums fetcher and
+   * never an Album mutation from here.
+   */
+  const reloadDestinations = useCallback(() => {
+    void service.reloadDestinations().then(() => {
+      if (mountedRef.current) setAlbums(service.getAvailableDestinations());
+    });
+  }, [service]);
+
+  useEffect(() => {
+    if (!destinationsRevision) return;
+    reloadDestinations();
+  }, [destinationsRevision, reloadDestinations]);
 
   /** Drop the picked-but-never-uploaded copy so CANCEL/CLOSE do not leak it. */
   const discardDraftArtifact = useCallback((draft: BinaryMemoryDraft | null) => {
@@ -497,13 +528,14 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
     }
   }, [config.accessToken, onComplete, writtenAlbumId, writtenDate, writtenSubmitting, writtenText]);
 
-  const openWritten = () => {
+const openWritten = () => {
     Keyboard.dismiss();
     setWrittenText('');
     setWrittenDate(emptySemanticDateDraft());
     setWrittenAlbumId(initialAlbumId ?? null);
     setWrittenError(null);
     writtenRequestId.current = null;
+    reloadDestinations();
     setSheet('written');
   };
 
@@ -511,8 +543,9 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
     // Starting a new draft detaches presentation from any previous accepted
     // job. Execution remains owned by the household coordinator.
     service.dismiss();
+    reloadDestinations();
     setSheet('create');
-  }, [service]);
+  }, [reloadDestinations, service]);
 
   return (
     <>
@@ -587,7 +620,7 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
               returnKeyType="done"
               blurOnSubmit
             />
-            <MemoryAlbumSelector albums={albums} value={binaryAlbumId} onChange={setBinaryAlbumId} disabled={active} />
+            <MemoryAlbumSelector albums={albums} value={binaryAlbumId} onChange={setBinaryAlbumId} disabled={active} invalidAlbum={state.invalidAlbum === true} />
             {state.status === 'failed' ? (
               <View style={styles.error}>
                 <AppText variant="bodySmall" tone="danger">{state.error ?? 'No pudimos guardar este recuerdo.'}</AppText>
@@ -644,7 +677,7 @@ export function MemoryIntake({ config, onComplete }: MemoryIntakeProps) {
             onSubmitEditing={() => void submitWritten()}
           />
           <MemorySemanticDateFields value={writtenDate} onChange={setWrittenDate} disabled={writtenSubmitting} />
-          <MemoryAlbumSelector albums={albums} value={writtenAlbumId} onChange={setWrittenAlbumId} disabled={writtenSubmitting} />
+          <MemoryAlbumSelector albums={albums} value={writtenAlbumId} onChange={setWrittenAlbumId} disabled={writtenSubmitting} invalidAlbum={state.invalidAlbum === true} />
           {writtenError ? <AppText variant="bodySmall" tone="danger">{writtenError}</AppText> : null}
         </ScrollView>
       </ActionSheet>
@@ -674,15 +707,28 @@ function MemoryCaptureSummary({ capture }: { capture: MediaCaptureMetadata | und
   );
 }
 
-function MemoryAlbumSelector({ albums, value, onChange, disabled }: {
+function MemoryAlbumSelector({ albums, value, onChange, disabled, invalidAlbum }: {
   albums: MemoryIntakeDestination[];
   value: string | null;
   onChange: (albumId: string | null) => void;
   disabled: boolean;
+  /**
+   * MO-A2 — an inherited / selected Album that no longer exists.
+   *
+   * It is SURFACED, never silently retargeted to "Sin álbum" and never silently
+   * saved into root: the user decides, and the transition to "Sin álbum" is an
+   * explicit action on the chip below.
+   */
+  invalidAlbum?: boolean;
 }) {
   return (
     <View style={styles.albumSection}>
       <AppText variant="caption" tone="secondary" weight="700">{'Álbum (opcional)'}</AppText>
+      {invalidAlbum ? (
+        <AppText variant="caption" tone="danger">
+          {'El álbum que elegiste ya no está disponible. Podés guardarlo sin álbum.'}
+        </AppText>
+      ) : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.albumList}>
         {albums.length === 0 ? <FilterChip label="Sin álbum" selected disabled={disabled} /> : albums.map((album) => {
           const albumId = album.id === 'root' ? null : album.id;
