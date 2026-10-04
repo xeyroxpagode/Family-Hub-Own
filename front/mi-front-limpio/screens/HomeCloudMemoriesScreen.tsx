@@ -11,7 +11,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
 import { AppButton, AppText, ErrorState, Skeleton } from '../components/ui';
@@ -72,6 +72,12 @@ import {
   type MemoryEdgeTicker,
   type MemoryRowRegistry,
 } from '../services/homecloud/homecloudMemoryDrag';
+import {
+  createMemoryExitGestureLock,
+  scrollMemoryListToOffset,
+  solveMemoryRefreshGate,
+  type MemoryExitGestureLock,
+} from '../services/homecloud/homecloudMemoryGestureOwnership';
 import {
   canConfirmMemorySelection,
   cancelMemorySelection,
@@ -135,17 +141,20 @@ const NO_ALBUMS_DESTINATION_BODY =
 
 const EMPTY_EXCLUSIONS: ReadonlySet<string> = new Set<string>();
 
-/**
- * The grid host handle.
+/*
+ * MO-A3 DEVICE FIX (D1) — THE GRID HOST REF IS THE PUBLISHED SECTIONLIST TYPE.
  *
- * `SectionList` forwards its ref to the underlying `VirtualizedList`, which is
- * where `scrollToOffset` really lives; the published class type does not declare
- * it. The edge auto-scroll and the per-source offset restore both need it, so the
- * handle is declared explicitly instead of casting at each call site.
+ * `listRef` used to be typed `SectionList & { scrollToOffset }`. That was an
+ * invented surface. The runtime object behind `ref` on a `SectionList` is the
+ * `SectionList` CLASS INSTANCE, which publishes `scrollToLocation`,
+ * `recordInteraction`, `flashScrollIndicators`, `getScrollResponder`,
+ * `getScrollableNode` and `setNativeProps` — and NOT `scrollToOffset`, which
+ * belongs to the `VirtualizedList` the SectionList renders internally and is
+ * never forwarded. A local type made `listRef.current?.scrollToOffset(...)`
+ * type-check while calling `undefined` on a real iPhone: `?.` guards a null ref,
+ * never a missing method. The runtime object is the authority, so scrolling now
+ * goes through the guarded adapter in `homecloudMemoryGestureOwnership`.
  */
-type MemoryGridListHandle = SectionList<TimelineRow, TimelineListSection> & {
-  scrollToOffset: (params: { offset: number; animated?: boolean }) => void;
-};
 
 /**
  * HomeCloud STAGE 4B.2 — Memories Root (productive Timeline surface).
@@ -630,7 +639,7 @@ export function HomeCloudMemoriesView() {
   const rowRegistryRef = useRef<MemoryRowRegistry | null>(null);
   if (rowRegistryRef.current === null) rowRegistryRef.current = createMemoryRowRegistry();
   const fingerRef = useRef<{ x: number; y: number } | null>(null);
-  const listRef = useRef<MemoryGridListHandle | null>(null);
+  const listRef = useRef<SectionList<TimelineRow, TimelineListSection> | null>(null);
   const rootScrollRef = useRef<ScrollView | null>(null);
   const viewportHeightRef = useRef(0);
   /** Scroll offset per source. Refs: an onScroll event must never re-render. */
@@ -655,6 +664,57 @@ export function HomeCloudMemoriesView() {
     stopEdgeScroll();
   }, [stopEdgeScroll]);
 
+  // =========================================================================
+  // MO-A3 DEVICE FIX (D3) — PARENT / NAVIGATION EXIT GESTURE OWNERSHIP
+  // =========================================================================
+
+  /**
+   * `HomeCloud` is a card inside the `MoreStack` NATIVE stack, so the swipe that
+   * leaves HomeCloud is react-native-screens' native interactive-pop recognizer
+   * on the stack, not a JS gesture. A `PanResponder` inside the list cannot block
+   * a native recognizer, which is why a sweep could navigate away mid-drag. The
+   * route's own documented `gestureEnabled` option is the only seam, and it is
+   * the CURRENT React Navigation API: no new route, no navigator change and no
+   * permanent change to app navigation.
+   *
+   * `navigation` is read through a ref so the lock — which must exist exactly
+   * once — never closes over a stale navigation object.
+   */
+  const navigation = useNavigation<any>();
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const exitGestureRef = useRef<MemoryExitGestureLock | null>(null);
+  if (exitGestureRef.current === null) {
+    exitGestureRef.current = createMemoryExitGestureLock({
+      apply: (gestureEnabled: boolean) => {
+        navigationRef.current?.setOptions({ gestureEnabled });
+      },
+    });
+  }
+  const exitGesture = exitGestureRef.current;
+
+  /**
+   * MO-A3 DEVICE FIX (D2) — the refresh seam.
+   *
+   * BOTH halves of the fix are here and they are deliberately different things.
+   * The gesture half is the `mountRefreshControl` decision on the list below: on
+   * iOS the refresh control is a real `UIRefreshControl` armed by the native pan
+   * from touch-down, so `refreshing={false}` still arms the pull gesture and only
+   * not mounting the control prevents it. The business half is this callback: it
+   * re-checks the LIVE selection and drag state, so an already-armed control, a
+   * stale one, or any platform that fires `onRefresh` anyway still cannot
+   * replace the dataset underneath a sweep.
+   */
+  const handleGridRefresh = useCallback(() => {
+    const gate = solveMemoryRefreshGate({
+      selecting,
+      dragArmed: dragRef.current.armed,
+      dragActive: dragRef.current.active,
+    });
+    if (!gate.allowRefresh) return;
+    void refresh();
+  }, [refresh, selecting]);
+
   /**
    * ONE POINTER EVENT: hit test, apply the crossed ids, feed the edge ticker.
    *
@@ -677,15 +737,25 @@ export function HomeCloudMemoriesView() {
     edgeTickerRef.current?.update(y);
   }, []);
 
+  /**
+   * MO-A3 DEVICE FIX (D1) — the ONE programmatic scroll path.
+   *
+   * The offset is only recorded when a command REALLY was issued. An unsupported
+   * host therefore stops the ticker instead of accumulating a tracked offset the
+   * list never reached, so a broken host can never masquerade as a working
+   * auto-scroll, and it can never leave a ticker running for nothing.
+   */
   const scrollByRef = useCallback((deltaPx: number) => {
     const key = sourceKeyRef.current;
     const current = scrollOffsetsRef.current.get(key) ?? 0;
     const next = Math.max(0, current + deltaPx);
-    scrollOffsetsRef.current.set(key, next);
-    // NEVER an animated scroll command: animated commands would stack and fight
-    // the ticker's cadence.
-    listRef.current?.scrollToOffset({ offset: next, animated: false });
-  }, []);
+    const result = scrollMemoryListToOffset(listRef.current, next);
+    if (result.appliedOffset === null) {
+      stopEdgeScroll();
+      return;
+    }
+    scrollOffsetsRef.current.set(key, result.appliedOffset);
+  }, [stopEdgeScroll]);
 
   const onScrolledRef = useCallback(() => {
     // After a programmatic scroll, new rows may now be under a stationary
@@ -1096,6 +1166,10 @@ export function HomeCloudMemoriesView() {
 
   // Restore the offset of the source being entered, so Recuerdos -> Colecciones
   // -> Recuerdos comes back exactly where it was, without ever re-reading data.
+  //
+  // MO-A3 DEVICE FIX (D1): the restore went through the same invented
+  // `scrollToOffset` as the ticker, so it had the identical latent crash. It now
+  // shares the ONE adapter, which is the only scroll authority in this screen.
   useEffect(() => {
     const offset = scrollOffsetsRef.current.get(sourceKey) ?? 0;
     if (offset <= 0) return;
@@ -1103,7 +1177,7 @@ export function HomeCloudMemoriesView() {
       rootScrollRef.current?.scrollTo({ y: offset, animated: false });
       return;
     }
-    listRef.current?.scrollToOffset({ offset, animated: false });
+    scrollMemoryListToOffset(listRef.current, offset);
   }, [sourceKey]);
 
   // =========================================================================
@@ -1167,6 +1241,27 @@ export function HomeCloudMemoriesView() {
     },
     [abortDrag],
   );
+
+  /**
+   * MO-A3 DEVICE FIX (D3) — SUPPRESS FOR THE SESSION, RESTORE ON EXIT.
+   *
+   * The whole selection session, not only the active drag: an edge swipe must not
+   * "accidentally terminate the session", and by the time a drag is active the
+   * native recognizer has already been evaluating the pan. The restore is the
+   * captured baseline, so normal HomeCloud navigation is bit-for-bit what it was.
+   */
+  useEffect(() => {
+    exitGesture.sync(selecting);
+  }, [exitGesture, selecting]);
+
+  /**
+   * And on the way out — unmount, which covers the header back button and the
+   * programmatic pop that never reach this screen's BackHandler. React Navigation
+   * also clears `setOptions` overrides on unmount, so the two mechanisms agree.
+   */
+  useEffect(() => () => {
+    exitGesture.release();
+  }, [exitGesture]);
 
   // =========================================================================
   // MO-A2 — Household reset — nothing from household A may render in household B
@@ -1286,18 +1381,29 @@ export function HomeCloudMemoriesView() {
       scrollEventThrottle={DRAG_SCROLL_THROTTLE}
       onLayout={handleGridLayout}
       refreshControl={
-        selecting && selection.source.kind === 'collection' ? undefined : (
-          <RefreshControl
-            refreshing={selecting ? false : refreshing}
-            onRefresh={() => {
-              if (selecting && selection.source.kind === 'collection') {
-                void collectionsControllerRef.current!.refresh();
-                return;
-              }
-              void refresh();
-            }}
-          />
-        )
+        /*
+         * MO-A3 DEVICE FIX (D2) — GESTURE PREVENTION.
+         *
+         * While a selection session is live the RefreshControl is NOT MOUNTED, for
+         * any source. A mounted `UIRefreshControl` is armed by the native pan from
+         * touch-down and `refreshing={false}` does not disarm it, so suppressing it
+         * by flag was never going to work on a real iPhone; the previous code kept
+         * it mounted with `refreshing={selecting ? false : refreshing}` and the
+         * sweep could therefore pull the Timeline. Ordinary vertical scrolling is
+         * untouched, because this is the refresh prop, not `scrollEnabled`.
+         *
+         * Normal mode keeps the ordinary control with its ordinary indicator, and
+         * the header refresh button and intake completion still call the same read
+         * directly, so no refresh capability is removed from the product.
+         *
+         * The drag flags are passed as false ON PURPOSE: mounting depends only on
+         * the session, because the arming long press happens after the native pan
+         * has already started tracking. That is the gate's stated contract, not an
+         * omission.
+         */
+        solveMemoryRefreshGate({ selecting, dragArmed: false, dragActive: false }).mountRefreshControl ? (
+          <RefreshControl refreshing={refreshing} onRefresh={handleGridRefresh} />
+        ) : undefined
       }
       ListHeaderComponent={
         selecting

@@ -1109,12 +1109,52 @@ record(
   !/Viewer|viewer/i.test(SCREEN_CODE + SELECTABLE_CODE + ROW_CODE + HEADER_CODE + TILE_CODE + DETAIL),
   'no Viewer exists anywhere in the MO-A3 surface',
 );
+/**
+ * EVERY method the selection surface calls on a navigation object.
+ *
+ * MO-A3 DEVICE FIX (D3) had to tighten this boundary rather than loosen it. The
+ * surface now HOLDS a navigation object, because suppressing the parent exit
+ * swipe while a selection session is live is only possible through the CURRENT
+ * route's own `gestureEnabled` option — the exit swipe is a native recognizer
+ * owned by the `MoreStack` native stack, so no JS gesture can block it.
+ *
+ * The original proof was the ABSENCE of the word `useNavigation`, which cannot
+ * distinguish "holds the object" from "performs navigation". This one is strictly
+ * stronger: it enumerates the methods actually invoked and requires every one of
+ * them to be `setOptions`, which mutates an EXISTING route's gesture option and
+ * performs no navigation, adds no route and creates no navigator.
+ */
+function navigationMethodsUsed(source: string): string[] {
+  const methods = new Set<string>();
+  // Only real CALLS count, and the whole member chain is captured so an
+  // indirection like `navigationRef.current?.setOptions(...)` is reported as
+  // `setOptions`. A plain property write (`navigationRef.current = navigation`)
+  // is not a method call and is therefore not navigation.
+  for (const match of source.matchAll(
+    /\b(?:navigation|navigationRef)\b((?:\s*\??\.\s*[A-Za-z_$][\w$]*)+)\s*\(/g,
+  )) {
+    const chain = match[1].match(/([A-Za-z_$][\w$]*)\s*$/);
+    if (chain !== null) methods.add(chain[1]);
+  }
+  return [...methods];
+}
+
 record(
-  !/\bnavigation\.(navigate|push|replace|pop|goBack|reset)\b/.test(
+  !/\bnavigation\.(navigate|push|replace|pop|goBack|reset|prepend)\b/.test(
     SCREEN_CODE + SELECTABLE_CODE + ROW_CODE + HEADER_CODE + TILE_CODE,
   )
-  && !/\buseNavigation\b|\brouter\./.test(SCREEN_CODE + SELECTABLE_CODE + ROW_CODE + HEADER_CODE + TILE_CODE),
-  'the selection surface adds NO navigation route and NO router',
+    && !/\brouter\./.test(SCREEN_CODE + SELECTABLE_CODE + ROW_CODE + HEADER_CODE + TILE_CODE)
+    && !/\bcreate(Native)?StackNavigator\b/.test(
+      SCREEN_CODE + SELECTABLE_CODE + ROW_CODE + HEADER_CODE + TILE_CODE,
+    )
+    && navigationMethodsUsed(SCREEN_CODE + SELECTABLE_CODE + ROW_CODE + HEADER_CODE + TILE_CODE)
+      .every((method) => method === 'setOptions'),
+  'the selection surface adds NO navigation route and NO router, and the only navigation API it touches is setOptions',
+);
+record(
+  navigationMethodsUsed(SCREEN_CODE + SELECTABLE_CODE + ROW_CODE + HEADER_CODE + TILE_CODE)
+    .join(',') === 'setOptions',
+  'D3 exposes exactly ONE navigation method on the surface — setOptions — so no navigation action can hide in it',
 );
 record(
   !/album/i.test(NAV_TYPES), 'no Album or collection route exists in navigation/types.ts',

@@ -352,6 +352,26 @@ const commands = {
       { env },
     );
   },
+  // MO-A3 DEVICE FIX (D1/D2/D3) — the three physical-iPhone gesture defects the
+  // automated gates could not see: the auto-scroll crash, the drag leaking into
+  // pull-to-refresh, and the drag leaking into the parent exit swipe.
+  //
+  // It is deterministic and framework free. Its fixtures are built from the
+  // RUNTIME facts proven against the installed React Native (a SectionList ref
+  // publishes getScrollResponder and NOT scrollToOffset), so the "supported" and
+  // "missing method" cases describe the real object rather than a convenient one.
+  'homecloud-moa3-device-gestures': () => {
+    runCommand(
+      'HomeCloud MO-A3 device fix compile scroll-adapter / refresh-gate / exit-gesture tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa3_device_gesture_fix_test.json'],
+    );
+    return runCommand(
+      'HomeCloud MO-A3 device fix scroll adapter / refresh gate / exit gesture tests',
+      'node',
+      ['scripts/compiled-moa3-device-gesture/scripts/homecloud_moa3_device_gesture_fix_tests.js'],
+    );
+  },
   'homecloud-1f-dto-leak': () => runCommand(
     'HomeCloud 1F DTO leak regression tests',
     'node',
@@ -1030,6 +1050,7 @@ const suites = {
   'homecloud-moa3': [
     'homecloud-moa3-selection',
     'homecloud-moa3-selection-runtime',
+    'homecloud-moa3-device-gestures',
     'homecloud-moa2-album-surface',
     'homecloud-moa2-album-runtime',
     'homecloud-moa1-album-contract',
