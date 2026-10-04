@@ -362,7 +362,13 @@ class BrowserTransport {
     }) as typeof fetch;
   }
 
-  /** Mirrors backend/src/services/homecloudFilesService.js `browseFiles`. */
+  /**
+   * Mirrors backend/src/services/homecloudFilesService.js `browseFiles`
+   * INCLUDING the S4-iii C2 has-more probe: the requested `limit` is the logical
+   * page size, the read answers up to `limit + 1` rows, and `nextOffset` is
+   * non-null only when that extra row really exists. An exact page boundary
+   * (100 files) therefore answers a FULL page with `nextOffset: null`.
+   */
   private browse(params: URLSearchParams): unknown {
     const folderId = params.get('folderId');
     const search = (params.get('query') ?? '').trim();
@@ -381,7 +387,9 @@ class BrowserTransport {
       ? [...matched].sort((a, b) => (a.displayName < b.displayName ? -1 : 1))
       : [...matched].sort((a, b) => (a.id < b.id ? 1 : -1));
 
-    const page = matched.slice(pageOffset, pageOffset + pageLimit);
+    const window = matched.slice(pageOffset, pageOffset + pageLimit + 1);
+    const hasMore = window.length > pageLimit;
+    const page = hasMore ? window.slice(0, pageLimit) : window;
     const folders = folderId
       ? []
       : this.store.folders.filter((folder) => !search || folder.name.toLowerCase().includes(search.toLowerCase()));
@@ -401,7 +409,7 @@ class BrowserTransport {
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
       })),
-      nextOffset: page.length === pageLimit ? pageOffset + pageLimit : null,
+      nextOffset: hasMore ? pageOffset + pageLimit : null,
     };
   }
 
@@ -645,7 +653,10 @@ async function testSortReachesTheRead(): Promise<void> {
   const names = listedFileIds(surface.tree).map((id) => transport.displayNameOf(id));
   record(names.every((name, index) => index === 0 || names[index - 1].localeCompare(name) <= 0),
     'C6. and the list follows it (alphabetical, as the read ordered it)');
-  record(transport.fileReads().length >= 3, 'C7. the sort really cost a read');
+  // S4-iii B2: ONE intentional sort change costs EXACTLY ONE read. It used to
+  // assert ">= 3", which is what the duplicate debounce + focus load produced.
+  record(transport.fileReads().length === 2,
+    'C7. and the sort cost exactly ONE read, not a debounce read plus a focus read');
   surface.unmount();
 }
 

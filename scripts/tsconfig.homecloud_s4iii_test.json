@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-s4iii"
+  },
+  "include": [
+    "../scripts/homecloud_s4iii_files_surface_closure_tests.ts",
+    "../front/mi-front-limpio/screens/HomeCloudFilesScreen.tsx",
+    "../front/mi-front-limpio/services/homecloud/homecloudFilesPagination.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudFileIntakeService.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudFileIntakeTypes.ts",
+    "../front/mi-front-limpio/services/homecloud/FileIntake.tsx",
+    "../front/mi-front-limpio/services/homecloud/homecloudReadService.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudReadReconciliation.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadCoordinator.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadJob.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadEngine.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadQueue.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadRuntime.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudDurableArtifact.ts",
+    "../front/mi-front-limpio/storage/homecloudUploadJobStorage.ts"
+  ],
+  "exclude": ["node_modules"]
+}

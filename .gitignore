@@ -18,6 +18,7 @@ supabase/snippets/
 /scripts/compiled-hcruntime/
 /scripts/compiled-s4i/
 /scripts/compiled-s2i/
+/scripts/compiled-s4iii/
 /scripts/scripts/
 /.env
 /.env.local

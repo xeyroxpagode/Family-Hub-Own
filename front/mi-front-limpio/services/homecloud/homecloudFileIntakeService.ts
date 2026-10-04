@@ -2,7 +2,7 @@ import { createUploadEngine, createExpoFileSystemUploadTransport } from './homec
 import { getSharedUploadJobStore } from '../../storage/homecloudUploadJobStorage';
 import { createSharedUploadQueue } from './homecloudUploadQueue';
 import { ensureHomeCloudUploadRuntime } from './homecloudUploadRuntime';
-import { ensureUploadCoordinator } from './homecloudUploadCoordinator';
+import { ensureUploadCoordinator, type ActiveUploadProgress } from './homecloudUploadCoordinator';
 import { fetchHomeCloudFoldersCached } from './homecloudReadService';
 import { copyArtifactToDurableWorkspace, cleanupTerminalJobArtifact, sweepOrphanDurableWorkspaces } from './homecloudDurableArtifact';
 import type { FileIntakeConfig, FileIntakeState, FileIntakeDestination } from './homecloudFileIntakeTypes';
@@ -19,6 +19,40 @@ export type FileIntakeDependencies = {
   pickFile?: () => Promise<FilePickerOutcome>;
   copyToDurableWorkspace?: (artifact: UploadLocalArtifact) => Promise<UploadLocalArtifact>;
 };
+
+/** What a Files surface is allowed to show about ONE upload it owns. */
+export type FilesOwnedUploadProgress = {
+  readonly jobId: string;
+  readonly displayName: string;
+  readonly progress: number;
+};
+
+/**
+ * S4-iii D — the Files-owned upload progress, as a pure binding rule.
+ *
+ * Execution is household-wide: one coordinator, one worker, and the only live
+ * byte progress it knows about is `activeUpload` for whichever job is running.
+ * Presentation is NOT household-wide: this surface may only present the job it
+ * accepted (`acceptedJobId`).
+ *
+ * So the rule is an identity comparison, never a heuristic: the ephemeral native
+ * progress belongs to this surface if and only if it is about the accepted job.
+ * A Memory job, another Files job, or no accepted job at all yields `null` —
+ * "something in this household is uploading" is never shown as "your file is
+ * uploading". Exported so the attribution is asserted directly instead of only
+ * through a rendered screen.
+ */
+export function filesOwnedUploadProgress(
+  acceptedJobId: string | null,
+  activeUpload: ActiveUploadProgress | null,
+): FilesOwnedUploadProgress | null {
+  if (!acceptedJobId || !activeUpload || activeUpload.jobId !== acceptedJobId) return null;
+  return {
+    jobId: activeUpload.jobId,
+    displayName: activeUpload.displayName,
+    progress: activeUpload.progress,
+  };
+}
 
 export function createFileIntakeService(config: FileIntakeConfig, dependencies: FileIntakeDependencies = {}) {
   const { householdId, accessToken, getAccessToken = () => accessToken, capabilities, initialFolderId, initialFolderName } = config;
@@ -69,7 +103,6 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
   let selectedFolderId: string | null = initialFolderId ?? null;
   let selectedFolderName: string | null = initialFolderName ?? null;
   let availableFolders: FileIntakeDestination[] = [];
-  let foldersLoaded = false;
   let picking = false;
   let stateListeners: Set<(state: FileIntakeState) => void> = new Set();
 
@@ -99,11 +132,30 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
   function syncQueueState(): void {
     refreshCurrentJobProjection();
     if (!currentJob) return;
-    emitState({ status: mapEngineStateToIntakeState(currentJob), contentId: currentJob.contentId ?? undefined, error: currentJob.error?.message, folderId: selectedFolderId, folderName: selectedFolderName });
+    emitState({ status: mapEngineStateToIntakeState(currentJob), contentId: currentJob.contentId ?? undefined, error: currentJob.error?.message, folderId: selectedFolderId, folderName: selectedFolderName, jobId: currentJob.id, progress: ownedProgress()?.progress ?? null });
   }
 
+  /**
+   * S4-iii D — progress for THIS surface's job only. The coordinator's
+   * `activeUpload` is the household's live byte progress; it is presented here
+   * only while it is about the accepted job (see `filesOwnedUploadProgress`).
+   */
+  function ownedProgress(): FilesOwnedUploadProgress | null {
+    return filesOwnedUploadProgress(acceptedJobId, coordinator.getSnapshot().activeUpload);
+  }
+
+  /**
+   * S4-iii A — the destination catalogue.
+   *
+   * This is the SAME household-scoped cached read the Files browser uses, so a
+   * folder mutation anywhere drops one shared cache key and both consumers are
+   * fresh. It used to be a one-shot latch (`foldersLoaded`) taken at mount: a
+   * folder created, renamed or deleted while this sheet stayed open left the
+   * picker offering the old catalogue until the 30 s TTL expired. Re-reading on
+   * demand is cheap precisely because the read is cached — one request per TTL
+   * window, and a fresh one the moment a mutation invalidated it.
+   */
   async function loadFolders(): Promise<void> {
-    if (foldersLoaded) return;
     try {
       const token = getAccessToken();
       if (!token) throw new Error('no access token');
@@ -112,10 +164,8 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
         { id: 'root', name: 'Archivos', isCurrent: selectedFolderId === null },
         ...folders.map((f) => ({ id: f.id, name: f.name, isCurrent: f.id === selectedFolderId })),
       ];
-      foldersLoaded = true;
     } catch {
       availableFolders = [{ id: 'root', name: 'Archivos', isCurrent: selectedFolderId === null }];
-      foldersLoaded = true;
     }
   }
 
@@ -213,6 +263,8 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
         error: latest.error?.message,
         folderId: selectedFolderId,
         folderName: selectedFolderName,
+        jobId: acceptedJobId,
+        progress: ownedProgress()?.progress ?? null,
       });
     } catch (error) {
       refreshCurrentJobProjection();
@@ -258,15 +310,30 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
     }
   }
 
+  /**
+   * S4-iii D — Cancel targets EXACTLY the job this surface owns.
+   *
+   * The old rule was `acceptedJob() ?? queue.getQueue().find(role === 'file')`.
+   * That fallback made an explicit, user-initiated Cancel act on an ARBITRARY
+   * job: the first file job in the household could be a job this surface never
+   * accepted — including a neighbour running right now — so pressing Cancel on
+   * "your" upload could destroy someone else's work. A cancel action with no
+   * known target is not an action: it is a no-op.
+   *
+   * The canonical rule is therefore exactly:
+   *   explicit target id -> cancel(target id)
+   *   no target id       -> cancel nothing
+   * Coordinator semantics are untouched: it still refuses a foreign job id and
+   * still aborts the native transfer for the job it owns.
+   */
   function cancel(): void {
-    const job = acceptedJob() ?? queue.getQueue().find((item) => item.role === 'file') ?? null;
-    if (job) {
-      // Single-job cancel: neighbors keep progressing via the queue pump.
-      void queue.cancelJob(job.id).then((cancelled) => {
-        refreshCurrentJobProjection();
-        if (cancelled) emitState({ status: 'cancelled' });
-      });
-    }
+    const targetId = acceptedJobId;
+    if (!targetId) return;
+    // Single-job cancel: neighbors keep progressing via the queue pump.
+    void queue.cancelJob(targetId).then((cancelled) => {
+      refreshCurrentJobProjection();
+      if (cancelled) emitState({ status: 'cancelled' });
+    });
   }
 
   /**
@@ -278,7 +345,7 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
     picking = false;
     currentJob = null;
     acceptedJobId = null;
-    emitState({ status: 'idle', error: undefined, contentId: undefined });
+    emitState({ status: 'idle', error: undefined, contentId: undefined, jobId: null, progress: null });
   }
 
   function subscribe(listener: (state: FileIntakeState) => void): () => void {
@@ -349,6 +416,11 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
     recover,
     /** The job this surface is bound to (null before the first submit). */
     getAcceptedJobId: () => acceptedJobId,
+    /**
+     * S4-iii D — live progress of the accepted job, or null. Never another
+     * surface's job and never a household-wide stand-in.
+     */
+    getOwnedProgress: ownedProgress,
     /** Compat projection over the shared queue (never separate authority). */
     getCurrentJob: () => queue.getCurrentJob(),
   };

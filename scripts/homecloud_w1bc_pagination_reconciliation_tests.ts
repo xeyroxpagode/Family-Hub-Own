@@ -118,6 +118,18 @@ function pageOf(from: number, count: number, nextOffset: number | null): FilesBr
   };
 }
 
+/**
+ * S4-iii C2 — a reader shaped like the backend `browseFiles` AFTER the has-more
+ * probe: for a requested `limit` it reads one row more and then answers only
+ * `limit` rows plus an EVIDENCE-BASED `nextOffset`. `total` is how many rows the
+ * household really has, which is what makes the boundaries 100/200/300 testable.
+ */
+function probedPage(total: number, offset: number, limit = 100): FilesBrowserPage {
+  const window = Math.max(Math.min(offset + limit + 1, total) - offset, 0);
+  const hasMore = window > limit;
+  return pageOf(offset, hasMore ? limit : window, hasMore ? offset + limit : null);
+}
+
 type Reader = (input: { limit: number; offset: number }) => Promise<FilesBrowserPage>;
 
 /** A harness that records every state the controller publishes. */
@@ -144,8 +156,9 @@ async function testOverOneHundredFiles(): Promise<void> {
   console.log('\n=== W1-B A: more than 100 files are all reachable ===');
   resetCaches();
   const transport = new Transport();
-  // 101 files: the first page is full (100) so the backend says there IS a next
-  // page, and the second is short, so it is the last.
+  // 101 files: the read proves a second page exists with the 101st row and
+  // answers 100 rows plus `nextOffset: 100`; the follow-up read answers the
+  // single remaining file, which proves it was the last.
   transport.on('/api/homecloud/files', {
     status: 200,
     body: { browser: { folders: [], files: Array.from({ length: 100 }, (_, i) => fileAt(i)), nextOffset: 100 } },
@@ -171,7 +184,7 @@ async function testOverOneHundredFiles(): Promise<void> {
   await controller.load();
   const first = controller.getState();
   record(first.files.length === 100, 'A1. page 1 holds the full 100 items (no silent truncation)');
-  record(first.nextOffset === 100, 'A2. a full page reports a next offset');
+  record(first.nextOffset === 100, 'A2. the read\'s PROVEN next offset is reported');
   record(hasMoreFilesPages(first), 'A3. so the surface shows a "load more" affordance');
   record(transport.calls[0].includes('limit=100') && transport.calls[0].includes('offset=0'),
     'A4. the first page asks the EXISTING contract for limit/offset at 0');
@@ -190,7 +203,7 @@ async function testOverOneHundredFiles(): Promise<void> {
 
 async function testFinalPage(): Promise<void> {
   console.log('\n=== W1-B B: the final page offers no load-more ===');
-  const { controller, last } = harness(async ({ offset }) => (offset === 0 ? pageOf(0, 100, 100) : pageOf(100, 7, null)));
+  const { controller, last } = harness(async ({ offset }) => (offset === 0 ? probedPage(107, 0) : probedPage(107, offset)));
 
   await controller.load();
   record(hasMoreFilesPages(controller.getState()), 'B1. a non-null nextOffset means more pages');
@@ -213,9 +226,9 @@ async function testFinalPage(): Promise<void> {
 async function testPageFailure(): Promise<void> {
   console.log('\n=== W1-B C: a failed page never destroys the loaded pages ===');
   let failNext = false;
-  const { controller } = harness(async ({ offset }) => {
+const { controller } = harness(async ({ offset }) => {
     if (offset !== 0 && failNext) throw new ApiError('Se nos cayó la conexión.', 0, 'network_error');
-    return offset === 0 ? pageOf(0, 100, 100) : pageOf(100, 5, null);
+    return offset === 0 ? probedPage(105, 0) : probedPage(105, offset);
   });
 
   await controller.load();
@@ -244,7 +257,7 @@ async function testResets(): Promise<void> {
   const { controller } = harness(async ({ offset }) => {
     offsets.push(offset);
     // Query A has two pages; query B has one.
-    if (dataset === 'A') return offset === 0 ? pageOf(0, 100, 100) : pageOf(100, 4, null);
+    if (dataset === 'A') return offset === 0 ? probedPage(104, 0) : probedPage(104, offset);
     return offset === 0 ? { folders: [], files: [fileAt(900)] as never, nextOffset: null } : pageOf(900, 9, null);
   });
 
@@ -306,8 +319,8 @@ async function testStaleResponse(): Promise<void> {
   await controller.load();
   record(controller.getState().files.length === 1, 'G1. query B is on screen while query A is still in flight');
 
-  // Query A finally answers, with a full 100-item page.
-  slowA.resolve(pageOf(0, 100, 100));
+  // Query A finally answers, with a full 100-item page plus its probe row.
+  slowA.resolve(probedPage(101, 0));
   await inFlightA;
   const settled = controller.getState();
   record(settled.files.length === 1, 'G2. the late answer for A is DISCARDED, not appended');
@@ -317,13 +330,13 @@ async function testStaleResponse(): Promise<void> {
   // The same must hold for a LATE PAGE of the current query.
   const slowPage = deferred();
   const { controller: paged } = harness(({ offset }) => (
-    offset === 0 ? Promise.resolve(pageOf(0, 100, 100)) : slowPage.promise
+    offset === 0 ? Promise.resolve(probedPage(103, 0)) : slowPage.promise
   ));
   await paged.load();
   const inFlightPage = paged.loadMore();
   // A household switch lands while the page is in flight.
   paged.reset();
-  slowPage.resolve(pageOf(100, 3, null));
+  slowPage.resolve(probedPage(103, 100));
   await inFlightPage;
   record(paged.getState().files.length === 0,
     'G5. a page in flight when the household switched is discarded too');
@@ -619,7 +632,7 @@ function testReadInvalidationAndSecurity(): void {
   // intake sheet is open, and its effect never re-subscribes because one is.
   // The window is anchored on the CALL SITE (not the import) so the check sees
   // the effect body and its dependency array, and nothing else.
-  const filesEffect = between(files, 'return subscribeHomeCloudReadReconciliation', '}, [currentHousehold?.id, load]);');
+  const filesEffect = between(files, 'return subscribeHomeCloudReadReconciliation', '}, [currentHousehold?.id, refresh]);');
   record(filesEffect.length > 0 && !/uploadOpen|fileInfo|addOpen|folderEditor/.test(filesEffect),
     'I10. the Files reconciliation is not bound to the intake lifecycle (unmount cannot break it)');
   const memoriesEffect = between(memories, 'return subscribeHomeCloudReadReconciliation', '}, [currentHousehold?.id, token, readFirstPage]);');

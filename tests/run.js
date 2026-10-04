@@ -56,6 +56,7 @@ const suiteClass = {
   'homecloud-w1': 'DETERMINISTIC',
   'homecloud-s4i-files-wiring': 'DETERMINISTIC',
   'homecloud-s4ii': 'DETERMINISTIC',
+  'homecloud-s4iii': 'DETERMINISTIC',
   'homecloud-s4ii-search-runtime': 'LOCAL_RUNTIME_REQUIRED',
 };
 
@@ -346,6 +347,29 @@ const commands = {
     'HomeCloud S4-ii canonical documentDate contract tests',
     'node',
     ['scripts/homecloud_s4ii_document_date_contract_tests.js'],
+  ),
+  'homecloud-s4iii-files-surface': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud S4-iii compile Files surface closure tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_s4iii_test.json'],
+    );
+    return runCommand(
+      'HomeCloud S4-iii folder catalogue / navigation / pagination / cancel attribution tests',
+      'node',
+      ['scripts/compiled-s4iii/scripts/homecloud_s4iii_files_surface_closure_tests.js'],
+      { env },
+    );
+  },
+  'homecloud-s4iii-files-hasmore': () => runCommand(
+    'HomeCloud S4-iii backend has-more boundary tests (browseFiles seam)',
+    'node',
+    ['scripts/homecloud_s4iii_files_hasmore_tests.js'],
   ),
   'homecloud-4c1-memory-create': () => runCommand(
     'HomeCloud 4C1 memory create tests',
@@ -1022,9 +1046,12 @@ const suites = {
     'homecloud-s4ii-search-contract',
     'homecloud-s4ii-document-date',
     'homecloud-s4ii-search-runtime',
+    'homecloud-s4iii-files-hasmore',
+    'homecloud-s4iii-files-surface',
     'homecloud-3a-3d-acceptance',
   ],
   'homecloud-s4ii': ['homecloud-s4ii-search-contract', 'homecloud-s4ii-document-date'],
+  'homecloud-s4iii': ['homecloud-s4iii-files-hasmore', 'homecloud-s4iii-files-surface'],
   'homecloud-3a-3d': ['homecloud-3a-3d-acceptance'],
   'homecloud-slice01': [
     'homecloud-slice01-auth-runtime',

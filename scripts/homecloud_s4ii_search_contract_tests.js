@@ -358,11 +358,20 @@ async function run() {
     record(paramsOf(contentsRequest()).get('order') === 'uploaded_at.desc.nullslast,id.desc', 'sort Recientes keeps uploaded_at DESC, id DESC');
   }
   {
-    await browseFiles({ folderId: null, query: '', sort: 'recent', limit: 25, offset: 50 });
+    // S4-iii C2: the read asks for ONE row more than the requested page size and
+    // answers `limit` rows plus an evidence-based `nextOffset`. A full page is
+    // not evidence of a next page, so the extra row is what turns "100 files"
+    // into "there is nothing more" instead of a phantom "Mostrar más".
+    const answered = await browseFiles({ folderId: null, query: '', sort: 'recent', limit: 25, offset: 50 });
     const request = contentsRequest();
     const range = String(request.headers.Range ?? request.headers.range ?? '');
-    record(range === '50-74' || (paramsOf(request).get('limit') === '25' && paramsOf(request).get('offset') === '50'),
-      `pagination still emits limit/offset (Range=${JSON.stringify(range)})`);
+    const askedLimit = paramsOf(request).get('limit');
+    const askedOffset = paramsOf(request).get('offset');
+    record(range === '50-75' || (askedLimit === '26' && askedOffset === '50'),
+      `pagination still emits limit/offset, with one has-more probe row (range=${JSON.stringify(range)} limit=${askedLimit} offset=${askedOffset})`);
+    record(answered.files.length <= 25, 'pagination never answers more rows than the requested page size');
+    record(typeof answered.nextOffset === 'number' || answered.nextOffset === null,
+      `nextOffset is a real offset or null, never a guess from a full page (${answered.nextOffset})`);
   }
 
   // ── G. the helper is not a duplicate of the service ─────────────────────────

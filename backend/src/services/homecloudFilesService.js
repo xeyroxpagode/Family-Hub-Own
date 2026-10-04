@@ -54,14 +54,38 @@ function contentQuery(householdId, folderId, search, sort) {
   return query;
 }
 
+/**
+ * S4-iii C2 — REAL has-more semantics.
+ *
+ * `nextOffset` used to be derived from `files.length === pageLimit`, which is a
+ * GUESS: a household with exactly 100 files answers a full page, so the client
+ * was told "there is more" and rendered a "Mostrar más archivos" affordance
+ * that could only ever produce an empty page. The inverse is equally wrong to
+ * assume: receiving exactly `limit` rows can never prove that 100 is the total.
+ *
+ * The proof is one extra row. The logical page size stays `pageLimit`; the read
+ * asks for `pageLimit + 1` rows and then decides from real evidence:
+ *
+ *   received > pageLimit  -> another row genuinely exists -> return the first
+ *                           `pageLimit` and `nextOffset = offset + pageLimit`
+ *   received <= pageLimit -> that was the last page -> return all, nextOffset null
+ *
+ * `range()` is inclusive on both ends, so `pageLimit + 1` rows is one extra
+ * `offset + pageLimit` value, never an extra offset and never a second query.
+ * The `limit` the caller asked for remains the contract: a caller asking for 10
+ * still receives at most 10 rows, and the probe row is never leaked.
+ */
 async function browseFiles(req, { folderId = null, query = '', sort = 'recent', limit = 100, offset = 0 }) {
   const context = await contextWithCapability(req, 'homecloud.view');
   const q = typeof query === 'string' ? query.trim() : '';
   if (folderId) await assertFolderInHousehold(folderId, context.householdId);
   const pageLimit = Math.min(Math.max(Number(limit) || 100, 1), 100);
   const pageOffset = Math.max(Number(offset) || 0, 0);
-  const { data: files, error } = await contentQuery(context.householdId, folderId, q, sort).range(pageOffset, pageOffset + pageLimit - 1);
+  const { data: probeRows, error } = await contentQuery(context.householdId, folderId, q, sort).range(pageOffset, pageOffset + pageLimit);
   if (error) throw createHttpError(500, error.message, 'homecloud_files_list_failed');
+  const rows = probeRows ?? [];
+  const hasMore = rows.length > pageLimit;
+  const files = hasMore ? rows.slice(0, pageLimit) : rows;
   let folders = [];
   if (folderId === null) {
     let foldersQuery = supabaseAdmin.from('homecloud_folders').select('id, household_id, name, created_by_member_id, created_at, updated_at').eq('household_id', context.householdId).order('name', { ascending: true });
@@ -70,7 +94,7 @@ async function browseFiles(req, { folderId = null, query = '', sort = 'recent', 
     if (foldersError) throw createHttpError(500, foldersError.message, 'homecloud_folders_list_failed');
     folders = (data ?? []).map(mapFolderRowToDto);
   }
-  return { folders, files: (files ?? []).map(mapContentRowToDto), nextOffset: (files ?? []).length === pageLimit ? pageOffset + pageLimit : null };
+  return { folders, files: files.map(mapContentRowToDto), nextOffset: hasMore ? pageOffset + pageLimit : null };
 }
 
 async function createFolder(req, name) {

@@ -62,15 +62,28 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
     }
   }, [state.status, state.contentId, onComplete]);
 
+  /**
+   * S4-iii D — release the job binding only when the accepted job is really over.
+   *
+   * `completed` and `cancelled` are terminal, so nothing about them can change
+   * any more and the surface must be ready to open again. `failed` is NOT: it is
+   * retryable, and Retry and Cancel both target `acceptedJobId`, so the binding
+   * has to survive it.
+   */
+  useEffect(() => {
+    if (state.status === 'completed' || state.status === 'cancelled') service.dismiss();
+  }, [state.status, service]);
+
   const handlePickFile = useCallback(async () => {
     await service.pickFile();
-    if (service.getAcceptedJobId()) {
-      // Durable acceptance transfers ownership to the coordinator. Closing this
-      // UI must not cancel the job or delete its durable artifact.
-      service.dismiss();
-      onDismiss?.();
-    }
-  }, [onDismiss, service]);
+    // S4-iii D: durable acceptance transfers EXECUTION to the household
+    // coordinator, but PRESENTATION ownership stays with THIS surface until the
+    // accepted job is terminal. Dismissing here released `acceptedJobId`, which
+    // left the Files surface with nothing to show and nothing legitimate to
+    // cancel — the only way back to "an upload is happening" would have been a
+    // household-wide guess, which is exactly what Gap D forbids. Closing this UI
+    // still never cancels the job nor deletes its durable artifact.
+  }, [service]);
 
   const handleSelectDestination = useCallback((folderId: string | null, folderName: string | null) => {
     service.selectDestination(folderId, folderName);
@@ -82,16 +95,51 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
     await service.retry();
   }, [service]);
 
+  const handleCancel = useCallback(() => {
+    // S4-iii D: the service resolves this to the job THIS surface accepted.
+    // There is no household-wide or "first file job" fallback behind it.
+    service.cancel();
+  }, [service]);
+
   const renderStatus = () => {
+    const owned = Boolean(state.jobId);
+    // S4-iii D: ONE control row for every state in which the accepted job still
+    // exists and is not over. The label carries that job's own id, so the action
+    // can never be read as "cancel whatever is uploading".
+    const cancelControl = owned ? (
+      <AppButton
+        title="Cancelar"
+        size="sm"
+        variant="secondary"
+        onPress={handleCancel}
+        accessibilityLabel={`Cancelar la subida de ${state.jobId}`}
+      />
+    ) : null;
+
     switch (state.status) {
       case 'preparing':
-        return <AppText variant="bodySmall" tone="secondary">Preparando…</AppText>;
+        return (
+          <View style={styles.progressRow}>
+            <AppText variant="bodySmall" tone="secondary">Preparando…</AppText>
+            {cancelControl}
+          </View>
+        );
       case 'uploading':
-        return <AppText variant="bodySmall" tone="secondary">Subiendo…</AppText>;
       case 'verifying':
-        return <AppText variant="bodySmall" tone="secondary">Verificando…</AppText>;
       case 'finalizing':
-        return <AppText variant="bodySmall" tone="secondary">Guardando…</AppText>;
+        return (
+          <View style={styles.progressRow}>
+            <AppText variant="bodySmall" tone="secondary">
+              {state.status === 'uploading' ? 'Subiendo…' : state.status === 'verifying' ? 'Verificando…' : 'Guardando…'}
+              {/* S4-iii D: the percentage is the ACCEPTED job's own live
+                  progress. `getOwnedProgress` is identity-bound to
+                  `acceptedJobId`, so another surface's upload can never be
+                  shown here as this file's. */}
+              {typeof state.progress === 'number' ? ` ${Math.round(state.progress * 100)}%` : ''}
+            </AppText>
+            {cancelControl}
+          </View>
+        );
       case 'completed':
         return <AppText variant="bodySmall" tone="success">Guardado</AppText>;
       case 'failed':
@@ -111,6 +159,9 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
               accessibilityLabel="Reintentar guardar archivo"
               style={styles.retryButton}
             />
+            {/* S4-iii D: the failure belongs to `state.jobId`, so the retry that
+                follows resumes THAT job — and Cancel stops THAT job. */}
+            {cancelControl}
           </View>
         );
       case 'cancelled':
@@ -119,6 +170,21 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
         return null;
     }
   };
+
+  /**
+   * S4-iii A — the destination list is re-read when it is actually needed.
+   *
+   * A folder created, renamed or deleted while this sheet stayed open used to
+   * leave the picker offering the catalogue captured at mount. `loadFolders`
+   * goes through the household-scoped cached read, which a mutation invalidates,
+   * so this is one request per change and a fresh list at the moment the member
+   * opens the picker.
+   */
+  const openDestinationPicker = useCallback(async () => {
+    await service.loadFolders();
+    setDestinations(service.getAvailableDestinations());
+    setDestinationSheetVisible(true);
+  }, [service]);
 
   const renderDestinationSelector = () => {
     if (!service.canShowDestinationSelector()) return null;
@@ -132,7 +198,7 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
         value={currentName}
         onPress={() => {
           Keyboard.dismiss();
-          setDestinationSheetVisible(true);
+          void openDestinationPicker();
         }}
         accessibilityLabel={`Destino actual: ${currentName}. Toca para cambiar.`}
         disabled={state.status !== 'idle' && state.status !== 'failed' && state.status !== 'completed'}
@@ -267,6 +333,12 @@ const styles = StyleSheet.create({
   destinationRowSelected: {
     backgroundColor: colors.brandSoft,
     borderColor: colors.brand,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing[3],
   },
   errorContainer: {
     gap: spacing[2],
