@@ -389,6 +389,24 @@ const commands = {
       { env },
     );
   },
+  'homecloud-files-freshness': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud Files freshness compile tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_files_freshness_test.json'],
+    );
+    return runCommand(
+      'HomeCloud Files freshness tests (foreground / window / segment / household / metadata)',
+      'node',
+      ['scripts/compiled-files-freshness/scripts/homecloud_files_freshness_tests.js'],
+      { env },
+    );
+  },
   'selection-system': () => runCommand(
     'Segmented-control selection system + HomeCloud single-surface contracts',
     'node',
@@ -1072,6 +1090,7 @@ const suites = {
     'homecloud-s4iii-files-hasmore',
     'homecloud-s4iii-files-surface',
     'homecloud-files-slice1-selection-bulk',
+    'homecloud-files-freshness',
     'selection-system',
     'homecloud-3a-3d-acceptance',
   ],

@@ -250,6 +250,10 @@ const reactNativeStub = {
   KeyboardAvoidingView: 'KeyboardAvoidingView',
   Keyboard: { dismiss: () => undefined },
   StyleSheet: { create: <T,>(styles: T): T => styles, flatten: (style: unknown) => style },
+  // The Files surface subscribes to app foreground as a freshness boundary, so
+  // the device primitive is part of what this host must provide. It is inert
+  // here: no test in this file drives it.
+  AppState: { currentState: 'active', addEventListener: () => ({ remove: () => undefined }) },
 };
 
 const navigationStub = {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
@@ -53,7 +53,7 @@ const FILES_PAGE_SIZE = FILES_BROWSER_MAX_LIMIT;
 /** The household folder catalogue this screen owns and refreshes on mutation. */
 type FolderCatalogueScope = { householdId: string };
 
-export function HomeCloudFilesView() {
+export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {}) {
   const navigation = useNavigation<any>();
   const { session } = useAuth();
   const { currentHousehold } = useHousehold();
@@ -68,7 +68,7 @@ export function HomeCloudFilesView() {
   const [query, setQuery] = useState(''); const [sort, setSort] = useState<FileSort>('recent');
   const [error, setError] = useState<string | null>(null);
   const [readFailure, setReadFailure] = useState<{ kind: HomeCloudReadFailure; message: string; detail?: string } | null>(null);
-  const [addOpen, setAddOpen] = useState(false); const [uploadOpen, setUploadOpen] = useState(false); const [folderEditor, setFolderEditor] = useState<{ mode: 'create' | 'rename'; item?: HomeCloudFolder } | null>(null); const [folderName, setFolderName] = useState(''); const [folderActions, setFolderActions] = useState<HomeCloudFolder | null>(null); const [actionTarget, setActionTarget] = useState<HomeCloudFile | null>(null); const [saving, setSaving] = useState(false);
+  const [addOpen, setAddOpen] = useState(false); const [uploadOpen, setUploadOpen] = useState(false); const [folderEditor, setFolderEditor] = useState<{ mode: 'create' | 'rename'; item?: HomeCloudFolder } | null>(null); const [folderName, setFolderName] = useState(''); const [folderActions, setFolderActions] = useState<HomeCloudFolder | null>(null); const [actionTargetId, setActionTargetId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   const [downloadFeedback, setDownloadFeedback] = useState<{ tone: 'secondary' | 'danger' | 'success'; message: string } | null>(null);
   // Selection belongs to the CURRENT browser context and is never persisted.
   const [selection, setSelection] = useState<FileSelection>(emptyFileSelection());
@@ -84,6 +84,29 @@ export function HomeCloudFilesView() {
   const { folders, files, loading, loadingMore, pageError } = page;
   // One definition of "is there another page", shared with the controller.
   const hasMore = hasMoreFilesPages(page);
+
+  // ── the canonical File action/info target ─────────────────────────────────
+  //
+  // FRESHNESS: the host is fed an ID and RESOLVED against the CURRENT rows, never
+  // handed the object that happened to be captured when it was opened. Without
+  // this, another member's rename / note / move / date would land in the server
+  // and the open Info sheet would keep showing the copy it opened with — a
+  // knowingly obsolete representation of a File the member is editing. Option A
+  // of the freshness model: the rows the surface already re-reads ARE the single
+  // source, so no second read, no new endpoint and no realtime is involved.
+  const actionTarget = useMemo<HomeCloudFile | null>(
+    () => (actionTargetId === null ? null : files.find((file) => file.id === actionTargetId) ?? null),
+    [actionTargetId, files],
+  );
+  // A File that is no longer among the loaded rows — it left this folder, this
+  // query, this window or this household — is not something this context can
+  // describe, so the host closes instead of offering to edit an object that is
+  // gone. Re-entering the same context re-opens nothing: the ID is dropped too.
+  useEffect(() => {
+    if (actionTargetId === null || actionTarget !== null) return;
+    setActionTargetId(null);
+    setDownloadFeedback(null);
+  }, [actionTargetId, actionTarget]);
 
   // S4-iii B1/B5 — the identity of the QUESTION this screen is asking. It
   // travels with every read and it is what the loaded rows are labelled with, so
@@ -192,15 +215,101 @@ export function HomeCloudFilesView() {
     return () => clearTimeout(timer);
   }, [load, query, sort, folder?.id]);
 
+  /**
+   * ONE RETURN = ONE EFFECTIVE READ.
+   *
+   * Navigation focus, the app coming back to the foreground and the Files tab
+   * becoming visible again are three physical signals of a SINGLE user return, and
+   * the platform can easily deliver two of them together (returning from the
+   * background re-focuses the route; switching back from Memories arrives in the
+   * same turn as the foreground event). They therefore share ONE funnel: a signal
+   * that arrives while the previous return read is still in flight joins it
+   * instead of issuing a second one.
+   *
+   * It is NOT a cache and NOT a refresh framework: nothing is remembered after the
+   * read settles, no state is stored, and the only primitive it ever calls is the
+   * EXISTING window-preserving `refresh`.
+   */
+  const returnRead = useRef<Promise<void> | null>(null);
+  const refreshOnReturn = useCallback((): Promise<void> => {
+    const inFlight = returnRead.current;
+    if (inFlight) return inFlight;
+    const pending = refresh();
+    returnRead.current = pending;
+    const settle = () => { if (returnRead.current === pending) returnRead.current = null; };
+    pending.then(settle, settle);
+    return pending;
+  }, [refresh]);
+
   // B2 — focus freshness is a SEPARATE concern and is deliberately not tied to
   // the query state: re-entering the surface refreshes, a keystroke does not.
   // The first mount is skipped because the context effect above already issued
   // the initial read.
+  //
+  // FRESHNESS: it now goes through the return funnel, so focus and foreground
+  // arriving together cost ONE read. It keeps the window-preserving primitive:
+  // re-entering asks the SAME question, so the pages already loaded are re-read
+  // instead of being thrown away, and with nothing loaded it IS the first page.
   const focusRefresh = useRef(false);
   useFocusEffect(useCallback(() => {
     if (!focusRefresh.current) { focusRefresh.current = true; return; }
-    void load();
-  }, [load]));
+    void refreshOnReturn();
+  }, [refreshOnReturn]));
+
+  /**
+   * FRESHNESS GAP 1 — the app coming back to the foreground.
+   *
+   * A Files list that was already focused never re-fires `useFocusEffect`, so
+   * without this a member who left the app kept looking at whatever the list said
+   * when they left, no matter what the rest of the household did meanwhile. There
+   * is no realtime in Files V1 and none is added here: this is ONE read on ONE
+   * natural boundary, through the EXISTING window-preserving refresh.
+   *
+   *   background | inactive | extension -> active   -> ONE return read
+   *   active -> active                              -> not a return
+   *   the first mount                              -> not a return
+   *
+   * The state the screen was mounted in is recorded BEFORE subscribing, so a
+   * platform that replays the current state on subscription cannot manufacture a
+   * refresh for a surface that has just mounted. When the platform could not state
+   * the status at mount time there is nothing known to be stale, so the first
+   * reported status is likewise not treated as a return. Unmounting removes the
+   * subscription, so a torn-down surface can never read.
+   */
+  const appStatus = useRef<string | null>(null);
+  useEffect(() => {
+    appStatus.current = AppState.currentState ?? null;
+    const subscription = AppState.addEventListener('change', (next) => {
+      const previous = appStatus.current;
+      appStatus.current = next;
+      if (next !== 'active') return;
+      if (previous === null || previous === 'active') return;
+      void refreshOnReturn();
+    });
+    return () => { subscription.remove(); appStatus.current = null; };
+  }, [refreshOnReturn]);
+
+  /**
+   * FRESHNESS — the Files tab becoming VISIBLE again.
+   *
+   * HomeCloud keeps both panes mounted and toggles `display: none`, so returning
+   * from Memories creates no navigation focus at all: without this signal the
+   * member would visibly come back to a list nobody had re-read. It is the SAME
+   * funnel, so a tab return and a foreground event that arrive together are one
+   * read.
+   *
+   * Only a HIDDEN -> VISIBLE transition is a boundary. The first mount is not one
+   * (the context effect already issued the initial read) and neither is a
+   * household switch, where the surface is still visible and the controller has
+   * just discarded the previous household's pages on its own.
+   */
+  const wasVisible = useRef(visible);
+  useEffect(() => {
+    const previous = wasVisible.current;
+    wasVisible.current = visible;
+    if (!visible || previous) return;
+    void refreshOnReturn();
+  }, [visible, refreshOnReturn]);
 
   // W1-B: the destination catalogue is read ONCE per household, through the
   // cached, household-scoped read. It is deliberately NOT part of `load`: a
@@ -232,8 +341,14 @@ export function HomeCloudFilesView() {
 
   useEffect(() => {
     setFolder(null); setQuery(''); setAllFolders([]); setError(null); setReadFailure(null);
+    // The return guard belongs to the household being LEFT: it is released here so
+    // the new household's first return is never mistaken for a duplicate of the
+    // old one's in-flight read.
+    returnRead.current = null;
     // A household switch discards every page of the household being left,
-    // including any still in flight.
+    // including any still in flight. The generation bump is what makes an answer
+    // for the previous household unpublishable, so a late read can never land in
+    // the new household's list.
     controllerRef.current!.reset();
   }, [currentHousehold?.id]);
 
@@ -361,7 +476,7 @@ export function HomeCloudFilesView() {
     setSaving(true);
     try {
       await updateHomeCloudFile(token, actionTarget.id, patch);
-      setActionTarget(null);
+      setActionTargetId(null);
       // A move can take the file out of the folder being viewed, so the SAME
       // context is re-read (window preserved) rather than reset to page one.
       await refresh();
@@ -488,7 +603,7 @@ export function HomeCloudFilesView() {
       // not change when only the selection does — without this a selected row
       // would keep painting itself as unselected.
       extraData={selection}
-      renderItem={({ item }) => item.kind === 'folder' ? <FolderTile folder={item.value} onPress={() => openFolder(item.value)} onMore={() => setFolderActions(item.value)} /> : <FileTile file={item.value} selectionMode={selection.mode} selected={isFileSelected(selection, item.value.id)} onPress={() => toggleSelectionAt(item.value.id)} onLongPress={() => beginSelectionAt(item.value.id)} onMore={() => setActionTarget(item.value)} />}
+      renderItem={({ item }) => item.kind === 'folder' ? <FolderTile folder={item.value} onPress={() => openFolder(item.value)} onMore={() => setFolderActions(item.value)} /> : <FileTile file={item.value} selectionMode={selection.mode} selected={isFileSelected(selection, item.value.id)} onPress={() => toggleSelectionAt(item.value.id)} onLongPress={() => beginSelectionAt(item.value.id)} onMore={() => setActionTargetId(item.value.id)} />}
       ListFooterComponent={hasMore || pageError ? <View style={styles.footer}>{pageError ? <View style={styles.pageError}><AppText variant="caption" tone="danger" align="center">{pageError}</AppText><AppButton title="Reintentar" size="sm" variant="secondary" onPress={() => void loadMore()} accessibilityLabel="Reintentar cargar más archivos" /></View> : null}{hasMore ? <AppButton title={loadingMore ? 'Cargando…' : 'Mostrar más archivos'} variant="secondary" disabled={loadingMore} onPress={() => void loadMore()} /> : null}</View> : null} />}
     {selection.mode ? <FileSelectionBar count={selectionCount} summary={fileSelectionSummary(selection)} canOrganize={canOrganize} busy={saving} onMove={() => setMoveTarget('bulk')} onCancel={leaveSelectionMode} /> : null}
     <ActionSheet visible={addOpen} title="Agregar" onRequestClose={() => setAddOpen(false)} size="content"><View style={styles.sheetList}><AppButton title="Elegir archivo" onPress={() => { setAddOpen(false); setUploadOpen(true); }} /><AppButton title="Escanear documento" variant="secondary" onPress={() => { setAddOpen(false); navigation.navigate('HomeCloudScanner', { folderId: folder?.id ?? null, folderName: folder?.name ?? null, capabilities: caps }); }} /><AppButton title="Nueva carpeta" variant="secondary" disabled={!!folder || !canOrganize} onPress={() => { setAddOpen(false); setFolderName(''); setFolderEditor({ mode: 'create' }); }} /></View></ActionSheet>
@@ -497,7 +612,7 @@ export function HomeCloudFilesView() {
     <ActionSheet visible={!!folderActions} title={folderActions?.name ?? 'Carpeta'} onRequestClose={() => setFolderActions(null)} size="content"><View style={styles.sheetList}><AppButton title="Renombrar" variant="secondary" disabled={!canOrganize} onPress={() => { setFolderName(folderActions!.name); setFolderEditor({ mode: 'rename', item: folderActions! }); setFolderActions(null); }} /><AppButton title="Eliminar carpeta" variant="danger" disabled={!canOrganize || saving} onPress={() => void removeFolder()} /><AppText variant="caption" tone="secondary">Los archivos no se eliminan: volverán a Archivos.</AppText></View></ActionSheet>
     {/* The canonical per-File action host. It is always mounted and decides its own
         visibility, so there is never a second place that can open a File menu. */}
-    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} downloadFeedback={downloadFeedback} onClose={() => { setActionTarget(null); setDownloadFeedback(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveTarget('file')} onDownload={() => void downloadFile()} onShare={() => void shareFile()} />
+    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setDownloadFeedback(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveTarget('file')} onDownload={() => void downloadFile()} onShare={() => void shareFile()} />
     {/* The ONE destination picker, for a single File's Move and for the selection's
         Move alike. It reads the same household catalogue the host does, never the
         browser payload, which is empty inside a folder. */}

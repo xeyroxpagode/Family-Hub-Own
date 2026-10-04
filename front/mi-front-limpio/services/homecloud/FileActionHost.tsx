@@ -69,6 +69,15 @@ export function FileActionHost({
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [datePicker, setDatePicker] = useState(false);
+  // Which fields the member has actually typed into. Until they do, what a field
+  // shows is the File's CURRENT state and not a snapshot — and it is per field,
+  // because a name being edited has nothing to say about a note that is not.
+  const [draft, setDraft] = useState({ name: false, note: false });
+  // What the CURRENT File says about each field. Reading them here is what lets
+  // each field follow the File on its own, without re-publishing when an
+  // unrelated part of the File changed.
+  const currentName = file?.displayName ?? '';
+  const currentNote = file?.note ?? '';
 
   // A different File is a different subject: the host reopens on the action list
   // with that File's own metadata, never with the previous File's draft.
@@ -76,7 +85,25 @@ export function FileActionHost({
     setView('actions');
     setName(file?.displayName ?? '');
     setNote(file?.note ?? '');
+    setDraft({ name: false, note: false });
   }, [file?.id]);
+
+  /**
+   * FRESHNESS — the File this host describes is re-resolved from CURRENT rows
+   * after every refresh, so it can change while the sheet stays open and its ID
+   * stays the same (another member renamed it, moved it, re-dated it or noted it).
+   * A field the member has not edited therefore FOLLOWS the current File instead
+   * of keeping the copy it opened with, and nothing has to close and reopen. A
+   * field being edited is never overwritten: typing outranks a background
+   * refresh, because silently reverting what someone just wrote is worse than a
+   * label that is one refresh behind.
+   */
+  useEffect(() => {
+    if (!draft.name) setName(currentName);
+  }, [currentName, draft.name]);
+  useEffect(() => {
+    if (!draft.note) setNote(currentNote);
+  }, [currentNote, draft.note]);
 
   if (!file) return null;
 
@@ -126,8 +153,8 @@ export function FileActionHost({
       >
         {showInfo ? (
           <View style={styles.list}>
-            <AppInput label="Nombre" value={name} onChangeText={setName} editable={permissions.organize} />
-            <AppInput label="Nota" value={note} onChangeText={setNote} editable={permissions.organize} multiline />
+            <AppInput label="Nombre" value={name} onChangeText={(next) => { setDraft((previous) => ({ ...previous, name: true })); setName(next); }} editable={permissions.organize} />
+            <AppInput label="Nota" value={note} onChangeText={(next) => { setDraft((previous) => ({ ...previous, note: true })); setNote(next); }} editable={permissions.organize} multiline />
             <FormActionRow
               label="Carpeta"
               value={currentFolderLabel}

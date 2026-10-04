@@ -35,8 +35,12 @@ export function HomeCloudScreen() {
       />
       <HomeCloudUploadActivity householdId={currentHousehold?.id ?? null} />
       <View style={styles.content}>
+        {/* Both panes stay mounted so each keeps its own loaded window; `visible`
+            is the ONLY thing that changes, and it is the signal the Files surface
+            needs to treat coming back from Memories as a freshness boundary —
+            a `display: none` toggle creates no navigation focus of its own. */}
         <View style={[styles.pane, section !== 'files' && styles.hidden]} accessibilityElementsHidden={section !== 'files'}>
-          <HomeCloudFilesView />
+          <HomeCloudFilesView visible={section === 'files'} />
         </View>
         <View style={[styles.pane, section !== 'memories' && styles.hidden]} accessibilityElementsHidden={section !== 'memories'}>
           <HomeCloudMemoriesView />
