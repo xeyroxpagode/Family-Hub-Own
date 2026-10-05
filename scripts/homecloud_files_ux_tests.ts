@@ -160,8 +160,15 @@ console.log('--- X-E: the Stage 2 interaction grammar ---');
   record(Boolean(tapHandler), 'the tap handler exists');
   record(Boolean(longHandler), 'the long-press handler exists');
   if (tapHandler) {
-    record(/if \(!selection\.mode\) return;/.test(tapHandler[0]), 'OUTSIDE selection a tap does NOT toggle - it is reserved for the Viewer');
-    record(/previous\.mode \? toggleFileSelection/.test(tapHandler[0]), 'INSIDE selection a tap toggles the selection');
+    // STAGE 2 (Phase 3) SUPERSESSION. Phase 2 reserved the tap for the Viewer and
+    // asserted it did nothing at all. Phase 3 WIRES it, so outside selection the tap
+    // now opens the Viewer instead of being inert. The guarantee that is NOT
+    // superseded is the important one: a tap can never be a SELECTION gesture.
+    record(/if \(selection\.mode\) \{[\s\S]*?toggleFileSelection[\s\S]*?return;/.test(tapHandler[0]), 'INSIDE selection a tap toggles and returns');
+    record(tapHandler[0].indexOf('toggleFileSelection') < tapHandler[0].indexOf('return;'), 'the toggle happens only inside the guarded branch');
+    record(/setViewerTargetId\(fileId\)/.test(tapHandler[0]), 'OUTSIDE selection a tap now opens the Viewer (the seam is wired)');
+    record(!/beginSelectionAt|beginFileSelectionAt/.test(tapHandler[0]), 'and it is never a selection gesture');
+    record(/files\.find\(\(candidate\) => candidate\.id === fileId\)/.test(tapHandler[0]), 'the Viewer target is resolved against the CURRENT rows by id');
   }
   if (longHandler) {
     record(/if \(selection\.mode\) return;/.test(longHandler[0]), 'INSIDE selection a long press does NOTHING');

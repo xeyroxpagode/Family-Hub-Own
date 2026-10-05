@@ -73,6 +73,7 @@ const suiteClass = {
   'homecloud-s4ii-search-runtime': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-files-hierarchy-runtime': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-files-hierarchy-migration': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-stage2-integrated': 'LOCAL_RUNTIME_REQUIRED',
 };
 
 /** Probes the local runtime without failing the deterministic gate. */
@@ -475,7 +476,17 @@ const commands = {
   // Stage 2 Phase 2: deterministic Files UX / interaction grammar evidence.
   // Stage 2 Phase 3: deterministic Viewer V1 evidence (classification, privacy,
   // bounded text, path safety, media lifecycle, selection coexistence).
-  'homecloud-files-viewer': () => {
+  // Stage 2 Phase 4: the integrated Stage 1 + Stage 2 seam. Cross-flows, large
+  // data, the household-isolation matrix and the privacy review, all against the
+  // real local stack.
+  'homecloud-stage2-integrated': {
+    label: 'HomeCloud Files Stage 2 integrated QA (cross-flows, isolation, privacy)',
+    run: () => runCommand(
+      'HomeCloud Files Stage 2 integrated QA (cross-flows, isolation, privacy)',
+      'node',
+      ['scripts/homecloud_files_stage2_integrated_tests.js'],
+    ),
+  },  'homecloud-files-viewer': () => {
     const env = {
       ...process.env,
       EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',

@@ -317,3 +317,172 @@ Stage 2 contract reverses them:
 
 - Pull-to-refresh FEEL, long-press FEEL and context-menu placement are
   UNPROVEN_DEVICE.
+
+---
+
+## PHASE 3 — VIEWER V1
+
+### CURRENT (audited, primitives inspected in the installed tree)
+
+Expo SDK 57.0.25, React Native 0.86.3, React 19.2.3. Installed and usable:
+`expo-file-system` 57.0.7 (the new `File`/`Directory`/`Paths` API),
+`expo-sharing` 57.0.22, `expo-video` 57.0.5, `expo-audio` 57.0.5, `expo-print`,
+`expo-document-picker`, `react-native-svg`. NOT installed: `expo-av`,
+`expo-image`, `expo-media-library`, `react-native-webview`, `react-native-video`,
+`expo-constants`, `expo-intent-launcher`.
+
+The two facts that decided the format strategy:
+
+- There is NO WebView and NO PDF renderer. Adding one would need a package that
+  forces a custom native rebuild, which Stage 2 forbids. So an inline PDF is not
+  available at this dependency surface.
+- `expo-video` and `expo-audio` already expose hooks that RELEASE the player on
+  unmount, which is exactly the no-ghost-playback guarantee the contract asks for.
+
+Therefore: **ZERO new dependencies**, and PDF/Office get a truthful system hand-off
+instead of a fake inline render.
+
+### FORMAT STRATEGY
+
+| Family | Strategy | Why |
+|---|---|---|
+| image | inline from the authorized signed URL | React Native's own `Image`; no `expo-image` needed |
+| video | inline via `useVideoPlayer` | installed, auto-releases on unmount |
+| audio | inline via `useAudioPlayer` | installed, auto-releases on unmount |
+| pdf | staged to cache, system hand-off | no renderer exists and adding one is forbidden |
+| office | staged to cache, system hand-off | a WebView cannot render binary Office documents |
+| text / csv / markdown | bounded local read, 512 KiB cap | small enough that a whole file must never be pulled into JS |
+| svg / html / xml | REFUSED inline as active web content | an SVG may carry scripts; sanitizing one properly is a security project of its own |
+
+### PRIVACY DECISIONS
+
+1. `variant=original` is requested explicitly and a preview variant is NEVER
+   requested: a preview is a different byte stream than the member asked to see.
+2. A signed URL is never persisted, never a durable cache key and never logged.
+   Authorization expiry allows at most ONE controlled re-grant per failed access.
+3. Nothing is sent to Google Docs, Microsoft, a converter or any public preview.
+4. The hand-off is labelled "Abrir o compartir con..." because
+   `Sharing.shareAsync` is a generic hand-off, not an "open with" picker. Calling it
+   "Abrir con..." would be a lie about the primitive.
+5. Staging lives in `Paths.cache` in its OWN directory, is named deterministically
+   from the content id, and is removed on unmount. The raw server filename is never
+   concatenated into a path.
+
+### FILES TOUCHED
+
+- `front/mi-front-limpio/services/homecloud/homecloudViewerKind.ts` (new): the single
+  classification layer.
+- `front/mi-front-limpio/services/homecloud/homecloudViewerAccess.ts` (new):
+  authorization, staging, bounded text read, system hand-off.
+- `front/mi-front-limpio/screens/HomeCloudFileViewerScreen.tsx` (new).
+- `front/mi-front-limpio/screens/HomeCloudFilesScreen.tsx`: the tap seam is wired,
+  and the Viewer is mounted as a LAYER rather than a route, which is what makes back
+  restore the exact browser context.
+- `tests/stubs/{expo-video,expo-audio,expo-file-system,expo-sharing}` (new): the
+  device-supplied pieces the Node harness needs. The media stubs are deliberately
+  inert - they never fake playback, so device playback stays honestly UNPROVEN.
+
+### TESTS
+
+- New Viewer suite: **112/112 pass.**
+- Integrated QA (Phase 4): **119/119 pass.**
+- All Stage 2 suites and every Stage 1 gate: **PASS.**
+
+---
+
+## PHASE 4 — FULL STAGE 1 + STAGE 2 INTEGRATED QA
+
+### WHAT ONLY THE INTEGRATED SEAM COULD PROVE
+
+Per-phase suites prove a seam. Only the combination proves the product. The new
+`homecloud-stage2-integrated` suite drives the real authority chain - real JWT, real
+context, real capability matrix, real services, real PostgREST - through the
+cross-flows, the large-data boundaries, the household-isolation matrix and the
+privacy review.
+
+### CROSS-FLOWS (all pass)
+
+- A: nested create, upload, navigate out and back - no duplicates, path correct.
+- B: move a File across branches - destination lists it, source does not, no
+  duplicate, exactly one stored link.
+- C: a cycle attempt leaves the tree byte-identical.
+- D: delete promotes the direct contents and grandchild Files stay put; no File is
+  deleted, only relocated.
+- E: a promotion that would collide is refused; X, the colliding child, the existing
+  sibling and every File are all untouched.
+- F: a refresh re-asks the same nested question and answers identically.
+- G: N canonical mutations into a nested destination all land, and neither the
+  destination nor the root double-counts.
+- H: Favoritos composes with a nested context and does not leak into a sibling folder.
+- I: root search stays GLOBAL, folder search stays folder-scoped, and the literal
+  hardening survives.
+- J-N: Viewer routing, the bounded text cap, selection coexistence and pruning.
+- O: cross-household original access refused both ways; the owner gets an ORIGINAL
+  variant grant whose URL points at household storage; a missing preview returns the
+  canonical `preview_unavailable` result and NO url; a written Memory is refused as
+  binary.
+
+### LARGE DATA
+
+99 / 100 / 101 / 199 / 200 / 201 / 299 / 300 / 301: page sizes exact, `nextOffset`
+present only when there is genuinely more, adjacent pages never overlap, and paging
+TO EXHAUSTION yields every row exactly once. Also a catalogue-scale fixture of 105
+folders across 5 levels with a 25-child level, served by ONE catalogue read.
+
+### TWO REAL FINDINGS THIS SEAM CAUGHT
+
+Both were in the QA harness and both would have produced a false verdict:
+
+1. A partially-applied UPDATE from a File row into a written Memory violates
+   `homecloud_contents_shape_check` and `homecloud_contents_written_purity_check`.
+   It failed SILENTLY and left a stray File at the root, which then inflated every
+   large-data count by exactly one. The written Memory is now INSERTED in its real
+   shape, and an explicit assertion proves no stray File remains.
+2. The catalogue-scale fixture tracked the previously created LEAF as the next
+   level's parent, silently flattening the tree it was meant to measure.
+
+Neither is a product defect. Both are recorded because the seam is only worth
+running if its own fixtures are trustworthy.
+
+### HOUSEHOLD ISOLATION (11 seams, all pass)
+
+Parent, children, create, rename, move, delete, pickers, File move, bulk move,
+upload destination, search, Favorites, Viewer metadata, Viewer original, signed URLs.
+A cross-household parent is answered with the SAME 404 as an unknown one, so the
+hierarchy adds no existence-probing leak.
+
+### PRIVACY REVIEW (7 checks, all pass)
+
+No log statement can carry a signed URL or a token. No third-party viewer or
+converter is referenced. No raw document HTML is executed and no iframe is
+rendered. No WebView in the Viewer. The Viewer never requests a preview variant. A
+signed URL is never persisted. The QA suite itself never prints one.
+
+### RESIDUE
+
+Zero QA folders, Files, households, Memories or storage objects remain. The 39
+orphaned `homecloud-originals` objects were verified to pre-date this run by more
+than three hours: they are pre-existing debt from earlier Stage 1 acceptance runs
+and were deliberately left alone.
+
+---
+
+## PHASE 5 — CLOSURE
+
+- Nested Folder Hierarchy: **CLOSED**
+- Files UX: **CLOSED**
+- Viewer V1: **CLOSED** (source/runtime), device acceptance pending
+- Stage 1 regression: **PASS**, no behavioral regression
+- Stage 2 automated: **PASS**
+- Migration safety (fresh AND upgrade): **PASS**
+- Household isolation: **PASS**
+- Privacy: **PASS**
+- Zero new dependencies, zero secrets logged, zero destructive remote operations
+- Stage 3 was **NOT** started.
+
+### KNOWN DEBT CARRIED OUT
+
+- `41e9145` (shared upload pump) is still pending sync into Memories. Verified NOT
+  an ancestor of the Memories branch; not solved here by design.
+- 39 orphaned `homecloud-originals` objects from earlier Stage 1 runs.
+- Every physical-device behavior is UNPROVEN_DEVICE.
