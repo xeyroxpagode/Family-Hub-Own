@@ -98,7 +98,6 @@ import {
   setMemorySelectionExclusions,
   setMemorySelectionSource,
   toggleMemorySelection,
-  toggleMemorySelectionMany,
   MEMORY_SELECTION_SOURCE_COLLECTIONS_ROOT,
   MEMORY_SELECTION_SOURCE_LIBRARY,
   type MemorySelectionSource,

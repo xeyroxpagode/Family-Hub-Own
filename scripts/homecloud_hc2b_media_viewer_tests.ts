@@ -73,7 +73,15 @@ check(lifecycle.settle(oldAttempt, 120).kind === 'stale' && lifecycle.active()?.
 check(lifecycle.settle(currentAttempt, 130).kind === 'current' && !lifecycle.isBusy(), 'D6 success/cancel/error settle returns to idle');
 check(lifecycle.begin('gallery', 140) !== null, 'D6 picker reopens after cancel or error');
 lifecycle.invalidate();
-check(!lifecycle.isBusy() && lifecycle.begin('audio-import', 150) !== null, 'D6 AppState invalidation releases a stale guard');
+const reopened = lifecycle.begin('audio-import', 150)!;
+check(reopened.attempt !== 0, 'D6 an explicit ownership boundary releases the guard and permits a new picker');
+// PRODUCT TRUTH (§20/§21): elapsed time alone never ends picker ownership. A
+// native presentation can legitimately run far past any wall-clock threshold,
+// so a never-settling picker must stay owned instead of being auto-closed.
+check(lifecycle.begin('gallery', 60_000) === null && lifecycle.active()?.attempt === reopened.attempt, 'D6 arbitrary elapsed time never cancels an unsettled picker');
+check(lifecycle.settle(reopened, 60_000).kind === 'current', 'D6 a picker that finally settles still releases ownership honestly');
+check(lifecycle.begin('gallery', 60_001) !== null, 'D6 ownership is reusable after the long presentation settles');
+lifecycle.invalidate();
 
 const acceptance = new MemoryAcceptanceLifecycle();
 check(acceptance.begin('draft-1') && !acceptance.begin('draft-1'), 'D6 binary submit admits one in-flight acceptance');
@@ -84,10 +92,23 @@ check(acceptance.isAccepted('draft-1') && !acceptance.begin('draft-1'), 'D6 dura
 
 const intake = fs.readFileSync(path.join(root, 'front/mi-front-limpio/services/homecloud/MemoryIntake.tsx'), 'utf8');
 const intakeService = fs.readFileSync(path.join(root, 'front/mi-front-limpio/services/homecloud/homecloudMemoryIntakeService.ts'), 'utf8');
-for (const event of ['picker_request', 'picker_guard_reject', 'picker_settled', 'picker_stale_settle', 'picker_appstate_invalidate', 'intake_submit_rejected']) {
+for (const event of ['picker_request', 'picker_guard_reject', 'picker_settled', 'picker_stale_settle', 'picker_appstate_observed', 'intake_submit_rejected']) {
   check(intake.includes(`'${event}'`), `D6 TEMPORARY diagnostics include ${event}`);
 }
-check(intake.includes("nextState !== 'background'") && intake.includes('pickerLifecycleRef.current.invalidate()'), 'D6 AppState recovery invalidates interrupted picker ownership');
+// PRODUCT TRUTH (§20): an AppState transition is NOT an ownership boundary, so
+// the listener must OBSERVE and never invalidate. Presenting a native picker
+// legitimately moves the app out of `active`; invalidating there would close
+// legitimate presentations — the exact failure D6 exists to prevent.
+const appStateListener = /AppState\.addEventListener\('change',[\s\S]*?\n {4}\}\);/.exec(intake)?.[0] ?? '';
+check(appStateListener.includes('picker_appstate_observed') && !appStateListener.includes('invalidate'), 'D6 AppState transition only traces; it never invalidates picker ownership');
+check(!/runtimeTrace\('picker_appstate_invalidate'/.test(intake), 'D6 no longer invalidates a legitimate native picker on backgrounding');
+check(!/AppState[\s\S]{0,400}?setTimeout/.test(intake), 'D6 has no AppState watchdog timeout that auto-closes a picker');
+// The ownership boundaries that ARE allowed to invalidate must stay intact.
+for (const boundary of ['pickerLifecycleRef.current.invalidate();', 'attemptAuthorityRef.current.invalidate();']) {
+  check(intake.includes(boundary), `D6 keeps the established ownership boundary ${boundary}`);
+}
+check(/const closeCreate[\s\S]*?pickerAttemptRef\.current \+= 1;/.test(intake), 'D6 closing the Create flow supersedes the picker generation');
+check(/mountedRef\.current = true;[\s\S]*?pickerLifecycle\.invalidate\(\)/.test(intake), 'D6 unmount still releases the pending picker guard');
 check(/const submitBinary[\s\S]*catch \(error\)[\s\S]*finally/.test(intake), 'D6 submit exceptions always restore acceptance guards');
 check(intakeService.includes('if (pickerGeneration === generation) picking = false;'), 'D6 service-level stale settle cannot clear a newer picker guard');
 check(!/runtimeTrace\([^\n]*(accessToken|signedUrl|localUri|contentId|fileName)/.test(intake), 'D6 diagnostics exclude sensitive identifiers and media paths');

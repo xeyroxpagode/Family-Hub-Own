@@ -163,7 +163,7 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
 
   const service = useMemo(() => createMemoryIntakeService({
     householdId,
-    accessToken,
+    accessToken: getAccessToken() ?? '',
     capabilities,
     initialAlbumId,
     initialAlbumName,
@@ -210,14 +210,16 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
 
   useEffect(() => {
     const attemptAuthority = attemptAuthorityRef.current;
+    const pickerLifecycle = pickerLifecycleRef.current;
+    const acceptanceLifecycle = acceptanceLifecycleRef.current;
     mountedRef.current = true;
     runtimeTrace('memory_intake_mount', { instanceId });
     return () => {
       mountedRef.current = false;
       attemptAuthority.dispose();
       // Unmount must never leave a pending guard behind.
-      pickerLifecycleRef.current.invalidate();
-      acceptanceLifecycleRef.current.reset();
+      pickerLifecycle.invalidate();
+      acceptanceLifecycle.reset();
       pickingRef.current = false;
       // `hasCurrentJobReference` (not `hasActiveJob`) is the honest field: it
       // asks whether this service still holds a reference to a memory job at
@@ -421,32 +423,30 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
     setPicking(false);
     setPickerFailure(null);
     service.dismiss();
-    setSheet(null);
+setSheet(null);
   }, [service]);
 
+  // TEMPORARY D6 MONITORING. An AppState transition ALONE is not evidence that
+  // a native picker is stale: presenting an iOS/native picker legitimately moves
+  // the app out of `active`. Invalidating ownership here would close LEGITIMATE
+  // presentations, so this listener observes and traces ONLY. Ownership ends
+  // exclusively on an established boundary: the Create flow closed, the
+  // component unmounted, household/scope invalidation, a newer generation
+  // superseded it, or the picker Promise settled.
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       const previousState = appStateRef.current;
       appStateRef.current = nextState;
-      if (nextState !== 'background') return;
-      const invalidated = pickerLifecycleRef.current.invalidate();
-      if (!invalidated) return;
-      pickerAttemptRef.current += 1;
-      const mediaAttempt = activePickerMediaAttemptRef.current;
-      if (mediaAttempt) attemptAuthorityRef.current.invalidate(mediaAttempt);
-      activePickerMediaAttemptRef.current = null;
-      pickingRef.current = false;
-      setPicking(false);
-      service.dismiss();
-      setPickerFailure('El selector se interrumpió. Podés volver a intentarlo o cerrar esta ventana.');
-      runtimeTrace('picker_appstate_invalidate', {
-        requestId: invalidated.requestId, attempt: invalidated.attempt, entryPath: invalidated.entryPath,
-        phase: `${previousState}->${nextState}`, pickingRef: false, picking: false,
-        attemptStillCurrent: false, appState: nextState,
+      const ticket = pickerLifecycleRef.current.active();
+      if (!ticket) return;
+      runtimeTrace('picker_appstate_observed', {
+        requestId: ticket.requestId, attempt: ticket.attempt, entryPath: ticket.entryPath,
+        phase: `${previousState}->${nextState}`, pickingRef: pickingRef.current,
+        attemptStillCurrent: pickerAttemptRef.current === ticket.attempt, appState: nextState,
       });
     });
     return () => subscription.remove();
-  }, [service]);
+  }, []);
 
   const closeReview = useCallback(() => {
     const hasActiveJob = service.hasActiveJob();
