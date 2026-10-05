@@ -134,6 +134,20 @@ export function AlbumsRail({
   );
 }
 
+/**
+ * HC2-C §8 — THE SECTION HEADER, WITH A DISCOVERABLE `+ Nuevo`.
+ *
+ * The loose `+` ICON that used to sit here was, in practice, only reachable by
+ * scrolling the horizontal rail to its far end on a narrow screen — and it was
+ * the ONLY way to create an Album that did not require an empty rail. Creation is
+ * now a labelled action in the section header itself, so it is discoverable
+ * regardless of the rail's scroll position.
+ *
+ * `AppButton size="sm"` is used on purpose: it is the app's own small-button
+ * grammar, and it is NOT `variant="icon"`, so it does not become a filled
+ * circle. `capabilities.organize` still gates it exactly as before, and the
+ * accessibility name is preserved.
+ */
 function Header({ canOrganize, onCreateAlbum }: { canOrganize: boolean; onCreateAlbum: () => void }) {
   return (
     <View style={styles.header}>
@@ -142,12 +156,12 @@ function Header({ canOrganize, onCreateAlbum }: { canOrganize: boolean; onCreate
       </AppText>
       {canOrganize ? (
         <AppButton
-          variant="icon"
           size="sm"
+          variant="secondary"
           onPress={onCreateAlbum}
           accessibilityLabel="Nuevo álbum"
         >
-          <HomePlusIcon name="add" size={22} color={colors.brand} />
+          + Nuevo
         </AppButton>
       ) : null}
     </View>

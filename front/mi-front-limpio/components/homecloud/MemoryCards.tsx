@@ -8,7 +8,6 @@ import {
   memoryPrimaryText,
   memorySemanticLabel,
 } from '../../services/homecloud/homecloudMemoriesTimeline';
-import { AppButton } from '../ui/AppButton';
 import { AppText } from '../ui/AppText';
 import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
 
@@ -38,70 +37,42 @@ import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
  * Viewer V2 destination yet, so a card never navigates, never opens a modal and
  * never pretends to be tappable.
  *
- * MO-A2 — THE ONE OPTIONAL ALBUM-SCOPE ACTION SEAM
- * ------------------------------------------------
- * `albumScopeAction` is the ONLY interaction a card can receive, and it exists
- * for exactly one situation: the card is rendered inside an Album detail and the
- * member may organize. It removes THIS Memory from THIS Album — a membership,
- * not the Memory. It is NEVER a Viewer destination, and it is never attached in
- * the Timeline, so Timeline rendering and behavior are unchanged when the prop is
- * absent (which is the Timeline case).
+ /**
+ * HC2-C BUG D — NO PERMANENT REMOVE AFFORDANCE ON ANY CARD.
+ *
+ * `albumScopeAction` / `AlbumScopeRemove` / `MemoryAlbumScopeAction` are gone
+ * from this file entirely. A destructive control painted on EVERY card of an
+ * Album is chrome the user can trigger by accident, and the wrapper it lived in
+ * painted a white SQUARE behind a circular button, so the four corners showed.
+ * Removing the affordance removes both problems at once; "fixing the radius"
+ * would have kept the destructive chrome and only hidden the artifact.
+ *
+ * A Memory inside an Album now renders EXACTLY like a Memory anywhere else.
+ * Removing a membership is contextual: selection -> `Quitar del álbum`, which
+ * deletes the Memory↔Album link and nothing else. The Memory survives, there is
+ * no Trash and no binary delete.
+ *
+ * `MemoryCard` remains what it always was underneath: a non-interactive,
+ * non-navigational product renderer with no selection, no Album mutation and no
+ * Viewer knowledge.
  */
-export type MemoryAlbumScopeAction = {
-  readonly onRemoveFromAlbum: () => void;
-  /** Only THIS card's affordance is disabled while its mutation is in flight. */
-  readonly removing: boolean;
-};
-
 export function MemoryCard({
   memory,
   accessToken,
-  albumScopeAction,
 }: {
   memory: HomeCloudMemoryListItem;
   accessToken: string | null;
-  albumScopeAction?: MemoryAlbumScopeAction;
 }) {
   switch (memory.kind) {
     case 'image':
-      return <MemoryImageTile memory={memory} accessToken={accessToken} albumScopeAction={albumScopeAction} />;
+      return <MemoryImageTile memory={memory} accessToken={accessToken} />;
     case 'video':
-      return <MemoryVideoTile memory={memory} albumScopeAction={albumScopeAction} />;
+      return <MemoryVideoTile memory={memory} />;
     case 'audio':
-      return <MemoryAudioTile memory={memory} albumScopeAction={albumScopeAction} />;
+      return <MemoryAudioTile memory={memory} />;
     case 'written':
-      return <MemoryWrittenTile memory={memory} albumScopeAction={albumScopeAction} />;
+      return <MemoryWrittenTile memory={memory} />;
   }
-}
-
-/**
- * The Album-scope affordance, or nothing at all.
- *
- * Rendered only when the caller supplies the action, so the Timeline keeps
- * exactly the tree it had before MO-A2.
- */
-function AlbumScopeRemove({
-  action,
-  label,
-}: {
-  action: MemoryAlbumScopeAction | undefined;
-  label: string;
-}) {
-  if (!action) return null;
-  return (
-    <View style={styles.albumScope}>
-      <AppButton
-        variant="icon"
-        size="sm"
-        loading={action.removing}
-        disabled={action.removing}
-        onPress={action.onRemoveFromAlbum}
-        accessibilityLabel={`Quitar del álbum ${label}`}
-      >
-        <HomePlusIcon name="close" size={16} color={colors.text.secondary} />
-      </AppButton>
-    </View>
-  );
 }
 
 function TileCaption({ memory }: { memory: HomeCloudMemoryListItem }) {
@@ -153,11 +124,9 @@ function NeutralVisual({
 function MemoryImageTile({
   memory,
   accessToken,
-  albumScopeAction,
 }: {
   memory: HomeCloudMemoryListItem;
   accessToken: string | null;
-  albumScopeAction?: MemoryAlbumScopeAction;
 }) {
   const label = tileAccessibilityLabel(memory, 'Foto');
   const preview = useMemoryPreviewUrl(accessToken, memory.id, memory.hasPreview);
@@ -187,17 +156,14 @@ function MemoryImageTile({
         />
       )}
       <TileCaption memory={memory} />
-      <AlbumScopeRemove action={albumScopeAction} label={label} />
     </View>
   );
 }
 
 function MemoryVideoTile({
   memory,
-  albumScopeAction,
 }: {
   memory: HomeCloudMemoryListItem;
-  albumScopeAction?: MemoryAlbumScopeAction;
 }) {
   const label = tileAccessibilityLabel(memory, 'Video');
   return (
@@ -211,17 +177,14 @@ function MemoryVideoTile({
         </View>
       </View>
       <TileCaption memory={memory} />
-      <AlbumScopeRemove action={albumScopeAction} label={label} />
     </View>
   );
 }
 
 function MemoryAudioTile({
   memory,
-  albumScopeAction,
 }: {
   memory: HomeCloudMemoryListItem;
-  albumScopeAction?: MemoryAlbumScopeAction;
 }) {
   const label = tileAccessibilityLabel(memory, 'Audio');
   return (
@@ -233,17 +196,14 @@ function MemoryAudioTile({
         iconColor={colors.brand}
       />
       <TileCaption memory={memory} />
-      <AlbumScopeRemove action={albumScopeAction} label={label} />
     </View>
   );
 }
 
 function MemoryWrittenTile({
   memory,
-  albumScopeAction,
 }: {
   memory: HomeCloudMemoryListItem;
-  albumScopeAction?: MemoryAlbumScopeAction;
 }) {
   const text = memoryPrimaryText(memory);
   const label = memorySemanticLabel(memory);
@@ -261,7 +221,6 @@ function MemoryWrittenTile({
       <AppText variant="caption" tone="secondary" numberOfLines={1}>
         {label}
       </AppText>
-      <AlbumScopeRemove action={albumScopeAction} label={label} />
     </View>
   );
 }
@@ -307,12 +266,5 @@ const styles = StyleSheet.create({
   },
   writtenText: {
     lineHeight: 17,
-  },
-  albumScope: {
-    position: 'absolute',
-    right: spacing[1],
-    top: spacing[1],
-    zIndex: 2,
-    backgroundColor: colors.surface.card,
   },
 });

@@ -8,7 +8,14 @@
     "../front/mi-front-limpio/services/homecloud/homecloudMemoryViewerOpening.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudMemoryViewerSource.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudMemoryMediaPlayback.ts",
-    "../front/mi-front-limpio/services/homecloud/homecloudAlbumsPagination.ts"
+    "../front/mi-front-limpio/services/homecloud/homecloudAlbumsPagination.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemorySelection.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryCollectionsPagination.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudAlbumScope.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudTypes.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoriesTimeline.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryAlbumRemoval.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryMutations.ts"
   ],
   "exclude": ["node_modules"]
 }

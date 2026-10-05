@@ -79,13 +79,26 @@ export function memorySelectionAddLabel(albumName: string | null): string {
   return albumName === null ? 'Agregar a álbum' : `Agregar a ${albumName}`;
 }
 
+/**
+ * The accessible name of the contextual action affordance.
+ *
+ * HC2-C replaced the `✓` confirm with an actions affordance available from the
+ * first frame of the selection, so the name has to state the exact scope of what
+ * is about to be opened — including the honest zero case, where there is nothing
+ * to act on.
+ */
+export function memorySelectionActionsLabel(count: number): string {
+  if (!Number.isInteger(count) || count <= 0) return 'Acciones, 0 seleccionados';
+  return `Acciones, ${count} ${count === 1 ? 'seleccionado' : 'seleccionados'}`;
+}
+
 export type MemorySelectionMode = 'normal' | 'selecting';
 
 /**
  * WHY THE OPERATION IS DATA
  * -------------------------
  * The operation is part of the session because it decides the only two things
- * that differ between the entry points: which mutation a confirm performs and
+ * that differ between the entry points: which mutation an action performs and
  * which destination Album it names. It is data, not a callback, so a household
  * reset or a scope change can drop it without any pending work surviving.
  */
@@ -95,24 +108,25 @@ export type MemorySelectionPurpose =
   | { readonly kind: 'removeFromAlbum'; readonly albumId: string };
 
 /**
- * WHICH Memories are on screen.
+ * WHICH Memories are on screen is NOT part of the session.
  *
- * `collection` carries an opaque, STABLE collection id produced by
- * `homecloudMemoryCollectionsPagination` (`type:image`, `album:<id>`, ...). It
- * is not a route and it is not a navigation param: it is local source state.
+ * HC2-C removed `MemorySelectionSource` from this module. The old session carried
+ * `library | collectionsRoot | collection`, which is what made selection a
+ * NAVIGATION destination: entering it revealed a `Recuerdos | Colecciones`
+ * switch, and choosing `Colecciones` swapped the whole screen body for a second
+ * parallel `ScrollView` with its own offset, its own back control and its own
+ * title.
+ *
+ * The product truth is that selection is CONTEXTUAL STATE INSIDE THE CURRENT
+ * SURFACE: the grid does not move, the offset is preserved, the root information
+ * architecture does not change, and the Album/collection context is preserved.
+ * That can only be true if the session has no opinion about which surface it is
+ * on. Which collection is open is SCREEN state (`activeCollectionId`), owned by
+ * the screen, exactly like `openAlbumId`.
  */
-export type MemorySelectionSource =
-  | { readonly kind: 'library' }
-  | { readonly kind: 'collectionsRoot' }
-  | { readonly kind: 'collection'; readonly collectionId: string };
-
-export const MEMORY_SELECTION_SOURCE_LIBRARY: MemorySelectionSource = { kind: 'library' };
-export const MEMORY_SELECTION_SOURCE_COLLECTIONS_ROOT: MemorySelectionSource = { kind: 'collectionsRoot' };
-
 export interface MemorySelectionState {
   readonly mode: MemorySelectionMode;
   readonly purpose: MemorySelectionPurpose | null;
-  readonly source: MemorySelectionSource;
   /**
    * Pending selection, by `contentId`. ALWAYS a fresh immutable `Set`: a
    * transition that changes nothing returns the very same instance so React can
@@ -131,7 +145,6 @@ const EMPTY_SET: ReadonlySet<string> = new Set<string>();
 export const MEMORY_SELECTION_INITIAL: MemorySelectionState = {
   mode: 'normal',
   purpose: null,
-  source: MEMORY_SELECTION_SOURCE_LIBRARY,
   selectedIds: EMPTY_SET,
   excludedIds: EMPTY_SET,
 };
@@ -141,7 +154,6 @@ export function createMemorySelectionSession(): MemorySelectionState {
   return {
     mode: 'normal',
     purpose: null,
-    source: MEMORY_SELECTION_SOURCE_LIBRARY,
     selectedIds: new Set<string>(),
     excludedIds: new Set<string>(),
   };
@@ -149,7 +161,6 @@ export function createMemorySelectionSession(): MemorySelectionState {
 
 export interface EnterMemorySelectionRequest {
   readonly purpose: MemorySelectionPurpose;
-  readonly source: MemorySelectionSource;
   /** The first Memory of a long press. Excluded ids are never taken. */
   readonly initialContentIds?: readonly string[];
   /** Already-in-destination ids, derived from the read model's `albumIds`. */
@@ -179,7 +190,6 @@ export function enterMemorySelection(
   return {
     mode: 'selecting',
     purpose: request.purpose,
-    source: request.source,
     selectedIds,
     excludedIds,
   };
@@ -290,36 +300,21 @@ export function isMemorySelected(state: MemorySelectionState, contentId: string)
   return state.selectedIds.has(contentId);
 }
 
-/** Move the visible source WITHOUT touching the pending selection. */
-export function setMemorySelectionSource(
-  state: MemorySelectionState,
-  source: MemorySelectionSource,
-): MemorySelectionState {
-  if (state.source.kind === source.kind) {
-    if (source.kind !== 'collection' || (state.source.kind === 'collection' && state.source.collectionId === source.collectionId)) {
-      return state;
-    }
-  }
-  return { ...state, source };
-}
-
 /**
  * CANCEL: drop the whole operation.
  *
- * Nothing is mutated and the caller restores its exact origin (the Album it
- * came from, the Timeline scroll offset). This is the `X` affordance.
+ * Nothing is mutated and the caller keeps the exact surface it was on: the Album
+ * it came from, the collection it came from, and the Timeline scroll offset.
+ * There is no `source` to restore any more, precisely because the session never
+ * owned one. This is the `X` affordance.
  */
-export function cancelMemorySelection(
-  state: MemorySelectionState,
-  source: MemorySelectionSource = MEMORY_SELECTION_SOURCE_LIBRARY,
-): MemorySelectionState {
+export function cancelMemorySelection(state: MemorySelectionState): MemorySelectionState {
   if (state.mode === 'normal' && state.purpose === null && state.selectedIds.size === 0) {
-    return source === state.source ? state : { ...state, source };
+    return state;
   }
   return {
     mode: 'normal',
     purpose: null,
-    source,
     selectedIds: new Set<string>(),
     excludedIds: new Set<string>(),
   };
@@ -327,7 +322,6 @@ export function cancelMemorySelection(
 
 export interface MemorySelectionResult {
   readonly purpose: MemorySelectionPurpose;
-  readonly source: MemorySelectionSource;
   /** Pending ids, in selection order. Never includes an excluded id. */
   readonly contentIds: readonly string[];
 }
@@ -335,10 +329,8 @@ export interface MemorySelectionResult {
 /**
  * CONFIRM: read the operation out of the session.
  *
- * It performs NO mutation: a `generic` purpose has no destination yet, so its
- * confirm opens the destination Album sheet and then runs the SAME composer.
- * Ids are filtered against the exclusions one last time, so a confirm can never
- * submit a membership that already exists.
+ * It performs NO mutation. Ids are filtered against the exclusions one last
+ * time, so a confirm can never submit a membership that already exists.
  */
 export function confirmMemorySelection(state: MemorySelectionState): MemorySelectionResult | null {
   if (!isMemorySelecting(state) || state.purpose === null) return null;
@@ -347,10 +339,10 @@ export function confirmMemorySelection(state: MemorySelectionState): MemorySelec
     if (state.excludedIds.has(contentId)) continue;
     contentIds.push(contentId);
   }
-  return { purpose: state.purpose, source: state.source, contentIds };
+  return { purpose: state.purpose, contentIds };
 }
 
-/** Is the confirm affordance enabled? Zero selected is always disabled. */
+/** Is any action available? Zero selectable Memories is always disabled. */
 export function canConfirmMemorySelection(state: MemorySelectionState): boolean {
   if (!isMemorySelecting(state)) return false;
   for (const contentId of state.selectedIds) {
@@ -362,8 +354,10 @@ export function canConfirmMemorySelection(state: MemorySelectionState): boolean 
 /**
  * RESET SCOPE (household switch / sign-out).
  *
- * Unlike `cancel`, this also drops the source: nothing at all from the previous
- * household may render in the next one, including which collection was open.
+ * Drops mode, purpose and every id. Which surface was open is NOT part of this:
+ * the screen resets its own `activeCollectionId` / `openAlbumId` in the same
+ * scope effect, so nothing at all from the previous household can render in the
+ * next one.
  */
 export function resetMemorySelectionScope(): MemorySelectionState {
   return createMemorySelectionSession();

@@ -3,9 +3,10 @@ import { AppState, Keyboard, Linking, ScrollView, StyleSheet, View, type AppStat
 import { useIsFocused } from '@react-navigation/native';
 
 import { ActionSheet, AppButton, AppInput, AppText, FilterChip } from '../../components/ui';
+import { InteractivePressable } from '../../components/ui/InteractivePressable';
 import { MemorySemanticDateFields } from '../../components/homecloud/MemorySemanticDateFields';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, spacing } from '../../constants/theme';
+import { colors, motion, spacing, touchTargets } from '../../constants/theme';
 import { generateMutationId } from '../api';
 import { createMemoryIntakeService } from './homecloudMemoryIntakeService';
 import { createWrittenMemory } from './homecloudWrittenMemoryService';
@@ -633,17 +634,42 @@ const openWritten = () => {
     setSheet('create');
   }, [reloadDestinations, service]);
 
+/**
+   * HC2-C §7 — THE CREATE-MEMORY `+`: CLEAN ACTION, NO VISIBLE CIRCLE.
+   *
+   * This used to be `AppButton variant="icon"`, and that variant ALWAYS paints
+   * `borderRadius: radius.full` + `backgroundColor: surface.soft` + a border. So
+   * the most important action in the surface was wearing a filled circular
+   * container that competed with the page chrome.
+   *
+   * `AppButton` is deliberately NOT modified: `variant="icon"` is used across the
+   * whole app, and changing it would restyle unrelated buttons. Instead this is
+   * the local transparent pressable the product decision calls for:
+   *
+   *  - no background, no border, no radius, therefore no visible container;
+   *  - an INVISIBLE hit area of `touchTargets.normal` (44) on both axes, which
+   *    is the accessibility floor the product requires;
+   *  - the existing brand colour on the glyph;
+   *  - the SAME `accessibilityLabel="Crear recuerdo"`;
+   *  - the SAME `disabled` semantics when `capabilities.contribute` is false;
+   *  - the SAME light haptic, via the shared `InteractivePressable` (which also
+   *    brings the app's existing press-scale, so this does not invent a new
+   *    interaction feel).
+   */
   return (
     <>
-      <AppButton
-        variant="icon"
-        size="sm"
+      <InteractivePressable
         onPress={openCreate}
         disabled={triggerDisabled}
+        style={styles.createTrigger}
+        pressScale={motion.scale.icon}
+        haptic="light"
+        accessibilityRole="button"
         accessibilityLabel="Crear recuerdo"
+        accessibilityState={{ disabled: triggerDisabled }}
       >
         <HomePlusIcon name="add" size={24} color={colors.brand} />
-      </AppButton>
+      </InteractivePressable>
 
       <ActionSheet visible={sheet === 'create'} title="Guardar un recuerdo" onRequestClose={closeCreate} size="content">
         <View style={styles.actions}>
@@ -835,6 +861,21 @@ function binarySubmitLabel(status: MemoryIntakeState['status']): string {
 }
 
 const styles = StyleSheet.create({
+  /**
+   * HC2-C §7 — the invisible 44x44 hit area of the create `+`.
+   *
+   * `backgroundColor: 'transparent'` and no border/radius are stated explicitly
+   * rather than merely omitted, so the "no visible circle" contract is a property
+   * of this style and not of what someone happens not to add later. The size is
+   * `touchTargets.normal`, the accessibility floor the product freezes.
+   */
+  createTrigger: {
+    minWidth: touchTargets.normal,
+    minHeight: touchTargets.normal,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
   actions: { gap: spacing[3], paddingBottom: spacing[2] },
   form: { gap: spacing[4], paddingBottom: spacing[4] },
   captureSummary: { gap: spacing[1] },

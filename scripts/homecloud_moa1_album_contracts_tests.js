@@ -505,10 +505,17 @@ const APPROVED_ALBUM_UI_FILES = [
 ];
 
 const APPROVED_ALBUM_SERVICE_FILES = [
-  'homecloudAlbumScope.ts',
-  'homecloudAlbumsPagination.ts',
-  'homecloudAlbumDetailPagination.ts',
-];
+'homecloudAlbumScope.ts',
+     'homecloudAlbumsPagination.ts',
+     'homecloudAlbumDetailPagination.ts',
+     // HC2-C: the single-Memory membership removal operation. It is a plain async
+     // function over the EXISTING `removeMemoryFromAlbum` service — no React, no
+     // hook, no store, no new transport — so it satisfies the same
+     // framework-free contract as the rest. It was extracted from the screen only
+     // because BUG D removed its last UI caller; the Membership contract itself is
+     // unchanged and Run B reconnects it to the single-Memory Viewer action.
+     'homecloudMemoryAlbumRemoval.ts',
+   ];
 
 const albumUiFiles = uiFiles.filter((name) => /album/i.test(name));
 record(

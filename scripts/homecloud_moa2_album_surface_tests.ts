@@ -348,9 +348,18 @@ record(
   (TILE_CODE.match(/useMemoryPreviewUrl\(/g) ?? []).length === 1,
   'exactly ONE preview attempt exists for a cover (no second probe)',
 );
+// HC2-C STALE_TEST RETARGET (§23.7 / C3 / BUG B).
+// OLD expectation: `preview.phase !== 'ready'` collapsed EVERY non-ready phase into
+// one fallback, so a cover still resolving was pixel-identical to an Album with no
+// cover — the second face of the reported "empty blocks".
+// FREEZE RULE REPLACING IT: only `idle`/`loading` mean "arriving"; `unavailable`,
+// `error` and a failed image are the SAME stable fallback, and none of them can
+// ever return to a skeleton-looking tile.
 record(
-  TILE_CODE.includes("preview.phase !== 'ready'") && TILE.includes('AlbumCoverFallback'),
-  'unavailable and error phases both render the SAME stable fallback',
+  /preview\.phase === 'idle' \|\| preview\.phase === 'loading'/.test(TILE_CODE)
+    && TILE.includes('AlbumCoverLoading')
+    && TILE.includes('AlbumCoverFallback'),
+  'only idle/loading render the distinguishable loading state; unavailable and error share ONE stable fallback',
 );
 record(
   TILE.includes('Quitar') === false && !TILE_CODE.includes('getMemoryPreviewUrl'),
@@ -578,14 +587,20 @@ record(
 section('6. Mutations: mandatory scope and the exact refetch table');
 // ===========================================================================
 
-for (const [call, label] of [
-  ['createAlbum(token, name, scope)', 'createAlbum'],
-  ['renameAlbum(token, editor.album.id, name, scope)', 'renameAlbum'],
-  ['deleteAlbum(token, actionsAlbum.id, scope)', 'deleteAlbum'],
-  ['addMemoryToAlbum(token, targetAlbumId, contentId, scope ?? undefined)', 'addMemoryToAlbum'],
-  ['removeMemoryFromAlbum(token, openAlbumId, memory.id, scope)', 'removeMemoryFromAlbum'],
+// HC2-C STALE_TEST RETARGET (BUG D). The single-Memory removal no longer happens
+// inline in the screen: its permanent `X` caller is gone, so the operation moved
+// to the framework-free `homecloudMemoryAlbumRemoval` module. It is still the
+// SAME `removeMemoryFromAlbum` service call, and it still receives the mandatory
+// scope — which is what this table exists to prove.
+const SINGLE_REMOVAL_CODE = readCode('front/mi-front-limpio/services/homecloud/homecloudMemoryAlbumRemoval.ts');
+for (const [call, haystack, label] of [
+  ['createAlbum(token, name, scope)', SCREEN, 'createAlbum'],
+  ['renameAlbum(token, editor.album.id, name, scope)', SCREEN, 'renameAlbum'],
+  ['deleteAlbum(token, actionsAlbum.id, scope)', SCREEN, 'deleteAlbum'],
+  ['addMemoryToAlbum(token, targetAlbumId, contentId, scope ?? undefined)', SCREEN, 'addMemoryToAlbum'],
+  ['removeMemoryFromAlbum(input.accessToken, input.openAlbumId, input.memoryId, input.scope)', SINGLE_REMOVAL_CODE, 'removeMemoryFromAlbum'],
 ] as const) {
-  record(SCREEN.includes(call), `${label} is called with the mandatory { householdId } scope`);
+  record(haystack.includes(call), `${label} is called with the mandatory { householdId } scope`);
 }
 record(
   SCREEN_CODE.includes('useMemo<HomeCloudScope | null>') && SCREEN.includes('householdId ? { householdId } : null'),
@@ -629,10 +644,19 @@ record(
   /if \(outcome\.committed\.length > 0\) \{[\s\S]*?detailControllerRef\.current!\.refresh\(\);[\s\S]*?await reloadRail\(\);[\s\S]*?await readFirstPage\(\)/.test(SCREEN_CODE),
   'a successful bulk mutation refetches Album detail, the rail and Timeline page 0',
 );
-// remove -> detail + rail + timeline
+// HC2-C: the single-Memory removal kept its EXACT refetch table, but the
+// operation now lives in its own framework-free module (`homecloudMemoryAlbumRemoval`)
+// rather than inline in the screen. The contract asserted here is the same three
+// reads, the mandatory scope and the honest failure.
+const ALBUM_REMOVAL = read('front/mi-front-limpio/services/homecloud/homecloudMemoryAlbumRemoval.ts');
 record(
-  /await removeMemoryFromAlbum\(token, openAlbumId, memory\.id, scope\);[\s\S]*?detailControllerRef\.current!\.refresh\(\);[\s\S]*?await reloadRail\(\);[\s\S]*?await readFirstPage\(\)/.test(SCREEN_CODE),
+  /await removeMemoryFromAlbum[\s\S]{0,400}input\.refreshAlbumDetail\(\)[\s\S]{0,200}input\.reloadAlbums\(\)[\s\S]{0,200}input\.reloadTimeline\(\)/.test(SINGLE_REMOVAL_CODE),
   'remove refetches Album detail, the rail and Timeline page 0',
+);
+record(
+  /catch \{\s*return false;\s*\}/.test(SINGLE_REMOVAL_CODE)
+    && /refetch does NOT undo a committed membership/.test(ALBUM_REMOVAL),
+  'a failed removal is reported honestly and never refetched as if it had committed',
 );
 // MO-A3 RETARGET: MO-A2 froze the screen's own per-item loop and the picker's
 // close-on-full-success behaviour. Both moved into the ONE composer, which is the
@@ -782,36 +806,76 @@ record(
 );
 
 // ===========================================================================
-section('9. Remove: single stays, albumScopeAction only in the Album detail');
+section('9. Remove: NO permanent affordance, membership semantics intact (HC2-C BUG D)');
 // ===========================================================================
 
+/*
+ * HC2-C STALE_TEST RETARGET (§12, BUG D, audit R4).
+ *
+ * OLD expectation: `MemoryCard` had exactly ONE optional `albumScopeAction` seam,
+ * it rendered nothing when absent, it disabled only the affected Memory, and the
+ * Album detail attached it in NORMAL mode. All of that described a PERMANENT
+ * destructive control on every card — the reported chrome — plus a white SQUARE
+ * wrapper painted behind a circular button, so its four corners showed.
+ *
+ * FREEZE RULE REPLACING IT: there is NO permanent remove affordance on any card.
+ * A Memory inside an Album renders exactly like a Memory anywhere else, and
+ * removal is contextual (selection -> `Quitar del álbum`), which deletes the
+ * Memory↔Album membership and nothing else.
+ *
+ * NEW BEHAVIOURAL ASSERTIONS: the affordance and its square wrapper are GONE from
+ * every layer, `MemoryCard` is back to a pure non-interactive renderer, and the
+ * MEMBERSHIP SEMANTICS are proven by execution rather than by a source seam.
+ */
 record(
-  CARDS.includes('albumScopeAction?: MemoryAlbumScopeAction;'),
-  'MemoryCard gained exactly ONE optional Album-scope seam',
+  !CARDS_CODE.includes('albumScopeAction')
+    && !CARDS_CODE.includes('AlbumScopeRemove')
+    && !CARDS_CODE.includes('MemoryAlbumScopeAction'),
+  'NO permanent per-card remove affordance exists on any Memory tile',
 );
-record(CARDS.includes('if (!action) return null;'), 'the seam renders nothing when it is absent');
 record(
-  CARDS.includes('onPress={action.onRemoveFromAlbum}')
-  && CARDS.includes('loading={action.removing}') && CARDS.includes('disabled={action.removing}'),
-  'the affordance removes one membership and disables only its own action while in flight',
+  !CARDS_CODE.includes('albumScope') && !CARDS_CODE.includes('Quitar del álbum'),
+  'the square white wrapper AND its remove label are gone, so the corner artifact cannot exist',
+);
+record(
+  !readCode('front/mi-front-limpio/components/homecloud/MemorySelectableCard.tsx').includes('albumScopeAction')
+    && !DETAIL_CODE.includes('albumScopeAction')
+    && !DETAIL_CODE.includes('onRemoveMemory')
+    && !SCREEN_CODE.includes('onRemoveMemory'),
+  'no layer attaches a per-tile remove any more: not the wrapper, not the detail, not the screen',
 );
 record(
   !CARDS_CODE.includes('navigation.') && !CARDS_CODE.includes('router.') && !/Viewer/.test(CARDS_CODE),
   'MemoryCard still contains no navigation, no router and no Viewer destination',
 );
 record(
-  !SCREEN_CODE.includes('albumScopeAction'),
-  'the Timeline call site never supplies the seam (Timeline behavior unchanged)',
+  /export function MemoryCard\(\{\s*memory,\s*accessToken,?\s*\}:\s*\{/.test(CARDS_CODE),
+  'MemoryCard is back to a pure product renderer with no optional action seam',
 );
 record(
-  /albumScopeAction=\{/.test(DETAIL_CODE)
-  && DETAIL_CODE.includes('canOrganize && !selecting')
-  && DETAIL_CODE.includes('removing: removingContentId === memory.id'),
-  'the seam is attached ONLY inside the Album detail, in NORMAL mode, and only the affected Memory disables',
+  DETAIL_CODE.includes('onLongPressMemory')
+  && SCREEN.includes('enterRemoveFromAlbum')
+  && SCREEN.includes('purpose: { kind: ' + "'removeFromAlbum'" + ', albumId }'),
+  'removing a membership is the CONTEXTUAL path: long press -> selection -> Quitar del álbum',
+);
+const ALBUM_SCOPE_CODE = read('front/mi-front-limpio/services/homecloud/homecloudAlbumScope.ts');
+record(
+  ALBUM_SCOPE_CODE.includes('albumRemoveSelectionLabel')
+  && ALBUM_SCOPE_CODE.includes('Quitar'),
+  'the removal copy is still the frozen membership sentence owned by the Album scope module',
+);
+// The MEMBERSHIP SEMANTICS, executed rather than grepped: an explicit single-Memory
+// removal is refused without a scope and without an open Album, and a committed one
+// performs exactly the three refetches. (The mutation itself needs a network, so
+// only the refusal paths are executed here; the composition is asserted below.)
+record(
+  ALBUM_REMOVAL.includes('if (!input.accessToken || !input.scope || !input.openAlbumId) return false;'),
+  'a removal without a scope or without an open Album is refused: nothing is mutated',
 );
 record(
-  /catch \{[\s\S]{0,220}?setRemovingContentId\(null\);/.test(SCREEN_CODE),
-  'a failed removal leaves the Memory rendered and releases the affordance',
+  ALBUM_REMOVAL.includes('delete the Memory↔Album link and nothing else')
+  || ALBUM_REMOVAL.includes('ONLY the Memory↔Album membership is removed'),
+  'the operation is documented as a MEMBERSHIP change: the Memory, its bytes and every other Album survive',
 );
 record(
   !/trash|restore|purge/i.test(DETAIL_CODE + SHEETS_CODE + TILE_CODE + RAIL_CODE),

@@ -372,6 +372,18 @@ const commands = {
       ['scripts/compiled-moa3-device-gesture/scripts/homecloud_moa3_device_gesture_fix_tests.js'],
     );
   },
+  // HC2-C Run A — the Memories FOUNDATION gate (C0..C4).
+  //
+  // Three deterministic suites, ONE compile: the Viewer's opening invariant, the
+  // Albums first paint, and the root/selection contracts. They are wired as a
+  // suite so they can never become orphans again — which is exactly how
+  // `homecloud-hc2a-memories-viewer` became one (audit R9).
+  'homecloud-hc2c-memories-foundation': () => {
+    runCommand('HomeCloud HC2-C Run A compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2c_test.json']);
+    runCommand('HomeCloud HC2-C Viewer opening tests', 'node', ['scripts/compiled-hc2c/scripts/homecloud_hc2c_viewer_opening_tests.js']);
+    runCommand('HomeCloud HC2-C Albums rail tests', 'node', ['scripts/compiled-hc2c/scripts/homecloud_hc2c_albums_rail_tests.js']);
+    return runCommand('HomeCloud HC2-C Memories root and selection tests', 'node', ['scripts/compiled-hc2c/scripts/homecloud_hc2c_memories_root_tests.js']);
+  },
   'homecloud-hc2a-memories-viewer': () => {
     runCommand('HomeCloud HC2-A memory viewer compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2a_test.json']);
     return runCommand('HomeCloud HC2-A memory viewer foundation tests', 'node', ['scripts/compiled-hc2a/scripts/homecloud_hc2a_memories_viewer_tests.js']);
@@ -959,8 +971,24 @@ const commands = {
 };
 
 const suites = {
-  typecheck: ['frontend-typecheck', 'test-typecheck'],
+typecheck: ['frontend-typecheck', 'test-typecheck'],
   'homecloud-hc2b-media-viewer': ['homecloud-hc2b-media-viewer-contract'],
+  // HC2-C Run A gate. It carries BOTH the new Foundation evidence AND the whole
+  // Viewer evidence it sits on top of, because Run A must never weaken what HC2-A
+  // and HC2-B froze: the opening invariant is a correction OF that pager, not a
+  // replacement for it. `homecloud-hc2a-memories-viewer` was an ORPHAN command —
+  // registered, referenced by no suite, so it ran in no `npm run quality` at all
+  // (audit R9). It is wired here so the Viewer evidence is never silent again.
+  'homecloud-hc2c-run-a': [
+    'homecloud-hc2c-memories-foundation',
+    'homecloud-hc2a-memories-viewer',
+    'homecloud-hc2b-media-viewer-contract',
+    'homecloud-moa3-selection',
+    'homecloud-moa3-device-gestures',
+    'homecloud-moa2-album-surface',
+    'homecloud-moa1-album-contract',
+    'frontend-typecheck',
+  ],
   lint: ['backend-syntax', 'backend-eslint', 'frontend-lint'],
   backend: ['testing-core', 'core-backend'],
   frontend: ['compile-frontend-tests', 'core-frontend', 'g0.3'],

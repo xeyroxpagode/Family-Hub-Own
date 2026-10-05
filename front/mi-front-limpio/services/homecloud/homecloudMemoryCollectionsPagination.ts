@@ -49,13 +49,20 @@ export type MemoryCollectionRef =
   | { readonly kind: 'type'; readonly memoryKind: HomeCloudMemoryKind }
   | { readonly kind: 'album'; readonly albumId: string };
 
+/** A `type` collection ref, narrowed out of the union by construction. */
+export type MemoryTypeCollectionRef = { readonly kind: 'type'; readonly memoryKind: HomeCloudMemoryKind };
+
 /**
  * The four deterministic type collections, in their frozen product order.
  *
- * Their ORDER is data on purpose: the Collections root renders this array
- * verbatim, so the product order can never drift between surfaces.
+ * Their ORDER is data on purpose: the Memories root renders this array verbatim
+ * as its `Tipos` section, so the product order can never drift between surfaces.
+ *
+ * The element type is NARROWED to the `type` branch on purpose. This array
+ * genuinely contains only type refs, and declaring the wider union forced every
+ * consumer to re-check a discriminant that cannot be false.
  */
-export const MEMORY_TYPE_COLLECTIONS: readonly MemoryCollectionRef[] = [
+export const MEMORY_TYPE_COLLECTIONS: readonly MemoryTypeCollectionRef[] = [
   { kind: 'type', memoryKind: 'image' },
   { kind: 'type', memoryKind: 'video' },
   { kind: 'type', memoryKind: 'audio' },

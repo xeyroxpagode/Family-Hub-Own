@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { colors, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
 import {
+  memorySelectionActionsLabel,
   memorySelectionAddLabel,
   memorySelectionCountLabel,
   memorySelectionRemoveLabel,
@@ -11,51 +12,53 @@ import {
 import type { MemorySelectionFailure } from '../../services/homecloud/homecloudMemoryMutations';
 import { AppButton } from '../ui/AppButton';
 import { AppText } from '../ui/AppText';
-import { SegmentedControl } from '../ui/SegmentedControl';
 
 /**
- * HomeCloud MO-A3 — the SELECTION HEADER.
+ * HomeCloud MO-A3 → HC2-C — the SELECTION HEADER.
  *
- * The frozen composition is:
+ * HC2-C FROZEN COMPOSITION:
  *
- *     [X]        Recuerdos | Colecciones        [✓]
+ *     [X]      N seleccionados      [Acciones ⋯]
  *
- *     N seleccionados
- *     Agregar a Vacaciones            (or "Quitar N del álbum")
+ * TWO THINGS THIS FILE NO LONGER CONTAINS, ON PURPOSE
+ * ----------------------------------------------------
  *
- * Spacing adapts to the existing HomePlus grammar; the SEMANTICS do not move:
+ *  1. NO `SegmentedControl` (`Recuerdos | Colecciones`). That control is what
+ *     made selection a navigation destination: choosing `Colecciones` swapped the
+ *     entire screen body for a second parallel surface. Selection is contextual
+ *     state inside the CURRENT surface, so the current surface is simply the one
+ *     you are already looking at.
  *
- *  - `X` CANCELS. It performs no mutation and restores the exact origin (the
- *    Album it was opened from, the Timeline scroll offset).
- *  - `✓` CONFIRMS the current operation. With ZERO selected it is disabled.
- *  - `Recuerdos | Colecciones` switches which Memories are on screen. It never
- *    changes the pending selection, the operation, or the destination.
+ *  2. NO `✓` gate in front of the actions. The `✓` existed only to REVEAL the
+ *     contextual actions, which made an obvious capability two taps away and
+ *     implied a confirmation that was never asked for. The contextual action
+ *     sheet is opened by `⋯` from the FIRST FRAME of the selection, and any real
+ *     mutation it can perform still asks for whatever confirmation that mutation
+ *     genuinely needs.
  *
- * OPERATION FAILURES LIVE HERE, NOT IN A TOAST
- * --------------------------------------------
- * A partial mutation failure is an honest INLINE state, because the successful
- * memberships stay committed and only the failed ids remain selected: a toast
- * would disappear and hide a retry that still has to happen. Nothing is ever
- * rolled back, and the copy never uses `Eliminar` / `Borrar` / `Papelera`.
+ * WHAT IS STILL HERE
+ * ------------------
+ *  - `X` CANCELS. No mutation, and the surface is exactly the one it was.
+ *  - the exact count is always visible.
+ *  - the operation line names the operation honestly.
+ *  - a partial mutation failure is an honest INLINE state with a retry of ONLY
+ *    the failed ids, because the committed memberships stay committed and only
+ *    the failures remain to be done. Nothing is ever rolled back, and the copy
+ *    never uses `Eliminar` / `Borrar` / `Papelera`.
  */
-
-export type MemorySelectionSourceTab = 'library' | 'collections';
 
 export function MemorySelectionHeader({
   selectedCount,
-  tab,
   purpose,
   destinationName,
   canAddToAlbum,
   onCancel,
-  onTabChange,
-  onConfirm,
+  onOpenActions,
   busy,
   failure,
   onRetryFailed,
 }: {
   selectedCount: number;
-  tab: MemorySelectionSourceTab;
   /** null = generic (the destination is still to be chosen). */
   purpose: 'generic' | 'addToAlbum' | 'removeFromAlbum';
   /** The Album name of the destination operation, when there is one. */
@@ -67,16 +70,13 @@ export function MemorySelectionHeader({
    */
   canAddToAlbum: boolean;
   onCancel: () => void;
-  onTabChange: (tab: MemorySelectionSourceTab) => void;
-  onConfirm: () => void;
+  /** Opens the contextual action sheet. Available from the first frame. */
+  onOpenActions: () => void;
   busy: boolean;
   failure: MemorySelectionFailure | null;
   onRetryFailed: () => void;
 }) {
-  const confirmDisabled = selectedCount === 0 || busy;
-  const confirmAccessibility = confirmDisabled && selectedCount === 0
-    ? 'Confirmar, 0 seleccionados'
-    : `Confirmar, ${selectedCount} ${selectedCount === 1 ? 'seleccionado' : 'seleccionados'}`;
+  const actionsDisabled = selectedCount === 0 || busy;
 
   return (
     <View style={styles.container}>
@@ -91,40 +91,22 @@ export function MemorySelectionHeader({
           <HomePlusIcon name="close" size={21} color={colors.text.primary} />
         </AppButton>
         <View style={styles.segment}>
-          <SegmentedControl
-            size="compact"
-            value={tab}
-            onChange={(next) => onTabChange(next as MemorySelectionSourceTab)}
-            accessibilityLabel="Elegir entre recuerdos y colecciones"
-            options={[
-              {
-                value: 'library',
-                label: 'Recuerdos',
-                accessibilityLabel: 'Ver los recuerdos de la biblioteca',
-              },
-              {
-                value: 'collections',
-                label: 'Colecciones',
-                accessibilityLabel: 'Ver las colecciones: álbumes, fotos, videos, audios y notas',
-              },
-            ]}
-          />
+          <AppText variant="bodySmall" weight="700">
+            {memorySelectionCountLabel(selectedCount)}
+          </AppText>
         </View>
         <AppButton
           variant="icon"
           size="sm"
-          onPress={onConfirm}
-          disabled={confirmDisabled}
-          accessibilityLabel={confirmAccessibility}
+          onPress={onOpenActions}
+          disabled={actionsDisabled}
+          accessibilityLabel={memorySelectionActionsLabel(selectedCount)}
         >
-          <HomePlusIcon name="checkmark" size={21} color={colors.text.primary} />
+          <HomePlusIcon name="ellipsis-horizontal" size={21} color={colors.text.primary} />
         </AppButton>
       </View>
 
       <View style={styles.status}>
-        <AppText variant="bodySmall" weight="700">
-          {memorySelectionCountLabel(selectedCount)}
-        </AppText>
         {purpose === 'removeFromAlbum' ? (
           <AppText variant="caption" tone="secondary" numberOfLines={1}>
             {memorySelectionRemoveLabel(selectedCount)}

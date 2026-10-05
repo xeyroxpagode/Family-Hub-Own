@@ -9,7 +9,7 @@ import {
 } from '../../services/homecloud/homecloudMemoriesTimeline';
 import type { HomeCloudMemoryListItem } from '../../services/homecloud/homecloudTypes';
 import { AppText } from '../ui/AppText';
-import { MemoryCard, type MemoryAlbumScopeAction } from './MemoryCards';
+import { MemoryCard } from './MemoryCards';
 
 /**
  * HomeCloud MO-A3 — the Memory INTERACTION WRAPPER.
@@ -85,7 +85,6 @@ export function MemorySelectableCard({
   selected,
   unselectable,
   disabled,
-  albumScopeAction,
   onToggle,
   onOpen,
   onLongPress,
@@ -103,14 +102,6 @@ export function MemorySelectableCard({
   unselectable: boolean;
   /** A mutation is in flight; interaction is frozen but visuals are honest. */
   disabled?: boolean;
-  /**
-   * MO-A2's ONE contextual Album action, forwarded untouched to `MemoryCard`.
-   *
-   * It is supplied ONLY by the Album detail in NORMAL mode: while the Selection
-   * Mode is active the caller omits it, because a per-tile button underneath a
-   * drag is a competing tap target, not a feature.
-   */
-  albumScopeAction?: MemoryAlbumScopeAction;
   onToggle: (contentId: string) => void;
   /** Normal-mode destination; selection mode never opens a Viewer. */
   onOpen?: (memory: HomeCloudMemoryListItem) => void;
@@ -211,7 +202,7 @@ export function MemorySelectableCard({
         accessibilityState={{ selected, disabled: disabled === true }}
         style={styles.pressable}
       >
-        <MemoryCard memory={memory} accessToken={accessToken} albumScopeAction={albumScopeAction} />
+        <MemoryCard memory={memory} accessToken={accessToken} />
       </Pressable>
       {selecting ? (
         <>

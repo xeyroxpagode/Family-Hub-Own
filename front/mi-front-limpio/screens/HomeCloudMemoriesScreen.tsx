@@ -3,7 +3,6 @@ import {
   AppState,
   BackHandler,
   RefreshControl,
-  ScrollView,
   SectionList,
   StyleSheet,
   View,
@@ -19,8 +18,9 @@ import { ActionSheet } from '../components/ui/ActionSheet';
 import { AlbumDetailView } from '../components/homecloud/AlbumDetailView';
 import { AlbumsRail } from '../components/homecloud/AlbumsRail';
 import { AlbumActionsSheet, AlbumNameSheet, type AlbumEditorMode } from '../components/homecloud/AlbumSheets';
-import { MemoryCollectionAlbumTile, MemoryCollectionTile } from '../components/homecloud/MemoryCollectionTile';
-import { MemorySelectionHeader, type MemorySelectionSourceTab } from '../components/homecloud/MemorySelectionHeader';
+import { MemoryTypesSection } from '../components/homecloud/MemoryCollectionTile';
+import { MemoryCollectionDetailView } from '../components/homecloud/MemoryCollectionDetailView';
+import { MemorySelectionHeader } from '../components/homecloud/MemorySelectionHeader';
 import { MemoryViewer } from '../components/homecloud/MemoryViewer';
 import { MemoryTimelineRow, type MemoryTimelineCell, type MemoryTimelineRowEntry } from '../components/homecloud/MemoryTimelineRow';
 import { HomePlusIcon } from '../constants/icons';
@@ -96,13 +96,10 @@ import {
   createMemorySelectionSession,
   enterMemorySelection,
   isMemorySelecting,
+  memorySelectionRemoveLabel,
   resetMemorySelectionScope,
   setMemorySelectionExclusions,
-  setMemorySelectionSource,
   toggleMemorySelection,
-  MEMORY_SELECTION_SOURCE_COLLECTIONS_ROOT,
-  MEMORY_SELECTION_SOURCE_LIBRARY,
-  type MemorySelectionSource,
   type MemorySelectionState,
 } from '../services/homecloud/homecloudMemorySelection';
 import {
@@ -142,9 +139,6 @@ const TIMELINE_COLUMNS = 3;
  */
 const DRAG_SCROLL_THROTTLE = 16;
 
-const COLLECTIONS_ROOT_TITLE = 'Colecciones';
-const COLLECTIONS_BACK_LABEL = 'Colecciones';
-const TYPE_COLLECTIONS_TITLE = 'Tipos';
 const NO_ALBUMS_DESTINATION_TITLE = 'No hay álbumes disponibles';
 const NO_ALBUMS_DESTINATION_BODY =
   'Creá un álbum desde la barra de álbumes de Recuerdos para agrupar estos recuerdos.';
@@ -417,7 +411,6 @@ export function HomeCloudMemoriesView() {
 
   const [openAlbumId, setOpenAlbumId] = useState<string | null>(null);
   const [detail, setDetail] = useState(ALBUM_DETAIL_INITIAL);
-  const [removingContentId, setRemovingContentId] = useState<string | null>(null);
   // Latest-value mirror, so a bulk composer can NAME a failed Memory without
   // making its own identity depend on the loaded pages.
   const detailMemoriesRef = useRef<readonly HomeCloudMemoryListItem[]>(detail.memories);
@@ -447,7 +440,6 @@ export function HomeCloudMemoriesView() {
 
   const closeAlbum = useCallback(() => {
     setOpenAlbumId(null);
-    setRemovingContentId(null);
     detailControllerRef.current!.reset();
   }, []);
 
@@ -604,22 +596,20 @@ export function HomeCloudMemoriesView() {
     [readFirstPage, reloadRail, scope, token],
   );
 
-  /** Remove ONE Memory from the CURRENT Album. The Memory itself survives. */
-  const removeMemoryFromOpenAlbum = useCallback(async (memory: HomeCloudMemoryListItem) => {
-    if (!token || !scope || !openAlbumId || removingContentId !== null) return;
-    setRemovingContentId(memory.id);
-    try {
-      await removeMemoryFromAlbum(token, openAlbumId, memory.id, scope);
-      await detailControllerRef.current!.refresh();
-      await reloadRail();
-      await readFirstPage().catch(() => undefined);
-    } catch {
-      // The Memory stays rendered: a failed removal never removes the row and
-      // never invents a success.
-    } finally {
-      setRemovingContentId(null);
-    }
-  }, [openAlbumId, readFirstPage, reloadRail, removingContentId, scope, token]);
+  /**
+ * HC2-C BUG D — CASCADE CLEANUP OF THE PERMANENT `X`.
+ *
+ * `onRemoveMemory`, `removingContentId` and the inline removal callback are all
+ * gone: their only reason to exist was disabling ONE per-card destructive
+ * affordance, and with that affordance removed they would be state and wiring
+ * for nothing. The in-flight marker in particular had exactly one reader.
+ *
+ * The OPERATION itself is NOT gone. `removeMemoryFromOpenAlbum` survives as an
+ * exported, dependency-free async function in `homecloudMemoryAlbumRemoval`,
+ * because the Membership contract outlives any single affordance and Run B
+ * reconnects it to the single-Memory action in the Viewer. Bulk removal already
+ * has its own authority: `runAlbumMemberships`, the one shared composer.
+ */
 
   // =========================================================================
   // MO-A3 — the SELECTION SESSION
@@ -628,7 +618,13 @@ export function HomeCloudMemoriesView() {
   const [selection, setSelection] = useState<MemorySelectionState>(createMemorySelectionSession);
   const [selectionBusy, setSelectionBusy] = useState(false);
   const [selectionFailure, setSelectionFailure] = useState<MemorySelectionFailure | null>(null);
-  /** The generic-purpose destination picker (opened by `✓` with no destination). */
+  /**
+   * HC2-C: the contextual action sheet is open FROM THE FIRST FRAME of a
+   * selection. There is no `✓` in front of it any more, so this is the only
+   * thing standing between "something is selected" and "the available actions".
+   */
+  const [selectionActionsOpen, setSelectionActionsOpen] = useState(false);
+  /** The destination content INSIDE the same sheet. Never a second sheet. */
   const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
 
   // Latest-value mirrors. Every gesture seam below is a STABLE callback that
@@ -641,7 +637,15 @@ export function HomeCloudMemoriesView() {
   const railRef = useRef(rail);
   railRef.current = rail;
 
-  // MO-A3 — Collections read owner (ONE active collection).
+  // MO-A3 → HC2-C — Collections read owner (ONE active collection).
+  //
+  // HC2-C C1: `activeCollectionId` is ordinary SCREEN STATE, exactly like
+  // `openAlbumId`, and it is declared HERE — next to the controller that owns its
+  // data — rather than being derived from the selection session. That promotion
+  // is what lets a collection be opened in NORMAL mode at all: before HC2-C the
+  // only route to `Fotos` / `Videos` / `Audios` / `Notas` ran through a screen
+  // that existed only while a selection was active.
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
   const [collections, setCollections] = useState<MemoryCollectionsState>(MEMORY_COLLECTIONS_INITIAL);
   const collectionsReadRef = useRef({ token });
   collectionsReadRef.current = { token };
@@ -686,17 +690,17 @@ export function HomeCloudMemoriesView() {
   const fingerRef = useRef<{ x: number; y: number } | null>(null);
   const visualMemoryIdsRef = useRef<readonly string[]>([]);
   const listRef = useRef<SectionList<TimelineRow, TimelineListSection> | null>(null);
-  const rootScrollRef = useRef<ScrollView | null>(null);
   const viewportHeightRef = useRef(0);
   /** Scroll offset per source. Refs: an onScroll event must never re-render. */
   const scrollOffsetsRef = useRef(new Map<string, number>());
   const edgeTickerRef = useRef<MemoryEdgeTicker | null>(null);
 
-  const sourceKey = selecting
-    ? selection.source.kind === 'collection'
-      ? selection.source.collectionId
-      : selection.source.kind
-    : 'library';
+  /**
+   * HC2-C: the scroll offset is tracked per SURFACE, and the surface is decided
+   * only by the open collection. Entering a selection can no longer change it,
+   * which is one of the things that used to reset the user's position.
+   */
+  const sourceKey = activeCollectionId ?? 'library';
   const sourceKeyRef = useRef(sourceKey);
   sourceKeyRef.current = sourceKey;
 
@@ -863,7 +867,6 @@ export function HomeCloudMemoriesView() {
       if (isMemorySelecting(previous)) return previous;
       return enterMemorySelection(previous, {
         purpose: { kind: 'generic' },
-        source: MEMORY_SELECTION_SOURCE_LIBRARY,
         initialContentIds: [contentId],
         excludedIds: [],
       });
@@ -903,7 +906,6 @@ export function HomeCloudMemoriesView() {
     setSelection((previous) =>
       enterMemorySelection(previous, {
         purpose: { kind: 'addToAlbum', albumId },
-        source: MEMORY_SELECTION_SOURCE_LIBRARY,
         excludedIds: memoriesRef.current
           .filter((memory) => memory.albumIds.includes(albumId))
           .map((memory) => memory.id),
@@ -916,84 +918,81 @@ export function HomeCloudMemoriesView() {
   const enterRemoveFromAlbum = useCallback((albumId: string, firstContentId: string) => {
     if (!canOrganize) return;
     setSelectionFailure(null);
-    void collectionsControllerRef.current!.open({ kind: 'album', albumId });
+    // HC2-C: entering a selection no longer changes which Memories are on
+    // screen, so it no longer opens the Album's collection read either. The
+    // Album detail is a NESTED OVERLAY that stays mounted underneath, which is
+    // exactly what makes cancel return to the same place.
     setSelection((previous) =>
       enterMemorySelection(previous, {
         purpose: { kind: 'removeFromAlbum', albumId },
-        // The Album collection of the CURRENT album: every visible Memory
-        // already belongs to it, which is exactly what this purpose means.
-        source: { kind: 'collection', collectionId: memoryCollectionId({ kind: 'album', albumId }) },
         initialContentIds: [firstContentId],
       }),
     );
     void lightHaptic();
   }, [canOrganize]);
 
-  const switchTab = useCallback((tab: MemorySelectionSourceTab) => {
-    setSelection((previous) => {
-      if (!isMemorySelecting(previous)) return previous;
-      // Switching the visible source NEVER touches the pending selection, the
-      // operation or the destination.
-      const next: MemorySelectionSource =
-        tab === 'library'
-          ? MEMORY_SELECTION_SOURCE_LIBRARY
-          : previous.source.kind === 'collection'
-            ? previous.source
-            : MEMORY_SELECTION_SOURCE_COLLECTIONS_ROOT;
-      return setMemorySelectionSource(previous, next);
-    });
-  }, []);
-
+  /**
+   * HC2-C C1 — opening an automatic collection is ordinary screen state.
+   *
+   * It reuses the ONE `collectionsController` that already existed; there is no
+   * second read owner and no new collection state.
+   */
   const openCollection = useCallback((ref: MemoryCollectionRef) => {
+    if (activeCollectionId === memoryCollectionId(ref)) return;
+    setActiveCollectionId(memoryCollectionId(ref));
     void collectionsControllerRef.current!.open(ref);
-    setSelection((previous) =>
-      setMemorySelectionSource(previous, { kind: 'collection', collectionId: memoryCollectionId(ref) }),
-    );
-  }, []);
+  }, [activeCollectionId]);
 
-  const backToCollectionsRoot = useCallback(() => {
-    // A LOCAL back action: it returns to the Collections root and does NOT
-    // cancel the operation, leave the Album-origin operation or clear any
-    // selected id.
-    setSelection((previous) => setMemorySelectionSource(previous, MEMORY_SELECTION_SOURCE_COLLECTIONS_ROOT));
+  const closeCollection = useCallback(() => {
+    setActiveCollectionId(null);
+    collectionsControllerRef.current!.reset();
   }, []);
 
   const cancelSelection = useCallback(() => {
     abortDrag();
     setSelectionFailure(null);
-    setDestinationPickerOpen(false);
+    setSelectionActionsOpen(false);
     setSelection((previous) => cancelMemorySelection(previous));
   }, [abortDrag]);
 
   const finishSelection = useCallback(() => {
     abortDrag();
     setSelectionFailure(null);
-    setDestinationPickerOpen(false);
+    setSelectionActionsOpen(false);
     setSelection((previous) => cancelMemorySelection(previous));
   }, [abortDrag]);
 
   /**
-   * CONFIRM.
+   * THE CONTEXTUAL ACTION SHEET — the single action host.
    *
-   * `addToAlbum` and `removeFromAlbum` mutate their known destination directly.
-   * `generic` mutates NOTHING here: it opens the destination Album sheet built
-   * from the Albums the owner ALREADY loaded, and that choice then runs the SAME
-   * composer. There is no duplicate mutation logic and no invented destination.
+   * HC2-C §11. The sheet is reachable from the FIRST FRAME of a selection (the
+   * header's `⋯`), because the old `✓` existed only to reveal it and that made an
+   * obvious organisation capability two taps away.
+   *
+   * ONE HOST, TWO CONTENTS. Choosing a destination Album REPLACES the content of
+   * this same sheet; a second sheet is never stacked on top of it, and no second
+   * destination `Modal` exists. The destination list is built from the Albums
+   * this owner ALREADY loaded (`rail.albums`): no second read, no invented
+   * destination, and no "create an Album from here".
+   *
+   * In an Album the destination of `Quitar del álbum` IS the open Album, so that
+   * action asks for nothing. In the root and in an automatic collection there is
+   * no known destination, so the same sheet asks for one.
    */
-  const confirmSelection = useCallback(async () => {
+  const openSelectionActions = useCallback(() => {
+    if (!canConfirmMemorySelection(selectionRef.current)) return;
+    setSelectionFailure(null);
+    setDestinationPickerOpen(false);
+    setSelectionActionsOpen(true);
+  }, []);
+
+  /** `Quitar del álbum` in an Album: the destination is known, so nothing is asked. */
+  const runKnownDestinationSelection = useCallback(async () => {
     const current = selectionRef.current;
     if (selectionBusy || !canConfirmMemorySelection(current)) return;
     const result = confirmMemorySelection(current);
-    if (result === null) return;
-
-    if (result.purpose.kind === 'generic') {
-      // "Agregar a álbum" is only meaningful with `homecloud.organize`; without
-      // it the affordance is not advertised at all.
-      if (!canOrganize) return;
-      setDestinationPickerOpen(true);
-      return;
-    }
-
+    if (result === null || result.purpose.kind === 'generic') return;
+    setSelectionActionsOpen(false);
     setSelectionBusy(true);
     try {
       const direction: MemoryMutationDirection =
@@ -1044,7 +1043,7 @@ export function HomeCloudMemoriesView() {
     } finally {
       setSelectionBusy(false);
     }
-  }, [canOrganize, finishSelection, reloadRail, runAlbumMemberships, selectionBusy, token]);
+  }, [finishSelection, reloadRail, runAlbumMemberships, selectionBusy, token]);
 
   /** Retry ONLY the failed ids. The committed ones are never resubmitted. */
   const retryFailed = useCallback(async () => {
@@ -1079,6 +1078,7 @@ export function HomeCloudMemoriesView() {
       const current = selectionRef.current;
       const contentIds = [...current.selectedIds].filter((id) => !current.excludedIds.has(id));
       setDestinationPickerOpen(false);
+      setSelectionActionsOpen(false);
       if (contentIds.length === 0) return;
       setSelectionBusy(true);
       try {
@@ -1099,29 +1099,50 @@ export function HomeCloudMemoriesView() {
     [finishSelection, runAlbumMemberships],
   );
 
+  /**
+   * HC2-C §11 — the ONE action host, rendered ONCE.
+   *
+   * `selectionActionsOpen` is the contextual action sheet and
+   * `destinationPickerOpen` is its destination content. They are mutually
+   * exclusive contents of ONE `ActionSheet`, so "choose a destination Album" can
+   * never appear as a sheet stacked on another sheet.
+   */
+
   // =========================================================================
   // MO-A3 — derived selection data
   // =========================================================================
 
-  const activeCollectionId =
-    selecting && selection.source.kind === 'collection' ? selection.source.collectionId : null;
   const activeCollection = useMemo(
     () => (activeCollectionId === null ? null : parseMemoryCollectionId(activeCollectionId)),
     [activeCollectionId],
   );
+  /**
+   * The header of the open collection, resolved ONCE from the same facts the
+   * Viewer source needs, so the overlay and the Viewer can never disagree about
+   * which collection is open or what it is called.
+   */
+  const activeCollectionTitle = activeCollection === null
+    ? ''
+    : memoryCollectionTitle(
+        activeCollection,
+        activeCollection.kind === 'album'
+          ? rail.albums.find((album) => album.id === activeCollection.albumId)?.name ?? null
+          : null,
+      );
 
   /**
-   * The visible dataset of the ACTIVE source.
+   * THE VISIBLE DATASET OF THE CURRENT SURFACE.
    *
-   * Recuerdos inside selection is the SAME canonical library: `memories`, the
-   * same loaded pages and the same previews. Only a collection source swaps the
-   * dataset, and that dataset belongs to the collections controller.
+   * Recuerdos inside a selection is the SAME canonical library: `memories`, the
+   * same loaded pages and the same previews. Selection overlays interaction; it
+   * never forks the library read.
+   *
+   * HC2-C: the ONLY thing that swaps the dataset is the open collection, and
+   * that is screen state now — not a sub-mode of the selection session. So
+   * entering or leaving a selection can no longer change which Memories are on
+   * screen.
    */
-  const gridMemories = selecting
-    ? selection.source.kind === 'collection'
-      ? collections.memories
-      : memories
-    : memories;
+  const gridMemories = activeCollection === null ? memories : collections.memories;
 
   /**
    * GROUPING MODE FOLLOWS THE READ CONTRACT.
@@ -1176,12 +1197,12 @@ export function HomeCloudMemoriesView() {
   );
 
   const gridSections = useMemo<TimelineListSection[]>(() => {
-    if (!selecting) return sections;
+    if (activeCollection === null) return sections;
     return flattenTimelineForSectionList(
       groupMemoriesForTimeline(gridMemories, gridGroupingMode),
       TIMELINE_COLUMNS,
     );
-  }, [gridGroupingMode, gridMemories, sections, selecting]);
+  }, [activeCollection, gridGroupingMode, gridMemories, sections]);
 
   /**
    * ALREADY-MEMBER EXCLUSIONS, re-derived from the CURRENT read model.
@@ -1254,28 +1275,21 @@ export function HomeCloudMemoriesView() {
     scrollOffsetsRef.current.set(sourceKeyRef.current, event.nativeEvent.contentOffset.y);
   }, []);
 
-  const handleRootScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    scrollOffsetsRef.current.set(sourceKeyRef.current, event.nativeEvent.contentOffset.y);
-  }, []);
-
   const handleGridLayout = useCallback((event: LayoutChangeEvent) => {
     // The viewport height is what the edge bands are a fraction of.
     viewportHeightRef.current = event.nativeEvent.layout.height;
   }, []);
 
-  // Restore the offset of the source being entered, so Recuerdos -> Colecciones
-  // -> Recuerdos comes back exactly where it was, without ever re-reading data.
+  // Restore the offset of the surface being entered, so Recuerdos -> Fotos ->
+  // Recuerdos comes back exactly where it was, without ever re-reading data.
   //
-  // MO-A3 DEVICE FIX (D1): the restore went through the same invented
-  // `scrollToOffset` as the ticker, so it had the identical latent crash. It now
-  // shares the ONE adapter, which is the only scroll authority in this screen.
+  // MO-A3 DEVICE FIX (D1): the restore goes through the SAME adapter as the
+  // edge auto-scroll, because that adapter is the only scroll authority in this
+  // screen. It was previously routed through a second invented `scrollToOffset`
+  // with the identical latent crash.
   useEffect(() => {
     const offset = scrollOffsetsRef.current.get(sourceKey) ?? 0;
     if (offset <= 0) return;
-    if (sourceKey === 'collectionsRoot') {
-      rootScrollRef.current?.scrollTo({ y: offset, animated: false });
-      return;
-    }
     scrollMemoryListToOffset(listRef.current, offset);
   }, [sourceKey]);
 
@@ -1283,7 +1297,12 @@ export function HomeCloudMemoriesView() {
   // MO-A3 — BackHandler (ONE owner, explicit priority) and AppState
   // =========================================================================
 
-  const collectionDetailOpen = selecting && selection.source.kind === 'collection';
+  const collectionDetailOpen = activeCollection !== null;
+  /** Frozen openTypeCollection seam, declared next to the state it closes over. */
+  const openTypeCollection = useCallback((memoryKind: string) => {
+    const ref = MEMORY_TYPE_COLLECTIONS.find((candidate) => candidate.kind === 'type' && candidate.memoryKind === memoryKind);
+    if (ref !== undefined) openCollection(ref);
+  }, [openCollection]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -1293,15 +1312,14 @@ export function HomeCloudMemoriesView() {
         abortDrag();
         return true;
       }
-      // 2. A collection detail returns to the Collections root: no mutation, no
-      //    cancellation and no selected id is lost.
-      if (collectionDetailOpen) {
-        backToCollectionsRoot();
-        return true;
-      }
-      // 3. Selection mode cancels and restores the exact origin.
+      // 2. A selection cancels on the SAME surface, keeping the same offset.
       if (selecting) {
         cancelSelection();
+        return true;
+      }
+      // 3. An open automatic collection closes its own nested overlay.
+      if (collectionDetailOpen) {
+        closeCollection();
         return true;
       }
       // 4. The Album detail closes instead of the whole HomeCloud screen.
@@ -1313,7 +1331,7 @@ export function HomeCloudMemoriesView() {
       return false;
     });
     return () => subscription.remove();
-  }, [abortDrag, backToCollectionsRoot, cancelSelection, closeAlbum, collectionDetailOpen, selecting]);
+  }, [abortDrag, cancelSelection, closeAlbum, closeCollection, collectionDetailOpen, selecting]);
 
   /**
    * APPSTATE — GESTURE CLEANUP ONLY.
@@ -1396,7 +1414,6 @@ export function HomeCloudMemoriesView() {
   // household's Albums leak into the next, which is not a fix.
   useEffect(() => {
     setOpenAlbumId(null);
-    setRemovingContentId(null);
     setEditor(null);
     setActionsAlbum(null);
     setSheetError(null);
@@ -1423,6 +1440,12 @@ export function HomeCloudMemoriesView() {
   }, [abortDrag, householdId, token]);
 
   const showAlbumDetail = !selecting && openAlbumId !== null;
+  /**
+   * HC2-C C1 — the collection overlay, gated exactly like the Album one: while a
+   * selection is active the selection grid IS the surface, and `activeCollectionId`
+   * is deliberately KEPT so cancel returns to the same collection context.
+   */
+  const showCollectionDetail = !selecting && activeCollection !== null;
 
   // =========================================================================
   // Render
@@ -1438,33 +1461,55 @@ export function HomeCloudMemoriesView() {
     purposeAlbumId === null
       ? null
       : rail.albums.find((album) => album.id === purposeAlbumId)?.name ?? null;
-  const selectionTab: MemorySelectionSourceTab = selecting
-    ? selection.source.kind === 'library'
-      ? 'library'
-      : 'collections'
-    : 'library';
 
-  const collectionBackHeader =
-    activeCollection !== null ? (
-      <View style={styles.collectionHeader}>
-        <AppButton
-          variant="icon"
-          size="sm"
-          onPress={backToCollectionsRoot}
-          accessibilityLabel={`Volver a ${COLLECTIONS_BACK_LABEL}`}
-        >
-          <HomePlusIcon name="arrow-back" size={20} color={colors.text.primary} />
-        </AppButton>
-        <AppText variant="bodySmall" weight="700" numberOfLines={1} style={styles.collectionTitle}>
-          {memoryCollectionTitle(
-            activeCollection,
-            activeCollection.kind === 'album'
-              ? rail.albums.find((album) => album.id === activeCollection.albumId)?.name ?? null
-              : null,
-          )}
-        </AppText>
-      </View>
-    ) : null;
+  /**
+   * HC2-C §11 — the ONE action host, rendered ONCE.
+   *
+   * `selectionActionsOpen` is the contextual action sheet and
+   * `destinationPickerOpen` is its destination content. They are mutually
+   * exclusive contents of ONE `ActionSheet`, so "choose a destination Album" can
+   * never appear as a sheet stacked on another sheet.
+   */
+  const selectionSheetOpen = selectionActionsOpen || destinationPickerOpen;
+  const selectionSheetTitle = destinationPickerOpen ? 'Agregar a un álbum' : 'Acciones';
+  /**
+   * In an Album the destination of `Quitar del álbum` IS the open Album, so that
+   * action asks for nothing. Everywhere else the destination must be chosen.
+   */
+  const canRemoveFromOpenAlbum = purposeKind === 'removeFromAlbum' && purposeAlbumId !== null;
+
+  /**
+   * HC2-C C1 — THE COMPOSED ROOT HEADER.
+   *
+   * One header, always mounted, identical in normal and selection mode:
+   *
+   *     1. ÁLBUMES  (rail, with its own honest state)
+   *     2. TIPOS    (Fotos · Videos · Audios · Notas)
+   *
+   * and the Timeline follows below as the SectionList's own body.
+   *
+   * It is NOT a function of `selecting` any more. The old header swapped itself
+   * for a collection back control as soon as a selection started, which is one of
+   * the four conditionals that made selection feel like a navigation destination.
+   */
+  const rootHeader = (
+    <View style={styles.rootHeader}>
+      <AlbumsRail
+        albums={rail.albums}
+        state={rail}
+        canOrganize={canOrganize}
+        accessToken={token}
+        onOpenAlbum={openAlbum}
+        onAlbumActions={openAlbumActions}
+        onCreateAlbum={openCreateAlbum}
+        onRetry={() => void reloadRail()}
+      />
+      <MemoryTypesSection
+        collections={MEMORY_TYPE_COLLECTIONS}
+        onOpenCollection={openTypeCollection}
+      />
+    </View>
+  );
 
   /**
    * HC2-C (B4) — THE TIMELINE'S OWN STATE, INSIDE THE TIMELINE.
@@ -1511,7 +1556,7 @@ export function HomeCloudMemoriesView() {
   );
 
   const gridFooter =
-    selecting && selection.source.kind === 'collection'
+    activeCollection !== null
       ? collections.nextOffset !== null || collections.pageError !== null
         ? (
           <View style={styles.footer}>
@@ -1546,7 +1591,7 @@ export function HomeCloudMemoriesView() {
 
   const gridList = (
     <SectionList
-      key={selecting ? `selection-${sourceKey}` : 'timeline'}
+      key={sourceKey}
       ref={listRef}
       sections={gridSections}
       keyExtractor={(row) => row.key}
@@ -1580,22 +1625,7 @@ export function HomeCloudMemoriesView() {
           <RefreshControl refreshing={refreshing} onRefresh={handleGridRefresh} />
         ) : undefined
       }
-      ListHeaderComponent={
-        selecting
-          ? collectionBackHeader
-          : (
-            <AlbumsRail
-              albums={rail.albums}
-              state={rail}
-              canOrganize={canOrganize}
-              accessToken={token}
-              onOpenAlbum={openAlbum}
-              onAlbumActions={openAlbumActions}
-              onCreateAlbum={openCreateAlbum}
-              onRetry={() => void reloadRail()}
-            />
-          )
-      }
+      ListHeaderComponent={rootHeader}
       renderSectionHeader={({ section }) => (
         <View style={styles.sectionHeader}>
           {section.yearTitle && section.yearTitle !== section.title ? (
@@ -1642,80 +1672,38 @@ export function HomeCloudMemoriesView() {
       )}
       ListFooterComponent={gridFooter}
       ListEmptyComponent={timelineEmptyState}
-      onEndReached={() => { if (!selecting) void loadMore(); }}
+      onEndReached={() => {
+        if (activeCollection !== null) void collectionsControllerRef.current!.loadMore();
+        else void loadMore();
+      }}
       onEndReachedThreshold={0.6}
     />
   );
 
-  const collectionsRoot = (
-    <ScrollView
-      ref={rootScrollRef}
-      style={styles.collectionsRoot}
-      contentContainerStyle={styles.collectionsContent}
-      onScroll={handleRootScroll}
-      scrollEventThrottle={DRAG_SCROLL_THROTTLE}
-    >
-      <AppText variant="title3" weight="800">
-        {COLLECTIONS_ROOT_TITLE}
-      </AppText>
-      <AppText variant="bodySmall" tone="secondary" weight="700">
-        {'Álbumes'}
-      </AppText>
-      {rail.error !== null && rail.albums.length === 0 ? (
-        <ErrorState
-          title="No pudimos cargar tus álbumes"
-          description={rail.error}
-          retryLabel="Reintentar"
-          onRetry={() => void reloadRail()}
-        />
-      ) : rail.loading ? (
-        <Skeleton variant="card" height={120} style={styles.collectionSkeleton} />
-      ) : rail.albums.length === 0 ? (
-        <AppText variant="caption" tone="secondary">
-          {'Todavía no hay álbumes'}
-        </AppText>
-      ) : (
-        <View style={styles.collectionGrid}>
-          {rail.albums.map((album) => (
-            <MemoryCollectionAlbumTile
-              key={album.id}
-              album={album}
-              accessToken={token}
-              canOrganize={canOrganize}
-              onPress={() => openCollection({ kind: 'album', albumId: album.id })}
-              onMore={() => openAlbumActions(album)}
-            />
-          ))}
-        </View>
-      )}
-      <AppText variant="bodySmall" tone="secondary" weight="700">
-        {TYPE_COLLECTIONS_TITLE}
-      </AppText>
-      <View style={styles.collectionGrid}>
-        {MEMORY_TYPE_COLLECTIONS.map((ref) => (
-          <MemoryCollectionTile
-            key={memoryCollectionId(ref)}
-            title={memoryCollectionTitle(ref)}
-            memoryKind={ref.kind === 'type' ? ref.memoryKind : ''}
-            onPress={() => openCollection(ref)}
-          />
-        ))}
-      </View>
-    </ScrollView>
-  );
+  /*
+   * HC2-C C1 — THE `Colecciones` SCREEN IS DELETED.
+   *
+   * It was a parallel `ScrollView` with its own title, its own back control, its
+   * own scroll offset and its own Album grid, and it existed ONLY while a
+   * selection was active. That made the automatic collections unreachable in
+   * NORMAL mode and gave the root a second information architecture.
+   *
+   * What replaces it is not a move: the `Tipos` row above now opens each
+   * collection as a nested overlay over this same root, and `Álbumes` above that
+   * already opens an Album the same way. There is no second grid, no second read
+   * owner and no second offset to keep in sync.
+   */
 
   return (
     <View style={styles.screen}>
       {selecting ? (
         <MemorySelectionHeader
           selectedCount={selection.selectedIds.size}
-          tab={selectionTab}
           purpose={purposeKind}
           destinationName={destinationName}
           canAddToAlbum={canOrganize}
           onCancel={cancelSelection}
-          onTabChange={switchTab}
-          onConfirm={() => void confirmSelection()}
+          onOpenActions={openSelectionActions}
           busy={selectionBusy}
           failure={selectionFailure}
           onRetryFailed={() => void retryFailed()}
@@ -1725,9 +1713,21 @@ export function HomeCloudMemoriesView() {
           <AppText variant="title3" weight="800" style={styles.headerTitle}>
             {'Recuerdos'}
           </AppText>
-          <AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar recuerdos">
-            <HomePlusIcon name="refresh" size={21} color={colors.text.secondary} />
-          </AppButton>
+          {/*
+           * HC2-C §9 — THE ROUTINE REFRESH BUTTON IS GONE FROM THIS HEADER.
+           *
+           * It duplicated pull-to-refresh with the same `refresh()` that the
+           * reconciliation and an intake completion already call, so it was a
+           * second control for one capability rather than a capability of its own.
+           *
+           * Removing it removes NO recovery: `refresh()` and `handleGridRefresh`
+           * stay, the `RefreshControl` stays mounted outside a selection, and
+           * every real error state still carries its own explicit retry.
+           *
+           * PULL_TO_REFRESH = DEVICE_QA_REQUIRED: no automated test can prove the
+           * native pan still arms the control on a real iPhone once the button is
+           * gone. That is a device gate, not a claim.
+           */}
           {token && currentHousehold ? (
             <MemoryIntake
               config={{
@@ -1755,53 +1755,47 @@ export function HomeCloudMemoriesView() {
         </View>
       ) : null}
 
-      {selecting ? (
-        selection.source.kind === 'collectionsRoot' ? (
-          collectionsRoot
-        ) : collections.loading && gridMemories.length === 0 ? (
-          <View style={styles.skeletonWrap}>
-            <Skeleton variant="card" height={128} />
-            <Skeleton variant="card" height={128} />
-          </View>
-        ) : collections.error !== null && gridMemories.length === 0 && activeCollection?.kind === 'album' ? (
-          <View style={styles.center}>
-            <ErrorState
-              title="No pudimos cargar este álbum"
-              description={collections.error}
-              retryLabel="Reintentar"
-              onRetry={() => void collectionsControllerRef.current!.refresh()}
-            />
-          </View>
-        ) : gridMemories.length === 0 ? (
-          <View style={styles.center}>
-            <HomePlusIcon name="image-outline" size={34} color={colors.text.tertiary} />
-            <AppText variant="bodySmall" tone="secondary" align="center">
-              {'Esta colección todavía no tiene recuerdos.'}
-            </AppText>
-          </View>
-        ) : (
-          gridList
-        )
-      ) : (
-        /*
-         * HC2-C (B4): NORMAL MODE IS ALWAYS THE GRID LIST.
-         *
-         * The `loading` / `error` / `memories.length === 0` branches that used to
-         * live here are now the list's own `ListEmptyComponent`, so the composed
-         * root header (Albums, and from C1 Types) stays mounted through the first
-         * Timeline read instead of being unmounted behind a full-body skeleton.
-         */
-        gridList
-      )}
+      {/*
+       * HC2-C C1/B4 — THE BODY IS ALWAYS THE GRID LIST.
+       *
+       * There is no longer a selection branch and no longer a collection branch
+       * here:
+       *
+       *  - the `loading` / `error` / empty branches moved INTO the SectionList as
+       *    its `ListEmptyComponent` (B4), so the composed root header stays
+       *    mounted through the first Timeline read;
+       *  - a collection is a NESTED OVERLAY rendered below, exactly like an
+       *    Album, so opening one no longer replaces the body;
+       *  - selection is contextual state that no longer changes the structure,
+       *    so it has no branch here at all.
+       *
+       * The root is ONE vertical scroll: ÁLBUMES, TIPOS, TIMELINE.
+       */}
+      {gridList}
 
       {/*
-       * Album detail as an OVERLAY, not a route and not a swap. The SectionList
-       * above stays mounted for the whole time the Album is open, so its loaded
-       * pages, its grouped dataset and its scroll offset all survive Back.
+       * HC2-C §9 — THE ROUTINE REFRESH BUTTON IS GONE FROM THE HEADER.
        *
-       * While the SELECTION SURFACE is active it is NOT rendered: the selection
-       * grid IS the surface. `openAlbumId` is deliberately KEPT, which is what
-       * makes cancel and confirm return to the exact same Album context.
+       * It duplicated pull-to-refresh with the same `refresh()` the
+       * reconciliation and an intake completion already call, so it was a second
+       * control for one capability, not a capability of its own. Removing it
+       * removes NO recovery: `refresh()` and `handleGridRefresh` stay, the
+       * `RefreshControl` stays mounted outside a selection, and every real error
+       * state still carries its own explicit retry.
+       *
+       * PULL_TO_REFRESH = DEVICE_QA_REQUIRED: no automated test can prove that
+       * the native pan still arms the control on a real iPhone once the button
+       * is gone. That is a device gate, not a claim.
+       */}
+
+      {/*
+       * ALBUM DETAIL as a NESTED OVERLAY, not a route and not a swap. The
+       * SectionList stays mounted for the whole time the Album is open, so its
+       * loaded pages, its grouped dataset and its scroll offset all survive Back.
+       *
+       * While a selection is active it is NOT rendered: the selection grid IS
+       * the surface. `openAlbumId` is deliberately KEPT, which is what makes
+       * cancel return to the exact same Album context.
        */}
       {showAlbumDetail ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -1811,13 +1805,11 @@ export function HomeCloudMemoriesView() {
             accessToken={token}
             canOrganize={canOrganize}
             selecting={selecting}
-            removingContentId={removingContentId}
             onBack={closeAlbum}
             onOpenActions={() => { if (openAlbumRecord) openAlbumActions(openAlbumRecord); }}
             onRefresh={refreshDetail}
             onLoadMore={loadMoreDetail}
             onAddMemories={() => { if (openAlbumId !== null) enterAddToAlbum(openAlbumId); }}
-            onRemoveMemory={(memory) => void removeMemoryFromOpenAlbum(memory)}
             onLongPressMemory={(contentId) => {
               if (openAlbumId !== null) enterRemoveFromAlbum(openAlbumId, contentId);
             }}
@@ -1826,6 +1818,46 @@ export function HomeCloudMemoriesView() {
               openAlbumRecord?.name ?? null,
               memory.id,
             ))}
+          />
+        </View>
+      ) : null}
+
+      {/*
+       * AUTOMATIC COLLECTION as the SAME nested overlay an Album is.
+       *
+       * `activeCollectionId` is ordinary screen state, exactly like
+       * `openAlbumId`, so opening `Fotos` cannot change the root's information
+       * architecture: the composed header and the Timeline stay mounted
+       * underneath and Back simply hides this overlay.
+       */}
+      {showCollectionDetail ? (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <MemoryCollectionDetailView
+            title={activeCollectionTitle}
+            state={collections}
+            accessToken={token}
+            selecting={selecting}
+            onBack={closeCollection}
+            onRefresh={() => void collectionsControllerRef.current!.refresh()}
+            onLoadMore={() => void collectionsControllerRef.current!.loadMore()}
+            onToggle={handleToggle}
+            onLongPressMemory={(contentId) => {
+              setSelectionFailure(null);
+              setSelection((previous) => enterMemorySelection(previous, {
+                purpose: { kind: 'generic' },
+                initialContentIds: [contentId],
+              }));
+              void lightHaptic();
+            }}
+            onOpenMemory={(memory) => {
+              if (activeCollection === null) return;
+              setViewer(collectionViewerSession(
+                activeCollection,
+                activeCollectionId as string,
+                activeCollectionTitle,
+                memory.id,
+              ));
+            }}
           />
         </View>
       ) : null}
@@ -1872,45 +1904,97 @@ export function HomeCloudMemoriesView() {
       />
 
       {/*
-       * The generic-selection DESTINATION sheet. It is built from the Albums the
-       * owner already loaded (`rail.albums`): no second read, no invented
-       * destination and no "create an Album from here" — the ordinary Albums rail
-       * remains the creation surface.
+       * HC2-C §11 — THE ONE ACTION HOST.
+       *
+       * One `ActionSheet`, two mutually exclusive CONTENTS:
+       *
+       *  - the contextual ACTIONS of the current selection, reachable from the
+       *    first frame (no `✓` gate);
+       *  - the DESTINATION Album picker, which REPLACES the actions inside this
+       *    same sheet rather than opening a second one.
+       *
+       * The destination list is built from the Albums this owner ALREADY loaded
+       * (`rail.albums`): no second read, no invented destination and no "create
+       * an Album from here" — the ordinary Albums rail remains the creation
+       * surface.
+       *
+       * In an Album, `Quitar del álbum` needs no destination at all: the open
+       * Album IS the destination, so that action runs immediately.
        */}
       <ActionSheet
-        visible={destinationPickerOpen}
-        title="Agregar a un álbum"
-        onRequestClose={() => setDestinationPickerOpen(false)}
+        visible={selectionSheetOpen}
+        title={selectionSheetTitle ?? undefined}
+        onRequestClose={() => {
+          setSelectionActionsOpen(false);
+          setDestinationPickerOpen(false);
+        }}
         closeDisabled={selectionBusy}
         size="content"
       >
         <View style={styles.destination}>
-          {rail.albums.length === 0 ? (
-            <>
-              <AppText variant="bodySmall" weight="700">
-                {NO_ALBUMS_DESTINATION_TITLE}
-              </AppText>
-              <AppText variant="caption" tone="secondary">
-                {NO_ALBUMS_DESTINATION_BODY}
-              </AppText>
-            </>
+          {destinationPickerOpen ? (
+            rail.albums.length === 0 ? (
+              <>
+                <AppText variant="bodySmall" weight="700">
+                  {NO_ALBUMS_DESTINATION_TITLE}
+                </AppText>
+                <AppText variant="caption" tone="secondary">
+                  {NO_ALBUMS_DESTINATION_BODY}
+                </AppText>
+              </>
+            ) : (
+              rail.albums.map((album) => (
+                <AppButton
+                  key={album.id}
+                  title={album.name}
+                  variant="secondary"
+                  disabled={selectionBusy}
+                  onPress={() => void chooseDestinationAlbum(album.id)}
+                  accessibilityLabel={`Agregar la selección al álbum ${album.name}`}
+                />
+              ))
+            )
           ) : (
-            rail.albums.map((album) => (
-              <AppButton
-                key={album.id}
-                title={album.name}
-                variant="secondary"
-                disabled={selectionBusy}
-                onPress={() => void chooseDestinationAlbum(album.id)}
-                accessibilityLabel={`Agregar la selección al álbum ${album.name}`}
-              />
-            ))
+            <>
+              {/*
+               * `Agregar a un álbum` is only meaningful with `homecloud.organize`;
+               * without it the affordance is not advertised at all, because the
+               * action could only fail.
+               */}
+              {canOrganize ? (
+                <AppButton
+                  title="Agregar a un álbum"
+                  variant="secondary"
+                  disabled={selectionBusy}
+                  onPress={() => setDestinationPickerOpen(true)}
+                  accessibilityLabel={`Agregar ${selection.selectedIds.size} recuerdos a un álbum`}
+                />
+              ) : null}
+              {canRemoveFromOpenAlbum ? (
+                <AppButton
+                  title={memorySelectionRemoveLabel(selection.selectedIds.size)}
+                  variant="secondary"
+                  disabled={selectionBusy}
+                  onPress={() => void runKnownDestinationSelection()}
+                  accessibilityLabel={`${memorySelectionRemoveLabel(selection.selectedIds.size)} de ${destinationName ?? 'este álbum'}`}
+                />
+              ) : null}
+              {/*
+               * Multi-select OS Share is DEFER on purpose and deliberately NOT
+               * rendered: sharing N binaries would need N downloads, N temporary
+               * files and a product decision that has not been frozen. Offering a
+               * dead action here would be worse than omitting it.
+               */}
+            </>
           )}
           <AppButton
             title="Cancelar"
             variant="ghost"
             disabled={selectionBusy}
-            onPress={() => setDestinationPickerOpen(false)}
+            onPress={() => {
+              setSelectionActionsOpen(false);
+              setDestinationPickerOpen(false);
+            }}
           />
         </View>
       </ActionSheet>
@@ -1968,16 +2052,11 @@ const styles = StyleSheet.create({
   skeletonRow: { flexDirection: 'row', gap: spacing[2], marginVertical: spacing[2] },
   skeletonTile: { flex: 1, borderRadius: radius.lg },
   skeletonWrap: { paddingHorizontal: spacing[5], gap: spacing[3] },
-  collectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
-    paddingBottom: spacing[3],
-  },
-  collectionTitle: { flex: 1 },
-  collectionsRoot: { flex: 1 },
-  collectionsContent: { padding: spacing[5], gap: spacing[3] },
-  collectionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing[3] },
-  collectionSkeleton: { height: 120, borderRadius: radius.lg },
+  /**
+   * HC2-C C1: the composed root header. It is ONE container above the Timeline,
+   * not two siblings, so the section order is structurally `Álbumes` then
+   * `Tipos` and a future section cannot be inserted between them by accident.
+   */
+  rootHeader: { gap: spacing[2], paddingBottom: spacing[2] },
   destination: { gap: spacing[2], paddingBottom: spacing[3] },
 });

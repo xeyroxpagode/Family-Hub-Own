@@ -30,9 +30,10 @@ import {
   isMemorySelectable,
   isMemorySelected,
   isMemorySelecting,
+  memorySelectionActionsLabel,
+  memorySelectionCountLabel,
   resetMemorySelectionScope,
   setMemorySelectionExclusions,
-  setMemorySelectionSource,
   toggleMemorySelection,
   toggleMemorySelectionMany,
   type MemorySelectionState,
@@ -216,7 +217,6 @@ record(
   // A) Long press from the normal Timeline: the first Memory IS selected.
   const entered = enterMemorySelection(createMemorySelectionSession(), {
     purpose: { kind: 'generic' },
-    source: { kind: 'library' },
     initialContentIds: ['m-1'],
   });
   record(
@@ -276,9 +276,12 @@ record(
 
 record(
   /export function resetMemorySelectionScope/.test(SELECTION_CODE)
-  && resetMemorySelectionScope().source.kind === 'library'
-  && resetMemorySelectionScope().mode === 'normal',
-  'resetMemorySelectionScope clears mode, purpose, source and selection (household switch / sign-out)',
+  && !('source' in resetMemorySelectionScope())
+  && resetMemorySelectionScope().mode === 'normal'
+  && resetMemorySelectionScope().purpose === null
+  && resetMemorySelectionScope().selectedIds.size === 0
+  && resetMemorySelectionScope().excludedIds.size === 0,
+  'resetMemorySelectionScope clears mode, purpose and every id (household switch / sign-out)',
 );
 
 // ===========================================================================
@@ -286,23 +289,51 @@ section('2. Identity, already-member and cross-source selection');
 // ===========================================================================
 
 {
-  // Identity is contentId and nothing else: the SAME Memory selected through the
-  // library and through an Album collection is one selection, counted once.
+  /*
+   * HC2-C STALE_TEST RETARGET (§10 / BUG C).
+   *
+   * OLD expectation: the session carried a `source` (`library` /
+   * `collectionsRoot` / `collection`) and `setMemorySelectionSource` moved the
+   * selection between surfaces, and the assertion proved the selection survived
+   * that move.
+   *
+   * FREEZE RULE REPLACING IT: selection is contextual state INSIDE the current
+   * surface; the internal `Recuerdos | Colecciones` navigation is deleted and
+   * `source` leaves the session entirely. `activeCollectionId` becomes screen
+   * state.
+   *
+   * NEW BEHAVIOURAL ASSERTION (stronger, not weaker): the session has NO surface
+   * field at all, so there is nothing in it that COULD move. The selection
+   * survives every unrelated transition — toggling, exclusions, cancel, reset —
+   * and identity is still `contentId` alone.
+   */
   const entered = enterMemorySelection(createMemorySelectionSession(), {
     purpose: { kind: 'addToAlbum', albumId: 'album-1' },
-    source: { kind: 'library' },
   });
   const fromLibrary = toggleMemorySelection(entered, 'm-1');
-  const moved = setMemorySelectionSource(fromLibrary, { kind: 'collection', collectionId: 'album:album-1' });
-  const backToLibrary = setMemorySelectionSource(moved, { kind: 'collectionsRoot' });
-  const returned = setMemorySelectionSource(backToLibrary, { kind: 'library' });
   record(
-    returned.selectedIds.has('m-1') && selectedIdsOf(returned).length === 1,
-    'switching source NEVER changes the pending selection: the same Memory is selected once',
+    !('source' in fromLibrary) && !('source' in entered) && !('source' in MEMORY_SELECTION_INITIAL),
+    'the selection session carries NO source: entering selection cannot move the user anywhere',
   );
   record(
-    moved.source.kind === 'collection' && (moved.source as { collectionId: string }).collectionId === 'album:album-1',
-    'the collection source carries a STABLE local id, not a route',
+    fromLibrary.selectedIds.has('m-1') && selectedIdsOf(fromLibrary).length === 1,
+    'identity is contentId and nothing else, so the same Memory is selected once',
+  );
+  record(
+    Object.keys(fromLibrary).sort().join() === 'excludedIds,mode,purpose,selectedIds',
+    'the session is exactly { mode, purpose, selectedIds, excludedIds }',
+  );
+  // Every transition that is NOT a surface change still preserves the selection.
+  const afterExclusions = setMemorySelectionExclusions(fromLibrary, ['m-9']);
+  const afterOtherToggle = toggleMemorySelection(afterExclusions, 'm-2');
+  record(
+    afterOtherToggle.selectedIds.has('m-1') && afterOtherToggle.selectedIds.has('m-2')
+      && afterOtherToggle.excludedIds.has('m-9'),
+    'unrelated transitions (exclusions, further toggles) never disturb the pending selection',
+  );
+  record(
+    confirmMemorySelection(afterOtherToggle)?.contentIds.slice().sort().join() === 'm-1,m-2',
+    'the action grammar submits exactly the pending ids, filtered against the exclusions',
   );
 
   // Already-member: visible, unselectable, uncounted, never submitted.
@@ -734,7 +765,6 @@ async function collectionsBehaviour(): Promise<void> {
     const session = toggleMemorySelection(
       enterMemorySelection(createMemorySelectionSession(), {
         purpose: { kind: 'addToAlbum', albumId: 'album-1' },
-        source: { kind: 'library' },
       }),
       'shared',
     );
@@ -1226,23 +1256,42 @@ record(
   /Quitar de la selección/.test(SELECTABLE_CODE) && /Seleccionar/.test(SELECTABLE_CODE),
   'the card label states the exact next action for a screen reader',
 );
+// HC2-C STALE_TEST RETARGET (§10): the `✓` confirm affordance is DELETED — it
+// existed only to reveal the contextual actions, which made an obvious capability
+// two taps away. The accessible name that must still exist is the ACTIONS
+// affordance's, and it states the exact count it would act on.
 record(
-  HEADER.includes('Confirmar, ') && HEADER.includes('seleccionados'),
-  'the confirm affordance names the exact count for a screen reader',
+  HEADER.includes('Acciones') && HEADER.includes('seleccionados')
+  && memorySelectionActionsLabel(3) === 'Acciones, 3 seleccionados'
+  && memorySelectionActionsLabel(1) === 'Acciones, 1 seleccionado',
+  'the actions affordance names the exact count for a screen reader',
 );
 record(
   HEADER.includes('Cancelar la selección y volver')
-  && HEADER.includes('Elegir entre recuerdos y colecciones'),
-  'cancel and the collection switch both have explicit accessible names',
+  && HEADER.includes('memorySelectionActionsLabel(selectedCount)')
+  && HEADER.includes('accessibilityLabel={memorySelectionActionsLabel('),
+  'cancel and the contextual actions both have explicit accessible names',
 );
 record(
   !HEADER_CODE.includes('openAlbum')
   && !/deleteMemory|trash|purge/i.test(HEADER_CODE),
   'the selection header owns no mutation and no destructive action',
 );
+// HC2-C: the selection now has FOUR productive entry points (Timeline long press,
+// Album "Agregar recuerdos", Album long press, collection long press), so the
+// invariant is one light haptic PER ENTRY POINT and never per dragged cell.
+const HAPTIC_ENTRY_POINTS = [
+  'handleLongPress',
+  'enterAddToAlbum',
+  'enterRemoveFromAlbum',
+];
 record(
-  (SCREEN.match(/lightHaptic\(\)/g) ?? []).length === 3
-    && SELECTABLE_CODE.includes('lightHaptic') === false,
+  HAPTIC_ENTRY_POINTS.every((name) => {
+    const body = SCREEN.slice(SCREEN.indexOf(`const ${name}`), SCREEN.indexOf(`const ${name}`) + 900);
+    return /void lightHaptic\(\);/.test(body);
+  })
+    && SELECTABLE_CODE.includes('lightHaptic') === false
+    && (SCREEN.match(/lightHaptic\(\)/g) ?? []).length === HAPTIC_ENTRY_POINTS.length + 1,
   'exactly ONE haptic per transition that enters selection, and none per dragged cell',
 );
 
@@ -1286,25 +1335,32 @@ record(
   SCREEN.includes('scrollEventThrottle={DRAG_SCROLL_THROTTLE}'),
   'live offset tracking declares its cadence explicitly',
 );
+// HC2-C: the ONE programmatic scroll path is the guarded adapter, not an
+// invented `scrollToOffset` on the host (D1). It is never animated, so commands
+// cannot stack, and it is the only thing that moves the list.
+const GESTURE_OWNERSHIP_CODE = read('front/mi-front-limpio/services/homecloud/homecloudMemoryGestureOwnership.ts');
 record(
-  SCREEN.includes('listRef.current?.scrollToOffset') && SCREEN.includes('animated: false'),
-  'programmatic scrolling is NEVER animated, so commands cannot stack',
+  SCREEN.includes('scrollMemoryListToOffset(listRef.current')
+    && !SCREEN_CODE.includes('listRef.current?.scrollToOffset')
+    && GESTURE_OWNERSHIP_CODE.includes('animated: false'),
+  'programmatic scrolling goes through the ONE adapter and is NEVER animated, so commands cannot stack',
 );
 
 // ===========================================================================
 section('12. Selection surface wiring: header, sources, back, scope');
 // ===========================================================================
 
+// HC2-C STALE_TEST RETARGET (§10): the frozen composition is now
+// `[X] N seleccionados [Acciones ⋯]` — there is no `✓` confirm and no
+// `Recuerdos | Colecciones` switch.
 record(
-  HEADER.includes('Recuerdos') && HEADER.includes('Colecciones') && HEADER.includes('SegmentedControl'),
-  'the header renders the frozen [X] Recuerdos | Colecciones [✓] composition',
+  HEADER.includes('name="close"') && HEADER.includes('name="ellipsis-horizontal"')
+  && HEADER.includes('memorySelectionCountLabel(selectedCount)')
+  && HEADER.includes('onOpenActions'),
+  'the header renders the X cancel, the visible count and the contextual actions affordance',
 );
 record(
-  HEADER.includes('name="close"') && HEADER.includes('name="checkmark"'),
-  'the header renders the X cancel and the confirm affordance',
-);
-record(
-  HEADER_CODE.includes('selectedCount === 0 || busy'), 'confirm is disabled at zero selected',
+  HEADER_CODE.includes('selectedCount === 0 || busy'), 'actions are disabled at zero selected',
 );
 record(
   HEADER.includes('Reintentar los que fallaron')
@@ -1337,10 +1393,19 @@ record(
   (SCREEN_CODE.match(/BackHandler\.addEventListener\('hardwareBackPress'/g) ?? []).length === 1,
   'there is exactly ONE BackHandler owner (no competing listeners)',
 );
-record(
-  /if \(dragRef\.current\.active\) \{[\s\S]*?abortDrag\(\);[\s\S]*?return true;[\s\S]*?if \(collectionDetailOpen\)[\s\S]*?if \(selecting\)[\s\S]*?if \(openAlbumIdRef\.current !== null\)[\s\S]*?return false;/.test(SCREEN_CODE),
-  'the Back priority is exactly: drag, collection detail, selection, Album, existing behaviour',
-);
+/*
+   * HC2-C: Back priority is now drag, SELECTION, collection detail, Album,
+   * existing behaviour.
+   *
+   * Selection moved ABOVE the collection detail because selection is contextual
+   * state in the surface you are already on: while selecting, Back must leave
+   * the selection, not close the surface underneath it. That ordering is what
+   * makes "cancel returns to the exact same place" true.
+   */
+  record(
+    /if \(dragRef\.current\.active\) \{[\s\S]*?abortDrag\(\);[\s\S]*?return true;[\s\S]*?if \(selecting\)[\s\S]*?cancelSelection\(\);[\s\S]*?return true;[\s\S]*?if \(collectionDetailOpen\)[\s\S]*?closeCollection\(\);[\s\S]*?if \(openAlbumIdRef\.current !== null\)[\s\S]*?return false;/.test(SCREEN_CODE),
+    'the Back priority is exactly: drag, selection, collection detail, Album, existing behaviour',
+  );
 record(
   SCREEN.includes('status === \'active\'') && SCREEN.includes('abortDrag();'),
   'AppState handles gesture cleanup ONLY: backgrounding kills the drag, never the product behaviour',
@@ -1353,10 +1418,18 @@ record(
   SCREEN.includes('clearMemoryRowRegistry') && SCREEN.includes('scrollOffsetsRef.current.clear()'),
   'the row registry and the offsets die with the scope, not just the React state',
 );
+// HC2-C: the offset is tracked per SURFACE, and the surface is decided only by the
+// open collection. The parallel `Colecciones` ScrollView and its own offset are
+// gone, so there is exactly ONE offset map to restore from.
 record(
   SCREEN.includes('scrollOffsetsRef.current.get(sourceKey)')
-    && SCREEN.includes('rootScrollRef.current?.scrollTo'),
-  'the scroll offset is tracked per source and restored on re-entry',
+    && SCREEN.includes('scrollOffsetsRef.current.set(')
+    && !SCREEN_CODE.includes('rootScrollRef'),
+  'the scroll offset is tracked per surface and restored on re-entry, through the ONE adapter',
+);
+record(
+  SCREEN.includes("const sourceKey = activeCollectionId ?? 'library';"),
+  'the surface key depends ONLY on the open collection: entering a selection cannot change it',
 );
 record(
   SCREEN.includes('fetchHomeCloudAlbums(token)') && SCREEN.includes('destinationAlive'),
@@ -1366,9 +1439,14 @@ record(
   SCREEN.includes('if (!destinationAlive)') && SCREEN.includes('destinationMissing: true'),
   'a destination deleted remotely produces a terminal honest state and no mutation',
 );
+// HC2-C: there is no `Colecciones` root to go back to. A collection is a NESTED
+// OVERLAY like an Album, so its back action closes only that overlay and never
+// touches a selection, a mutation or an Album.
 record(
-  SCREEN.includes('backToCollectionsRoot') && SCREEN.includes('MEMORY_SELECTION_SOURCE_COLLECTIONS_ROOT'),
-  'the collection detail back action returns to the Collections root WITHOUT cancelling',
+  SCREEN_CODE.includes('const closeCollection = useCallback')
+    && /const closeCollection = useCallback\(\(\) => \{\s*setActiveCollectionId\(null\);\s*collectionsControllerRef\.current!\.reset\(\);/.test(SCREEN_CODE)
+    && !SCREEN_CODE.includes('setMemorySelectionSource'),
+  'the collection back action closes only its own overlay, WITHOUT cancelling a selection',
 );
 record(
   !SCREEN.includes('router.push') && !SCREEN.includes('navigation.navigate'),
@@ -1376,29 +1454,74 @@ record(
 );
 
 // ===========================================================================
-section('13. Type tiles and the Collections root');
+section('13. The Tipos row and the root information architecture (HC2-C C1)');
 // ===========================================================================
 
+/*
+ * HC2-C STALE_TEST RETARGET (§3 / §5).
+ *
+ * OLD expectation: a `Colecciones` screen rendered an Album grid of
+ * `MemoryCollectionAlbumTile` (each with the exact server aggregate) plus a grid
+ * of type tiles, and the root and collection-detail back actions used frozen
+ * `Colecciones` copy.
+ *
+ * FREEZE RULE REPLACING IT: that screen is DELETED. `Álbumes` and `Tipos` live in
+ * the root header, permanently, in both modes; a collection opens as a nested
+ * overlay; and `MemoryCollectionAlbumTile` is removed as a duplicate of
+ * `AlbumTile`, which already renders the exact aggregate.
+ *
+ * NEW BEHAVIOURAL ASSERTIONS: the aggregate survives on the ONE tile that remains,
+ * a TYPE tile still renders NO count (no exact total exists for a filtered page),
+ * and the four automatic collections are reachable from the root in NORMAL mode.
+ */
 record(
-  TILE_CODE.includes('MemoryCollectionAlbumTile')
-    && TILE_CODE.includes('albumItemCountLabel(album.itemCount)'),
-  'Album entries in the Collections root keep their EXACT server aggregate',
+  SCREEN.includes('<AlbumsRail') && SCREEN.includes('<MemoryTypesSection')
+    && SCREEN.includes('ListHeaderComponent={rootHeader}'),
+  'the root header composes Álbumes and Tipos, always mounted',
+);
+record(
+  SCREEN.includes('collections={MEMORY_TYPE_COLLECTIONS}')
+    && SCREEN.includes('onOpenCollection={openTypeCollection}')
+    && MEMORY_TYPE_COLLECTIONS.map((ref) => ref.memoryKind).join() === 'image,video,audio,written',
+  'the Tipos row renders the four automatic collections in their frozen order, deterministically',
+);
+record(
+  SCREEN.includes('const openTypeCollection = useCallback')
+    && SCREEN.includes('openCollection(ref)'),
+  'every Tipo opens the EXISTING collections controller: no second read owner, no new state',
+);
+record(
+  TILE_CODE.includes("{'Tipos'}") && TILE_CODE.includes('MemoryTypesSection'),
+  'the Tipos section carries its own frozen header',
+);
+record(
+  TILE_CODE.includes('AlbumCover') === false
+    && SCREEN.includes('MemoryCollectionAlbumTile') === false,
+  'the duplicate MemoryCollectionAlbumTile is gone: AlbumTile is the one tile, and it keeps the exact aggregate',
+);
+record(
+  read('front/mi-front-limpio/components/homecloud/AlbumTile.tsx').includes('albumItemCountLabel(album.itemCount)'),
+  'the surviving Album tile still renders its EXACT server aggregate',
 );
 record(
   !/itemCount|count|length/.test(
-    TILE_CODE.split('export function MemoryCollectionTile')[1].split('export function MemoryCollectionAlbumTile')[0],
+    TILE_CODE.split('export function MemoryCollectionTile')[1].split('export function MemoryTypesSection')[0],
   ),
   'a TYPE tile renders NO count: no exact total exists for a kind-filtered page',
 );
 record(
-  SCREEN.includes("{TYPE_COLLECTIONS_TITLE}") && SCREEN.includes("{'Álbumes'}")
-    && SCREEN.includes('MEMORY_TYPE_COLLECTIONS.map'),
-  'the Collections root renders Albums and the four type collections, deterministically',
+  !SCREEN.includes('COLLECTIONS_ROOT_TITLE') && !SCREEN.includes("'Colecciones'"),
+  'the deleted Colecciones screen and its frozen copy are gone',
 );
 record(
-  SCREEN.includes("COLLECTIONS_ROOT_TITLE = 'Colecciones'")
-    && SCREEN.includes('COLLECTIONS_BACK_LABEL'),
-  'the root and the collection-detail back action use the frozen copy',
+  SCREEN.includes('SCREEN_PLACEHOLDER') === false
+    && SCREEN.includes('showCollectionDetail')
+    && SCREEN.includes('<MemoryCollectionDetailView'),
+  'a collection is a nested overlay over the root, exactly like an Album',
+);
+record(
+  SCREEN.includes('NO_ALBUMS_DESTINATION_TITLE') && SCREEN.includes('No hay álbumes disponibles'),
+  'a generic selection with no Albums shows an HONEST destination state, never a silent no-op',
 );
 record(
   SCREEN.includes('NO_ALBUMS_DESTINATION_TITLE') && SCREEN.includes('No hay álbumes disponibles'),

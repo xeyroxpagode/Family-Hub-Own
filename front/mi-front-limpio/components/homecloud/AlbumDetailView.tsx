@@ -57,13 +57,11 @@ export function AlbumDetailView({
   accessToken,
   canOrganize,
   selecting,
-  removingContentId,
   onBack,
   onOpenActions,
   onRefresh,
   onLoadMore,
   onAddMemories,
-  onRemoveMemory,
   onLongPressMemory,
   onOpenMemory,
 }: {
@@ -72,18 +70,15 @@ export function AlbumDetailView({
   accessToken: string | null;
   canOrganize: boolean;
   /**
-   * MO-A3: while the Selection Mode is active the per-tile Album action is not
-   * rendered, so the grid offers exactly one interaction per cell.
+   * MO-A3: while the Selection Mode is active the grid offers exactly one
+   * interaction per cell, so no per-tile action is rendered.
    */
   selecting: boolean;
-  /** The Memory whose remove mutation is in flight, if any. */
-  removingContentId: string | null;
   onBack: () => void;
   onOpenActions: () => void;
   onRefresh: () => void;
   onLoadMore: () => void;
   onAddMemories: () => void;
-  onRemoveMemory: (memory: HomeCloudMemoryListItem) => void;
   /** MO-A3 entry D: a long press starts a bulk removal from THIS Album. */
   onLongPressMemory: (contentId: string) => void;
   onOpenMemory: (memory: HomeCloudMemoryListItem) => void;
@@ -187,17 +182,19 @@ export function AlbumDetailView({
                   selecting={false}
                   selected={false}
                   unselectable={false}
-                  // §35: the single contextual "Quitar del álbum" stays in
-                  // NORMAL Album detail, organize-only, and is NOT rendered
-                  // while the Selection Mode is active.
-                  albumScopeAction={
-                    canOrganize && !selecting
-                      ? {
-                          onRemoveFromAlbum: () => onRemoveMemory(memory),
-                          removing: removingContentId === memory.id,
-                        }
-                      : undefined
-                  }
+                  /*
+                   * HC2-C BUG D — THERE IS NO PER-TILE REMOVE AFFORDANCE.
+                   *
+                   * A permanent `X` on every card was destructive chrome the user
+                   * could trigger by accident, and it painted a white SQUARE
+                   * behind a circular button, leaving visible corners. Removing the
+                   * affordance removes both problems at once; fixing the radius
+                   * would have kept the destructive chrome.
+                   *
+                   * Removing a MEMBERSHIP is a contextual action instead: long
+                   * press -> selection -> `Quitar del álbum`. That deletes the
+                   * Memory↔Album link and nothing else.
+                   */
                   onToggle={noop}
                   onOpen={onOpenMemory}
                   onLongPress={onLongPressMemory}
