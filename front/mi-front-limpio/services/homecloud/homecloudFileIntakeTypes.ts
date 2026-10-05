@@ -19,8 +19,21 @@ export interface FileIntakeDestination {
   isCurrent: boolean;
 }
 
+export type FileIntakeStatus = 'idle' | 'picking' | 'preparing' | 'uploading' | 'verifying' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
+
+/** Presentation state for one exact durable job accepted by this intake. */
+export interface FileIntakeItemState {
+  jobId: string;
+  displayName: string;
+  status: Exclude<FileIntakeStatus, 'idle' | 'picking'>;
+  progress: number | null;
+  error?: string;
+  retryable: boolean;
+  contentId?: string;
+}
+
 export interface FileIntakeState {
-  status: 'idle' | 'picking' | 'preparing' | 'uploading' | 'verifying' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
+  status: FileIntakeStatus;
   error?: string;
   contentId?: string;
   folderId?: string | null;
@@ -33,19 +46,23 @@ export interface FileIntakeState {
   jobId?: string | null;
   /** Live byte progress of `jobId` (0..1), or null when there is none. */
   progress?: number | null;
+  /** Ordered, identity-bound rows accepted by this intake session. */
+  items?: FileIntakeItemState[];
 }
 
 export interface FileIntakeActions {
   pickFile: () => Promise<void>;
   /** Hand an already-produced local artifact (e.g. scanner PDF) to the shared upload lifecycle. */
   submitArtifact: (artifact: UploadLocalArtifact) => Promise<void>;
+  /** Hand several artifacts to the same ordinary durable-job lifecycle. */
+  submitArtifacts: (artifacts: readonly UploadLocalArtifact[]) => Promise<void>;
   selectDestination: (folderId: string | null, folderName: string | null) => void;
-  retry: () => Promise<void>;
+  retry: (jobId?: string) => Promise<void>;
   /**
    * S4-iii D — cancels the job this surface accepted, and ONLY that one. With no
    * accepted job it does nothing: it never falls back to "some file job".
    */
-  cancel: () => void;
+  cancel: (jobId?: string) => void;
   dismiss: () => void;
   /** True once an UploadJob exists (failed jobs stay retryable through retry()). */
   hasActiveJob: () => boolean;

@@ -5,7 +5,7 @@ import { ensureSingleExtension } from './homecloudPickerNaming';
 
 export interface FilePickerResult {
   success: true;
-  artifact: UploadLocalArtifact;
+  artifacts: UploadLocalArtifact[];
 }
 
 export interface FilePickerCancelled {
@@ -59,38 +59,30 @@ export async function pickFile(): Promise<FilePickerOutcome> {
   try {
     const result = await DocumentPicker.getDocumentAsync({
       copyToCacheDirectory: true,
-      multiple: false,
+      multiple: true,
     });
 
     if (result.canceled) {
       return { success: false, cancelled: true };
     }
 
-    const asset = result.assets[0];
-    if (!asset) {
+    if (result.assets.length === 0) {
       return { success: false, cancelled: false, error: 'No se seleccionó ningún archivo.' };
     }
-
-    const localUri = asset.uri;
-    const mimeType = asset.mimeType ?? 'application/octet-stream';
-    const sizeBytes = typeof asset.size === 'number' && asset.size > 0 ? asset.size : 0;
-
-    if (sizeBytes === 0) {
-      return { success: false, cancelled: false, error: 'El archivo seleccionado está vacío o no se pudo determinar su tamaño.' };
-    }
-
-    const extension = deriveExtension(mimeType, asset.name ?? 'archivo');
-    const displayName = ensureSingleExtension(asset.name ?? 'archivo', extension);
-
-    const artifact: UploadLocalArtifact = {
-      localUri,
-      displayName,
-      mimeType,
-      sizeBytes,
-      extension,
-    };
-
-    return { success: true, artifact: await copyArtifactToDurableWorkspace(artifact) };
+    const artifacts = await Promise.all(result.assets.map(async (asset) => {
+      const mimeType = asset.mimeType ?? 'application/octet-stream';
+      const sizeBytes = typeof asset.size === 'number' && asset.size > 0 ? asset.size : 0;
+      if (sizeBytes === 0) throw new Error(`${asset.name ?? 'El archivo'} está vacío o no se pudo determinar su tamaño.`);
+      const extension = deriveExtension(mimeType, asset.name ?? 'archivo');
+      return copyArtifactToDurableWorkspace({
+        localUri: asset.uri,
+        displayName: ensureSingleExtension(asset.name ?? 'archivo', extension),
+        mimeType,
+        sizeBytes,
+        extension,
+      });
+    }));
+    return { success: true, artifacts };
   } catch (error) {
     return { success: false, cancelled: false, error: error instanceof Error ? error.message : 'Error al seleccionar archivo.' };
   }

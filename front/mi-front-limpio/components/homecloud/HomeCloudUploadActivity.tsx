@@ -31,26 +31,30 @@ export function HomeCloudUploadActivity({ householdId }: { householdId: string |
 
   const activity = useMemo(() => {
     if (!snapshot) return null;
-    const failed = snapshot.jobs.find((job) => job.state === 'failed');
-    if (failed) return { label: `No se pudo subir ${failed.artifact.displayName}`, failedId: failed.id };
+    const failedJobs = snapshot.jobs.filter((job) => job.state === 'failed');
     const active = snapshot.activeJobId ? snapshot.jobs.find((job) => job.id === snapshot.activeJobId) : null;
-    if (active?.state === 'verifying' || active?.state === 'finalizing') return { label: 'Terminando…', failedId: null };
+    if (failedJobs.length > 0) return {
+      label: failedJobs.length === 1 ? `No se pudo subir ${failedJobs[0].artifact.displayName}` : `${failedJobs.length} archivos no se pudieron subir`,
+      failedJobs,
+      cancelId: active && active.state !== 'failed' ? active.id : null,
+    };
+    if (active?.state === 'verifying' || active?.state === 'finalizing') return { label: 'Terminando…', failedJobs: [] };
     if (active && snapshot.activeUpload?.jobId === active.id) {
       const percentage = Math.round(snapshot.activeUpload.progress * 100);
-      return { label: `Subiendo ${snapshot.activeUpload.displayName} · ${percentage}%`, failedId: null, cancelId: active.id };
+      return { label: `Subiendo ${snapshot.activeUpload.displayName} · ${percentage}%`, failedJobs: [], cancelId: active.id };
     }
-    if (active) return { label: `Subiendo ${snapshot.jobs.length} elemento${snapshot.jobs.length === 1 ? '' : 's'}…`, failedId: null, cancelId: active.id };
-    if (snapshot.jobs.length > 0) return { label: snapshot.jobs.length === 1 ? 'Pendiente de subir' : `${snapshot.jobs.length} elementos pendientes`, failedId: null };
+    if (active) return { label: `Subiendo ${snapshot.jobs.length} elemento${snapshot.jobs.length === 1 ? '' : 's'}…`, failedJobs: [], cancelId: active.id };
+    if (snapshot.jobs.length > 0) return { label: snapshot.jobs.length === 1 ? 'Pendiente de subir' : `${snapshot.jobs.length} elementos pendientes`, failedJobs: [] };
     return null;
   }, [snapshot]);
   if (!activity) return null;
   return (
     <View style={styles.row}>
-      <AppText variant="caption" tone={activity.failedId ? 'danger' : 'secondary'}>{activity.label}</AppText>
-      {activity.failedId ? <AppButton title="Reintentar" size="sm" variant="secondary" accessibilityLabel={`Reintentar la subida de ${activity.failedId}`} onPress={() => void coordinator?.retry(activity.failedId!)} /> : null}
-      {'cancelId' in activity && activity.cancelId ? <AppButton title="Cancelar" size="sm" variant="secondary" accessibilityLabel={`Cancelar la subida activa ${activity.cancelId}`} onPress={() => void coordinator?.cancel(activity.cancelId)} /> : null}
+      <AppText variant="caption" tone={activity.failedJobs.length > 0 ? 'danger' : 'secondary'}>{activity.label}</AppText>
+      {activity.failedJobs.map((job) => job.error?.retryable === true ? <AppButton key={job.id} title={`Reintentar ${job.artifact.displayName}`} size="sm" variant="secondary" accessibilityLabel={`Reintentar la subida de ${job.artifact.displayName}`} onPress={() => void coordinator?.retry(job.id)} /> : null)}
+      {'cancelId' in activity && activity.cancelId ? <AppButton title="Cancelar" size="sm" variant="secondary" accessibilityLabel={`Cancelar la subida activa ${activity.cancelId}`} onPress={() => void coordinator?.cancel(activity.cancelId!)} /> : null}
     </View>
   );
 }
 
-const styles = StyleSheet.create({ row: { paddingHorizontal: spacing[5], paddingVertical: spacing[2], flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[2] } });
+const styles = StyleSheet.create({ row: { paddingHorizontal: spacing[5], paddingVertical: spacing[2], flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: spacing[2] } });

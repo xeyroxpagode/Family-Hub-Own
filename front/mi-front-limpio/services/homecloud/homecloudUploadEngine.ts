@@ -284,7 +284,9 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     const guard = guardOwnership(job, { householdId });
     if (guard) throw new Error(guard);
 
-    let job2 = transition(job, 'registering');
+    // Recovery may already be parked at `registering`, and an explicit retry
+    // without a content id re-enters from `failed`. Transition exactly once.
+    let job2 = job.state === 'registering' ? job : transition(job, 'registering');
     await persist(job2);
 
     const accessToken = requireAccessToken();
@@ -530,7 +532,7 @@ export function createUploadEngine(deps: UploadEngineDeps): UploadEngine {
     };
     try {
       if (job.state === 'pending' || job.state === 'registering' || (job.state === 'failed' && !job.contentId)) {
-        job = await runRegister(job.state === 'failed' ? transition(job, 'registering') : job);
+        job = await runRegister(job);
         const stopped = stopIfCancelled();
         if (stopped) return stopped;
       }

@@ -166,6 +166,11 @@ export function ensureUploadCoordinator(initial: UploadCoordinatorDeps): UploadC
       retryIds.add(jobId);
       notify();
       await coordinator.requestPump('retry');
+      // A tap may race the failing pump's final notification: in that narrow
+      // window requestPump joins the old pass after it has already decided
+      // there is no next job. If the one-shot id is still present, start the
+      // promised explicit retry once that pass releases ownership.
+      if (retryIds.has(jobId)) await coordinator.requestPump('retry_after_settle');
     },
     async cancel(jobId) {
       const job = deps.store.get(jobId);

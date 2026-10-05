@@ -5,12 +5,13 @@ import { ensureHomeCloudUploadRuntime } from './homecloudUploadRuntime';
 import { ensureUploadCoordinator, type ActiveUploadProgress } from './homecloudUploadCoordinator';
 import { fetchHomeCloudFoldersCached } from './homecloudReadService';
 import { copyArtifactToDurableWorkspace, cleanupTerminalJobArtifact, sweepOrphanDurableWorkspaces } from './homecloudDurableArtifact';
-import type { FileIntakeConfig, FileIntakeState, FileIntakeDestination } from './homecloudFileIntakeTypes';
+import type { FileIntakeConfig, FileIntakeState, FileIntakeDestination, FileIntakeItemState } from './homecloudFileIntakeTypes';
 import type { UploadJob, UploadLocalArtifact } from './homecloudUploadTypes';
 import { homeCloudUploadErrorMessage } from './homecloudUploadError';
 
 type FilePickerOutcome =
-  | { success: true; artifact: UploadLocalArtifact }
+  | { success: true; artifacts: UploadLocalArtifact[]; artifact?: never }
+  | { success: true; artifact: UploadLocalArtifact; artifacts?: never }
   | { success: false; cancelled: true }
   | { success: false; cancelled: false; error: string };
 
@@ -43,10 +44,16 @@ export type FilesOwnedUploadProgress = {
  * through a rendered screen.
  */
 export function filesOwnedUploadProgress(
-  acceptedJobId: string | null,
+  acceptedJobIds: string | readonly string[] | ReadonlySet<string> | null,
   activeUpload: ActiveUploadProgress | null,
 ): FilesOwnedUploadProgress | null {
-  if (!acceptedJobId || !activeUpload || activeUpload.jobId !== acceptedJobId) return null;
+  if (!acceptedJobIds || !activeUpload) return null;
+  const owns = typeof acceptedJobIds === 'string'
+    ? activeUpload.jobId === acceptedJobIds
+    : 'has' in acceptedJobIds
+      ? acceptedJobIds.has(activeUpload.jobId)
+      : acceptedJobIds.includes(activeUpload.jobId);
+  if (!owns) return null;
   return {
     jobId: activeUpload.jobId,
     displayName: activeUpload.displayName,
@@ -98,7 +105,7 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
    * household" fallback, so a stale terminal job can never surface its error
    * here and a foreign job can never make this surface look busy.
    */
-  let acceptedJobId: string | null = null;
+  let acceptedJobIds: string[] = [];
   let currentJob: UploadJob | null = null;
   let selectedFolderId: string | null = initialFolderId ?? null;
   let selectedFolderName: string | null = initialFolderName ?? null;
@@ -116,23 +123,51 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
     stateListeners.forEach((listener) => listener(currentState));
   }
 
-  /** The accepted job's latest durable snapshot, or null when none is bound. */
-  function acceptedJob(): UploadJob | null {
-    if (acceptedJobId === null) return null;
-    const snapshot = queue.getCurrentJob();
-    // The coordinator snapshot is preferred only when it IS this job.
-    if (snapshot && snapshot.id === acceptedJobId) return snapshot;
-    return queue.getQueue().find((job) => job.id === acceptedJobId) ?? store.get(acceptedJobId);
+  function acceptedJobs(): UploadJob[] {
+    return acceptedJobIds.map((id) => store.get(id)).filter((job): job is UploadJob => job !== null);
+  }
+
+  /** Legacy single-artifact projection used by Scanner: the most recently accepted job. */
+  function acceptedJob(jobId?: string): UploadJob | null {
+    const id = jobId ?? acceptedJobIds[acceptedJobIds.length - 1];
+    return id ? store.get(id) : null;
   }
 
   function refreshCurrentJobProjection(): void {
     currentJob = acceptedJob();
   }
 
+  function itemState(job: UploadJob): FileIntakeItemState {
+    const active = coordinator.getSnapshot().activeUpload;
+    return {
+      jobId: job.id,
+      displayName: job.artifact.displayName,
+      status: mapEngineStateToIntakeState(job) as FileIntakeItemState['status'],
+      progress: active?.jobId === job.id ? active.progress : null,
+      error: job.error?.message,
+      retryable: job.state === 'failed' && job.error?.retryable === true,
+      contentId: job.contentId ?? undefined,
+    };
+  }
+
   function syncQueueState(): void {
     refreshCurrentJobProjection();
-    if (!currentJob) return;
-    emitState({ status: mapEngineStateToIntakeState(currentJob), contentId: currentJob.contentId ?? undefined, error: currentJob.error?.message, folderId: selectedFolderId, folderName: selectedFolderName, jobId: currentJob.id, progress: ownedProgress()?.progress ?? null });
+    const jobs = acceptedJobs();
+    if (jobs.length === 0) return;
+    const unsettled = jobs.find((job) => job.state !== 'completed' && job.state !== 'cancelled' && job.state !== 'failed');
+    const failed = jobs.find((job) => job.state === 'failed');
+    const aggregate = unsettled ?? failed ?? jobs.find((job) => job.state === 'completed') ?? jobs[0];
+    const allCancelled = jobs.every((job) => job.state === 'cancelled');
+    emitState({
+      status: unsettled ? mapEngineStateToIntakeState(unsettled) : failed ? 'failed' : allCancelled ? 'cancelled' : 'completed',
+      contentId: aggregate.contentId ?? undefined,
+      error: failed?.error?.message,
+      folderId: selectedFolderId,
+      folderName: selectedFolderName,
+      jobId: aggregate.id,
+      progress: ownedProgress(aggregate.id)?.progress ?? null,
+      items: jobs.map(itemState),
+    });
   }
 
   /**
@@ -140,8 +175,8 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
    * `activeUpload` is the household's live byte progress; it is presented here
    * only while it is about the accepted job (see `filesOwnedUploadProgress`).
    */
-  function ownedProgress(): FilesOwnedUploadProgress | null {
-    return filesOwnedUploadProgress(acceptedJobId, coordinator.getSnapshot().activeUpload);
+  function ownedProgress(jobId?: string): FilesOwnedUploadProgress | null {
+    return filesOwnedUploadProgress(jobId ?? acceptedJobIds, coordinator.getSnapshot().activeUpload);
   }
 
   /**
@@ -204,9 +239,9 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
     try {
       const pickFileImpl = dependencies.pickFile ?? (await import('./homecloudFilePicker')).pickFile;
       const outcome = await pickFileImpl();
-      if (outcome.success === false && outcome.cancelled === true) { emitState({ status: 'cancelled' }); return; }
+      if (outcome.success === false && outcome.cancelled === true) { emitState({ status: acceptedJobIds.length > 0 ? currentState.status : 'idle' }); return; }
       if (outcome.success === false) { emitState({ status: 'failed', error: outcome.error }); return; }
-      await submitArtifact(outcome.artifact);
+      await submitArtifacts('artifacts' in outcome && outcome.artifacts ? outcome.artifacts : [outcome.artifact]);
     } catch (error) {
       emitState({ status: 'failed', error: homeCloudUploadErrorMessage(error, 'Error al seleccionar archivo.') });
     } finally { picking = false; }
@@ -223,58 +258,34 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
    * advances FIFO when A terminates.
    */
   async function submitArtifact(artifact: UploadLocalArtifact): Promise<void> {
-    let durableArtifact: UploadLocalArtifact;
-    try {
-      // Idempotent: artifacts already inside the durable workspace pass through.
-      durableArtifact = await (dependencies.copyToDurableWorkspace ?? copyArtifactToDurableWorkspace)(artifact);
-    } catch (error) {
-      emitState({
-        status: 'failed',
-        error: homeCloudUploadErrorMessage(error, 'Error al preparar el archivo.'),
-        folderId: selectedFolderId,
-        folderName: selectedFolderName,
-      });
-      return;
-    }
+    await submitArtifacts([artifact]);
+  }
 
-    emitState({
-      status: 'preparing',
-      folderId: selectedFolderId,
-      folderName: selectedFolderName,
-    });
-
-    try {
-      const job = await queue.enqueue(
-        {
-          role: 'file',
-          intakeSource: config.intakeSource ?? 'files:picker',
-          initialFolderId: selectedFolderId,
-        },
-        durableArtifact,
-      );
-      refreshCurrentJobProjection();
-      const latest = store.get(job.id) ?? job;
-      currentJob = latest;
-      // PRESENTATION BINDING: from this point the surface projects ONLY this job.
-      acceptedJobId = job.id;
-      emitState({
-        status: mapEngineStateToIntakeState(latest),
-        contentId: latest.contentId ?? undefined,
-        error: latest.error?.message,
-        folderId: selectedFolderId,
-        folderName: selectedFolderName,
-        jobId: acceptedJobId,
-        progress: ownedProgress()?.progress ?? null,
-      });
-    } catch (error) {
-      refreshCurrentJobProjection();
-      emitState({
-        status: 'failed',
-        error: homeCloudUploadErrorMessage(error, 'Error al subir el archivo.'),
-        folderId: selectedFolderId,
-        folderName: selectedFolderName,
-      });
+  async function submitArtifacts(artifacts: readonly UploadLocalArtifact[]): Promise<void> {
+    if (artifacts.length === 0) return;
+    emitState({ status: 'preparing', folderId: selectedFolderId, folderName: selectedFolderName });
+    let submissionError: string | undefined;
+    for (const artifact of artifacts) {
+      try {
+        // Idempotent: artifacts already inside the durable workspace pass through.
+        const durableArtifact = await (dependencies.copyToDurableWorkspace ?? copyArtifactToDurableWorkspace)(artifact);
+        const job = await queue.enqueue(
+          {
+            role: 'file',
+            intakeSource: config.intakeSource ?? 'files:picker',
+            initialFolderId: selectedFolderId,
+          },
+          durableArtifact,
+        );
+        if (!acceptedJobIds.includes(job.id)) acceptedJobIds.push(job.id);
+        currentJob = store.get(job.id) ?? job;
+        syncQueueState();
+      } catch (error) {
+        submissionError = homeCloudUploadErrorMessage(error, 'Error al preparar el archivo.');
+      }
     }
+    if (acceptedJobIds.length > 0) syncQueueState();
+    else if (submissionError) emitState({ status: 'failed', error: submissionError, folderId: selectedFolderId, folderName: selectedFolderName });
   }
 
   function selectDestination(folderId: string | null, folderName: string | null): void {
@@ -284,29 +295,22 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
     emitState({ folderId: selectedFolderId, folderName: selectedFolderName });
   }
 
-  async function retry(): Promise<void> {
+  async function retry(jobId?: string): Promise<void> {
     // Bound to the accepted job only — no household-wide fallback, so a Retry
     // can never resume a job this surface never accepted.
-    const job = acceptedJob();
-    if (!job) return;
+    const job = acceptedJob(jobId);
+    if (!job || job.state !== 'failed' || job.error?.retryable !== true) return;
     currentJob = job;
     emitState({ status: 'preparing', error: undefined });
     try {
       await coordinator.retry(job.id);
       const completedJob = store.get(job.id) ?? job;
       currentJob = completedJob;
-      emitState({
-        status: mapEngineStateToIntakeState(completedJob),
-        contentId: completedJob.contentId ?? undefined,
-        error: undefined,
-      });
+      syncQueueState();
     } catch (error) {
       const latest = store.get(job.id);
       if (latest) currentJob = latest;
-      emitState({
-        status: 'failed',
-        error: homeCloudUploadErrorMessage(error, 'Error al reintentar.'),
-      });
+      syncQueueState();
     }
   }
 
@@ -326,13 +330,13 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
    * Coordinator semantics are untouched: it still refuses a foreign job id and
    * still aborts the native transfer for the job it owns.
    */
-  function cancel(): void {
-    const targetId = acceptedJobId;
+  function cancel(jobId?: string): void {
+    const targetId = jobId ?? acceptedJobIds[acceptedJobIds.length - 1];
     if (!targetId) return;
     // Single-job cancel: neighbors keep progressing via the queue pump.
     void queue.cancelJob(targetId).then((cancelled) => {
       refreshCurrentJobProjection();
-      if (cancelled) emitState({ status: 'cancelled' });
+      if (cancelled) syncQueueState();
     });
   }
 
@@ -344,8 +348,8 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
   function dismiss(): void {
     picking = false;
     currentJob = null;
-    acceptedJobId = null;
-    emitState({ status: 'idle', error: undefined, contentId: undefined, jobId: null, progress: null });
+    acceptedJobIds = [];
+    emitState({ status: 'idle', error: undefined, contentId: undefined, jobId: null, progress: null, items: [] });
   }
 
   function subscribe(listener: (state: FileIntakeState) => void): () => void {
@@ -374,7 +378,7 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
    */
   function hasActiveJob(): boolean {
     refreshCurrentJobProjection();
-    return currentJob !== null && currentJob.state !== 'completed' && currentJob.state !== 'cancelled';
+    return acceptedJobs().some((job) => job.state !== 'completed' && job.state !== 'cancelled');
   }
 
   /**
@@ -403,6 +407,7 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
   return {
     pickFile,
     submitArtifact,
+    submitArtifacts,
     selectDestination,
     retry,
     cancel,
@@ -415,7 +420,8 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
     hasActiveJob,
     recover,
     /** The job this surface is bound to (null before the first submit). */
-    getAcceptedJobId: () => acceptedJobId,
+    getAcceptedJobId: () => acceptedJobIds[acceptedJobIds.length - 1] ?? null,
+    getAcceptedJobIds: () => [...acceptedJobIds],
     /**
      * S4-iii D — live progress of the accepted job, or null. Never another
      * surface's job and never a household-wide stand-in.

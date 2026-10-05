@@ -6,7 +6,7 @@ import { AppText } from '../../components/ui/AppText';
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, spacing, radius, touchTargets } from '../../constants/theme';
 import { createFileIntakeService } from './homecloudFileIntakeService';
-import type { FileIntakeConfig, FileIntakeState, FileIntakeDestination } from './homecloudFileIntakeTypes';
+import type { FileIntakeConfig, FileIntakeState, FileIntakeDestination, FileIntakeItemState } from './homecloudFileIntakeTypes';
 
 export interface FileIntakeProps {
   config: FileIntakeConfig;
@@ -62,18 +62,6 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
     }
   }, [state.status, state.contentId, onComplete]);
 
-  /**
-   * S4-iii D — release the job binding only when the accepted job is really over.
-   *
-   * `completed` and `cancelled` are terminal, so nothing about them can change
-   * any more and the surface must be ready to open again. `failed` is NOT: it is
-   * retryable, and Retry and Cancel both target `acceptedJobId`, so the binding
-   * has to survive it.
-   */
-  useEffect(() => {
-    if (state.status === 'completed' || state.status === 'cancelled') service.dismiss();
-  }, [state.status, service]);
-
   const handlePickFile = useCallback(async () => {
     await service.pickFile();
     // S4-iii D: durable acceptance transfers EXECUTION to the household
@@ -91,84 +79,43 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
     setDestinationSheetVisible(false);
   }, [service]);
 
-  const handleRetry = useCallback(async () => {
-    await service.retry();
+  const handleRetry = useCallback(async (jobId: string) => {
+    await service.retry(jobId);
   }, [service]);
 
-  const handleCancel = useCallback(() => {
-    // S4-iii D: the service resolves this to the job THIS surface accepted.
-    // There is no household-wide or "first file job" fallback behind it.
-    service.cancel();
+  const handleCancel = useCallback((jobId: string) => {
+    service.cancel(jobId);
   }, [service]);
 
   const renderStatus = () => {
-    const owned = Boolean(state.jobId);
-    // S4-iii D: ONE control row for every state in which the accepted job still
-    // exists and is not over. The label carries that job's own id, so the action
-    // can never be read as "cancel whatever is uploading".
-    const cancelControl = owned ? (
-      <AppButton
-        title="Cancelar"
-        size="sm"
-        variant="secondary"
-        onPress={handleCancel}
-        accessibilityLabel={`Cancelar la subida de ${state.jobId}`}
-      />
-    ) : null;
-
-    switch (state.status) {
-      case 'preparing':
-        return (
-          <View style={styles.progressRow}>
-            <AppText variant="bodySmall" tone="secondary">Preparando…</AppText>
-            {cancelControl}
-          </View>
-        );
-      case 'uploading':
-      case 'verifying':
-      case 'finalizing':
-        return (
-          <View style={styles.progressRow}>
-            <AppText variant="bodySmall" tone="secondary">
-              {state.status === 'uploading' ? 'Subiendo…' : state.status === 'verifying' ? 'Verificando…' : 'Guardando…'}
-              {/* S4-iii D: the percentage is the ACCEPTED job's own live
-                  progress. `getOwnedProgress` is identity-bound to
-                  `acceptedJobId`, so another surface's upload can never be
-                  shown here as this file's. */}
-              {typeof state.progress === 'number' ? ` ${Math.round(state.progress * 100)}%` : ''}
-            </AppText>
-            {cancelControl}
-          </View>
-        );
-      case 'completed':
-        return <AppText variant="bodySmall" tone="success">Guardado</AppText>;
-      case 'failed':
-        return (
-          <View style={styles.errorContainer}>
-            <AppText variant="body" weight="700" tone="danger">{state.error ?? 'No pudimos guardar el archivo'}</AppText>
-            {__DEV__ && state.error ? (
-              <AppText variant="caption" tone="secondary" style={styles.errorText}>
-                Detalle tecnico: {state.error}
-              </AppText>
-            ) : null}
-            <AppButton
-              title="Reintentar"
-              size="sm"
-              variant="secondary"
-              onPress={handleRetry}
-              accessibilityLabel="Reintentar guardar archivo"
-              style={styles.retryButton}
-            />
-            {/* S4-iii D: the failure belongs to `state.jobId`, so the retry that
-                follows resumes THAT job — and Cancel stops THAT job. */}
-            {cancelControl}
-          </View>
-        );
-      case 'cancelled':
-        return null;
-      default:
-        return null;
-    }
+    const items = state.items ?? [];
+    if (items.length === 0) return state.status === 'failed' ? <AppText variant="bodySmall" tone="danger">{state.error}</AppText> : null;
+    const label = (item: FileIntakeItemState) => {
+      if (item.status === 'completed') return 'Guardado';
+      if (item.status === 'cancelled') return 'Cancelado';
+      if (item.status === 'failed') return item.error ?? 'No se pudo subir';
+      if (item.status === 'uploading') return `Subiendo${typeof item.progress === 'number' ? ` ${Math.round(item.progress * 100)}%` : '…'}`;
+      if (item.status === 'verifying') return 'Verificando…';
+      if (item.status === 'finalizing') return 'Guardando…';
+      return 'Pendiente';
+    };
+    return (
+      <View style={styles.itemList}>
+        {items.map((item) => {
+          const canCancel = item.status === 'preparing' || item.status === 'uploading' || item.status === 'verifying';
+          return (
+            <View key={item.jobId} style={styles.itemRow}>
+              <View style={styles.itemCopy}>
+                <AppText variant="bodySmall" weight="600" numberOfLines={1}>{item.displayName}</AppText>
+                <AppText variant="caption" tone={item.status === 'failed' ? 'danger' : item.status === 'completed' ? 'success' : 'secondary'}>{label(item)}</AppText>
+              </View>
+              {item.retryable ? <AppButton title="Reintentar" size="sm" variant="secondary" onPress={() => void handleRetry(item.jobId)} accessibilityLabel={`Reintentar la subida de ${item.displayName}`} /> : null}
+              {canCancel ? <AppButton title="Cancelar" size="sm" variant="secondary" onPress={() => handleCancel(item.jobId)} accessibilityLabel={`Cancelar la subida de ${item.displayName}`} /> : null}
+            </View>
+          );
+        })}
+      </View>
+    );
   };
 
   /**
@@ -354,5 +301,23 @@ const styles = StyleSheet.create({
   },
   retryButton: {
     marginTop: spacing[1],
+  },
+  itemList: {
+    gap: spacing[2],
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    padding: spacing[3],
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    backgroundColor: colors.surface.card,
+  },
+  itemCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing[1],
   },
 });

@@ -575,7 +575,7 @@ async function main() {
       '12: file acceptance persists before upload completion and releases the picker state');
     record(states[states.length - 1]?.status !== 'picking', '12: resolved picker never leaves FileIntake in selecting state');
 
-    // A cancelled native picker is terminal for that attempt only; a new one may
+    // A cancelled native picker returns to idle for that attempt only; a new one may
     // open immediately. The same holds for a thrown picker error.
     let recoveryCalls = 0;
     const recoveryStates: FileIntakeState[] = [];
@@ -595,7 +595,7 @@ async function main() {
     await recovery.pickFile();
     await recovery.pickFile();
     record(recoveryCalls === 3, '12: cancel and picker error both release the guard so the picker reopens');
-    record(recoveryStates[recoveryStates.length - 1]?.status === 'cancelled', '12: reopened picker returns a coherent non-blocking state');
+    record(recoveryStates[recoveryStates.length - 1]?.status === 'idle', '12: reopened picker returns a coherent non-blocking state');
     releaseRegister();
     await getUploadCoordinator('hh-1')!.requestPump('file-picker-test-drain');
     record(store.get(acceptedJobId!)?.state === 'completed', '12: accepted File job continues after its intake detaches');

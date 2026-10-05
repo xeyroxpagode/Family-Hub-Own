@@ -1216,13 +1216,15 @@ async function testWindowPreservation(): Promise<void> {
 
 type IntakeService = {
   pickFile: () => Promise<void>;
-  cancel: () => void;
-  retry: () => Promise<void>;
+  submitArtifacts: (artifacts: readonly typeof intakeArtifact[]) => Promise<void>;
+  cancel: (jobId?: string) => void;
+  retry: (jobId?: string) => Promise<void>;
   dismiss: () => void;
   loadFolders: () => Promise<void>;
   subscribe: (listener: (state: any) => void) => () => void;
   getAcceptedJobId: () => string | null;
-  getOwnedProgress: () => { jobId: string; displayName: string; progress: number } | null;
+  getAcceptedJobIds: () => string[];
+  getOwnedProgress: (jobId?: string) => { jobId: string; displayName: string; progress: number } | null;
 };
 
 const CAPABILITIES = { view: true, contribute: true, organize: true, delete: true, anyWrite: true };
@@ -1258,6 +1260,22 @@ function makeIntakeService(store: JobStore): IntakeService {
     intakeSource: 'homecloud:files',
   }, {
     pickFile: async () => ({ success: true, artifact: { ...intakeArtifact } }),
+    copyToDurableWorkspace: async (artifact: unknown) => artifact,
+  }) as IntakeService;
+}
+
+function makeMultiIntakeService(store: JobStore, artifacts: readonly typeof intakeArtifact[], folderId: string | null = null): IntakeService {
+  __setSharedUploadJobStoreForTests(store as never);
+  return createFileIntakeService({
+    householdId: HOUSEHOLD_ID,
+    accessToken: 'tok-s4iii',
+    getAccessToken: () => 'tok-s4iii',
+    capabilities: CAPABILITIES,
+    initialFolderId: folderId,
+    initialFolderName: folderId ? 'Folder X' : null,
+    intakeSource: 'homecloud:files',
+  }, {
+    pickFile: async () => ({ success: true, artifacts: artifacts.map((artifact) => ({ ...artifact })) }),
     copyToDurableWorkspace: async (artifact: unknown) => artifact,
   }) as IntakeService;
 }
@@ -1421,7 +1439,7 @@ async function testProgressAndCancelAttribution(): Promise<void> {
   // SCENARIO 6 � a Files-owned FAILURE is retryable against that same job.
   __resetUploadCoordinatorsForTests();
   armNativeUpload();
-  installIntakeTransport({ uploadAuthStatus: 500 });
+  installIntakeTransport({ uploadAuthStatus: 503 });
   const brokenStore = inMemoryAsyncStore();
   let brokenState: any = { status: 'idle' };
   const brokenService = makeIntakeService(brokenStore);
@@ -1498,8 +1516,8 @@ async function testFileIntakeUiBinding(): Promise<void> {
   record(texts.includes('50%'), 'D37. the Files intake shows the ACCEPTED job\'s own percentage');
   const cancelButtons = findAll(tree(), (element) => element.props?.title === 'Cancelar');
   record(cancelButtons.length === 1, 'D38. and offers exactly one Cancel');
-  record(cancelButtons[0]?.props?.accessibilityLabel === `Cancelar la subida de ${ownedId}`,
-    'D39. bound to the accepted job id, not to "whatever is running"');
+  record(cancelButtons[0]?.props?.accessibilityLabel === 'Cancelar la subida de photo.jpg',
+    'D39. bound to the accepted file row, not to "whatever is running"');
 
   // Pressing it cancels the accepted job and nothing else.
   seedJob(uiStore, { id: 'memory-neighbour', role: 'memory', state: 'pending', displayName: 'memory.mp4', createdAt: '2026-01-03T00:00:00.000Z' });
@@ -1524,6 +1542,75 @@ async function testFileIntakeUiBinding(): Promise<void> {
   pickerArtifact = null;
 }
 
+async function testMultiFileIntake(): Promise<void> {
+  console.log('\n=== S4-iii E: multi-file intake owns N ordinary durable jobs ===');
+  const pickerSourceRoot = path.join(__dirname, '..', '..', '..', 'front', 'mi-front-limpio', 'services', 'homecloud');
+  const pickerSource = require('node:fs').readFileSync(path.join(pickerSourceRoot, 'homecloudFilePicker.ts'), 'utf8') as string;
+  record(pickerSource.includes('multiple: true'), 'E1. the native picker enables one-action multi-selection');
+  record(!pickerSource.includes('result.assets[0]'), 'E2. picker results are never truncated to assets[0]');
+
+  for (const count of [1, 2, 8]) {
+    __resetUploadCoordinatorsForTests();
+    armNativeUpload();
+    installIntakeTransport();
+    const store = inMemoryAsyncStore();
+    const artifacts = Array.from({ length: count }, (_, index) => ({ ...intakeArtifact, localUri: `file:///s4iii-docs/file-${index}.pdf`, displayName: `file-${index}.pdf`, mimeType: 'application/pdf', extension: 'pdf' }));
+    let state: any = { status: 'idle' };
+    const service = makeMultiIntakeService(store, artifacts, count === 2 ? 'folder-x' : null);
+    service.subscribe((next: unknown) => { state = next; });
+    await service.pickFile();
+    const ids = service.getAcceptedJobIds();
+    record(ids.length === count && new Set(ids).size === count, `E3.${count}. ${count} selected artifacts create ${count} distinct job identities`);
+    record(store.all().filter((job: { householdId: string; role: string }) => job.householdId === HOUSEHOLD_ID && job.role === 'file').length === count, `E4.${count}. ${count} selected artifacts persist as ${count} normal durable jobs`);
+    record((state.items ?? []).length === count, `E5.${count}. the intake renders ${count} identity-bound rows`);
+    if (count === 2) record(ids.every((id) => store.get(id)?.initialFolderId === 'folder-x'), 'E6. every selected file inherits the one common folder destination');
+  }
+
+  __resetUploadCoordinatorsForTests();
+  const cancelStore = inMemoryAsyncStore();
+  __setSharedUploadJobStoreForTests(cancelStore as never);
+  const cancelledPicker = createFileIntakeService({ householdId: HOUSEHOLD_ID, accessToken: 'tok', capabilities: CAPABILITIES }, {
+    pickFile: async () => ({ success: false, cancelled: true }),
+    copyToDurableWorkspace: async (artifact: unknown) => artifact,
+  });
+  await cancelledPicker.pickFile();
+  record(cancelStore.all().length === 0 && cancelledPicker.getAcceptedJobIds().length === 0, 'E7. picker cancellation creates zero jobs');
+
+  __resetUploadCoordinatorsForTests();
+  armNativeUpload();
+  installIntakeTransport();
+  const mixedStore = inMemoryAsyncStore();
+  const artifacts = Array.from({ length: 5 }, (_, index) => ({ ...intakeArtifact, localUri: `file:///s4iii-docs/mixed-${index}.pdf`, displayName: `mixed-${index}.pdf`, mimeType: 'application/pdf', extension: 'pdf' }));
+  let mixedState: any = { status: 'idle' };
+  const mixed = makeMultiIntakeService(mixedStore, artifacts);
+  mixed.subscribe((next: unknown) => { mixedState = next; });
+  await mixed.pickFile();
+  const ids = mixed.getAcceptedJobIds();
+  record(ids.length === 5, 'E8. the mixed-result scenario begins with five durable jobs');
+  record(await until(() => mixedStore.get(ids[0])?.state === 'uploading'), 'E9. the first row owns the active native transfer');
+  nativeFileSystem.report?.({ totalBytesSent: 64, totalBytesExpectedToSend: 128 });
+  await until(() => mixedState.items?.[0]?.progress === 0.5);
+  record(mixedState.items?.[0]?.progress === 0.5 && mixedState.items?.slice(1).every((item: any) => item.progress === null), 'E10. progress belongs only to the exact active job');
+  mixed.cancel(ids[2]);
+  record(await until(() => mixedStore.get(ids[2])?.state === 'cancelled'), 'E11. cancelling one pending row cancels only that row');
+  record(ids.filter((id) => id !== ids[2]).every((id) => mixedStore.get(id)?.state !== 'cancelled'), 'E12. per-file cancel leaves every neighbour untouched');
+
+  const second = mixedStore.get(ids[1])!;
+  const fourth = mixedStore.get(ids[3])!;
+  mixedStore.put(transition(second, 'failed', { error: { code: 'network', message: 'offline A', retryable: true } }));
+  mixedStore.put(transition(fourth, 'failed', { error: { code: 'network', message: 'offline B', retryable: true } }));
+  getUploadCoordinator(HOUSEHOLD_ID)?.notifyJob();
+  record(await until(() => mixedState.items?.filter((item: any) => item.status === 'failed').length === 2), 'E13. multiple failures remain individually visible');
+  record(mixedState.items?.filter((item: any) => item.status === 'failed').every((item: any) => item.retryable), 'E14. both failed rows remain independently actionable');
+  completeNativeUpload(200);
+  record(await until(() => mixedStore.get(ids[4])?.state === 'completed', 160), 'E15. a later pending file continues after multiple failures');
+  record(mixedStore.get(ids[1])?.state === 'failed' && mixedStore.get(ids[3])?.state === 'failed', 'E16. continuing the queue never auto-retries failed rows');
+  await mixed.retry(ids[1]);
+  const retried = await until(() => mixedStore.get(ids[1])?.state === 'completed', 160);
+  record(retried, `E17. Retry resumes only the exact failed row (state=${mixedStore.get(ids[1])?.state}, error=${mixedStore.get(ids[1])?.error?.message})`);
+  record(mixedStore.get(ids[3])?.state === 'failed' && mixedStore.get(ids[2])?.state === 'cancelled' && mixedStore.get(ids[4])?.state === 'completed', 'E18. retry leaves the other failed, cancelled and successful rows untouched');
+}
+
 // -- main ---------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -1536,6 +1623,7 @@ async function main(): Promise<void> {
   await testWindowPreservation();
   await testProgressAndCancelAttribution();
   await testFileIntakeUiBinding();
+  await testMultiFileIntake();
 
   console.log(`\nHOMECLOUD_S4III_RESULT pass=${passCount} fail=${failCount}`);
   if (failCount > 0) {
