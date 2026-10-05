@@ -223,8 +223,6 @@ export function clearMemoryRowRegistry(registry: MemoryRowRegistry): void {
   registry.clear();
 }
 
-export type MemoryGridPosition = { readonly visualRowOrdinal: number; readonly column: number };
-
 export type MemoryDragState = {
   /** False until the long press arms the drag. */
   readonly armed: boolean;
@@ -233,8 +231,8 @@ export type MemoryDragState = {
   /** Immutable truth at the instant the drag starts. Never mutate cumulatively. */
   readonly baselineSelectedIds: ReadonlySet<string>;
   readonly anchorContentId: string | null;
-  readonly anchorPosition: MemoryGridPosition | null;
-  /** The CURRENT rectangle, recalculated on every pointer move. */
+  readonly anchorIndex: number | null;
+  /** The CURRENT contiguous visual range, recalculated on every pointer move. */
   readonly currentRangeIds: ReadonlySet<string>;
   /** The last position the finger was seen at, kept for re-hit-testing. */
   readonly fingerX: number | null;
@@ -247,7 +245,7 @@ export const MEMORY_DRAG_IDLE: MemoryDragState = {
   mode: null,
   baselineSelectedIds: new Set<string>(),
   anchorContentId: null,
-  anchorPosition: null,
+  anchorIndex: null,
   currentRangeIds: new Set<string>(),
   fingerX: null,
   fingerY: null,
@@ -278,19 +276,19 @@ export function beginMemoryDrag(
   state: MemoryDragState,
   startContentId: string,
   isSelected: (contentId: string) => boolean,
-  gridPositions: ReadonlyMap<string, MemoryGridPosition> = new Map(),
+  visualMemoryIds: readonly string[] = [],
   baselineSelectedIds: ReadonlySet<string> = new Set(),
 ): MemoryDragState {
   if (!state.armed || typeof startContentId !== 'string' || startContentId.length === 0) return state;
   const mode: MemoryDragMode = isSelected(startContentId) ? 'deselect' : 'select';
-  const anchorPosition = gridPositions.get(startContentId) ?? null;
+  const anchorIndex = visualMemoryIds.indexOf(startContentId);
   return {
     armed: true,
     active: true,
     mode,
     baselineSelectedIds: new Set(baselineSelectedIds),
     anchorContentId: startContentId,
-    anchorPosition,
+    anchorIndex: anchorIndex >= 0 ? anchorIndex : null,
     currentRangeIds: new Set<string>(),
     fingerX: null,
     fingerY: null,
@@ -302,25 +300,39 @@ export type MemoryDragStep =
   | { readonly kind: 'range'; readonly mode: MemoryDragMode; readonly contentIds: readonly string[] };
 
 /**
- * Resolve the Windows-like rectangle in logical grid coordinates. The registry
- * identifies the cell beneath a finger; this resolver deliberately operates on
- * ALL loaded rows so virtualization cannot turn the range into a paint trail.
+ * Resolve the Apple Photos-style contiguous range in exact rendered Memory
+ * order. Headers, wrappers and spacers never enter `visualMemoryIds`, while all
+ * loaded Memories do, so virtualization cannot turn the range into a paint trail.
  */
-export function resolveMemoryRectangleIds(
-  anchor: MemoryGridPosition,
-  current: MemoryGridPosition,
-  gridPositions: ReadonlyMap<string, MemoryGridPosition>,
+export function resolveMemoryVisualRangeIds(
+  anchorContentId: string,
+  currentContentId: string,
+  visualMemoryIds: readonly string[],
 ): readonly string[] {
-  const minRow = Math.min(anchor.visualRowOrdinal, current.visualRowOrdinal);
-  const maxRow = Math.max(anchor.visualRowOrdinal, current.visualRowOrdinal);
-  const minColumn = Math.min(anchor.column, current.column);
-  const maxColumn = Math.max(anchor.column, current.column);
-  const ids: string[] = [];
-  gridPositions.forEach((position, contentId) => {
-    if (position.visualRowOrdinal >= minRow && position.visualRowOrdinal <= maxRow
-      && position.column >= minColumn && position.column <= maxColumn) ids.push(contentId);
-  });
-  return ids;
+  const anchorIndex = visualMemoryIds.indexOf(anchorContentId);
+  const currentIndex = visualMemoryIds.indexOf(currentContentId);
+  if (anchorIndex < 0 || currentIndex < 0) return [];
+  const start = Math.min(anchorIndex, currentIndex);
+  const end = Math.max(anchorIndex, currentIndex);
+  return visualMemoryIds.slice(start, end + 1);
+}
+
+/** Rebuild selection from the immutable gesture baseline on every target. */
+export function applyMemoryVisualRange(
+  baselineSelectedIds: ReadonlySet<string>,
+  currentRangeIds: Iterable<string>,
+  mode: MemoryDragMode,
+  excludedIds: ReadonlySet<string> = new Set(),
+): ReadonlySet<string> {
+  const selectedIds = new Set(baselineSelectedIds);
+  for (const contentId of currentRangeIds) {
+    if (mode === 'select') {
+      if (!excludedIds.has(contentId)) selectedIds.add(contentId);
+    } else {
+      selectedIds.delete(contentId);
+    }
+  }
+  return selectedIds;
 }
 
 /**
@@ -333,13 +345,12 @@ export function resolveMemoryRectangleIds(
 export function stepMemoryDrag(
   state: MemoryDragState,
   currentContentId: string | null,
-  gridPositions: ReadonlyMap<string, MemoryGridPosition> = new Map(),
+  visualMemoryIds: readonly string[] = [],
 ): { readonly state: MemoryDragState; readonly step: MemoryDragStep } {
   if (!state.active || state.mode === null) return { state, step: { kind: 'idle' } };
-  if (currentContentId === null || state.anchorPosition === null) return { state, step: { kind: 'idle' } };
-  const currentPosition = gridPositions.get(currentContentId);
-  if (!currentPosition) return { state, step: { kind: 'idle' } };
-  const contentIds = resolveMemoryRectangleIds(state.anchorPosition, currentPosition, gridPositions);
+  if (currentContentId === null || state.anchorContentId === null || state.anchorIndex === null) return { state, step: { kind: 'idle' } };
+  const contentIds = resolveMemoryVisualRangeIds(state.anchorContentId, currentContentId, visualMemoryIds);
+  if (contentIds.length === 0) return { state, step: { kind: 'idle' } };
   const currentRangeIds = new Set(contentIds);
   let identical = currentRangeIds.size === state.currentRangeIds.size;
   if (identical) for (const id of currentRangeIds) if (!state.currentRangeIds.has(id)) { identical = false; break; }
@@ -375,7 +386,7 @@ export function endMemoryDrag(state: MemoryDragState): MemoryDragState {
     mode: null,
     baselineSelectedIds: new Set<string>(),
     anchorContentId: null,
-    anchorPosition: null,
+    anchorIndex: null,
     currentRangeIds: new Set<string>(),
     fingerX: null,
     fingerY: null,

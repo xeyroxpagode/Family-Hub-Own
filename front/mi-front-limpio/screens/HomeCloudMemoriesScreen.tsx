@@ -69,9 +69,9 @@ import {
   resolveMemoryAtPoint,
   stepMemoryDrag,
   unregisterMemoryRow,
+  applyMemoryVisualRange,
   type MemoryDragState,
   type MemoryEdgeTicker,
-  type MemoryGridPosition,
   type MemoryRowRegistry,
 } from '../services/homecloud/homecloudMemoryDrag';
 import {
@@ -647,7 +647,7 @@ export function HomeCloudMemoriesView() {
   const rowRegistryRef = useRef<MemoryRowRegistry | null>(null);
   if (rowRegistryRef.current === null) rowRegistryRef.current = createMemoryRowRegistry();
   const fingerRef = useRef<{ x: number; y: number } | null>(null);
-  const gridPositionsRef = useRef<ReadonlyMap<string, MemoryGridPosition>>(new Map());
+  const visualMemoryIdsRef = useRef<readonly string[]>([]);
   const listRef = useRef<SectionList<TimelineRow, TimelineListSection> | null>(null);
   const rootScrollRef = useRef<ScrollView | null>(null);
   const viewportHeightRef = useRef(0);
@@ -735,19 +735,14 @@ export function HomeCloudMemoriesView() {
     if (!drag.active) return;
     fingerRef.current = { x, y };
     const hit = resolveMemoryAtPoint(memoryRowZones(rowRegistryRef.current as MemoryRowRegistry), x, y);
-    const outcome = stepMemoryDrag(drag, hit?.contentId ?? null, gridPositionsRef.current);
+    const outcome = stepMemoryDrag(drag, hit?.contentId ?? null, visualMemoryIdsRef.current);
     dragRef.current = moveMemoryDragPointer(outcome.state, x, y);
     if (outcome.step.kind === 'range') {
       const ids = outcome.step.contentIds;
       const mode = outcome.step.mode;
       setSelection((previous) => {
-        const baseline = new Set(drag.baselineSelectedIds);
-        if (mode === 'select') {
-          for (const id of ids) if (!previous.excludedIds.has(id)) baseline.add(id);
-        } else {
-          for (const id of ids) baseline.delete(id);
-        }
-        return { ...previous, selectedIds: baseline };
+        const selectedIds = applyMemoryVisualRange(drag.baselineSelectedIds, ids, mode, previous.excludedIds);
+        return { ...previous, selectedIds };
       });
     }
     edgeTickerRef.current?.update(y);
@@ -851,7 +846,7 @@ export function HomeCloudMemoriesView() {
     // A normal-mode long press enters selection asynchronously; its anchor is
     // still part of the baseline for the range machine.
     if (!isMemorySelecting(current)) baseline.add(contentId);
-    dragRef.current = beginMemoryDrag(armed, contentId, () => isSelected, gridPositionsRef.current, baseline);
+    dragRef.current = beginMemoryDrag(armed, contentId, () => isSelected, visualMemoryIdsRef.current, baseline);
   }, []);
 
   const handleDragMove = useCallback((pageX: number, pageY: number) => {
@@ -1167,21 +1162,19 @@ export function HomeCloudMemoriesView() {
     return map;
   }, [gridSections, selecting, selection]);
 
-  // Logical coordinates intentionally derive from the exact rendered rows,
-  // across section boundaries. Mounted measurements only resolve pointer hits;
-  // this mapping gives a rectangular sweep stable virtualized semantics.
-  const gridPositions = useMemo<ReadonlyMap<string, MemoryGridPosition>>(() => {
-    const next = new Map<string, MemoryGridPosition>();
-    let visualRowOrdinal = 0;
+  // This is the exact rendered Memory order across section boundaries. Headers,
+  // wrappers and empty spacers never receive an index. Mounted measurements only
+  // resolve pointer hits; the full loaded order keeps virtualized ranges stable.
+  const visualMemoryIds = useMemo<readonly string[]>(() => {
+    const next: string[] = [];
     for (const section of gridSections) {
       for (const row of section.data) {
-        row.items.forEach((memory, column) => next.set(memory.id, { visualRowOrdinal, column }));
-        visualRowOrdinal += 1;
+        for (const memory of row.items) next.push(memory.id);
       }
     }
     return next;
   }, [gridSections]);
-  gridPositionsRef.current = gridPositions;
+  visualMemoryIdsRef.current = visualMemoryIds;
 
   // =========================================================================
   // MO-A3 — scroll, list ownership and edge auto-scroll

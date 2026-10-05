@@ -40,6 +40,7 @@ import {
 import {
   MEMORY_DRAG_EDGE_BAND_RATIO,
   MEMORY_DRAG_IDLE,
+  applyMemoryVisualRange,
   MEMORY_DRAG_MAX_EDGE_SPEED_PX,
   MEMORY_DRAG_MIN_EDGE_SPEED_PX,
   MEMORY_DRAG_TICK_MS,
@@ -52,14 +53,13 @@ import {
   memoryRowZones,
   moveMemoryDragPointer,
   registerMemoryRow,
-  resolveMemoryRectangleIds,
+  resolveMemoryVisualRangeIds,
   resolveMemoryAtPoint,
   resolveMemoryIdsAtPoint,
   solveMemoryEdgeAutoScroll,
   stepMemoryDrag,
   unregisterMemoryRow,
   type MemoryDragState,
-  type MemoryGridPosition,
   type MemoryRowHitZone,
 } from '../front/mi-front-limpio/services/homecloud/homecloudMemoryDrag';
 import {
@@ -333,42 +333,41 @@ section('2. Identity, already-member and cross-source selection');
 }
 
 // ===========================================================================
-section('3. Drag state machine: rectangular baseline range and reversal');
+section('3. Drag state machine: contiguous visual-order baseline range and reversal');
 // ===========================================================================
 
 {
-  const grid = new Map<string, MemoryGridPosition>([
-    ['a', { visualRowOrdinal: 0, column: 0 }], ['b', { visualRowOrdinal: 0, column: 1 }], ['c', { visualRowOrdinal: 0, column: 2 }],
-    ['d', { visualRowOrdinal: 1, column: 0 }], ['e', { visualRowOrdinal: 1, column: 1 }], ['f', { visualRowOrdinal: 1, column: 2 }],
-    ['g', { visualRowOrdinal: 2, column: 0 }], ['h', { visualRowOrdinal: 2, column: 1 }], ['i', { visualRowOrdinal: 2, column: 2 }],
-  ]);
-  record(MEMORY_DRAG_IDLE.armed === false && MEMORY_DRAG_IDLE.active === false && MEMORY_DRAG_IDLE.currentRangeIds.size === 0, 'the drag starts disarmed with no active rectangle');
+  const visualOrder = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+  record(MEMORY_DRAG_IDLE.armed === false && MEMORY_DRAG_IDLE.active === false && MEMORY_DRAG_IDLE.currentRangeIds.size === 0, 'the drag starts disarmed with no active range');
 
   // Arming happens ONLY on the long press and does not start the drag.
   const armed = armMemoryDrag(MEMORY_DRAG_IDLE);
   record(armed.armed === true && armed.active === false, 'the long press arms the drag without starting it');
-  record(beginMemoryDrag(MEMORY_DRAG_IDLE, 'a', () => false, grid) === MEMORY_DRAG_IDLE, 'a drag cannot begin while disarmed');
-  const selectDrag = beginMemoryDrag(armed, 'a', () => false, grid, new Set(['z']));
-  const wide = stepMemoryDrag(selectDrag, 'h', grid);
-  record(wide.step.kind === 'range' && wide.step.contentIds.slice().sort().join() === 'a,b,d,e,g,h', 'A to H uses a rectangular range');
-  const shrink = stepMemoryDrag(wide.state, 'e', grid);
-  record(shrink.step.kind === 'range' && shrink.step.contentIds.slice().sort().join() === 'a,b,d,e', 'moving backward shrinks from baseline, not paintbrush history');
-  record(resolveMemoryRectangleIds(grid.get('b')!, grid.get('h')!, grid).join() === 'b,e,h', 'section rows preserve geometric columns');
-  const deselectDrag = beginMemoryDrag(armed, 'a', () => true, grid, new Set(['a', 'b', 'd', 'e', 'z']));
+  record(beginMemoryDrag(MEMORY_DRAG_IDLE, 'a', () => false, visualOrder) === MEMORY_DRAG_IDLE, 'a drag cannot begin while disarmed');
+  const selectDrag = beginMemoryDrag(armed, 'a', () => false, visualOrder, new Set(['z']));
+  const wide = stepMemoryDrag(selectDrag, 'h', visualOrder);
+  record(wide.step.kind === 'range' && wide.step.contentIds.join() === 'a,b,c,d,e,f,g,h', 'A to H uses one contiguous visual-order range');
+  const shrink = stepMemoryDrag(wide.state, 'e', visualOrder);
+  record(shrink.step.kind === 'range' && shrink.step.contentIds.join() === 'a,b,c,d,e', 'moving backward shrinks from baseline, not paintbrush history');
+  record(resolveMemoryVisualRangeIds('b', 'h', visualOrder).join() === 'b,c,d,e,f,g,h', 'cross-section order remains one contiguous sequence');
+  record(resolveMemoryVisualRangeIds('h', 'b', visualOrder).join() === 'b,c,d,e,f,g,h', 'bottom-to-top resolves the same contiguous range');
+  record([...applyMemoryVisualRange(new Set(['z']), ['a', 'b', 'c'], 'select')].sort().join() === 'a,b,c,z', 'select range is recalculated from the immutable baseline');
+  record([...applyMemoryVisualRange(new Set(['a', 'b', 'c', 'z']), ['b', 'c'], 'deselect')].sort().join() === 'a,z', 'deselect range is recalculated from the immutable baseline');
+  const deselectDrag = beginMemoryDrag(armed, 'a', () => true, visualOrder, new Set(['a', 'b', 'd', 'e', 'z']));
   record(deselectDrag.mode === 'deselect' && deselectDrag.baselineSelectedIds.has('z'), 'deselect captures its immutable baseline');
   const ended = endMemoryDrag(wide.state);
   record(
     ended.armed === false && ended.active === false && ended.mode === null && ended.currentRangeIds.size === 0,
-    'release / terminate / cancel clears the mode, rectangle and pointer',
+    'release / terminate / cancel clears the mode, range and pointer',
   );
-  const restarted = beginMemoryDrag(armMemoryDrag(ended), 'a', () => false, grid);
+  const restarted = beginMemoryDrag(armMemoryDrag(ended), 'a', () => false, visualOrder);
   record(
-    restarted.currentRangeIds.size === 0 && stepMemoryDrag(restarted, 'a', grid).step.kind === 'range',
-    'a NEW gesture starts with a fresh rectangle',
+    restarted.currentRangeIds.size === 0 && stepMemoryDrag(restarted, 'a', visualOrder).step.kind === 'range',
+    'a NEW gesture starts with a fresh range',
   );
 
   // A step while NOT dragging is inert.
-  record(stepMemoryDrag(MEMORY_DRAG_IDLE, 'a', grid).step.kind === 'idle', 'a step outside a drag is inert');
+  record(stepMemoryDrag(MEMORY_DRAG_IDLE, 'a', visualOrder).step.kind === 'idle', 'a step outside a drag is inert');
   const moved = moveMemoryDragPointer(restarted, 10, 20);
   record(moved.fingerX === 10 && moved.fingerY === 20, 'the drag keeps the current finger position');
   record(
