@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, View } from 'react-native';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -12,9 +12,9 @@ import {
   discardViewerStaging,
   openViewerOriginalWithSystem,
   readViewerTextPreview,
-  requestViewerAccess,
   stageViewerOriginal,
   viewerUnsupportedReason,
+  withSingleGrantRetry,
   type ViewerTextPreview,
 } from '../services/homecloud/homecloudViewerAccess';
 import { isInlineRenderableFamily } from '../services/homecloud/homecloudViewerKind';
@@ -62,8 +62,6 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
   const [stagedUri, setStagedUri] = useState<string | null>(null);
   const [textPreview, setTextPreview] = useState<ViewerTextPreview | null>(null);
   const [busy, setBusy] = useState(false);
-  /** Guards the single controlled authorization retry. */
-  const retriedRef = useRef(false);
 
   const classification = useMemo(
     () => (file ? classifyHomeCloudViewerFile({ fileName: file.displayName, mimeType: file.mimeType }) : null),
@@ -74,33 +72,38 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
     discardViewerStaging(target.id, target.displayName);
   }, []);
 
-  // One fresh grant per target. A signed URL is never persisted and never treated
-  // as a durable cache key.
+  // One fresh grant per target, plus AT MOST ONE controlled re-grant if the access
+  // failed because the signed URL went stale. A signed URL is never persisted and
+  // never treated as a durable cache key.
   useEffect(() => {
     if (!file) return undefined;
     let active = true;
+    const target = file;
+    const classify = classifyHomeCloudViewerFile({ fileName: target.displayName, mimeType: target.mimeType });
     setPhase('loading');
     setFailure(null);
     setStagedUri(null);
     setTextPreview(null);
-    retriedRef.current = false;
-    const classify = classifyHomeCloudViewerFile({ fileName: file.displayName, mimeType: file.mimeType });
-    requestViewerAccess(accessToken, file.id)
-      .then(async (grant) => {
+    // The previous target's signed URL is dropped HERE, not only on unmount. Holding
+    // it past the end of its own Viewer session kept a live credential for a file
+    // that was no longer open.
+    setSignedUrl(null);
+    withSingleGrantRetry(accessToken, target.id, async (grant) => {
+      if (!active) return;
+      setSignedUrl(grant.signedUrl);
+      if (classify.kind === 'text' || classify.kind === 'csv' || classify.kind === 'markdown') {
+        const preview = await readViewerTextPreview(target, grant);
         if (!active) return;
-        setSignedUrl(grant.signedUrl);
-        if (classify.kind === 'text' || classify.kind === 'csv' || classify.kind === 'markdown') {
-          const preview = await readViewerTextPreview(file, grant);
-          if (!active) return;
-          setTextPreview(preview);
-          setPhase('ready');
-          return;
-        }
-        if (!isInlineRenderableFamily(classify.kind)) {
-          const uri = await stageViewerOriginal(accessToken, file, grant);
-          if (!active) return;
-          setStagedUri(uri);
-        }
+        setTextPreview(preview);
+        return;
+      }
+      if (!isInlineRenderableFamily(classify.kind)) {
+        const uri = await stageViewerOriginal(target, grant);
+        if (!active) return;
+        setStagedUri(uri);
+      }
+    })
+      .then(() => {
         if (active) setPhase('ready');
       })
       .catch((error: unknown) => {

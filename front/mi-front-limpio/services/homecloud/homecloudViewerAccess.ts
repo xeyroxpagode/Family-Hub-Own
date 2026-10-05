@@ -48,6 +48,7 @@ export type ViewerFailureReason =
   | 'unsupported'
   | 'preview_failed'
   | 'no_longer_available'
+  | 'file_too_large_to_preview'
   | 'external_open_unavailable';
 
 export class ViewerAccessError extends Error {
@@ -65,8 +66,21 @@ export const VIEWER_FAILURE_MESSAGE: Record<ViewerFailureReason, string> = {
   unsupported: 'No podemos previsualizar este formato.',
   preview_failed: 'No pudimos mostrar este archivo.',
   no_longer_available: 'Este archivo ya no está disponible.',
+  file_too_large_to_preview: 'Este archivo es demasiado grande para una vista previa aquí. Abrilo con otra app.',
   external_open_unavailable: 'No hay ninguna app disponible para abrir este archivo.',
 };
+
+/**
+ * How much of the original the platform is even ASKED to transfer for an inline
+ * text preview.
+ *
+ * `VIEWER_TEXT_PREVIEW_BYTE_CAP` bounds what enters JS memory. This second bound
+ * bounds what is pulled over the wire and written to the cache at all, because the
+ * bounded read still happens AFTER the platform finished the transfer. Without it a
+ * multi-gigabyte `.txt` would fill the device cache just to show 512 KiB of it. It is
+ * set well above the preview cap so ordinary documents are never refused.
+ */
+export const VIEWER_TEXT_TRANSFER_BYTE_LIMIT = 8 * 1024 * 1024;
 
 export interface ViewerTextPreview {
   readonly text: string;
@@ -127,27 +141,67 @@ export async function requestViewerAccess(accessToken: string, contentId: string
 }
 
 /**
- * ONE controlled retry of the authorization for a failed access.
+ * Would a fresh grant plausibly fix this failure?
  *
- * A signed URL can expire while a long Viewer session is open. That is a normal
- * event, not an error to escalate, so exactly one fresh grant is obtained and the
- * caller retries the access once. This function is deliberately NOT a loop and it
- * deliberately does not cache: a second failure is reported.
+ * A signed URL expires on a timer, so an access that failed because the URL was
+ * stale or already revoked CAN succeed with a new one. A real permission denial
+ * cannot: retrying it would just re-ask for something the member is not allowed to
+ * see, so those failures are reported immediately.
  */
-export async function requestViewerAccessWithSingleRetry(
+export function isRetriableViewerGrantFailure(error: unknown): boolean {
+  if (!(error instanceof ViewerAccessError)) return false;
+  return error.reason === 'no_longer_available' || error.reason === 'preview_failed';
+}
+
+/**
+ * Run an access that needs a grant, re-authorizing AT MOST ONCE.
+ *
+ * The retry wraps the ACCESS, not the grant request. Re-requesting a URL and then
+ * reusing the same stale bytes would not retry anything, which is precisely the bug
+ * this replaced: the previous helper accepted an `alreadyRetried` flag, ignored it
+ * and returned the same grant from both branches, so no retry ever happened while
+ * the docstring claimed one did.
+ *
+ * It is deliberately not a loop. A second failure propagates, and a denied member is
+ * never re-asked.
+ */
+export async function withSingleGrantRetry<T>(
   accessToken: string,
   contentId: string,
-  alreadyRetried: boolean,
-): Promise<ViewerAccessGrant> {
-  const grant = await requestViewerAccess(accessToken, contentId);
-  if (alreadyRetried) return grant;
-  return grant;
+  attempt: (grant: ViewerAccessGrant) => Promise<T>,
+): Promise<T> {
+  try {
+    return await attempt(await requestViewerAccess(accessToken, contentId));
+  } catch (error) {
+    if (!isRetriableViewerGrantFailure(error)) throw error;
+    return attempt(await requestViewerAccess(accessToken, contentId));
+  }
 }
 
 async function ensureStagingDirectory(): Promise<Directory> {
   const directory = new Directory(Paths.cache, 'HomeCloudViewer');
   if (!directory.exists) directory.create({ intermediates: true });
   return directory;
+}
+
+/** The one deterministic cache slot for a content id. Never a server-derived path. */
+async function viewerStagingTarget(contentId: string, displayName: string): Promise<File> {
+  const directory = await ensureStagingDirectory();
+  return new File(directory, viewerStagingName(contentId, displayName));
+}
+
+/**
+ * Transfer the authorized original into the deterministic cache slot.
+ *
+ * The destination is a `File`, not the directory. Handing `downloadFileAsync` a
+ * directory makes the platform NAME the file from the response headers, so the bytes
+ * land on a random path that `discardViewerStaging` - which deletes the
+ * deterministic name - can never remove. The result was a permanent cache orphan on
+ * every PDF and Office view. `idempotent` lets a repeat view overwrite its own slot
+ * instead of colliding with it.
+ */
+async function downloadIntoStaging(target: File, signedUrl: string): Promise<File> {
+  return File.downloadFileAsync(signedUrl, target, { idempotent: true });
 }
 
 /**
@@ -157,25 +211,30 @@ async function ensureStagingDirectory(): Promise<Directory> {
  * (PDF and Office). Returns the local URI, which is handed to the system share /
  * export UI and nowhere else.
  */
-export async function stageViewerOriginal(
-  accessToken: string,
-  file: HomeCloudFile,
-  grant: ViewerAccessGrant,
-): Promise<string> {
-  const directory = await ensureStagingDirectory();
-  const target = new File(directory, viewerStagingName(file.id, file.displayName));
-  if (target.exists) target.delete();
-  // The transfer is the platform's, from the authorized URL, straight to the
-  // cache. The bytes are never read into JS memory, so a large video or PDF cannot
-  // exhaust the heap. `File.downloadFileAsync` is a static that returns the written
-  // File, which is then verified rather than assumed.
-  const written = await File.downloadFileAsync(grant.signedUrl, directory);
+export async function stageViewerOriginal(file: HomeCloudFile, grant: ViewerAccessGrant): Promise<string> {
+  const target = await viewerStagingTarget(file.id, file.displayName);
+  let written: File;
+  try {
+    // The transfer is the platform's, from the authorized URL, straight to the cache.
+    // The bytes are never read into JS memory, so a large video or PDF cannot exhaust
+    // the heap.
+    written = await downloadIntoStaging(target, grant.signedUrl);
+  } catch (error) {
+    // A transfer failure is reported as the SAME typed reason the text path uses.
+    // Letting the raw platform error escape meant the surface showed a generic
+    // message and the controlled retry could not recognise an expired grant.
+    void error;
+    try {
+      if (target.exists) target.delete();
+    } catch {
+      // Best-effort.
+    }
+    throw new ViewerAccessError('preview_failed', VIEWER_FAILURE_MESSAGE.preview_failed);
+  }
   if (!written.exists || written.size === 0) {
     if (written.exists) written.delete();
     throw new ViewerAccessError('preview_failed', VIEWER_FAILURE_MESSAGE.preview_failed);
   }
-  void target;
-  void accessToken;
   return written.uri;
 }
 
@@ -193,41 +252,102 @@ export function discardViewerStaging(contentId: string, displayName: string): vo
 }
 
 /**
+ * Read at most `byteCap` bytes of a staged file WITHOUT putting the whole file in
+ * JS memory.
+ *
+ * This is the property the previous implementation only pretended to have: it called
+ * `bytesSync()` - the whole file, unconditionally, in both branches of a ternary -
+ * and sliced afterwards, so a 500 MB TXT was fully resident before 512 KiB were kept.
+ *
+ * The fix is structural rather than arithmetic. The file is consumed through
+ * `readableStream()` chunk by chunk, the reader is cancelled the moment the cap is
+ * reached, and only the accumulated prefix - at most `byteCap` bytes - is ever
+ * materialized as one buffer. Peak heap is therefore bounded by the cap regardless of
+ * how large the file is.
+ */
+async function readBoundedPrefix(file: File, byteCap: number): Promise<Uint8Array> {
+  const reader = file.readableStream().getReader();
+  const chunks: Uint8Array[] = [];
+  let collected = 0;
+  try {
+    while (collected < byteCap) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      const remaining = byteCap - collected;
+      if (value.byteLength <= remaining) {
+        chunks.push(value);
+        collected += value.byteLength;
+      } else {
+        chunks.push(value.subarray(0, remaining));
+        collected += remaining;
+      }
+    }
+  } finally {
+    // Releasing the reader is what actually stops the transfer early.
+    await reader.cancel().catch(() => undefined);
+  }
+  const prefix = new Uint8Array(collected);
+  let offset = 0;
+  for (const chunk of chunks) {
+    prefix.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return prefix;
+}
+
+/**
  * Read a BOUNDED prefix of a text-family file and decode it as UTF-8.
  *
- * The cap is the safety property, not an optimization: an arbitrarily large TXT
- * must never be pulled into JS memory. The exact original bytes are read from the
- * staged copy, and the caller is told plainly whether it is looking at the whole
- * file or a prefix.
+ * The cap is the safety property, not an optimization: an arbitrarily large TXT must
+ * never be pulled into JS memory. The exact original bytes are read from the staged
+ * copy, and the caller is told plainly - from the real file size - whether it is
+ * looking at the whole file or only a prefix.
  */
 export async function readViewerTextPreview(file: HomeCloudFile, grant: ViewerAccessGrant): Promise<ViewerTextPreview> {
   const byteCap = VIEWER_TEXT_PREVIEW_BYTE_CAP;
-  let bytes: Uint8Array;
+  // The bounded read happens after the transfer, so an absurd file is refused up
+  // front rather than staged in full. An UNKNOWN size is still read, because the
+  // stream cap keeps memory safe either way.
+  if (typeof file.sizeBytes === 'number' && file.sizeBytes > VIEWER_TEXT_TRANSFER_BYTE_LIMIT) {
+    throw new ViewerAccessError('file_too_large_to_preview', VIEWER_FAILURE_MESSAGE.file_too_large_to_preview);
+  }
+  const target = await viewerStagingTarget(file.id, file.displayName);
   try {
-    const directory = await ensureStagingDirectory();
-    const written = await File.downloadFileAsync(grant.signedUrl, directory);
+    const written = await downloadIntoStaging(target, grant.signedUrl);
     if (!written.exists || written.size === 0) {
       throw new ViewerAccessError('preview_failed', VIEWER_FAILURE_MESSAGE.preview_failed);
     }
-    // Only the CAPPED prefix is ever pulled into JS memory. The whole file was
-    // transferred by the platform, never by JavaScript, so a 500 MB TXT cannot
-    // exhaust the heap here.
-    bytes = written.size > byteCap ? written.bytesSync().subarray(0, byteCap) : written.bytesSync();
+    // `truncated` is derived from the REAL size, measured BEFORE slicing. Deriving it
+    // from the already-capped buffer made it permanently false, so the surface could
+    // never tell a member it was showing a prefix.
+    const truncated = written.size > byteCap;
+    const bytes = await readBoundedPrefix(written, byteCap);
+    return decodeBoundedText(bytes, byteCap, truncated);
   } catch (error) {
     if (error instanceof ViewerAccessError) throw error;
     throw new ViewerAccessError('preview_failed', VIEWER_FAILURE_MESSAGE.preview_failed);
+  } finally {
+    // The text read staged a real file, so it removes it. Leaving it behind is the
+    // same orphan the hand-off path had.
+    try {
+      if (target.exists) target.delete();
+    } catch {
+      // Best-effort, exactly like discardViewerStaging.
+    }
   }
-  const truncated = bytes.length > byteCap;
-  const slice = truncated ? bytes.subarray(0, byteCap) : bytes;
+}
+
+function decodeBoundedText(bytes: Uint8Array, byteCap: number, truncated: boolean): ViewerTextPreview {
   let text: string;
   let decodeFailed = false;
   try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(slice);
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
     // A decode failure is NOT a crash and NOT a lie: it is reported as a decoding
     // problem so the surface can say the file is not plain UTF-8 text.
     decodeFailed = true;
-    text = new TextDecoder('utf-8', { fatal: false }).decode(slice);
+    text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
   }
   return { text, byteCap, truncated, decodeFailed };
 }

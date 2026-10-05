@@ -486,3 +486,93 @@ and were deliberately left alone.
   an ancestor of the Memories branch; not solved here by design.
 - 39 orphaned `homecloud-originals` objects from earlier Stage 1 runs.
 - Every physical-device behavior is UNPROVEN_DEVICE.
+
+---
+
+## PHASE 3 CORRECTION — the Viewer was NOT closed at `89af43e`
+
+Recorded as an append, not a rewrite. The Phase 3 section above stands as written at
+the time, because what it claimed was wrong and the correction has to be visible.
+
+### WHAT WAS WRONG
+
+`89af43e` was reported as **CLOSED** on the strength of **112/112 assertions**. Those
+112 assertions were **source-text greps**. Not one of them executed
+`stageViewerOriginal`, `readViewerTextPreview` or the retry helper, and the
+file-system stub made that impossible: `downloadFileAsync` unconditionally threw
+`STUB_NO_NETWORK`, so the functions under test could not run at all.
+
+So the suite could not have caught runtime defects, and six were live:
+
+1. **The bounded read was theatre.** `readViewerTextPreview` called
+   `written.bytesSync()` — the WHOLE file, unconditionally, in BOTH branches of a
+   ternary — and sliced the result. A 500 MB TXT was fully resident in the JS heap
+   before 512 KiB were kept. The comment claiming "a 500 MB TXT cannot exhaust the
+   heap here" was false, and so was the log's "Texto acotado a 512 KiB".
+2. **`truncated` could never be true.** It was computed as
+   `bytes.length > byteCap` from a buffer that had already been subarray'd to
+   `byteCap`. The "partial preview" indication was unreachable.
+3. **Staging orphaned a file on every view.** `stageViewerOriginal` built a
+   deterministic `target` and then downloaded into the DIRECTORY, so the platform
+   named the file from the response headers. `discardViewerStaging` deleted the
+   deterministic name, which therefore never existed. Every PDF and Office view left a
+   permanent cache orphan, and the log's "removed on unmount" was false.
+4. **The retry never retried.** `requestViewerAccessWithSingleRetry` accepted an
+   `alreadyRetried` flag and returned the same grant from both branches. It had ZERO
+   importers. The log's "at most ONE controlled re-grant" described nothing.
+5. **A transfer error escaped untyped.** `stageViewerOriginal` let the raw platform
+   error propagate, so the surface showed a generic message and the controlled retry
+   could not recognise an expired grant.
+6. **A stale signed URL outlived its session.** The target-change effect reset phase,
+   failure, staging and text, but not `signedUrl`, so the previous file's live
+   credential was retained in state past its own Viewer session.
+
+A seventh defect was in the harness itself: the stub's containment check collapsed
+`file:///x` to `file:/x`, so every lookup under `Paths.cache` looked like a sandbox
+escape. It stayed hidden precisely because nothing had ever executed against it.
+
+### WHAT CHANGED
+
+- The read is now **structural, not arithmetic**: `readableStream()` consumed chunk
+  by chunk, the reader cancelled at the cap, and only the accumulated prefix is
+  materialized. `truncated` is measured from the real file size before slicing.
+- `VIEWER_TEXT_TRANSFER_BYTE_LIMIT` (8 MiB) refuses an absurd text BEFORE any
+  transfer, because the bounded read only happens once the platform has finished
+  downloading. This is a second, separate bound and the log should not have implied
+  the first one covered it.
+- Staging downloads into the deterministic `File` with `idempotent: true`, so cleanup
+  removes exactly what was written and repeat views reuse one slot.
+- `withSingleGrantRetry` replaces the dead helper. It retries the **ACCESS** with a
+  **fresh grant**, exactly once, and never retries a genuine permission denial.
+- A transfer failure is typed as `preview_failed` on both the text and hand-off paths.
+- `signedUrl` is reset when the target changes.
+
+### WHY THIS WAS MISSED, AND THE STRUCTURAL FIX
+
+The failure was epistemic, not a typo: I treated 112 green source-greps as evidence
+of runtime behavior. A grep cannot see that a cap is applied after the fact.
+
+The stub now publishes a **heap guard** that makes `bytes`, `bytesSync`, `arrayBuffer`,
+`text` and `textSync` **throw**, so any whole-file reader fails the suite by
+construction. It also serves real registered transfer bodies, honours a `File`
+destination, and drives `readableStream`.
+
+The new section **V-K EXECUTES the real access module** — 21 assertions covering the
+bounded read, honest truncation, the too-large refusal before transfer, deterministic
+staging, real orphan removal, slot reuse, the single retry and the denial that must not
+retry. Suite total: **133/133**.
+
+### THE TESTS WERE MUTATION-PROVEN
+
+Green tests that were never shown to fail are the same mistake one level down, so each
+original defect was reintroduced and the suite re-run:
+
+| Reintroduced defect | Result |
+|---|---|
+| whole-file read behind the cap | 4 FAIL, incl. the heap guard |
+| staging into the directory | 4 FAIL, incl. real orphan detection |
+| no-op retry | 5 FAIL with a readable diagnosis |
+
+The no-op retry initially turned the suite **red by crashing** rather than by
+asserting, aborting the remaining checks — the same `[object Object]` blind spot hit in
+Phase 4. The retry assertion is now guarded so a regression reports cleanly.

@@ -145,7 +145,15 @@ console.log('--- V-D: text preview is bounded and honest ---');
   record(VIEWER_TEXT_PREVIEW_BYTE_CAP > 0, `a byte cap exists (${VIEWER_TEXT_PREVIEW_BYTE_CAP})`);
   record(VIEWER_TEXT_PREVIEW_BYTE_CAP <= 1024 * 1024, 'the cap is at most 1 MiB, the maximum Stage 2 allows');
   record(VIEWER_TEXT_PREVIEW_BYTE_CAP <= 512 * 1024, 'and it is conservative, below that ceiling');
-  record(accessSource.includes('subarray(0, byteCap)'), 'only the capped prefix is pulled into JS memory');
+  // STAGE 2 CORRECTION. This assertion used to require `subarray(0, byteCap)`, which
+  // was the DEFECT rather than the guarantee: the old code called `bytesSync()` on
+  // the whole file in both branches of a ternary and sliced the result afterwards, so
+  // a 500 MB TXT was fully resident before 512 KiB were kept. The guarantee is now
+  // structural - a chunked stream - and V-K1 EXECUTES it under a guard that makes any
+  // whole-file reader throw.
+  record(!/\b(bytesSync|bytes|arrayBuffer|text|textSync)\s*\(/.test(accessCode), 'no whole-file reader is used anywhere in the access module');
+  record(accessSource.includes('readableStream()'), 'the bounded read consumes the file as a chunked stream instead');
+  record(accessSource.includes('reader.cancel()'), 'and the reader is released the moment the cap is reached');
   record(accessSource.includes('written.size > byteCap'), 'the decision uses the REAL file size, not an estimate');
   record(accessSource.includes('truncated'), 'truncation is reported as data, not guessed');
   record(viewerSource.includes('Vista previa parcial'), 'the UI states plainly that the preview is partial');
@@ -252,6 +260,183 @@ console.log('--- V-J: back from the Viewer keeps the browser context ---');
   record(!/navigation\.navigate/.test(viewerSource), 'the Viewer itself never navigates');
 }
 
-console.log(`\nFILES_VIEWER_RESULT pass=${passCount} fail=${failCount}`);
-console.log(failCount === 0 ? 'FILES_VIEWER_TESTS=PASS' : 'FILES_VIEWER_TESTS=FAIL');
-process.exit(failCount === 0 ? 0 : 1);
+// -- V-K: EXECUTED BEHAVIOUR. The source greps above cannot observe a defect that
+//    only exists at RUNTIME, and six of them lived exactly there. A "bounded" read
+//    that pulled the whole file in before slicing, a `truncated` flag computed from
+//    the already-capped buffer so it could never be true, staging that wrote to a
+//    random path its own cleanup could not delete, and a retry helper that ignored
+//    its own `alreadyRetried` flag. Every assertion in V-A..V-J passed while all six
+//    were live, which is the reason this section exists.
+//
+//    The stub is reached through the handshake it publishes on `globalThis`, because
+//    `NODE_PATH` resolution is invisible to the type-checker. The env var must be set
+//    BEFORE the access module is imported: it reads the API base at module scope.
+void (async () => {
+  process.env.EXPO_PUBLIC_API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://viewer.test';
+  const access = await import('../front/mi-front-limpio/services/homecloud/homecloudViewerAccess');
+  const testOnly = (globalThis as unknown as {
+    __HC_FILE_SYSTEM_STUB__: {
+      nodes: Map<string, Buffer>;
+      setDownloads(map: Record<string, unknown>): void;
+      clearDownloads(): void;
+      downloadAttempts(): Array<{ url: string; destination: string }>;
+      guardHeapReads(enabled?: boolean): void;
+      reset(): void;
+    };
+  }).__HC_FILE_SYSTEM_STUB__;
+  if (!testOnly) throw new Error('V-K: the file-system stub handshake is missing');
+
+  console.log('--- V-K: the access module is EXECUTED against the file-system stub ---');
+  // The heap guard makes the whole-file readers THROW, so the old
+  // `.bytesSync().subarray(...)` shape cannot be reintroduced silently.
+  const viewerFile = (overrides: Record<string, unknown> = {}): any => ({
+    id: 'c0ffee00-0000-4000-8000-000000000001',
+    role: 'file',
+    displayName: 'notas.txt',
+    mimeType: 'text/plain',
+    sizeBytes: 1024,
+    folderId: null,
+    documentDate: null,
+    note: null,
+    isFavorite: false,
+    ...overrides,
+  });
+  const grantFor = (url: string) => ({ signedUrl: url, variant: 'original' as const });
+  const stagedPaths = () => Array.from(testOnly.nodes.keys()).filter((key) => key.includes('viewer-'));
+
+  // V-K1: the cap is REAL, not arithmetic applied after the fact.
+  {
+    testOnly.reset();
+    testOnly.guardHeapReads(true);
+    const body = Buffer.alloc(3 * 1024 * 1024, 0x41);
+    testOnly.setDownloads({ 'https://signed/big': { data: body, filename: 'server-name.txt' } });
+    const target = viewerFile({ sizeBytes: body.byteLength });
+    let preview: { text: string; truncated: boolean; byteCap: number } | null = null;
+    let thrown: unknown = null;
+    try {
+      preview = await access.readViewerTextPreview(target, grantFor('https://signed/big'));
+    } catch (error) {
+      thrown = error;
+    }
+    record(thrown === null, `a 3 MB text is previewed with NO whole-file reader (${thrown === null ? 'streamed' : String(thrown)})`);
+    record(preview !== null && preview.text.length === access.VIEWER_TEXT_PREVIEW_BYTE_CAP, `and only the cap is materialized in JS (${preview ? preview.text.length : 'n/a'} chars)`);
+    record(preview !== null && preview.truncated === true, 'and it honestly reports the prefix as truncated');
+  }
+
+  // V-K2: a small file is not falsely reported as truncated, and leaves nothing.
+  {
+    testOnly.reset();
+    testOnly.guardHeapReads(true);
+    const body = Buffer.from('hola mundo');
+    testOnly.setDownloads({ 'https://signed/small': { data: body, filename: 'x.txt' } });
+    const target = viewerFile({ id: 'c0ffee00-0000-4000-8000-000000000002', sizeBytes: body.byteLength });
+    const preview = await access.readViewerTextPreview(target, grantFor('https://signed/small'));
+    record(preview.text === 'hola mundo', 'a small file is read whole');
+    record(preview.truncated === false, 'and `truncated` is FALSE for it, measured from the real size');
+    record(stagedPaths().length === 0, 'the text read removes its own staged file instead of orphaning it');
+  }
+
+  // V-K3: an absurd file is refused BEFORE any transfer, because the bounded read
+  // only happens once the platform has finished downloading.
+  {
+    testOnly.reset();
+    testOnly.setDownloads({ 'https://signed/huge': { data: Buffer.from('x'), filename: 'huge.txt' } });
+    let reason: string | null = null;
+    try {
+      await access.readViewerTextPreview(viewerFile({ sizeBytes: 64 * 1024 * 1024 }), grantFor('https://signed/huge'));
+    } catch (error) {
+      reason = (error as { reason?: string }).reason ?? null;
+    }
+    record(reason === 'file_too_large_to_preview', `a 64 MB text is refused with a truthful reason (${reason})`);
+    record(testOnly.downloadAttempts().length === 0, 'and nothing was transferred for it at all');
+  }
+
+  // V-K4: staging lands on the DETERMINISTIC slot, so cleanup can actually delete it.
+  {
+    testOnly.reset();
+    testOnly.guardHeapReads(true);
+    testOnly.setDownloads({ 'https://signed/pdf': { data: Buffer.from('%PDF-1.7'), filename: 'SERVER-CHOSE-THIS.pdf' } });
+    const target = viewerFile({ id: 'c0ffee00-0000-4000-8000-000000000003', displayName: 'contrato.pdf', mimeType: 'application/pdf', sizeBytes: 8 });
+    const uri = await access.stageViewerOriginal(target, grantFor('https://signed/pdf'));
+    record(uri.endsWith(access.viewerStagingName(target.id, target.displayName)), 'the staged original lands on its deterministic slot');
+    record(!uri.includes('SERVER-CHOSE-THIS'), 'the server filename is never used as the local path');
+    access.discardViewerStaging(target.id, target.displayName);
+    record(stagedPaths().length === 0, 'discardViewerStaging REALLY removes it, so a viewed PDF leaves no orphan');
+    await access.stageViewerOriginal(target, grantFor('https://signed/pdf'));
+    await access.stageViewerOriginal(target, grantFor('https://signed/pdf'));
+    record(stagedPaths().length === 1, `repeated views reuse ONE slot instead of piling up (${stagedPaths().length} file)`);
+  }
+
+  // V-K5: the single controlled retry is real, and it retries the ACCESS.
+  {
+    // Reset first so the orphan assertion below is scoped to THIS content id and cannot
+    // be satisfied or broken by an earlier block's staged copies.
+    testOnly.reset();
+    const originalFetch = globalThis.fetch;
+    const target = viewerFile({ id: 'c0ffee00-0000-4000-8000-000000000004', displayName: 'contrato.pdf', mimeType: 'application/pdf', sizeBytes: 8 });
+    const jsonResponse = (status: number, body: unknown) => ({
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null) },
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    });
+    let grantCalls = 0;
+    let accessAttempts = 0;
+    const observedUrls: string[] = [];
+
+    // The realistic expiry: the FIRST grant is valid, the Viewer stages with it, and
+    // the transfer fails because that URL went stale mid-session. The access must then
+    // be re-granted and the ACCESS re-run - not handed the same stale URL again.
+    // Note `https://signed/stale` is deliberately NOT registered in the stub, so the
+    // first staging genuinely fails.
+    globalThis.fetch = (async () => {
+      grantCalls += 1;
+      return grantCalls === 1
+        ? jsonResponse(200, { signedUrl: 'https://signed/stale', variant: 'original' })
+        : jsonResponse(200, { signedUrl: 'https://signed/fresh', variant: 'original' });
+    }) as unknown as typeof fetch;
+    testOnly.setDownloads({ 'https://signed/fresh': { data: Buffer.from('%PDF-1.7'), filename: 'fresh.pdf' } });
+    // Guarded: a regression here used to reject out of the suite and abort the whole
+    // run, which turns a red test into a crash with no diagnosis.
+    let retryError: unknown = null;
+    try {
+      await access.withSingleGrantRetry('token', target.id, async (grant) => {
+        accessAttempts += 1;
+        observedUrls.push(grant.signedUrl);
+        return access.stageViewerOriginal(target, grant);
+      });
+    } catch (error) {
+      retryError = error;
+    }
+    record(retryError === null, `the retry recovers the expired access (${retryError === null ? 'ok' : String(retryError)})`);
+    record(grantCalls === 2, `an expired URL is re-authorized EXACTLY once (${grantCalls} grant calls)`);
+    record(accessAttempts === 2, `and the ACCESS was re-run, not skipped (${accessAttempts} attempts)`);
+    record(observedUrls.length === 2 && observedUrls[0] !== observedUrls[1], `the retry used a FRESH grant (${observedUrls.join(' then ')})`);
+    record(stagedPaths().length === 1, 'the failed attempt left no orphan behind');
+
+    let denialCalls = 0;
+    let denialAttempts = 0;
+    globalThis.fetch = (async () => {
+      denialCalls += 1;
+      return jsonResponse(403, { code: 'homecloud_forbidden' });
+    }) as unknown as typeof fetch;
+    try {
+      await access.withSingleGrantRetry('token', target.id, async () => {
+        denialAttempts += 1;
+        return null;
+      });
+    } catch {
+      // expected: a denial is reported, not retried
+    }
+    record(denialCalls === 1, `a genuine permission denial asks ONCE (${denialCalls})`);
+    record(denialAttempts === 0, 'and never reaches the access at all');
+
+    globalThis.fetch = originalFetch;
+  }
+
+  testOnly.reset();
+  console.log(`\nFILES_VIEWER_RESULT pass=${passCount} fail=${failCount}`);
+  console.log(failCount === 0 ? 'FILES_VIEWER_TESTS=PASS' : 'FILES_VIEWER_TESTS=FAIL');
+  process.exit(failCount === 0 ? 0 : 1);
+})();
