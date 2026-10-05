@@ -90,13 +90,26 @@ try {
   assert.equal((files.match(/<FileMoveDestinationPicker /g) || []).length, 1);
   assert.doesNotMatch(files, /Descargar y compartir/);
 
-  // The seams are DECLARED in the grammar and never offered while they have no
-  // backend, and nothing outside this slice is implemented.
+  // Files Core closure: the old "Favorites are out of V1" exclusion is
+  // SUPERSEDED for Files. The Favorite seam is implemented — personal,
+  // per-person, view-gated, with the row naming the intent the tap performs —
+  // and only Abrir and Papelera remain declared-but-unimplemented seams.
   const grammar = read('front/mi-front-limpio/services/homecloud/homecloudFileActions.ts');
   assert.match(grammar, /HOMECLOUD_FILE_ACTION_SEAMS/);
   assert.match(grammar, /\.filter\(\(action\) => action\.implemented\)/);
-  assert.doesNotMatch(grammar, /favorite:\s*boolean|isFavorite|favoriteId/);
-  assert.doesNotMatch(files, /favorit/i);
+  assert.match(grammar, /\{ id: 'favorite', label: 'Agregar a favoritos'/);
+  assert.match(grammar, /stateKey: 'isFavorite'/);
+  assert.match(grammar, /activeLabel: 'Quitar de favoritos'/);
+  assert.equal((grammar.match(/implemented: false/g) || []).length, 2);
+  assert.match(grammar, /\{ id: 'open', label: 'Abrir'/);
+  assert.match(grammar, /\{ id: 'trash', label: 'Mover a la papelera'/);
+  // The Favoritos retrieval is a SERVER filter mode, never a client filter: the
+  // read carries it as part of the question, so pagination, search and folder
+  // scope cannot be corrupted by removing rows from an already-taken page.
+  assert.match(files, /const \[favoritesOnly, setFavoritesOnly\] = useState\(false\)/);
+  assert.match(files, /favoritesOnly: context\.favoritesOnly/);
+  const filesClient = read('front/mi-front-limpio/services/homecloud/homecloudFilesService.ts');
+  assert.match(filesClient, /params\.set\('favoritesOnly', 'true'\)/);
   assert.doesNotMatch(files, /papelera|trash/i);
   assert.doesNotMatch(files, /navigate\(['"]Viewer|HomeCloudViewer/);
 

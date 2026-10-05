@@ -46,15 +46,23 @@ function makeQuery(table) {
     eq: (column, value) => { filters.push({ column, value }); return api; },
     is: (column, value) => { filters.push({ column, value }); return api; },
     ilike: (column, pattern) => { filters.push({ column, ilike: pattern }); return api; },
+    in: (column, values) => { filters.push({ in: { column, values } }); return api; },
     or: (filter) => { filters.push({ or: filter }); return api; },
     order: (column, options) => { orderSpec.push({ column, options }); return api; },
     range: (from, to) => { rangeSpec = [from, to]; return api; },
     then: (resolve, reject) => Promise.resolve(resolveQuery()).then(resolve, reject),
   };
   function resolveQuery() {
-    const source = table === 'homecloud_contents' ? rows.contents : rows.folders;
+    // Files Core: the read now projects the caller's own favorites in one
+    // batched read. This suite seeds no preference rows, so that table reads as
+    // empty here — the has-more evidence below is about the page, not the flag.
+    const source = table === 'homecloud_contents' ? rows.contents : table === 'homecloud_folders' ? rows.folders : [];
     let matched = source.slice();
     for (const filter of filters) {
+      if (filter.in) {
+        matched = matched.filter((row) => filter.in.values.includes(row[filter.in.column]));
+        continue;
+      }
       if (filter.or) {
         // `display_name.ilike.%x%,note.ilike.%x%` — the canonical literal search.
         const alternatives = filter.or.replace(/^\(|\)$/g, '').split(',').map((part) => {

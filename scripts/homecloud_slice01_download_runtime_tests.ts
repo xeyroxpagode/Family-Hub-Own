@@ -46,7 +46,7 @@ test('native file task remains the transfer and releases ownership', () => {
 
 test('share path receives the validated local URI', () => {
   assert.match(download, /Sharing\.isAvailableAsync\(\)/);
-  assert.match(download, /Sharing\.shareAsync\(file\.uri/);
+  assert.match(download, /Sharing\.shareAsync\(copy\.uri/);
   assert.doesNotMatch(download, /Linking\.openURL/);
 });
 
@@ -57,10 +57,13 @@ test('download instrumentation is safe and complete', () => {
 
 test('download and share failures stay visible in File Info', () => {
   assert.match(screen, /downloadFeedback/);
-  assert.match(screen, /No pudimos descargar este archivo\./);
+  assert.match(screen, /No pudimos preparar este archivo\./);
   assert.match(screen, /No pudimos compartir este archivo\./);
-  assert.match(screen, /Descargando…/);
-  assert.match(screen, /Listo para compartir/);
+  // Files Core closure: neither intent claims a completed outcome. The hand-off
+  // states the choice the member must make in the system UI instead.
+  assert.match(screen, /Elegí "Guardar en Archivos" en el menú del sistema\./);
+  assert.match(screen, /Elegí una app para enviar el archivo\./);
+  assert.doesNotMatch(screen, /Guardado como/);
 });
 
 console.log(`\nHOMECLOUD_SLICE01_DOWNLOAD_RUNTIME_RESULT pass=${passed} fail=0`);

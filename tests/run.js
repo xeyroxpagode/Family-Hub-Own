@@ -39,6 +39,11 @@ const RUNTIME_ENVIRONMENT = {
     'SUPABASE_SERVICE_ROLE_KEY',
     'HOMECLOUD_MAX_UPLOAD_BYTES',
   ],
+  'homecloud-files-favorites-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+  ],
 };
 
 const suiteClass = {
@@ -412,6 +417,37 @@ const commands = {
     'node',
     ['scripts/selection_system_tests.js'],
   ),
+  'homecloud-files-favorites': () => runCommand(
+    'HomeCloud Files Core personal favorites tests (mutation / read / migration)',
+    'node',
+    ['scripts/homecloud_files_favorites_tests.js'],
+  ),
+  'homecloud-files-favorites-ui': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud Files Core compile favorites UI / save-export tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_files_favorites_ui_test.json'],
+    );
+    return runCommand(
+      'HomeCloud Files Core favorites UI + save/export native handoff tests',
+      'node',
+      ['scripts/compiled-files-favorites-ui/scripts/homecloud_files_favorites_ui_tests.js'],
+      { env },
+    );
+  },
+  'homecloud-files-favorites-runtime': {
+    label: 'HomeCloud Files Core personal favorites (real PostgREST)',
+    run: () => runCommand(
+      'HomeCloud Files Core personal favorites (real PostgREST)',
+      'node',
+      ['scripts/homecloud_files_favorites_runtime_tests.js'],
+    ),
+  },
   'homecloud-4c1-memory-create': () => runCommand(
     'HomeCloud 4C1 memory create tests',
     'node',
@@ -1091,6 +1127,9 @@ const suites = {
     'homecloud-s4iii-files-surface',
     'homecloud-files-slice1-selection-bulk',
     'homecloud-files-freshness',
+    'homecloud-files-favorites',
+    'homecloud-files-favorites-ui',
+    'homecloud-files-favorites-runtime',
     'selection-system',
     'homecloud-3a-3d-acceptance',
   ],

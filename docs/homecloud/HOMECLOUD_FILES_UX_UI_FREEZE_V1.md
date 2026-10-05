@@ -1,8 +1,9 @@
 # HomeCloud Files UX/UI Freeze V1
 
 Status: **frozen product contract for Stage 3**, amended by the Files Core
-basic-operations slice (file selection + bulk Move).  This document records the
-Files V1 agreement; it does not redesign it.
+basic-operations slice (file selection + bulk Move) and by the Files Core closure
+slice (**personal Favorites** and the **Guardar una copia** download contract).
+This document records the Files V1 agreement; it does not redesign it.
 
 ## Mission and entry
 
@@ -65,6 +66,48 @@ root. Default loose files order by `uploaded_at DESC` with deterministic id
 fallback; name sort orders by display name. Search may retain canonical
 relevance ordering. No filter-chip suite is part of Files V1.
 
+### Favorites filter (Files V1)
+
+Retrieving favorites uses the **existing** Files control surface: one compact
+**Favoritos** toggle alongside sort and selection. There is no Favorites route,
+no Favorites screen, no extra navigation level and no separate Favorites library.
+
+**Favoritos** is a filter MODE and it composes with the rest of the context —
+household scope, active lifecycle, folder, search, sort and pagination — and it is
+filtered **server-side before the page is taken**. The client never removes
+non-favorites from a page it already received, because that corrupts pagination,
+has-more evidence, search and folder scope simultaneously.
+
+Like **sort**, the mode **persists across folder navigation** (a folder change
+still clears the query, whose meaning changes with the folder, and still
+preserves the sort). A household switch resets it.
+
+## Personal Favorites (Files V1)
+
+**A File is shared Household content. A Favorite is a personal retrieval
+preference of one person.** Therefore the member who marks a File favorite sees
+it as favorite and **no other member is affected in any way**.
+
+A Favorite is **not**: Household-global, folder organization, a permission state,
+content lifecycle, or anything Memories consumes. It carries no bytes, copies no
+content and does not change who may read, organize or delete the File.
+
+Identity is `household + person + File`, stored in `homecloud_file_favorites` with
+a unique constraint on that triple, so the mutation is idempotent and the
+preference can never be recorded twice. The identity is the canonical person, not
+a membership row and not an authentication user: a membership can change while
+the person's own preference is still the person's. Household membership and
+authority are still validated at request time.
+
+Authority is an active Household member with `homecloud.view`: a personal
+retrieval preference is **not** organization, so `homecloud.organize` is not
+required and a viewer may favorite without being allowed to reorganize the
+library. The server resolves the household and the person; the client states only
+the intent.
+
+Retrieval projects each File's `isFavorite` for the caller from the canonical
+Files read, in the same seam as folder, search, sort and pagination.
+
 ## Add and intake
 
 The compact `+` in the browser title/action row opens one Add sheet. At root:
@@ -96,12 +139,22 @@ metadata edits.
 
 Every File operation has exactly one home: one per-File ActionSheet host owns the
 action grammar, in canonical order — **Información**, **Renombrar**, **Mover**,
-**Descargar**, **Compartir** — with each row gated by the capability it needs.
-There is no second menu that can perform a File operation.
+**Guardar una copia**, **Compartir**, **Agregar a favoritos** / **Quitar de
+favoritos** — with each row gated by the capability it needs. There is no second
+menu that can perform a File operation.
 
-**Descargar** and **Compartir** are distinct intents over the same signed
-original, not one conjoined action: Descargar keeps a validated local copy of the
-original on the device, Compartir hands that copy to the platform share sheet.
+**Guardar una copia** and **Compartir** are distinct intents over the same signed
+original, not one conjoined action. The signed original is staged in the app's
+own temporary area — an internal copy, never a destination — and then handed to
+the **native system export UI**, which on iOS is where **Guardar en Archivos**
+lives. HomePlus does not fake a destination picker the platform does not offer,
+and it never presents an internal app path as the member's saved copy.
+
+Neither intent reports a completed outcome. The system sheet closes without
+telling the app whether **Guardar en Archivos** was chosen, so HomePlus states
+the hand-off and leaves the destination to the member instead of claiming a save
+it cannot prove; backing out of the sheet is a quiet, non-error outcome.
+
 Both **Mover** paths — a single File and the selection — resolve a destination
 through the **same** picker, which offers root (**Archivos**, `folder_id = NULL`)
 or any same-Household folder. There is one destination grammar, not two.
@@ -113,20 +166,28 @@ migration, it moves no bytes, and it is deliberately **not atomic**: a per-item
 failure is reported as such, the Files that already moved are **not** rolled back,
 and the batch reconciles **once** through the window-preserving refresh.
 
-**Favorito**, **Abrir** and **Mover a la papelera** are declared extension seams
-in that grammar. They are ordered and named there so a later addition is a
-declaration plus a handler, and they are **not offered** while they have no
-backend: no row is ever painted for an action that cannot work.
+**Favorito** is the one stateful action in the grammar: its row names the intent
+the tap will perform, so it reads **Quitar de favoritos** on a File that already
+is one. The toggle is idempotent in both directions, corrects the local
+presentation as soon as the server answers, and never waits for an app restart.
+
+**Abrir** and **Mover a la papelera** remain declared extension seams in that
+grammar. They are ordered and named there so a later addition is a declaration
+plus a handler, and they are **not offered** while they have no backend: no row is
+ever painted for an action that cannot work.
 
 ## Authority, safety, and states
 
 All requests derive the authenticated user and active Household server-side.
 IDs are Household-validated. Backend capability authority remains canonical:
-`homecloud.view` browse/search, `homecloud.contribute` intake/scanner,
+`homecloud.view` browse/search **and personal Favorites**,
+`homecloud.contribute` intake/scanner,
 `homecloud.organize` folder/create/rename/delete, move, and metadata edit.
 The client projection is UX only. Cross-Household reads, search, references,
-and mutations fail. Storage paths remain server generated; staging stays hidden
-and ordinary reads expose active content only.
+and mutations fail. A content id from another Household is answered exactly like
+an unknown one, so existence cannot be probed across Households. Storage paths
+remain server generated; staging stays hidden and ordinary reads expose active
+content only.
 
 Mutations use canonical results plus scoped invalidation/refetch, preserve
 context on recoverable errors, and single-flight duplicate submissions where
@@ -141,6 +202,15 @@ nested folders, selection/bulk actions, trash UI, advanced filters, OCR, semanti
 search, or fake preview behavior.
 
 The Files Core basic-operations slice then added file multi-select and a bulk Move
-to Files V1, as recorded above. Still **not** part of Files: the full Viewer (a
-file tap stays reserved for it), Lifecycle and Trash, Personal Favorites,
-multi-file intake, and copy/duplicate, tags, offline library or version history.
+to Files V1, as recorded above.
+
+The Files Core closure slice then added **Personal Favorites** and closed the
+**Guardar una copia** download contract, both recorded above. **The earlier
+exclusion of Personal Favorites from Files V1 is superseded for Files**: a
+personal Favorite is a per-person preference over a shared File, scoped to
+`person + household + File`, and it is **not** Household-global and **not** the
+Memories behavior. Memories does not consume it.
+
+Still **not** part of Files: the full Viewer (a file tap stays reserved for it),
+Lifecycle and Trash, multi-file intake, and copy/duplicate, tags, offline library
+or version history.

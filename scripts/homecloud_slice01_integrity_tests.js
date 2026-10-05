@@ -52,12 +52,17 @@ test('download uses a native filesystem task, never a whole-object JS buffer', (
   assert.match(download, /File\.createDownloadTask/);
   assert.match(download, /await task\.downloadAsync\(\)/);
   assert.doesNotMatch(download, /arrayBuffer\(|base64|readAsStringAsync|fetch\(access\.signedUrl/);
-  assert.match(filesScreen, /downloadHomeCloudOriginal/);
+  // Files Core closure: the signed original is STAGED (internal temporary copy)
+  // and handed to the native export/share UI. An app-private copy the member
+  // cannot find is not a save, so the old "Descargar keeps a local copy" wording
+  // and the conjoined save-and-share intent are gone.
+  assert.match(filesScreen, /stageHomeCloudOriginal/);
   // T1 server authority: the signed URL is used verbatim, never rewritten.
   assert.doesNotMatch(download, /normalizeSignedStorageUrlForRuntime/);
   assert.match(download, /access\.signedUrl/);
-  assert.match(download, /Sharing\.shareAsync\(file\.uri/);
-  assert.match(filesScreen, /Descargar y compartir original/);
+  assert.match(download, /Sharing\.shareAsync\(copy\.uri/);
+  assert.doesNotMatch(filesScreen, /Descargar y compartir original/);
+  assert.doesNotMatch(filesScreen, /Guardado como/);
 });
 test('oversize product error is explicit to the user', () => assert.match(read('front/mi-front-limpio/services/homecloud/homecloudUploadError.ts'), /supera el tamaño máximo permitido/));
 

@@ -22,6 +22,12 @@
  *     The canonical content authority stays homecloud_contents; Album
  *     membership authority stays homecloud_album_items and is only
  *     projected as ids, never duplicated as embedded Album objects.
+ *
+ * FILES CORE — Personal Favorites:
+ *   - `isFavorite` is projected ONLY on the File branch and ONLY from a
+ *     per-caller read of homecloud_file_favorites. It is not a stored column and
+ *     it is never inherited by the Memory branch: a Favorite is a personal
+ *     preference of one person over a shared File.
  */
 
 /** Canonical Memory kinds derived from the persisted row shape. */
@@ -54,7 +60,15 @@ function deriveMemoryKind(row) {
   throw new Error('homecloud_memory_kind_undetermined');
 }
 
-function mapContentRowToDto(row) {
+/**
+ * @param {Object} row homecloud_contents row
+ * @param {boolean} [isFavorite] CALLER-SPECIFIC personal preference, projected
+ *   from homecloud_file_favorites by the caller that resolved the request. It is
+ *   deliberately NOT a column of homecloud_contents: a Favorite belongs to one
+ *   person, so it can only exist as a per-reader projection. A File whose
+ *   preference was not resolved is reported as NOT favorite, never as unknown.
+ */
+function mapContentRowToDto(row, isFavorite = false) {
   const base = {
     id: row.id,
     role: row.role,
@@ -75,6 +89,7 @@ function mapContentRowToDto(row) {
       folderId: row.folder_id ?? null,
       documentDate: row.document_date ?? null,
       note: row.note ?? null,
+      isFavorite: isFavorite === true,
     };
   }
 

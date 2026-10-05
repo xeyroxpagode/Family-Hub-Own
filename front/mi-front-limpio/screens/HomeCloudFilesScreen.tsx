@@ -12,7 +12,7 @@ import { colors, radius, spacing } from '../constants/theme';
 import { FileIntake } from '../services/homecloud/FileIntake';
 import { useHomeCloudCapabilities } from '../services/homecloud/useHomeCloudCapabilities';
 import { homeCloudCapabilitiesNotice } from '../services/homecloud/homecloudCapabilitiesNotice';
-import { createHomeCloudFolder, deleteHomeCloudFolder, fetchFilesBrowser, renameHomeCloudFolder, type FileSort, updateHomeCloudFile, FILES_BROWSER_MAX_LIMIT } from '../services/homecloud/homecloudFilesService';
+import { createHomeCloudFolder, deleteHomeCloudFolder, fetchFilesBrowser, renameHomeCloudFolder, type FileSort, setHomeCloudFileFavorite, updateHomeCloudFile, FILES_BROWSER_MAX_LIMIT } from '../services/homecloud/homecloudFilesService';
 import { createFilesPagination, hasMoreFilesPages, type FilesPaginationState } from '../services/homecloud/homecloudFilesPagination';
 import {
   beginFileSelectionAt,
@@ -28,7 +28,7 @@ import {
   type FileSelection,
 } from '../services/homecloud/homecloudFileSelection';
 import { bulkMoveFeedback, bulkMoveFiles, bulkMoveInFlight, type BulkMoveFeedback } from '../services/homecloud/homecloudBulkMove';
-import { downloadHomeCloudOriginal, HomeCloudDownloadError, shareHomeCloudDownloadedFile } from '../services/homecloud/homecloudDownloadService';
+import { exportHomeCloudStagedCopy, HomeCloudDownloadError, shareHomeCloudDownloadedFile, stageHomeCloudOriginal } from '../services/homecloud/homecloudDownloadService';
 import { fetchHomeCloudFoldersCached, invalidateHomeCloudHousehold } from '../services/homecloud/homecloudReadService';
 import { subscribeHomeCloudReadReconciliation } from '../services/homecloud/homecloudReadReconciliation';
 import { classifyHomeCloudReadFailure, homeCloudReadFailureDetail, homeCloudReadFailureDescription, homeCloudReadFailureTitle, type HomeCloudReadFailure } from '../services/homecloud/homecloudReadFailure';
@@ -66,10 +66,18 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   // payload and is empty inside a folder, so it is never used as a catalogue.
   const [allFolders, setAllFolders] = useState<HomeCloudFolder[]>([]);
   const [query, setQuery] = useState(''); const [sort, setSort] = useState<FileSort>('recent');
+  // Files Core — the personal-Favorites FILTER MODE.
+  //
+  // It is a mode, not a search term: it composes with folder, search, sort and
+  // pagination instead of replacing them, and the server narrows the set BEFORE
+  // the page is taken. That is why it travels with the read context instead of
+  // filtering the rows already loaded — filtering a page in the client is what
+  // corrupts pagination and has-more evidence.
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [readFailure, setReadFailure] = useState<{ kind: HomeCloudReadFailure; message: string; detail?: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false); const [uploadOpen, setUploadOpen] = useState(false); const [folderEditor, setFolderEditor] = useState<{ mode: 'create' | 'rename'; item?: HomeCloudFolder } | null>(null); const [folderName, setFolderName] = useState(''); const [folderActions, setFolderActions] = useState<HomeCloudFolder | null>(null); const [actionTargetId, setActionTargetId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
-  const [downloadFeedback, setDownloadFeedback] = useState<{ tone: 'secondary' | 'danger' | 'success'; message: string } | null>(null);
+  const [downloadFeedback, setDownloadFeedback] = useState<{ tone: 'secondary' | 'danger'; message: string } | null>(null);
   // Selection belongs to the CURRENT browser context and is never persisted.
   const [selection, setSelection] = useState<FileSelection>(emptyFileSelection());
   // The one destination picker, serving either a single File or the selection.
@@ -114,7 +122,11 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   // Folder context and query can mean opposite things (a root query searches
   // EVERY file; a folder query searches only inside), which is why a folder
   // change clears the query (see `openFolder`/`leaveFolder`).
-  const contextKey = `${folder?.id ?? 'root'}\u0000${query}\u0000${sort}`;
+  //
+  // Files Core: `favoritesOnly` is part of that identity too. Toggling it asks a
+  // DIFFERENT question, so it must produce a different context — otherwise the
+  // Favoritos toggle would relabel the previous, unfiltered rows as filtered ones.
+  const contextKey = `${folder?.id ?? 'root'}\u0000${query}\u0000${sort}\u0000${favoritesOnly ? 'favorites' : 'all'}`;
 
   // W1-A: capabilities are read ONCE per scope through the canonical cached
   // fetch, independently of this list's data. A failed capabilities read can no
@@ -133,8 +145,8 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   // still believe it owns the list. One controller means one generation
   // timeline, so a stale answer can never be applied — across queries, across
   // sorts, across folder changes and across a household switch.
-  const queryContextRef = useRef({ token, folderId: folder?.id ?? null, query, sort, contextKey });
-  queryContextRef.current = { token, folderId: folder?.id ?? null, query, sort, contextKey };
+  const queryContextRef = useRef({ token, folderId: folder?.id ?? null, query, sort, favoritesOnly, contextKey });
+  queryContextRef.current = { token, folderId: folder?.id ?? null, query, sort, favoritesOnly, contextKey };
 
   const controllerRef = useRef<ReturnType<typeof createFilesPagination> | null>(null);
   if (controllerRef.current === null) {
@@ -150,6 +162,7 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
           folderId: context.folderId,
           query: context.query,
           sort: context.sort,
+          favoritesOnly: context.favoritesOnly,
           limit: input.limit,
           offset: input.offset,
         });
@@ -213,7 +226,7 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   useEffect(() => {
     const timer = setTimeout(() => void load(), query ? 250 : 0);
     return () => clearTimeout(timer);
-  }, [load, query, sort, folder?.id]);
+  }, [load, query, sort, folder?.id, favoritesOnly]);
 
   /**
    * ONE RETURN = ONE EFFECTIVE READ.
@@ -340,7 +353,7 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   }, [token, catalogueScope?.householdId]);
 
   useEffect(() => {
-    setFolder(null); setQuery(''); setAllFolders([]); setError(null); setReadFailure(null);
+    setFolder(null); setQuery(''); setFavoritesOnly(false); setAllFolders([]); setError(null); setReadFailure(null);
     // The return guard belongs to the household being LEFT: it is released here so
     // the new household's first return is never mistaken for a duplicate of the
     // old one's in-flight read.
@@ -356,11 +369,18 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   //
   //   root -> folder, folder -> root, folder A -> folder B:  query = ''
   //   any folder change:                                    sort preserved
+  //   any folder change:                                    favoritesOnly PRESERVED
   //
   // The same text must not silently change meaning because the member
   // navigated: a root query searches every file, a folder query searches only
   // inside. The state change above performs exactly ONE debounced read for the
   // new context.
+  //
+  // Files Core: `favoritesOnly` behaves like `sort`, not like the query. It is a
+  // MODE ("show me my favorites"), so a member who turned it on keeps it on when
+  // they step into Garantías and look for their favorite files in there. The
+  // query is cleared because its MEANING changes with the folder; the mode does
+  // not change meaning, so it survives.
   const openFolder = useCallback((next: HomeCloudFolder) => {
     setFolder(next); setQuery(''); setError(null); setReadFailure(null);
   }, []);
@@ -523,40 +543,83 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   };
 
   /**
-   * DESCARGAR — keep a validated copy of the ORIGINAL on the device.
+   * FILES CORE — the ONE personal-Favorite mutation.
    *
-   * Honest limitation, recorded rather than hidden: with the primitives Files
-   * V1 has there is no system destination chooser available, so the copy lands in
-   * the app's own documents directory and the member is told its name. This is a
-   * real, persistent local copy and it is NOT the share sheet.
+   * The member is not asked to organize anything and the household is not
+   * touched: this is one person's preference over one shared File, so the server
+   * is the only authority on WHO is favoriting and it resolves that itself.
+   *
+   * The presentation is corrected the moment the server answers, through the
+   * controller's `patchFile`, so the tile and the open action host reflect the
+   * new state immediately instead of on the next refresh or after a restart. A
+   * refusal is NOT patched: the row keeps the server's truth and the failure is
+   * stated, so the screen can never show a favorite the backend did not accept.
+   *
+   * With Favoritos ON, unfavoriting the last visible favorite legitimately
+   * removes that row from the filtered set. The local patch is therefore NOT
+   * applied in that mode; the window-preserving re-read is what reconciles the
+   * list, and it costs the same single read a rename already costs.
    */
-  const downloadFile = async () => {
+  const toggleFileFavorite = async (isFavorite: boolean) => {
     if (!token || !actionTarget || saving) return;
-    setSaving(true); setDownloadFeedback({ tone: 'secondary', message: 'Descargando…' });
+    const targetId = actionTarget.id;
+    setSaving(true);
     try {
-      const local = await downloadHomeCloudOriginal(token, actionTarget);
-      setDownloadFeedback({ tone: 'success', message: `Guardado como ${local.name}.` });
-    } catch {
-      setDownloadFeedback({ tone: 'danger', message: 'No pudimos descargar este archivo.' });
+      await setHomeCloudFileFavorite(token, targetId, isFavorite);
+      if (!favoritesOnly) controllerRef.current!.patchFile(targetId, { isFavorite });
+      await refresh();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No pudimos actualizar tus favoritos.'); } finally { setSaving(false); }
+  };
+
+  /**
+   * GUARDAR UNA COPIA — hand the original to the NATIVE system export UI.
+   *
+   * The defect this replaces: HomePlus said the file was saved while the only
+   * copy sat in the app's own documents directory, where the member cannot find
+   * it from the Files app. A copy the member cannot locate is not a save, so the
+   * wording and the behaviour both changed: the system export UI is opened — the
+   * one installed path that reaches "Guardar en Archivos" on iOS — and the
+   * destination is the member's to choose.
+   *
+   * Nothing here claims an outcome. `shareAsync` resolves when the sheet is
+   * dismissed and cannot report whether "Guardar en Archivos" was chosen, so the
+   * message states the hand-off and the choice, never a completed save. That also
+   * makes cancellation honest: dismissing the sheet is indistinguishable from
+   * completing it, and neither produces a success claim or a scary error.
+   */
+  const saveCopyOfFile = async () => {
+    if (!token || !actionTarget || saving) return;
+    setSaving(true); setDownloadFeedback({ tone: 'secondary', message: 'Preparando una copia…' });
+    try {
+      const staged = await stageHomeCloudOriginal(token, actionTarget);
+      setDownloadFeedback({ tone: 'secondary', message: 'Elegí "Guardar en Archivos" en el menú del sistema.' });
+      await exportHomeCloudStagedCopy(staged);
+    } catch (e) {
+      const message = e instanceof HomeCloudDownloadError && e.stage === 'export'
+        ? 'No pudimos abrir el menú para guardar el archivo.'
+        : 'No pudimos preparar este archivo.';
+      setDownloadFeedback({ tone: 'danger', message });
     } finally { setSaving(false); }
   };
 
   /**
-   * COMPARTIR — the same signed original, handed to the platform share sheet.
+   * COMPARTIR — the same staged original, handed to the platform share sheet.
    * Two distinct intents, one existing transfer: "send this to another app" is
-   * not "keep this on my device".
+   * not "keep this outside HomePlus", and the member is told which one they are
+   * doing. Like the save intent, the sheet gives no verifiable result, so the
+   * wording states the hand-off instead of claiming a delivery.
    */
   const shareFile = async () => {
     if (!token || !actionTarget || saving) return;
-    setSaving(true); setDownloadFeedback({ tone: 'secondary', message: 'Descargando para compartir…' });
+    setSaving(true); setDownloadFeedback({ tone: 'secondary', message: 'Preparando para compartir…' });
     try {
-      const local = await downloadHomeCloudOriginal(token, actionTarget);
-      setDownloadFeedback({ tone: 'secondary', message: 'Listo para compartir' });
-      await shareHomeCloudDownloadedFile(local);
+      const staged = await stageHomeCloudOriginal(token, actionTarget);
+      setDownloadFeedback({ tone: 'secondary', message: 'Elegí una app para enviar el archivo.' });
+      await shareHomeCloudDownloadedFile(staged);
     } catch (e) {
       const message = e instanceof HomeCloudDownloadError && e.stage === 'share'
         ? 'No pudimos compartir este archivo.'
-        : 'No pudimos descargar este archivo.';
+        : 'No pudimos preparar este archivo.';
       setDownloadFeedback({ tone: 'danger', message });
     } finally { setSaving(false); }
   };
@@ -591,13 +654,13 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   const canAdd = caps.contribute; const canOrganize = caps.organize;
   return <View style={styles.screen}>
     <View style={styles.search}><AppInput value={query} onChangeText={setQuery} placeholder={folder ? 'Buscar en esta carpeta' : 'Buscar en archivos'} variant="search" label="Buscar" /></View>
-    <View style={styles.titleRow}>{folder ? <AppButton variant="icon" size="sm" onPress={leaveFolder} accessibilityLabel="Volver a Archivos"><HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} /></AppButton> : null}<AppText variant="title3" weight="800" style={styles.title}>{folder?.name ?? 'Archivos'}</AppText><View style={styles.titleActions}><AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar archivos"><HomePlusIcon name="refresh" size={20} color={colors.text.secondary} /></AppButton><AppButton variant="secondary" size="sm" title={sort === 'recent' ? 'Recientes' : 'A–Z'} onPress={() => setSort(sort === 'recent' ? 'name' : 'recent')} />{!selection.mode ? <AppButton variant="ghost" size="sm" title="Seleccionar" disabled={files.length === 0} onPress={enterSelectionMode} accessibilityLabel="Seleccionar archivos" /> : null}{canAdd ? <AppButton variant="icon" size="sm" onPress={() => setAddOpen(true)} accessibilityLabel="Agregar"><HomePlusIcon name="add" size={24} color={colors.brand} /></AppButton> : null}</View></View>
+    <View style={styles.titleRow}>{folder ? <AppButton variant="icon" size="sm" onPress={leaveFolder} accessibilityLabel="Volver a Archivos"><HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} /></AppButton> : null}<AppText variant="title3" weight="800" style={styles.title}>{folder?.name ?? 'Archivos'}</AppText><View style={styles.titleActions}><AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar archivos"><HomePlusIcon name="refresh" size={20} color={colors.text.secondary} /></AppButton><AppButton variant="secondary" size="sm" title={sort === 'recent' ? 'Recientes' : 'A–Z'} onPress={() => setSort(sort === 'recent' ? 'name' : 'recent')} /><AppButton variant={favoritesOnly ? 'primary' : 'secondary'} size="sm" title="Favoritos" onPress={() => setFavoritesOnly((previous) => !previous)} accessibilityLabel={favoritesOnly ? 'Mostrando solo tus favoritos. Desactivar filtro de favoritos' : 'Mostrar solo tus favoritos'} />{!selection.mode ? <AppButton variant="ghost" size="sm" title="Seleccionar" disabled={files.length === 0} onPress={enterSelectionMode} accessibilityLabel="Seleccionar archivos" /> : null}{canAdd ? <AppButton variant="icon" size="sm" onPress={() => setAddOpen(true)} accessibilityLabel="Agregar"><HomePlusIcon name="add" size={24} color={colors.brand} /></AppButton> : null}</View></View>
     {capabilitiesNotice ? <View style={styles.notice}><AppText variant="caption" tone="secondary">{capabilitiesNotice}</AppText><AppButton title="Reintentar" size="sm" variant="ghost" onPress={capabilities.revalidate} accessibilityLabel="Reintentar verificación de permisos de HomeCloud" /></View> : null}
     {bulkFeedback ? <View style={styles.banner}><AppText variant="caption" tone={bulkFeedback.tone} align="center">{bulkFeedback.message}</AppText></View> : null}
     {loading || !rowsAreCurrent ? <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>
     : readFailure ? <View style={styles.center}><ErrorState title={homeCloudReadFailureTitle(readFailure.kind, 'tus archivos')} description={readFailure.message} detail={readFailure.detail} retryLabel="Reintentar" onRetry={() => void load()} /></View>
     : error ? <View style={styles.center}><AppText variant="body" tone="danger" align="center">{error}</AppText><AppButton title="Reintentar" variant="secondary" onPress={() => void load()} style={{ marginTop: spacing[3] }} /></View>
-    : items.length === 0 ? <View style={styles.center}><HomePlusIcon name="folder-open-outline" size={38} color={colors.text.tertiary} /><AppText variant="title3" weight="800">{folder ? 'Esta carpeta está vacía' : query ? 'Sin resultados' : 'Todavía no hay archivos'}</AppText>{canAdd && !query ? <AppButton title="Agregar archivo" onPress={() => setAddOpen(true)} style={{ marginTop: spacing[3] }} /> : null}</View>
+    : items.length === 0 ? <View style={styles.center}><HomePlusIcon name={favoritesOnly ? 'heart-outline' : 'folder-open-outline'} size={38} color={colors.text.tertiary} /><AppText variant="title3" weight="800">{favoritesOnly ? 'No tenés archivos favoritos acá' : folder ? 'Esta carpeta está vacía' : query ? 'Sin resultados' : 'Todavía no hay archivos'}</AppText>{favoritesOnly ? <AppButton title="Ver todos los archivos" variant="secondary" onPress={() => setFavoritesOnly(false)} /> : canAdd && !query ? <AppButton title="Agregar archivo" onPress={() => setAddOpen(true)} style={{ marginTop: spacing[3] }} /> : null}</View>
     : <FlatList data={items} numColumns={2} key="files-grid" keyExtractor={(item) => `${item.kind}-${item.value.id}`} contentContainerStyle={styles.grid} columnWrapperStyle={styles.gridRow}
       // The selected visual state is part of the row's own data, and `data` does
       // not change when only the selection does — without this a selected row
@@ -612,7 +675,7 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     <ActionSheet visible={!!folderActions} title={folderActions?.name ?? 'Carpeta'} onRequestClose={() => setFolderActions(null)} size="content"><View style={styles.sheetList}><AppButton title="Renombrar" variant="secondary" disabled={!canOrganize} onPress={() => { setFolderName(folderActions!.name); setFolderEditor({ mode: 'rename', item: folderActions! }); setFolderActions(null); }} /><AppButton title="Eliminar carpeta" variant="danger" disabled={!canOrganize || saving} onPress={() => void removeFolder()} /><AppText variant="caption" tone="secondary">Los archivos no se eliminan: volverán a Archivos.</AppText></View></ActionSheet>
     {/* The canonical per-File action host. It is always mounted and decides its own
         visibility, so there is never a second place that can open a File menu. */}
-    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setDownloadFeedback(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveTarget('file')} onDownload={() => void downloadFile()} onShare={() => void shareFile()} />
+    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setDownloadFeedback(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveTarget('file')} onFavorite={(isFavorite) => void toggleFileFavorite(isFavorite)} onDownload={() => void saveCopyOfFile()} onShare={() => void shareFile()} />
     {/* The ONE destination picker, for a single File's Move and for the selection's
         Move alike. It reads the same household catalogue the host does, never the
         browser payload, which is empty inside a folder. */}
@@ -630,6 +693,12 @@ function FolderTile({ folder, onPress, onMore }: { folder: HomeCloudFolder; onPr
  *   tap, mode inactive     -> RESERVED for the Viewer: deliberately unassigned
  *
  * The overflow stays exactly where it was: it opens the canonical action host.
+ *
+ * FILES CORE — the personal-Favorite signal is a single small marker in the
+ * existing visual grammar, mirrored from the overflow so it can never be
+ * mistaken for a control. It is decorative for assistive technology: the tile's
+ * own label already states whether the File is one of this member's favorites,
+ * so the marker is not announced twice.
  */
 export function FileTile({
   file,
@@ -648,8 +717,10 @@ export function FileTile({
 }) {
   const icon = file.mimeType.startsWith('image/') ? 'image-outline' : file.mimeType === 'application/pdf' ? 'document-text-outline' : 'document-outline';
   const showCheck = selectionMode && selected;
+  const favoriteHint = file.isFavorite ? ', favorito' : '';
   return <View style={[styles.tile, showCheck ? styles.tileSelected : null]}>
     <AppButton variant="icon" size="sm" onPress={onMore} style={styles.more} accessibilityLabel={`Acciones de ${file.displayName}`}><HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} /></AppButton>
+    {file.isFavorite ? <View style={styles.favorite} accessible={false}><HomePlusIcon name="heart" size={15} color={colors.danger.base} /></View> : null}
     <AppButton
       variant="secondary"
       onPress={onPress}
@@ -657,7 +728,7 @@ export function FileTile({
       style={[styles.visual, showCheck ? styles.visualSelected : null]}
       accessibilityRole={selectionMode ? 'checkbox' : 'button'}
       accessibilityState={{ selected: selectionMode ? selected : undefined }}
-      accessibilityLabel={selectionMode ? `${file.displayName}${selected ? ', seleccionado' : ', no seleccionado'}` : file.displayName}
+      accessibilityLabel={`${selectionMode ? `${file.displayName}${selected ? ', seleccionado' : ', no seleccionado'}` : file.displayName}${favoriteHint}`}
     >
       {showCheck ? <HomePlusIcon name="checkmark" size={26} color={colors.text.inverse} /> : <HomePlusIcon name={icon as any} size={44} color={colors.info.base} />}
     </AppButton>
@@ -665,4 +736,4 @@ export function FileTile({
   </View>;
 }
 
-const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, titleRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, grid: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4] }, tile: { flex: 1, minHeight: 174, gap: spacing[2], position: 'relative', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent' }, tileSelected: { borderColor: colors.brand }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, visualSelected: { backgroundColor: colors.brand, borderColor: colors.brand }, more: { position: 'absolute', right: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, banner: { paddingHorizontal: spacing[5], paddingBottom: spacing[3] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] } });
+const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, titleRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, grid: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4] }, tile: { flex: 1, minHeight: 174, gap: spacing[2], position: 'relative', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent' }, tileSelected: { borderColor: colors.brand }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, visualSelected: { backgroundColor: colors.brand, borderColor: colors.brand }, more: { position: 'absolute', right: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card }, favorite: { position: 'absolute', left: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card, borderRadius: radius.sm, padding: 2 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, banner: { paddingHorizontal: spacing[5], paddingBottom: spacing[3] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] } });

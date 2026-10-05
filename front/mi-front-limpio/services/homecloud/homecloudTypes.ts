@@ -73,6 +73,23 @@ export interface HomeCloudFile extends HomeCloudContentBase {
   readonly folderId: string | null;
   readonly documentDate: string | null;
   readonly note: string | null;
+  /**
+   * Files Core — PERSONAL Favorite state, projected by the backend for the
+   * CALLER only.
+   *
+   * It is never stored on the content row and never shared: one person marking a
+   * File favorite is invisible to every other member of the Household. It is
+   * always a decided boolean, never `undefined`, so a surface can render it
+   * directly instead of treating an unresolved read as "not favorite" by
+   * accident. A File outside the caller's favorites is always `false`.
+   */
+  readonly isFavorite: boolean;
+}
+
+/** The result of the one canonical personal-Favorite mutation. */
+export interface HomeCloudFileFavorite {
+  readonly contentId: string;
+  readonly isFavorite: boolean;
 }
 
 /** Memory-specific metadata (role = 'memory').

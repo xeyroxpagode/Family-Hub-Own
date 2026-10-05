@@ -133,6 +133,12 @@ export type FilesPaginationController = {
   refreshPreservingWindow(): Promise<void>;
   /** Drop everything (household switch) and supersede in-flight requests. */
   reset(): void;
+  /**
+   * Apply a confirmed per-row change to the loaded rows WITHOUT re-reading.
+   * Files Core uses it so a personal Favorite is visible the moment the mutation
+   * is answered, instead of on the next refresh or after a restart.
+   */
+  patchFile(contentId: string, changes: Partial<Pick<HomeCloudFile, 'isFavorite'>>): void;
 };
 
 const DEFAULT_PAGE_ERROR = 'No pudimos cargar más archivos.';
@@ -156,6 +162,35 @@ export function appendUniqueFiles(
 /** Is there another page to ask for? `nextOffset === null` IS the last page. */
 export function hasMoreFilesPages(state: FilesPaginationState): boolean {
   return state.nextOffset !== null;
+}
+
+/**
+ * Files Core — apply a confirmed per-row change to the LOADED rows.
+ *
+ * A personal Favorite is a mutation whose answer is authoritative for exactly
+ * one row, and the member must see it land without waiting for an app restart or
+ * for a full re-read. This rewrites that one row in place and leaves everything
+ * else exactly as it was: the loaded window, the order, the page boundary, the
+ * context identity and the in-flight generations are all untouched, because the
+ * QUESTION did not change — only one row's answer did.
+ *
+ * PURE and exported, so the rule is directly testable without a controller. An
+ * unknown id is a no-op rather than an insertion: a row that is not loaded cannot
+ * be patched, and inventing one would put a File on screen that the current
+ * context never read.
+ */
+export function patchLoadedFile(
+  files: readonly HomeCloudFile[],
+  contentId: string,
+  changes: Partial<Pick<HomeCloudFile, 'isFavorite'>>,
+): HomeCloudFile[] {
+  let touched = false;
+  const patched = files.map((file) => {
+    if (file.id !== contentId) return file;
+    touched = true;
+    return { ...file, ...changes };
+  });
+  return touched ? patched : (files as HomeCloudFile[]);
 }
 
 /**
@@ -308,6 +343,14 @@ export function createFilesPagination(options: FilesPaginationOptions): FilesPag
       loadingMore = false;
       state = FILES_PAGINATION_INITIAL;
       onState(state);
+    },
+
+    patchFile(contentId, changes) {
+      const files = patchLoadedFile(state.files, contentId, changes);
+      // Nothing loaded for that id: the current context never read it, so there
+      // is nothing to correct and nothing is invented.
+      if (files === state.files) return;
+      publish({ files });
     },
   };
 

@@ -4286,6 +4286,12 @@ Explicit future candidates:
 
 
 
+> SUPERSEDED FOR FILES: `favorites` was listed in this section and is no longer
+> excluded. Personal Favorites ARE part of Files V1 — a personal, per-person
+> preference over a shared File, scoped to `person + household + File`, NOT
+> Household-global and NOT the Memories behavior. The canonical statement is in
+> HOMECLOUD_FILES_UX_UI_FREEZE_V1.md. Every other item in this section stands.
+
 Do NOT implement V1:
 
 
@@ -4295,8 +4301,6 @@ Do NOT implement V1:
 \- nested Albums;
 
 \- manual tags;
-
-\- favorites;
 
 \- comments;
 

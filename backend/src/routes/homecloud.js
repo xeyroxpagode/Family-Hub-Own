@@ -55,6 +55,10 @@ router.post('/folders', filesController.createFolder)
 router.patch('/folders/:folderId', filesController.renameFolder)
 router.delete('/folders/:folderId', filesController.deleteFolder)
 router.patch('/content/:contentId/file', filesController.updateFile)
+// Files Core: personal Favorites. Idempotent toggle of ONE person's preference
+// over ONE File. Requires homecloud.view (a personal retrieval preference is not
+// organization); the household and the person are always server-resolved.
+router.patch('/content/:contentId/favorite', filesController.setFavorite)
 
 // Albums: list and get by ID (protected, household-scoped, active-only)
 // Stable ordering by name

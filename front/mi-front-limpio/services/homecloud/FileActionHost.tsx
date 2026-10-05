@@ -15,7 +15,15 @@ import { ROOT_DESTINATION_LABEL } from './FileMoveDestinationPicker';
 export type FilePatch = Parameters<typeof updateHomeCloudFile>[2];
 
 export interface FileTransferFeedback {
-  readonly tone: 'secondary' | 'danger' | 'success';
+  /**
+   * `secondary` states a hand-off or an instruction; `danger` states a failure.
+   *
+   * There is deliberately NO success tone: neither Guardar una copia nor
+   * Compartir can verify what the operating system did after its own UI closed,
+   * so a success tone would be a claim this app cannot make. Its absence is the
+   * guarantee.
+   */
+  readonly tone: 'secondary' | 'danger';
   readonly message: string;
 }
 
@@ -26,15 +34,22 @@ export interface FileActionHostProps {
   permissions: HomeCloudFileActionPermissions;
   saving: boolean;
   /**
-   * The outcome of the last Descargar / Compartir attempt. One feedback channel
-   * because both intents perform the same signed transfer; they differ in what
-   * they do with the local copy, not in how they obtain it.
+   * The outcome of the last Guardar una copia / Compartir attempt. One feedback
+   * channel because both intents perform the same signed transfer; they differ
+   * in what they do with the staged copy and in what the member is told, not in
+   * how they obtain it.
    */
   downloadFeedback: FileTransferFeedback | null;
   onClose: () => void;
   onSave: (patch: FilePatch) => void;
   /** Ask the surface to open THE shared move destination picker for this File. */
   onMoveRequest: () => void;
+  /**
+   * Ask the surface to make this File a personal favorite of the member, or to
+   * stop being one. The host states the INTENT it resolved from the CURRENT
+   * File; it never keeps its own copy of the preference.
+   */
+  onFavorite: (isFavorite: boolean) => void;
   onDownload: () => void;
   onShare: () => void;
 }
@@ -62,6 +77,7 @@ export function FileActionHost({
   onClose,
   onSave,
   onMoveRequest,
+  onFavorite,
   onDownload,
   onShare,
 }: FileActionHostProps) {
@@ -107,7 +123,10 @@ export function FileActionHost({
 
   if (!file) return null;
 
-  const actions = resolveFileActions(permissions);
+  // The Favorite label and its intent are resolved from the CURRENT File, so a
+  // mutation that already landed re-renders this row instead of leaving it
+  // describing the state before it.
+  const actions = resolveFileActions(permissions, { isFavorite: file.isFavorite === true });
   const currentFolderLabel = folders.find((folder) => folder.id === file.folderId)?.name ?? ROOT_DESTINATION_LABEL;
   const showInfo = view === 'info';
 
@@ -120,6 +139,9 @@ export function FileActionHost({
       case 'move':
         onMoveRequest();
         return;
+      case 'favorite':
+        onFavorite(!file.isFavorite);
+        return;
       case 'download':
         onDownload();
         return;
@@ -127,8 +149,8 @@ export function FileActionHost({
         onShare();
         return;
       default:
-        // A seam (`favorite`, `open`, `trash`) can never reach here: the grammar
-        // filters unimplemented actions out before the host renders them.
+        // A seam (`open`, `trash`) can never reach here: the grammar filters
+        // unimplemented actions out before the host renders them.
         return;
     }
   };

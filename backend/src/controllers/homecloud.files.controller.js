@@ -8,4 +8,5 @@ module.exports = {
   renameFolder: respond(req => files.renameFolder(req, req.params.folderId, req.body?.name), 'folder'),
   deleteFolder: respond(async req => { await files.deleteFolder(req, req.params.folderId); return null; }, 'deleted'),
   updateFile: respond(req => files.updateFile(req, req.params.contentId, req.body ?? {}), 'file'),
+  setFavorite: respond(req => files.setFileFavorite(req, req.params.contentId, req.body?.isFavorite), 'favorite'),
 };

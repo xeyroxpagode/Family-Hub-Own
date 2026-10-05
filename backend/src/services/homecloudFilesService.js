@@ -8,6 +8,12 @@ const { createHttpError } = require('../lib/httpErrors');
 const { mapContentRowToDto, mapFolderRowToDto } = require('../lib/homecloudMappers');
 const { buildFilesSearchOrFilter, literalContainsPattern } = require('../lib/homecloudFilesSearch');
 const { normalizeDocumentDate } = require('../lib/homecloudDocumentDate');
+const {
+  FAVORITE_PROJECTION_FIELDS,
+  normalizeFavoritesOnly,
+  favoritesSelect,
+  assertFavoriteIntent,
+} = require('../lib/homecloudFileFavorites');
 
 const CONTENT_FIELDS = 'id, household_id, role, display_name, mime_type, extension, size_bytes, original_storage_path, preview_storage_path, uploaded_by_member_id, uploaded_at, document_date, note, caption, written_text, captured_at, captured_year, captured_month, capture_precision, hidden_from_resurfacing, folder_id, lifecycle';
 
@@ -38,8 +44,10 @@ async function assertFolderInHousehold(folderId, householdId) {
   return data;
 }
 
-function contentQuery(householdId, folderId, search, sort) {
-  let query = supabaseAdmin.from('homecloud_contents').select(CONTENT_FIELDS).eq('household_id', householdId).eq('role', 'file').eq('lifecycle', 'active');
+function contentQuery(householdId, personId, folderId, search, sort, favoritesOnly) {
+  let query = supabaseAdmin.from('homecloud_contents')
+    .select(favoritesSelect(CONTENT_FIELDS, favoritesOnly))
+    .eq('household_id', householdId).eq('role', 'file').eq('lifecycle', 'active');
   // Root listing shows only loose files (folder_id IS NULL) so files inside
   // folders never duplicate at root. Root SEARCH is global per the frozen
   // Files V1 contract: it must also match files inside folders.
@@ -49,9 +57,42 @@ function contentQuery(householdId, folderId, search, sort) {
   // as SQL LIKE / PostgREST syntax, so `%`, `_`, `\`, `"`, `,`, `(`, `)` cannot
   // act as wildcards nor break the `.or()` grammar.
   if (search) query = query.or(buildFilesSearchOrFilter(search));
+  // `favoritesOnly` is a SQL predicate on the CALLER's own preference rows, so
+  // it narrows the set BEFORE the page is taken. Filtering after the page would
+  // corrupt pagination, has-more evidence, search and folder scope all at once.
+  // The person identity is server-resolved; a client cannot widen this to another
+  // person's favorites.
+  if (favoritesOnly) {
+    query = query
+      .eq('homecloud_file_favorites.household_id', householdId)
+      .eq('homecloud_file_favorites.person_id', personId);
+  }
   if (sort === 'name') query = query.order('display_name', { ascending: true }).order('id', { ascending: true });
   else query = query.order('uploaded_at', { ascending: false, nullsFirst: false }).order('id', { ascending: false });
   return query;
+}
+
+/**
+ * FILES CORE — the caller's own favorite state for ONE page, in ONE read.
+ *
+ * `isFavorite` is per-person, so it cannot live on homecloud_contents and it
+ * cannot be a stored flag on the File. It is projected from
+ * homecloud_file_favorites for the ids of the page that was just read: one query
+ * for the whole page, never one per row, and the IN list is bounded by the read
+ * limit (max 100 rows plus the has-more probe row).
+ *
+ * Scoped by BOTH household and person, so a row can never inherit another
+ * household's or another person's preference.
+ */
+async function favoriteContentIdsForPage(context, contentIds) {
+  const { data, error } = await supabaseAdmin
+    .from('homecloud_file_favorites')
+    .select(FAVORITE_PROJECTION_FIELDS)
+    .eq('household_id', context.householdId)
+    .eq('person_id', context.personId)
+    .in('content_id', contentIds);
+  if (error) throw createHttpError(500, error.message, 'homecloud_favorite_lookup_failed');
+  return new Set((data ?? []).map((row) => row.content_id));
 }
 
 /**
@@ -74,14 +115,24 @@ function contentQuery(householdId, folderId, search, sort) {
  * `offset + pageLimit` value, never an extra offset and never a second query.
  * The `limit` the caller asked for remains the contract: a caller asking for 10
  * still receives at most 10 rows, and the probe row is never leaked.
+ *
+ * FILES CORE — Personal Favorites compose here, at the SAME seam:
+ *
+ *   Household scope + active lifecycle + optional folder + optional search
+ *   + optional favoritesOnly (for the CALLER) + sort + pagination
+ *
+ * `favoritesOnly` is a predicate on the read itself, so it is applied before the
+ * page is taken and `nextOffset` still reflects the FILTERED set. Each returned
+ * File also carries `isFavorite`, projected for the caller only.
  */
-async function browseFiles(req, { folderId = null, query = '', sort = 'recent', limit = 100, offset = 0 }) {
+async function browseFiles(req, { folderId = null, query = '', sort = 'recent', limit = 100, offset = 0, favoritesOnly = false } = {}) {
   const context = await contextWithCapability(req, 'homecloud.view');
   const q = typeof query === 'string' ? query.trim() : '';
+  const onlyFavorites = normalizeFavoritesOnly(favoritesOnly);
   if (folderId) await assertFolderInHousehold(folderId, context.householdId);
   const pageLimit = Math.min(Math.max(Number(limit) || 100, 1), 100);
   const pageOffset = Math.max(Number(offset) || 0, 0);
-  const { data: probeRows, error } = await contentQuery(context.householdId, folderId, q, sort).range(pageOffset, pageOffset + pageLimit);
+  const { data: probeRows, error } = await contentQuery(context.householdId, context.personId, folderId, q, sort, onlyFavorites).range(pageOffset, pageOffset + pageLimit);
   if (error) throw createHttpError(500, error.message, 'homecloud_files_list_failed');
   const rows = probeRows ?? [];
   const hasMore = rows.length > pageLimit;
@@ -94,7 +145,89 @@ async function browseFiles(req, { folderId = null, query = '', sort = 'recent', 
     if (foldersError) throw createHttpError(500, foldersError.message, 'homecloud_folders_list_failed');
     folders = (data ?? []).map(mapFolderRowToDto);
   }
-  return { folders, files: files.map(mapContentRowToDto), nextOffset: hasMore ? pageOffset + pageLimit : null };
+  // ONE projection read for the whole page. An empty page costs no extra query
+  // at all, and a 100-row page costs exactly the same single read.
+  const favoriteIds = files.length === 0
+    ? new Set()
+    : await favoriteContentIdsForPage(context, files.map((row) => row.id));
+  return {
+    folders,
+    files: files.map((row) => mapContentRowToDto(row, favoriteIds.has(row.id))),
+    nextOffset: hasMore ? pageOffset + pageLimit : null,
+  };
+}
+
+/**
+ * FILES CORE — make a File a personal favorite, or stop being one.
+ *
+ * AUTHORITY. A Favorite is a personal RETRIEVAL preference, so the canonical
+ * authority is an active Household member with `homecloud.view` — NOT
+ * `homecloud.organize`. A viewer who may not reorganize the Household library
+ * can still mark a File as their own favorite, and must not be asked for a
+ * stronger permission to do so.
+ *
+ * IDENTITY. `household_id` and `person_id` come from the resolved context, never
+ * from the body: the client states the INTENT (on/off) and nothing else. There
+ * is no request shape in which one person can favorite on another's behalf.
+ *
+ * IDEMPOTENCY. Both directions converge on the same stable state and neither can
+ * duplicate a row: favoriting an already-favorite File inserts nothing (the
+ * unique (household_id, person_id, content_id) constraint is the conflict
+ * target) and unfavoriting a File that is not a favorite deletes nothing. The
+ * reported `isFavorite` is the requested intent, which is the state the
+ * database is in after the write settles.
+ *
+ * TYPED FAILURES (never a 500 for ordinary invalid input):
+ *   - not a File (a Memory)          -> 400 homecloud_favorite_requires_file
+ *   - unknown / other Household      -> 404 homecloud_content_not_found
+ *   - non-member or inactive member  -> 403 not_active_household_member
+ *   - missing homecloud.view         -> 403 homecloud_forbidden
+ *   - malformed body                 -> 400 homecloud_favorite_invalid
+ *
+ * A content id belonging to ANOTHER household is answered with the SAME 404 as
+ * an unknown id on purpose: distinguishing them would let any member probe for
+ * the existence of content in a household they are not part of.
+ */
+async function setFileFavorite(req, contentId, intent) {
+  const context = await contextWithCapability(req, 'homecloud.view');
+  const isFavorite = assertFavoriteIntent(intent);
+
+  // Resolve the target INSIDE the caller's household, as an active File. This
+  // one read is the whole existence / role / household / visibility gate.
+  const { data: content, error: lookupError } = await supabaseAdmin
+    .from('homecloud_contents')
+    .select('id, role')
+    .eq('id', contentId)
+    .eq('household_id', context.householdId)
+    .eq('lifecycle', 'active')
+    .maybeSingle();
+  if (lookupError) throw createHttpError(500, lookupError.message, 'homecloud_favorite_lookup_failed');
+  if (!content) throw createHttpError(404, 'Archivo no encontrado.', 'homecloud_content_not_found');
+  if (content.role !== 'file') throw createHttpError(400, 'Solo los archivos pueden estar en favoritos.', 'homecloud_favorite_requires_file');
+
+  if (isFavorite) {
+    // `ignoreDuplicates` makes a repeated favorite a no-op instead of a conflict,
+    // which is what keeps the mutation idempotent at the transport level too.
+    const { error } = await supabaseAdmin
+      .from('homecloud_file_favorites')
+      .upsert(
+        { household_id: context.householdId, person_id: context.personId, content_id: content.id },
+        { onConflict: 'household_id,person_id,content_id', ignoreDuplicates: true },
+      );
+    if (error) throw createHttpError(500, error.message, 'homecloud_favorite_save_failed');
+  } else {
+    // Deleting what is not there IS the requested stable state, so a zero-row
+    // delete is a success and not an error.
+    const { error } = await supabaseAdmin
+      .from('homecloud_file_favorites')
+      .delete()
+      .eq('household_id', context.householdId)
+      .eq('person_id', context.personId)
+      .eq('content_id', content.id);
+    if (error) throw createHttpError(500, error.message, 'homecloud_favorite_remove_failed');
+  }
+
+  return { contentId: content.id, isFavorite };
 }
 
 async function createFolder(req, name) {
@@ -136,4 +269,4 @@ async function updateFile(req, contentId, changes) {
   return mapContentRowToDto(data);
 }
 
-module.exports = { browseFiles, createFolder, renameFolder, deleteFolder, updateFile };
+module.exports = { browseFiles, createFolder, renameFolder, deleteFolder, updateFile, setFileFavorite };

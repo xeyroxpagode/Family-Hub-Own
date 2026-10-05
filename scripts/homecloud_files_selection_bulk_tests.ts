@@ -280,7 +280,8 @@ const uiStub = {
 const iconsStub = { HomePlusIcon: 'HomePlusIcon' };
 const fileIntakeStub = { FileIntake: 'FileIntake' };
 
-/** The existing signed-download / share primitives, standing in as native. */
+/** The signed-transfer primitives, standing in as native. Kept in step with the
+ *  production module surface: staging plus the two separate native hand-offs. */
 const downloadStub = {
   downloadHomeCloudOriginal: async (_token: string, content: { id: string; displayName: string; mimeType: string }) => {
     downloadCalls.push({ contentId: content.id, displayName: content.displayName });
@@ -291,6 +292,16 @@ const downloadStub = {
       mimeType: content.mimeType,
     };
   },
+  stageHomeCloudOriginal: async (_token: string, content: { id: string; displayName: string; mimeType: string }) => {
+    downloadCalls.push({ contentId: content.id, displayName: content.displayName });
+    return {
+      uri: `file:///slice1/${content.displayName}`,
+      name: content.displayName,
+      sizeBytes: 10,
+      mimeType: content.mimeType,
+    };
+  },
+  exportHomeCloudStagedCopy: async (_copy: { uri: string }) => undefined,
   shareHomeCloudDownloadedFile: async (file: { uri: string }) => { shareCalls.push(file.uri); },
   HomeCloudDownloadError: class HomeCloudDownloadError extends Error {},
 };
@@ -981,13 +992,13 @@ function testActionGrammar(): void {
   console.log('\n=== C1: the canonical File action grammar ===');
 
   const implemented = grammar.resolveFileActions({ view: true, organize: true, delete: true });
-  record(implemented.map((action) => action.id).join(',') === 'info,rename,move,download,share',
-    'C1. the grammar is exactly Información, Renombrar, Mover, Descargar, Compartir');
-  record(implemented.map((action) => action.label).join(',') === 'Información,Renombrar,Mover,Descargar,Compartir',
+  record(implemented.map((action) => action.id).join(',') === 'info,rename,move,download,share,favorite',
+    'C1. the grammar is exactly Información, Renombrar, Mover, Guardar una copia, Compartir, Favorito');
+  record(implemented.map((action) => action.label).join(',') === 'Información,Renombrar,Mover,Guardar una copia,Compartir,Agregar a favoritos',
     'C2. with the canonical labels, in canonical order');
-  record(grammar.HOMECLOUD_FILE_ACTION_SEAMS.join(',') === 'favorite,open,trash',
-    'C3. Favorito, Abrir and Mover a la papelera are DECLARED extension seams');
-  record(!implemented.some((action) => ['favorite', 'open', 'trash'].includes(action.id)),
+  record(grammar.HOMECLOUD_FILE_ACTION_SEAMS.join(',') === 'open,trash',
+    'C3. Abrir and Mover a la papelera are DECLARED extension seams');
+  record(!implemented.some((action) => ['open', 'trash'].includes(action.id)),
     'C4. and no seam is offered while it has no backend — no fake disabled row');
   record(grammar.HOMECLOUD_FILE_ACTION_GRAMMAR.length === implemented.length + grammar.HOMECLOUD_FILE_ACTION_SEAMS.length,
     'C5. the seams live in the same ordered vocabulary, so adding one is a declaration plus a handler');
@@ -995,20 +1006,23 @@ function testActionGrammar(): void {
   const denied = grammar.resolveFileActions({ view: true, organize: false, delete: false });
   record(denied.find((action) => action.id === 'rename')?.available === false, 'C6. Renombrar is gated by homecloud.organize');
   record(denied.find((action) => action.id === 'move')?.available === false, 'C7. Mover is gated by homecloud.organize');
-  record(denied.find((action) => action.id === 'download')?.available === true, 'C8. Descargar only needs homecloud.view');
+  record(denied.find((action) => action.id === 'download')?.available === true, 'C8. Guardar una copia only needs homecloud.view');
   record(denied.length === implemented.length, 'C9. a denied action stays declared — it is not silently dropped');
 
-  // Descargar and Compartir are two intents over one transfer. The screen's own
-  // source is where that distinction lives, so it is asserted where it lives.
+  // Guardar una copia and Compartir are two intents over one staged transfer.
+  // The screen's own source is where that distinction lives, so it is asserted
+  // where it lives. (Files Core closure: the old "Descargar keeps a local copy"
+  // contract is superseded — an app-private copy the member cannot find is not
+  // a save, so the save intent opens the native export UI instead.)
   const source = require('node:fs').readFileSync(frontSource('screens/HomeCloudFilesScreen.tsx'), 'utf8') as string;
   record(!source.includes('Descargar y compartir'), 'C10. the conjoined "Descargar y compartir original" intent is gone');
-  const downloadBody = source.slice(source.indexOf('const downloadFile'), source.indexOf('const shareFile'));
+  const downloadBody = source.slice(source.indexOf('const saveCopyOfFile'), source.indexOf('const shareFile'));
   const shareBody = source.slice(source.indexOf('const shareFile'), source.indexOf('const canAdd'));
-  record(downloadBody.includes('downloadHomeCloudOriginal') && !downloadBody.includes('shareHomeCloudDownloadedFile'),
-    'C11. Descargar keeps a local copy and never opens the share sheet');
-  record(shareBody.includes('downloadHomeCloudOriginal') && shareBody.includes('shareHomeCloudDownloadedFile'),
-    'C12. Compartir hands the same signed original to the share sheet');
-  record(source.includes('Guardado como'), 'C13. and Descargar says where the copy landed, rather than claiming a save it cannot perform');
+  record(downloadBody.includes('stageHomeCloudOriginal') && downloadBody.includes('exportHomeCloudStagedCopy') && !downloadBody.includes('shareHomeCloudDownloadedFile'),
+    'C11. Guardar una copia stages the original and opens the native export UI, never the share path');
+  record(shareBody.includes('stageHomeCloudOriginal') && shareBody.includes('shareHomeCloudDownloadedFile') && !shareBody.includes('exportHomeCloudStagedCopy'),
+    'C12. Compartir stages the same original and hands it to the share sheet, never the export path');
+  record(!source.includes('Guardado como'), 'C13. and no wording presents an internal copy as a completed save');
 }
 
 async function testCanonicalHostOnTheSurface(): Promise<void> {
@@ -1029,17 +1043,17 @@ async function testCanonicalHostOnTheSurface(): Promise<void> {
   record(host?.props?.file === null, 'C18. and it is closed until a File asks for it');
 
   // The host renders ONLY the implemented grammar, capability-gated.
-  const renderedHost = actionHost.FileActionHost({ ...(host?.props ?? {}), file: { id: 'x', displayName: 'x.txt', mimeType: 'text/plain', folderId: null, note: null, documentDate: null } });
+  const renderedHost = actionHost.FileActionHost({ ...(host?.props ?? {}), file: { id: 'x', displayName: 'x.txt', mimeType: 'text/plain', folderId: null, note: null, documentDate: null, isFavorite: false } });
   const hostRows = renderText(renderedHost);
-  for (const label of ['Información', 'Renombrar', 'Mover', 'Descargar', 'Compartir']) {
+  for (const label of ['Información', 'Renombrar', 'Mover', 'Guardar una copia', 'Compartir', 'Agregar a favoritos']) {
     record(findAll(renderedHost, (element) => element.props?.title === label).length === 1, `C19. the host offers ${label} exactly once`);
   }
-  record(!hostRows.some((text) => /Favorito|Mover a la papelera/.test(text)), 'C20. and paints no row for a declared seam');
+  record(!hostRows.some((text) => /^(Abrir|Mover a la papelera)$/.test(text)), 'C20. and paints no row for a declared seam');
   record(hostRows.includes('Archivos'), 'C21. the current destination is stated without offering a second picker');
-  const deniedHost = actionHost.FileActionHost({ ...(host?.props ?? {}), permissions: { view: true, organize: false, delete: false }, file: { id: 'x', displayName: 'x.txt', mimeType: 'text/plain', folderId: null, note: null, documentDate: null } });
+  const deniedHost = actionHost.FileActionHost({ ...(host?.props ?? {}), permissions: { view: true, organize: false, delete: false }, file: { id: 'x', displayName: 'x.txt', mimeType: 'text/plain', folderId: null, note: null, documentDate: null, isFavorite: false } });
   record(findOne(deniedHost, (element) => element.props?.title === 'Mover')?.props?.disabled === true,
     'C22. a denied action is present but disabled — DENY-SAFE and never silent');
-  record(findOne(deniedHost, (element) => element.props?.title === 'Descargar')?.props?.disabled === false,
+  record(findOne(deniedHost, (element) => element.props?.title === 'Guardar una copia')?.props?.disabled === false,
     'C23. and an allowed action is not collateral damage of the denial');
 
   // A single File's Move and the selection's Move both resolve through ONE picker.

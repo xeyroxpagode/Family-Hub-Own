@@ -21,6 +21,7 @@ supabase/snippets/
 /scripts/compiled-s4iii/
 /scripts/compiled-files-slice1/
 /scripts/compiled-files-freshness/
+/scripts/compiled-files-favorites-ui/
 /scripts/scripts/
 /.env
 /.env.local
