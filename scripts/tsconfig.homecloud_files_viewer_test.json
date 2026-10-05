@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-files-viewer"
+  },
+  "include": [
+    "../scripts/homecloud_files_viewer_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudViewerKind.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudTypes.ts",
+    "../front/mi-front-limpio/screens/HomeCloudFileViewerScreen.tsx",
+    "../front/mi-front-limpio/screens/HomeCloudFilesScreen.tsx"
+  ],
+  "exclude": ["node_modules"]
+}

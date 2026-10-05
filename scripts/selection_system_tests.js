@@ -85,10 +85,14 @@ try {
   //   - only while the mode is active does a tap toggle;
   //   - a long press inside selection opens NOTHING;
   //   - selection stays scoped to one context and is pruned on reconciliation.
+  // STAGE 2 (Phase 3): the tap is no longer a reserved no-op seam - it OPENS the
+  // Viewer. The guarantee Stage 1 protected is unchanged and still asserted: a tap
+  // OUTSIDE selection never selects anything, and inside selection it only toggles.
   assert.doesNotMatch(files, /beginSelectionAt/);
   assert.doesNotMatch(files, /beginFileSelectionAt/);
   assert.match(files, /const handleFileLongPress = useCallback[\s\S]*?if \(selection\.mode\) return;/);
-  assert.match(files, /const handleFileTap = useCallback[\s\S]*?if \(!selection\.mode\) return;/);
+  assert.match(files, /const handleFileTap = useCallback[\s\S]*?if \(selection\.mode\) \{[\s\S]*?toggleFileSelection[\s\S]*?return;[\s\S]*?setViewerTargetId\(fileId\);/);
+  assert.doesNotMatch(files, /if \(!selection\.mode\) return;\s*\n\s*\/\/ Outside selection the tap is the Viewer/);
   assert.match(files, /accessibilityLabel="Seleccionar archivos"/);
   assert.match(files, /previous\.mode \? toggleFileSelection\(previous, fileId\) : previous/);
   assert.match(files, /selectionScope/);

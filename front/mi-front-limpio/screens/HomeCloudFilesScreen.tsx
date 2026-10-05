@@ -11,6 +11,7 @@ import { FileSelectionBar } from '../services/homecloud/FileSelectionBar';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
 import { FileIntake } from '../services/homecloud/FileIntake';
+import { HomeCloudFileViewer } from './HomeCloudFileViewerScreen';
 import { useHomeCloudCapabilities } from '../services/homecloud/useHomeCloudCapabilities';
 import { homeCloudCapabilitiesNotice } from '../services/homecloud/homecloudCapabilitiesNotice';
 import {
@@ -399,7 +400,15 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     controllerRef.current!.reset();
   }, [currentHousehold?.id]);
 
-  // ── navigation trail (Stage 2 Phase 1: nested hierarchy) ──────────────────
+  // STAGE 2 (Phase 3) — the Viewer is a LAYER over this screen, not a route.
+  // Keeping it in place is what makes "back" restore the EXACT browser context for
+  // free: the folder trail, the query, the sort, the Favoritos mode, the loaded
+  // window and the scroll position are all still here, untouched, underneath.
+  const [viewerTargetId, setViewerTargetId] = useState<string | null>(null);
+  const viewerTarget = useMemo<HomeCloudFile | null>(
+    () => (viewerTargetId === null ? null : files.find((file) => file.id === viewerTargetId) ?? null),
+    [viewerTargetId, files],
+  );
   //
   // The open folder is kept as an ID STACK, not as one "current folder" object.
   // That is the whole difference between a hierarchy and the old flat list: "back"
@@ -479,10 +488,9 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     setSelection(enterFileSelection);
   }, []);
   /**
-   * STAGE 2 (Phase 2) — THE FILE INTERACTION GRAMMAR. This supersedes the Stage 1
-   * rule, under which a long press ENTERED selection.
+   * STAGE 2 (Phase 2) — THE FILE INTERACTION GRAMMAR.
    *
-   *   OUTSIDE selection:   tap  -> Viewer (reserved seam until Phase 3 wires it)
+   *   OUTSIDE selection:   tap  -> Viewer (the reserved seam, now WIRED)
    *                        long press -> contextual File actions
    *   INSIDE selection:    tap  -> toggle
    *                        long press -> NOTHING (no menu, no navigation)
@@ -494,14 +502,20 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
    *
    * Selection is entered ONLY from the header overflow, so the gesture is never
    * hidden and never ambiguous.
+   *
+   * STAGE 2 (Phase 3): the tap now opens the Viewer. It resolves the File against
+   * the CURRENT rows by id, so a File that left the window simply does not open
+   * rather than opening a stale copy.
    */
   const handleFileTap = useCallback((fileId: string) => {
-    // Outside selection the tap is the Viewer's. Phase 3 opens it; until then the
-    // seam is intentionally unassigned rather than faked, and it is never a
-    // selection gesture.
-    if (!selection.mode) return;
-    setSelection((previous) => (previous.mode ? toggleFileSelection(previous, fileId) : previous));
-  }, [selection.mode]);
+    if (selection.mode) {
+      setSelection((previous) => (previous.mode ? toggleFileSelection(previous, fileId) : previous));
+      return;
+    }
+    const target = files.find((candidate) => candidate.id === fileId);
+    if (!target) return;
+    setViewerTargetId(fileId);
+  }, [selection.mode, files]);
   const handleFileLongPress = useCallback((fileId: string) => {
     if (selection.mode) return;
     setBulkFeedback(null);
@@ -890,6 +904,9 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
         Folder's Move all resolve their destination here, so a move can never offer
         a destination the other move would not. It reads the same household catalogue
         the host does, never the browser payload, which holds only the current level. */}
+    {/* STAGE 2 (Phase 3): the Viewer is a layer over this screen, so returning from it
+        restores the EXACT browser context underneath - no reload, no lost scroll. */}
+    {viewerTargetId !== null ? <View style={styles.viewerLayer}><HomeCloudFileViewer file={viewerTarget} accessToken={token ?? ''} onClose={() => setViewerTargetId(null)} onExternalAction={() => void refresh()} /></View> : null}
     <FileMoveDestinationPicker visible={moveIntent !== null} title={moveIntentTitle} folders={allFolders.length > 0 ? allFolders : folders} currentFolderId={moveIntentCurrentFolderId} excludeFolderIds={folderMoveExclusions} busy={saving} onSelect={handleMoveDestination} onClose={() => { setMoveIntent(null); setFolderActions(null); }} />
   </View>;
 }
@@ -968,4 +985,4 @@ export function FileTile({
   </View>;
 }
 
-const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, breadcrumb: { paddingHorizontal: spacing[5], paddingBottom: spacing[1] }, titleRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, headerIconButton: { width: 44, height: 44, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' }, headerFilterDot: { position: 'absolute', top: 9, right: 9, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.terracotta[600] }, grid: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4] }, tile: { flex: 1, minHeight: 174, gap: spacing[2], position: 'relative', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent' }, tileSelected: { borderColor: colors.brand }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, visualSelected: { backgroundColor: colors.brand, borderColor: colors.brand }, favorite: { position: 'absolute', left: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card, borderRadius: radius.sm, padding: 2 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, banner: { paddingHorizontal: spacing[5], paddingBottom: spacing[3] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] } });
+const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, breadcrumb: { paddingHorizontal: spacing[5], paddingBottom: spacing[1] }, viewerLayer: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.background.base }, titleRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, headerIconButton: { width: 44, height: 44, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' }, headerFilterDot: { position: 'absolute', top: 9, right: 9, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.terracotta[600] }, grid: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4] }, tile: { flex: 1, minHeight: 174, gap: spacing[2], position: 'relative', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent' }, tileSelected: { borderColor: colors.brand }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, visualSelected: { backgroundColor: colors.brand, borderColor: colors.brand }, favorite: { position: 'absolute', left: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card, borderRadius: radius.sm, padding: 2 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, banner: { paddingHorizontal: spacing[5], paddingBottom: spacing[3] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] } });

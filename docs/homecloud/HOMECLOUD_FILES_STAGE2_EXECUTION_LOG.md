@@ -219,3 +219,101 @@ dropped or written.
 - No physical device was available. Pull-to-refresh feel, long-press feel, context-menu
   placement, native pickers, native save/share, media playback, PDF and Office
   external-open are UNPROVEN_DEVICE.
+---
+
+## PHASE 2 — FILES UX / INTERACTION REDESIGN
+
+### CURRENT (audited)
+
+The Files title row carried a refresh icon, a `Recientes / A-Z` button, a
+`Favoritos` toggle, a `Seleccionar` button and a `+`. Every File tile and every
+Folder tile carried its own circular ellipsis. Selection was entered by a long
+press. The `FlatList` had no `RefreshControl`, even though the Memories screen in
+the same shell already used one.
+
+### PLANNER DONOR (inspected directly, not from memory)
+
+`PlannerTasksScreen` utility row: `InteractivePressable` at 44x44, `radius.full`,
+`options-outline` at size 20 with the tint flipping to `colors.terracotta[600]`
+when a filter is active, plus an 8x8 accent dot. The `+` is `add` at size 22 in the
+same accent. `PlannerScreen` overflow is an `ActionSheet size="content"` with
+`ellipsis-horizontal` at size 22 and `overflowItem` rows, and it uses
+`RefreshControl` with no customization. All of it was reused as-is.
+
+No Planner file, no Memories screen and no shared HomeCloud shell file was
+modified. Verified with `git diff --name-only` after the change.
+
+### REAL GAP
+
+Five permanent controls where the product wants one, a per-row action icon on
+every tile, a long press that meant two different things, no manual refresh gesture,
+and no accessible non-gesture route to the per-tile actions.
+
+### AUTONOMOUS DECISIONS
+
+1. ONE compact filter icon for BOTH display axes, because a mode and an order are
+   both "what am I looking at" and two controls made the row unreadable.
+2. A dot, not a count. `2` would be ambiguous: Favoritos + A-Z is two changes, not
+   two filters.
+3. Seleccionar lives in the overflow and is WITHDRAWN while the mode is active, so
+   there is never a second way in.
+4. Actualizar stays in the overflow as a secondary refresh path, so pull-to-refresh
+   is never the only route for someone who cannot pull.
+5. The refresh indicator is driven by its own local flag rather than the list's
+   loading state, because the list also loads while paging and while the context
+   changes, and the spinner must not lie about what the gesture did.
+6. Inside selection a long press is a deliberate NO-OP rather than a tap or a menu.
+   The simplest deterministic behaviour is the correct one: a menu during a
+   multi-select would let a member move or delete a File they meant to batch.
+7. The contextual accessibility action is REMOVED while selecting, so assistive
+   technology and the gesture cannot disagree.
+8. The destination GRAMMAR was separated from its sheet in Phase 1 and is reused
+   here unchanged.
+
+### FILES TOUCHED
+
+- `front/mi-front-limpio/services/homecloud/homecloudFilesFilters.ts` (new): the
+  pure display-filter grammar.
+- `front/mi-front-limpio/services/homecloud/FilesFilterMenu.tsx` (new): the sheet.
+- `front/mi-front-limpio/screens/HomeCloudFilesScreen.tsx`: header, pull-to-refresh,
+  and the interaction grammar.
+- `scripts/homecloud_files_ux_tests.ts` (new): 74 deterministic assertions.
+
+### TESTS
+
+- New UX suite: **74/74 pass.**
+- `homecloud-files`: **PASSED (21 commands).**
+- `homecloud-s2i`, `homecloud-recovery`, `homecloud-t2-d1`, `homecloud-3a-3d`:
+  **PASSED.** `selection-system`: **PASSED.**
+- Frontend typecheck PASS, backend syntax PASS, migration uniqueness PASS (114),
+  secret scan PASS, `git diff --check` clean.
+
+### STAGE 1 SEAMS CHANGED (declared)
+
+Six Stage 1 suites drove the interaction model Stage 2 supersedes. Each was ported
+to the NEW gesture and keeps every original behavioral assertion; none lost
+coverage.
+
+| Suite | What it used to do | What it does now | Kept |
+|---|---|---|---|
+| `homecloud_s4i_files_wiring` | sort = the only titled sibling of the refresh icon | open the filter icon, press the real A-Z chip | C1-C7 unchanged, 29/29 |
+| `homecloud_s4iii_files_surface_closure` | same, plus tile `onMore` for folder actions | same filter path; long press for folder actions | A9, A16, B35-B41 unchanged |
+| `homecloud_files_selection_bulk` | long press ENTERED selection; per-File overflow | overflow `Seleccionar`, then taps | B1-B52 + C24-C27, 177/177, 168 model assertions unchanged |
+| `homecloud_files_freshness` | per-File overflow; titled sort button | long press; filter menu | B2.2-B2.10, E1, E3 unchanged, 94/94 |
+| `homecloud_files_favorites_ui` | permanent `Favoritos` button and its label | filter menu, asserting the NEW control announces the state before and after | 106/106 |
+| `selection_system` | asserted `onLongPress={beginSelectionAt}` and a `useState` for `favoritesOnly` | asserts the long-press entry is ABSENT, both guards exist, `favoritesOnly` is derived and still sent to the read | strictly stronger |
+
+Two expectations were deliberately REVERSED rather than merely ported, because the
+Stage 2 contract reverses them:
+
+- A File's contextual actions are no longer reachable INSIDE selection mode. Stage 1
+  asserted they were ("the overflow still opens the canonical actions inside
+  selection mode"). Phase 2 forbids it, so the suite now asserts the action is
+  absent and a long press opens nothing.
+- `Seleccionar` is withdrawn while the mode is active instead of being present and
+  disabled.
+
+### KNOWN DEBT CARRIED
+
+- Pull-to-refresh FEEL, long-press FEEL and context-menu placement are
+  UNPROVEN_DEVICE.

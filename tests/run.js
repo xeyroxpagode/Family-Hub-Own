@@ -473,7 +473,26 @@ const commands = {
   // Stage 2 Phase 1: migration safety in throwaway local databases. Proves both the
   // FRESH chain and the Stage 1 UPGRADE, and drops only what it created.
   // Stage 2 Phase 2: deterministic Files UX / interaction grammar evidence.
-  'homecloud-files-ux': () => {
+  // Stage 2 Phase 3: deterministic Viewer V1 evidence (classification, privacy,
+  // bounded text, path safety, media lifecycle, selection coexistence).
+  'homecloud-files-viewer': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud Files compile Viewer V1 tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_files_viewer_test.json'],
+    );
+    return runCommand(
+      'HomeCloud Files Viewer V1 tests',
+      'node',
+      ['scripts/compiled-files-viewer/scripts/homecloud_files_viewer_tests.js'],
+      { env },
+    );
+  },  'homecloud-files-ux': () => {
     const env = {
       ...process.env,
       EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',

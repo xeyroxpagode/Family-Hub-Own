@@ -37,3 +37,4 @@ supabase/snippets/
 /.claude/settings.local.json
 /front/mi-front-limpio/.expo-location-permissions-check/
 /scripts/compiled-files-ux/
+/scripts/compiled-files-viewer/
