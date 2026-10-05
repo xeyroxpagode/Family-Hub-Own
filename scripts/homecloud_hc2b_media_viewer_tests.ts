@@ -17,6 +17,8 @@ import {
 } from '../front/mi-front-limpio/services/homecloud/homecloudMemoryIntakeLifecycle';
 import {
   MemoryMediaAccess,
+  audioSeekRatio,
+  audioSeekTarget,
   isMemoryMediaKind,
   mediaPlaybackAuthorized,
   mediaProgressRatio,
@@ -202,5 +204,50 @@ check(/active=\{item\.id === activeContentId\}/.test(viewer), 'the Viewer passes
 check((viewer.match(/AppState\.addEventListener/g) ?? []).length === 1, 'the Viewer owns exactly ONE AppState listener for media, so Video and Audio cannot compete');
 check(!/\.play\(/.test(codeOf(viewer)), 'the Viewer itself never starts playback');
 check(/windowSize=\{|initialNumToRender=\{/.test(viewer), 'the Viewer bounds how many full-screen pages stay mounted');
+
+// ===========================================================================
+// HC2-B — AUDIO MEMORY PLAYBACK
+// ===========================================================================
+console.log('\n=== HC2-B AUDIO PLAYBACK ===');
+
+const audioPage = fs.readFileSync(path.join(root, 'front/mi-front-limpio/components/homecloud/MemoryAudioPage.tsx'), 'utf8');
+const audioCode = codeOf(audioPage);
+
+// SEEK MATH (§54). Every unsafe input must degrade to "do not seek", never to a
+// NaN / Infinity / negative / past-the-end target.
+check(audioSeekRatio(50, 100) === 0.5, 'a press at the middle of the track seeks to the middle');
+check(audioSeekRatio(-20, 100) === 0 && audioSeekRatio(140, 100) === 1, 'a press outside the track clamps into 0..1');
+check(audioSeekRatio(50, 0) === null && audioSeekRatio(50, Number.NaN) === null, 'a zero or unknown track width never produces a ratio');
+check(audioSeekRatio(Number.NaN, 100) === null && audioSeekRatio(50, Number.POSITIVE_INFINITY) === null, 'non-finite coordinates and widths never produce a ratio');
+check(audioSeekTarget(0.5, 200) === 100, 'the ratio maps onto a real duration');
+check(audioSeekTarget(0.5, 0) === null && audioSeekTarget(0.5, Number.NaN) === null, 'an unknown or zero duration never seeks (no divide)');
+check(audioSeekTarget(Number.NaN, 200) === null, 'a non-finite ratio never seeks');
+check(audioSeekTarget(5, 200) === 200 && audioSeekTarget(-5, 200) === 0, 'the target is clamped into 0..duration, never past the end');
+check(audioSeekTarget(0.5, Number.POSITIVE_INFINITY) === null && audioSeekTarget(0.5, -10) === null, 'an infinite or negative duration never seeks');
+
+// OWNERSHIP: same structural invariant as Video.
+check(/if \(!active\) return <View/.test(audioCode) && audioCode.indexOf('if (!active)') < audioCode.indexOf('useAudioPlayer('), 'the inactive Audio page returns a placeholder BEFORE any player hook exists');
+check((audioCode.match(/getMemoryOriginalUrl\(/g) ?? []).length === 1 && /function ActiveMemoryAudioPage/.test(audioCode), 'exactly one place requests the signed original, and it is inside the ACTIVE page');
+check(!/player\.remove\(/.test(audioCode) && !/createAudioPlayer/.test(audioCode), 'the Audio page adds no manual release on top of the hook-owned one');
+
+// OPEN PAUSED / NEVER AUTO-RESUME: the ONLY play() is inside the explicit press.
+const toggleBody = /const toggle = \(\) => \{[\s\S]*?\n {2}\};/.exec(audioCode)?.[0] ?? '';
+check(toggleBody.includes('player.play()') && !audioCode.replace(toggleBody, '').includes('.play('), 'play() is only ever reached from the explicit user press handler');
+check(/onPress=\{toggle\}/.test(audioCode), 'the play/pause control is the single user press that authorizes playback');
+check(/if \(authorized\) return;/.test(audioCode) && /player\.pause\(\)/.test(audioCode), 'a revoked lifecycle intent pauses the player that is still mounted');
+check(!/useEffect\([\s\S]{0,200}authorized[\s\S]{0,200}?\.play\(/.test(audioCode), 'no effect resumes playback when authorization returns');
+
+// PROGRESS STAYS LOCAL (§52): the Viewer must not own a 4 Hz position readout.
+check(/useAudioPlayerStatus\(player\)/.test(audioCode), 'the active Audio page owns its own player status');
+check(!/currentTime/.test(codeOf(viewer)), 'the Viewer does not lift high-frequency playback progress');
+
+// HONEST SEEK / ERROR: no raw native text, no fake waveform, no fake action.
+check(/catch\(\(\) => setSeekFailed\(true\)\)/.test(audioCode) && /No pudimos mover la posición/.test(audioCode), 'a failed seek becomes an honest message instead of being swallowed');
+check(!/\{status\.error\}/.test(audioCode) && !/\{error\}/.test(audioCode), 'the raw native error string is never rendered');
+check(/Posición no disponible/.test(audioCode), 'an unknown duration renders an honest position, not a fake one');
+check(!/waveform|Waveform|sampleListener|useAudioSampleListener/.test(audioCode), 'HC2-B audio fabricates no waveform');
+
+// CAPTURE BOUNDARY (§56): the Viewer must not touch recording configuration.
+check(!/setAudioModeAsync|useAudioRecorder|RecordingPresets|requestRecordingPermissions|allowsRecording|stopAndDiscard/.test(audioCode), 'the Viewer playback page never reopens recording or audio-session configuration');
 
 if (failed) process.exitCode = 1;

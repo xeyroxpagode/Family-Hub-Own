@@ -104,6 +104,38 @@ export function mediaProgressRatio(currentTime: unknown, duration: unknown): num
 }
 
 /**
+ * Where a press on the progress track lands, as a 0..1 ratio.
+ *
+ * `x` is the press coordinate RELATIVE TO THE TRACK (`locationX`) and
+ * `trackWidth` is the track's real measured width, because a press coordinate
+ * without a measured width can only produce a guess. Every step is clamped, so
+ * a press slightly outside the track, a zero-width first layout and a
+ * non-finite coordinate all degrade to "no seek" instead of a wild jump.
+ */
+export function audioSeekRatio(x: unknown, trackWidth: unknown): number | null {
+  if (typeof trackWidth !== 'number' || !Number.isFinite(trackWidth) || trackWidth <= 0) return null;
+  if (typeof x !== 'number' || !Number.isFinite(x)) return null;
+  const clampedX = Math.min(trackWidth, Math.max(0, x));
+  return Math.min(1, Math.max(0, clampedX / trackWidth));
+}
+
+/**
+ * The absolute seek target in seconds, or `null` when seeking is impossible.
+ *
+ * A target requires a FINITE POSITIVE duration. `NaN`, `Infinity`, a negative
+ * target and a target past the duration are all unreachable by construction,
+ * and `null` means "do not call the seek API at all" — there is no such thing
+ * as a fake seek.
+ */
+export function audioSeekTarget(ratio: unknown, duration: unknown): number | null {
+  if (typeof ratio !== 'number' || !Number.isFinite(ratio)) return null;
+  const total = validMediaDuration(duration);
+  if (total === null || total <= 0) return null;
+  const clampedRatio = Math.min(1, Math.max(0, ratio));
+  return Math.min(total, Math.max(0, clampedRatio * total));
+}
+
+/**
  * How a media failure is described to the user.
  *
  * - `access`: the canonical original could not be obtained.

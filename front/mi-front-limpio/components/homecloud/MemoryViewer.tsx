@@ -10,6 +10,7 @@ import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
 import { getMemoryOriginalUrl } from '../../services/homecloud/homecloudMemoryOriginal';
 import { isMemoryMediaKind, mediaPlaybackAuthorized } from '../../services/homecloud/homecloudMemoryMediaPlayback';
 import { MemoryVideoPage } from './MemoryVideoPage';
+import { MemoryAudioPage } from './MemoryAudioPage';
 import type { MemoryViewerSource } from '../../services/homecloud/homecloudMemoryViewerSource';
 
 /**
@@ -87,10 +88,15 @@ function ViewerPage({ memory, accessToken, width, active, authorized, onTap }: {
   // instantiate a native player, and `authorized` is the global lifecycle
   // intent that revokes playback on blur, background and swipe.
   if (memory.kind === 'video') return <MemoryVideoPage memory={memory} accessToken={accessToken} active={active} authorized={authorized} />;
+  if (memory.kind === 'audio') return <MemoryAudioPage memory={memory} accessToken={accessToken} active={active} authorized={authorized} />;
   if (isMemoryMediaKind(memory.kind)) return <MediaPlaceholder width={width} />;
   return <ImagePage memory={memory} accessToken={accessToken} width={width} onTap={onTap} />;
 }
 
+/**
+ * A media kind with no page yet renders inert geometry: the pager must never
+ * claim a width it does not render.
+ */
 function MediaPlaceholder({ width }: { width: number }) {
   return <View style={[styles.placeholder, { width }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />;
 }
