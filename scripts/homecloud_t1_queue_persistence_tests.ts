@@ -14,7 +14,7 @@
  *  I. Files + Memories use the same queue authority
  *  J. queue FIFO within scope
  *  K. cross-household job never executes in the wrong scope
- *  L. transient error → reconnect → retry
+ *  L. transient error → reconnect stays failed → explicit Retry
  *  M. terminal error → no reconnect retry (no auto-loop)
  *  N. reconnect cannot spawn duplicate workers (single-flight)
  *  O. cancel middle/pending job doesn't drop neighbors
@@ -32,12 +32,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createUploadEngine } from '../front/mi-front-limpio/services/homecloud/homecloudUploadEngine';
-import { createUploadJob } from '../front/mi-front-limpio/services/homecloud/homecloudUploadJob';
+import { createUploadJob, transition } from '../front/mi-front-limpio/services/homecloud/homecloudUploadJob';
 import {
   createSharedUploadQueue,
   __resetSharedUploadQueueForTests,
   nextEligibleJob,
 } from '../front/mi-front-limpio/services/homecloud/homecloudUploadQueue';
+import { ensureUploadCoordinator } from '../front/mi-front-limpio/services/homecloud/homecloudUploadCoordinator';
 import {
   __resetUploadRecoveryForTests,
   recoverUploadJobs,
@@ -428,6 +429,100 @@ async function main() {
     record(threw, 'K: direct cross-household execution is denied by ownership guard');
   }
 
+  // ── K2. a failed job is durable/manual-only and never blocks later work ──
+  {
+    resetAll();
+    const store = createInMemoryUploadJobStore();
+    const at = (name: string, createdAt: string) => ({
+      ...createUploadJob('hh-1', { role: 'file' as const, intakeSource: 't' }, artifactFor(name)),
+      createdAt,
+      updatedAt: createdAt,
+    });
+    const jobA = at('k2-a.pdf', '2026-01-01T00:00:00.000Z');
+    const jobB = at('k2-b.pdf', '2026-01-01T00:00:01.000Z');
+    const jobC = at('k2-c.pdf', '2026-01-01T00:00:02.000Z');
+    store.put(jobA); store.put(jobB); store.put(jobC);
+    const attempts = new Map<string, number>();
+    const queue = createSharedUploadQueue({
+      store,
+      householdId: 'hh-1',
+      run: async (id) => {
+        attempts.set(id, (attempts.get(id) ?? 0) + 1);
+        const current = store.get(id)!;
+        if (id === jobA.id && attempts.get(id) === 1) {
+          const failed = transition(current, 'failed', {
+            error: { code: 'network', message: 'offline', retryable: true },
+          });
+          store.put(failed);
+          throw new Error('offline');
+        }
+        const completed = { ...current, state: 'completed' as const, error: null, updatedAt: new Date().toISOString() };
+        store.put(completed);
+        return completed;
+      },
+    });
+
+    await queue.pump();
+    record(store.get(jobA.id)?.state === 'failed', 'K2: retryable failure remains durable');
+    record(store.get(jobB.id)?.state === 'completed' && store.get(jobC.id)?.state === 'completed', 'K2: retryable failure does not block later pending jobs');
+    record(attempts.get(jobA.id) === 1, 'K2: failed job is not automatically retried while the pump drains');
+
+    await queue.pump();
+    record(attempts.get(jobA.id) === 1 && store.get(jobA.id)?.state === 'failed', 'K2: a later automatic pump still does not retry the failed job');
+
+    const failedIdentity = store.get(jobA.id)?.id;
+    const coordinator = ensureUploadCoordinator({ store, householdId: 'hh-1', run: async () => { throw new Error('unused'); } });
+    // Reconfigure with the queue runner, then explicitly retry through the public coordinator contract.
+    createSharedUploadQueue({
+      store,
+      householdId: 'hh-1',
+      run: async (id) => {
+        attempts.set(id, (attempts.get(id) ?? 0) + 1);
+        const current = store.get(id)!;
+        const completed = { ...current, state: 'completed' as const, error: null, updatedAt: new Date().toISOString() };
+        store.put(completed);
+        return completed;
+      },
+    });
+    await coordinator.retry(jobA.id);
+    record(store.get(jobA.id)?.state === 'completed' && store.get(jobA.id)?.id === failedIdentity, 'K2: manual Retry resumes the same durable job identity');
+  }
+
+  // ── K3. multiple failures and another household cannot form barriers ──
+  {
+    resetAll();
+    const store = createInMemoryUploadJobStore();
+    const make = (householdId: string, name: string, createdAt: string) => ({
+      ...createUploadJob(householdId, { role: 'file' as const, intakeSource: 't' }, artifactFor(name)),
+      createdAt,
+      updatedAt: createdAt,
+    });
+    const failedRetryable = transition(make('hh-a', 'k3-retryable.pdf', '2026-01-01T00:00:00.000Z'), 'failed', {
+      error: { code: 'network', message: 'offline', retryable: true },
+    });
+    const failedTerminal = transition(make('hh-a', 'k3-terminal.pdf', '2026-01-01T00:00:01.000Z'), 'failed', {
+      error: { code: 'policy', message: 'forbidden', retryable: false },
+    });
+    const pendingA = make('hh-a', 'k3-a-pending.pdf', '2026-01-01T00:00:02.000Z');
+    const pendingB = make('hh-b', 'k3-b-pending.pdf', '2026-01-01T00:00:00.000Z');
+    store.put(failedRetryable); store.put(failedTerminal); store.put(pendingA); store.put(pendingB);
+    const attempts: string[] = [];
+    const complete = async (id: string) => {
+      attempts.push(id);
+      const current = store.get(id)!;
+      const completed = { ...current, state: 'completed' as const, error: null, updatedAt: new Date().toISOString() };
+      store.put(completed);
+      return completed;
+    };
+    const queueA = createSharedUploadQueue({ store, householdId: 'hh-a', run: complete });
+    const queueB = createSharedUploadQueue({ store, householdId: 'hh-b', run: complete });
+    await Promise.all([queueA.pump(), queueB.pump()]);
+    record(store.get(failedRetryable.id)?.state === 'failed' && store.get(failedTerminal.id)?.state === 'failed', 'K3: multiple failed records are retained unchanged');
+    record(store.get(pendingA.id)?.state === 'completed', 'K3: retryable and non-retryable failures do not block a later pending job');
+    record(store.get(pendingB.id)?.state === 'completed', 'K3: a failed job in Household A cannot block Household B');
+    record(attempts.length === 2 && !attempts.includes(failedRetryable.id) && !attempts.includes(failedTerminal.id), 'K3: no failed job is duplicated or busy-looped');
+  }
+
   // ── L/M/N. transient reconnect retry; terminal never loops; single-flight ──
   {
     resetAll();
@@ -459,7 +554,10 @@ async function main() {
     // Startup already recovers transient jobs; force the reconnect path too.
     runtime.notifyOffline();
     await runtime.notifyOnline();
-    record(store.get(job.id)?.state === 'completed', 'L: reconnect retries the transient job without re-picking');
+    record(store.get(job.id)?.state === 'failed' && runs === 0, 'L: reconnect never automatically retries a failed job');
+    const coordinator = ensureUploadCoordinator({ store, householdId: 'hh-1', run: countingRun });
+    await coordinator.retry(job.id);
+    record(store.get(job.id)?.state === 'completed', 'L: explicit Retry resumes the same transient job without re-picking');
     const afterReconnectRuns = runs;
 
     // Terminal failure: never auto-retries on reconnect.

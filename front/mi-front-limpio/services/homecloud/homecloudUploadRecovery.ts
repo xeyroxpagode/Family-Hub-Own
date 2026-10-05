@@ -43,12 +43,9 @@ export interface UploadRecoveryResult {
  * States eligible for AUTOMATIC resume on runtime readiness: the job was
  * moving forward when it was interrupted (reload/remount/process death) and
  * never recorded an engine error. `failed` is NOT in this set on purpose:
- * a failed job auto-resumes ONLY when its persisted error is explicitly
- * marked retryable (transient: offline, timeout, temporary tunnel outage —
- * see homecloudUploadFailure.ts and isAutoRecoverableJob below). Terminal
- * failures (validation, ownership, capacity, policy) resume only through
- * user-initiated retry of the SAME job, so abandoned terminal failures are
- * never silently re-uploaded on every app start and never auto-loop.
+ * all failures remain durable and manual-only. The persisted retryable marker
+ * controls whether the UI may offer Retry; it never authorizes an automatic
+ * retry on startup, reconnect, remount or a later queue pump.
  */
 export const AUTO_RECOVERABLE_STATES: ReadonlySet<UploadJobState> = new Set([
   'pending',
@@ -60,15 +57,11 @@ export const AUTO_RECOVERABLE_STATES: ReadonlySet<UploadJobState> = new Set([
 ]);
 
 /**
- * T1 — recovery eligibility WITHOUT new FSM states. A job auto-resumes when
- * it is mid-flight, OR when it is failed *with a persisted transient flag*.
- * Terminal failed jobs (retryable !== true, including legacy jobs without
- * the flag) stay manual-only.
+ * T1 — recovery eligibility WITHOUT new FSM states. Only pending/mid-flight
+ * work auto-resumes. Every failed job stays manual-only.
  */
 export function isAutoRecoverableJob(job: UploadJob): boolean {
-  if (AUTO_RECOVERABLE_STATES.has(job.state)) return true;
-  if (job.state === 'failed' && job.error?.retryable === true) return true;
-  return false;
+  return AUTO_RECOVERABLE_STATES.has(job.state);
 }
 
 /** Non-terminal jobs for a Household (and optional role), oldest first. */

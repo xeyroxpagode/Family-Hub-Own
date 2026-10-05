@@ -299,7 +299,7 @@ async function main() {
     record(backend.counts.uploadAuth === 0, '4: no upload authorization is ever requested for the stale content');
   }
 
-  // ── 5. a job already `failed` + retryable (legacy row) stops looping ──
+  // ── 5. a job already `failed` + retryable (legacy row) stays manual-only ──
   {
     resetWorld();
     const backend = makeBackend();
@@ -321,8 +321,8 @@ async function main() {
     const afterFirst = { ...backend.counts };
     for (let i = 0; i < 20; i += 1) await queue.pump();
     const final = store.get(job.id)!;
-    record(backend.counts.verify === afterFirst.verify, `5: a failed+retryable stale row is executed once and never re-selected (verify=${backend.counts.verify})`);
-    record(final.error?.retryable === false && isCoordinatorEligibleJob(final) === false, '5: the reclassified stale failure is terminal and ineligible');
+    record(backend.counts.verify === 0 && backend.counts.verify === afterFirst.verify, `5: a failed+retryable legacy row is never automatically selected (verify=${backend.counts.verify})`);
+    record(final.error?.retryable === true && isCoordinatorEligibleJob(final) === false, '5: retryable remains an actionable UI marker, not automatic eligibility');
   }
 
   // ── 6. reconciliation proves completion instead of trusting the 409 ──

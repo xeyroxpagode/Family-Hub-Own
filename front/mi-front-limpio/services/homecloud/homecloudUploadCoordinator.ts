@@ -66,17 +66,16 @@ const EMPTY_RETRY_IDS: ReadonlySet<string> = new Set<string>();
  * ELIGIBILITY CONTRACT (exported so it can be asserted directly, not only
  * through a pump).
  *
- * A job is auto-eligible only while it is mid-flight, or while it is `failed`
- * with an explicit persisted transient flag, or while the user explicitly
- * asked for this job. A terminal failure — `retryable !== true`, which
- * includes every `homecloud_not_staging` stale job — is NEVER selected again:
- * not in the same pump, not in the next one, not on remount and not on
- * reconnect.
+ * A job is auto-eligible only while it is pending or mid-flight. Every failed
+ * job remains durable and manual-only, including failures marked retryable:
+ * the marker controls whether the UI may offer Retry, not whether the worker
+ * may silently run it again. An explicit Retry adds only that exact job id to
+ * the one-shot eligibility set.
  */
 export function isCoordinatorEligibleJob(job: UploadJob, retryIds: ReadonlySet<string> = EMPTY_RETRY_IDS): boolean {
   if (job.state === 'completed' || job.state === 'cancelled') return false;
   if (AUTO_ELIGIBLE_STATES.has(job.state)) return true;
-  return job.state === 'failed' && (job.error?.retryable === true || retryIds.has(job.id));
+  return job.state === 'failed' && retryIds.has(job.id);
 }
 
 function eligible(job: UploadJob, retryIds: Set<string>): boolean {
@@ -142,8 +141,6 @@ export function ensureUploadCoordinator(initial: UploadCoordinatorDeps): UploadC
         await cleanup(finished);
       } catch { /* failure is persisted by the engine; decide from latest below */ }
       finally { activeJobId = null; activeUpload = null; activeCancel = null; notify(); }
-      const latest = deps.store.get(next.id);
-      if (latest?.state === 'failed' && latest.error?.retryable === true) return;
     }
   };
   const coordinator: UploadCoordinator = {

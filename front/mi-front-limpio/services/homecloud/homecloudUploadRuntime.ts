@@ -4,8 +4,8 @@
  * ONE owner for hydrate/sweep/reconnect per process, NOT screen mounts:
  * - startup: hydrate durable queue → validate scope → sweep orphans →
  *   reconstruct eligible → single worker → verify-first → continue;
- * - reconnect: offline → online triggers ONE eligible recovery pass
- *   (transient jobs auto-retry, terminal jobs never auto-loop), single-flight;
+ * - reconnect: offline → online triggers ONE eligible recovery pass for
+ *   pending/interrupted jobs; failed jobs stay manual-only, single-flight;
  * - kill/reopen: durable queue coherence comes from the shared store, so no
  *   HomeCloud screen needs to be mounted.
  *
