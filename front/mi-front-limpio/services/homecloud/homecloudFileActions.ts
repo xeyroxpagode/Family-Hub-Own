@@ -112,5 +112,116 @@ export function resolveFileActions(permissions: HomeCloudFileActionPermissions, 
 export const HOMECLOUD_FILE_ACTION_SEAMS: readonly HomeCloudFileActionId[] =
   HOMECLOUD_FILE_ACTION_GRAMMAR.filter((action) => !action.implemented).map((action) => action.id);
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTION-SHEET REACHABILITY — the layout policy the File action sheet depends on
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * WHY THIS EXISTS.
+ *
+ * Device QA found the Favorite unreachable on a real phone: it is the SIXTH row of
+ * a sheet whose content container was a bounded, NON-scrollable box, so on a short
+ * or notched viewport the last rows were simply clipped off. No error, no disabled
+ * control — the action was absent.
+ *
+ * The correct fix is structural: the File action sheet must SCROLL. That is a
+ * one-property change in the host (`size="scrollable-content"` plus a scroll
+ * container). What a source assertion cannot prove on its own is whether the
+ * content really does overflow at the viewports the audit named, so the overflow
+ * itself is DECIDED here, from the real design tokens, and is directly testable
+ * without a device.
+ *
+ * It is a POLICY, not a layout engine: the numbers are the tokens the sheet and
+ * the buttons already use (`spacing`, `componentSizes.primaryButtonHeight`,
+ * `typography`, `touchTargets`), so the function cannot silently disagree with the
+ * styles it reasons about unless those styles change too. What it does NOT do is
+ * claim to replace what a real device renders — a component-level render proves
+ * the scroll container is what the host actually mounts.
+ */
+export const FILE_ACTION_SHEET_LAYOUT = {
+  /** `ActionSheet` gives a short sheet 90 % of the window, minus the top inset. */
+  sheetHeightRatio: 0.9,
+  /** …but never less than this, so the sheet is never a sliver on a small phone. */
+  minSheetHeightDp: 360,
+  /** `paddingTop: spacing[3]` plus the drag handle and its `marginBottom`. */
+  chromeTopDp: 12 + 4 + 12,
+  /** The header row: `max(touchTargets.normal, title2 line height)` + `spacing[4]`. */
+  headerBaseDp: 44,
+  headerLineHeightDp: 30,
+  headerGapDp: 16,
+  /** `paddingBottom: max(insets.bottom, spacing[4])` with a zero bottom inset. */
+  sheetBottomPaddingDp: 16,
+  /** `AppButton` `size="md"`: `max(primaryButtonHeight, body line + padding)`. */
+  actionRowMinHeightDp: 52,
+  actionRowTextLineHeightDp: 23,
+  actionRowVerticalChromeDp: 18,
+  /** `styles.list` gap is `spacing[3]`. */
+  rowGapDp: 12,
+  /** The folder caption the host renders above the actions (`typography.caption`). */
+  captionLineHeightDp: 18,
+  /** `styles.list` `paddingBottom: spacing[2]`. */
+  listPaddingBottomDp: 8,
+} as const;
+
+export interface FileActionSheetLayoutInput {
+  /** `useWindowDimensions().height`, in dp. */
+  readonly viewportHeightDp: number;
+  /** `useSafeAreaInsets().top`, in dp — the notch / status bar. */
+  readonly insetTopDp: number;
+  /** `useSafeAreaInsets().bottom`, in dp — the gesture bar / home indicator. */
+  readonly insetBottomDp: number;
+  /** The platform font scale the member has chosen. */
+  readonly fontScale: number;
+  /** How many action rows the grammar actually rendered. */
+  readonly actionCount: number;
+  /** Whether the folder caption is rendered above them. */
+  readonly withCaption?: boolean;
+  /** Whether the sheet carries a footer CTA (the Info view always does). */
+  readonly withFooter?: boolean;
+}
+
+export interface FileActionSheetLayoutPolicy {
+  /** How tall the sheet is allowed to be, after the top inset. */
+  readonly sheetHeightDp: number;
+  /** How tall the scrolling/clipping content box inside it is. */
+  readonly contentBoxDp: number;
+  /** How tall the actions actually want to be at this font scale. */
+  readonly intrinsicContentDp: number;
+  /** True when the intrinsic content does NOT fit: the box must scroll. */
+  readonly overflows: boolean;
+  /** How many dp are clipped away when the box does NOT scroll. */
+  readonly clippedDp: number;
+}
+
+/**
+ * Decide whether the File action sheet's content overflows its box.
+ *
+ * `overflows === true` is the whole point: it is the condition under which a
+ * bounded, non-scrollable container silently hides the LAST rows, which is exactly
+ * how the Favorite became unreachable.
+ */
+export function fileActionSheetLayoutPolicy(input: FileActionSheetLayoutInput): FileActionSheetLayoutPolicy {
+  const L = FILE_ACTION_SHEET_LAYOUT;
+  const fontScale = input.fontScale > 0 ? input.fontScale : 1;
+  const sheetHeightDp = Math.max(L.minSheetHeightDp, Math.round(input.viewportHeightDp * L.sheetHeightRatio) - input.insetTopDp);
+  const headerDp = Math.max(L.headerBaseDp, Math.round(L.headerLineHeightDp * fontScale)) + L.headerGapDp;
+  const bottomDp = Math.max(input.insetBottomDp, L.sheetBottomPaddingDp);
+  const contentBoxDp = Math.max(0, sheetHeightDp - L.chromeTopDp - headerDp - bottomDp);
+  const rowDp = Math.max(L.actionRowMinHeightDp, Math.round(L.actionRowTextLineHeightDp * fontScale) + L.actionRowVerticalChromeDp);
+  let parts = input.actionCount * rowDp + Math.max(0, input.actionCount - 1) * L.rowGapDp + L.listPaddingBottomDp;
+  if (input.withCaption !== false) parts += Math.round(L.captionLineHeightDp * fontScale) + L.rowGapDp;
+  if (input.withFooter === true) parts += 1; // a footer is pinned OUTSIDE the content box
+  const intrinsicContentDp = parts;
+  return {
+    sheetHeightDp,
+    contentBoxDp,
+    intrinsicContentDp,
+    overflows: intrinsicContentDp > contentBoxDp,
+    clippedDp: Math.max(0, intrinsicContentDp - contentBoxDp),
+  };
+}
+
+/** The rows `resolveFileActions` renders for a viewer who may organize everything. */
+export const FILE_ACTION_RENDERED_ROW_COUNT = HOMECLOUD_FILE_ACTION_GRAMMAR.filter((action) => action.implemented).length;
+
 /** The full vocabulary of a File action, so a handler cannot be attached to nothing. */
 export type HomeCloudFileActionHandlerId = HomeCloudFileActionId;

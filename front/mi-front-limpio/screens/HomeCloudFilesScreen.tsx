@@ -113,6 +113,17 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   const [readFailure, setReadFailure] = useState<{ kind: HomeCloudReadFailure; message: string; detail?: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false); const [uploadOpen, setUploadOpen] = useState(false); const [folderEditor, setFolderEditor] = useState<{ mode: 'create' | 'rename'; item?: HomeCloudFolder } | null>(null); const [folderName, setFolderName] = useState(''); const [folderActions, setFolderActions] = useState<HomeCloudFolder | null>(null); const [actionTargetId, setActionTargetId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   const [downloadFeedback, setDownloadFeedback] = useState<{ tone: 'secondary' | 'danger'; message: string } | null>(null);
+  // STAGE 2 REOPEN — THE FAVORITE'S OWN BUSY STATE AND ITS OWN FAILURE CHANNEL.
+  //
+  // Neither rides on `saving`/`error` any more, and the reason is behavioural, not
+  // cosmetic: `saving` disables the ENTIRE File action surface for as long as the
+  // Favorite PATCH plus its window-preserving reconciliation take, and `error`
+  // REPLACES the whole Files list while its `Reintentar` re-reads page one. Between
+  // them, one refused or slow Favorite froze the action menu, hid the list, and
+  // collapsed a loaded 300-row window back to 100 — while throwing the member out
+  // of the folder, query and sort they were in. See `toggleFileFavorite`.
+  const [favoriteBusy, setFavoriteBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   // Selection belongs to the CURRENT browser context and is never persisted.
   const [selection, setSelection] = useState<FileSelection>(emptyFileSelection());
   // The ONE destination picker, serving a single File, the selection, or a Folder.
@@ -149,6 +160,7 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     if (actionTargetId === null || actionTarget !== null) return;
     setActionTargetId(null);
     setDownloadFeedback(null);
+    setActionError(null);
   }, [actionTargetId, actionTarget]);
 
   // S4-iii B1/B5 — the identity of the QUESTION this screen is asking. It
@@ -686,26 +698,49 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
    * touched: this is one person's preference over one shared File, so the server
    * is the only authority on WHO is favoriting and it resolves that itself.
    *
-   * The presentation is corrected the moment the server answers, through the
-   * controller's `patchFile`, so the tile and the open action host reflect the
-   * new state immediately instead of on the next refresh or after a restart. A
-   * refusal is NOT patched: the row keeps the server's truth and the failure is
-   * stated, so the screen can never show a favorite the backend did not accept.
+   * STAGE 2 REOPEN — what this flow is FORBIDDEN to do, because device QA showed
+   * all three happening on a real phone:
    *
-   * With Favoritos ON, unfavoriting the last visible favorite legitimately
-   * removes that row from the filtered set. The local patch is therefore NOT
-   * applied in that mode; the window-preserving re-read is what reconciles the
-   * list, and it costs the same single read a rename already costs.
+   *   1. Take the Files list down. `setError` replaces the whole browser, so a
+   *      refused Favorite used to blank a 300-row list to an error card.
+   *   2. Collapse the loaded window. The only recovery offered by that card was
+   *      `load()`, which reads page one, so 300 loaded rows became 100.
+   *   3. Freeze everything else. The whole action surface was disabled through the
+   *      shared `saving` flag for the duration of the PATCH AND the re-read.
+   *
+   * So: the outcome is stated INSIDE the File action host, the window-preserving
+   * reconciliation is the only read, and nothing but the Favorite row is busy.
+   *
+   * SUCCESS. The server answer is authoritative for exactly one row, so the loaded
+   * rows are corrected in place through the controller's `patchFile` and the sheet
+   * closes: the tile and the heart marker are truthful immediately, and the window
+   * keeps whatever it had. With Favoritos ON, unfavoriting the last visible favorite
+   * legitimately removes that row from the filtered set, so the local patch is NOT
+   * applied in that mode and the re-read is what reconciles the list — one read, the
+   * same single read a rename already costs.
+   *
+   * FAILURE. Nothing is patched, so the row keeps the server's truth, and the
+   * refusal is stated in the sheet the member opened. No list replacement, no
+   * pagination reset, no navigation: the member stays in the exact context they
+   * were in.
    */
   const toggleFileFavorite = async (isFavorite: boolean) => {
-    if (!token || !actionTarget || saving) return;
+    if (!token || !actionTarget || favoriteBusy) return;
     const targetId = actionTarget.id;
-    setSaving(true);
+    setFavoriteBusy(true);
+    setActionError(null);
     try {
       await setHomeCloudFileFavorite(token, targetId, isFavorite);
+      // Reconcile BEFORE closing, so the row the tile paints is the server's.
       if (!favoritesOnly) controllerRef.current!.patchFile(targetId, { isFavorite });
-      await refresh();
-    } catch (e) { setError(e instanceof Error ? e.message : 'No pudimos actualizar tus favoritos.'); } finally { setSaving(false); }
+      setActionTargetId(null);
+      // NOT awaited into the busy state: the sheet is already gone and the rest of
+      // the surface must not be held hostage to a re-read the member cannot see.
+      void refresh();
+    } catch (e) {
+      // Inline, in the host. Never the screen-level list error.
+      setActionError(e instanceof Error ? e.message : 'No pudimos actualizar tus favoritos.');
+    } finally { setFavoriteBusy(false); }
   };
 
   /**
@@ -899,7 +934,7 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
         deleted by removing a folder. */}<AppText variant="caption" tone="secondary">Al eliminar la carpeta no se borra ningún archivo: su contenido directo pasa a {folderActions ? (folderDisplayPath(allFolders, folderActions.parentFolderId) ?? 'Archivos') : 'Archivos'}.</AppText></View></ActionSheet>
     {/* The canonical per-File action host. It is always mounted and decides its own
         visibility, so there is never a second place that can open a File menu. */}
-    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setDownloadFeedback(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveIntent({ kind: 'file' })} onFavorite={(isFavorite) => void toggleFileFavorite(isFavorite)} onDownload={() => void saveCopyOfFile()} onShare={() => void shareFile()} />
+    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} favoriteBusy={favoriteBusy} actionError={actionError} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setDownloadFeedback(null); setActionError(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveIntent({ kind: 'file' })} onFavorite={(isFavorite) => void toggleFileFavorite(isFavorite)} onDownload={() => void saveCopyOfFile()} onShare={() => void shareFile()} />
     {/* THE ONE destination picker. A single File's Move, the selection's Move and a
         Folder's Move all resolve their destination here, so a move can never offer
         a destination the other move would not. It reads the same household catalogue

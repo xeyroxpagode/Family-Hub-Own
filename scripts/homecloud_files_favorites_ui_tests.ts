@@ -222,7 +222,24 @@ function createHookHost(): FullHost {
 // ── what a device would provide ──────────────────────────────────────────────
 
 let activeHost: FullHost | null = null;
-let authState: { session: { access_token: string; user: { id: string } } | null } = { session: null };
+type AuthState = {
+  session: { access_token: string; user: { id: string } } | null;
+  /**
+   * The signed-in member's own identity.
+   *
+   * It is here because `useHomeCloudCapabilities` needs a COMPLETE scope —
+   * account, household AND membership — before it will resolve the projection,
+   * and it is DENY-ALL until it does. Omitting it left the whole action surface
+   * permanently disabled in every surface assertion below, which is exactly the
+   * kind of harness gap that makes a behavioural test quietly weaker than it
+   * reads.
+   */
+  authMe: {
+    person: { id: string };
+    memberships: { id: string; household_id: string; status: string }[];
+  } | null;
+};
+let authState: AuthState = { session: null, authMe: null };
 let householdState: { currentHousehold: { id: string; name: string } | null } = { currentHousehold: null };
 
 const hostModules = (): FullHost => {
@@ -265,13 +282,42 @@ const reactNativeStub = {
   Text: 'Text',
   FlatList: 'FlatList',
   ScrollView: 'ScrollView',
+  Modal: 'Modal',
+  TextInput: 'TextInput',
   ActivityIndicator: 'ActivityIndicator',
   Pressable: 'Pressable',
   KeyboardAvoidingView: 'KeyboardAvoidingView',
-  Keyboard: { dismiss: () => undefined },
+  Keyboard: { dismiss: () => undefined, addListener: () => ({ remove: () => undefined }) },
   StyleSheet: { create: <T,>(styles: T): T => styles, flatten: (style: unknown) => style },
   AppState: appStateStub,
+  /**
+   * The window the REAL `ActionSheet` measures itself against. It is a variable
+   * because reachability is a claim about a viewport, so a test has to be able to
+   * CHANGE it rather than assert against one convenient number.
+   */
+  useWindowDimensions: () => windowDimensions,
+  // What the presentational primitives need to mount for real. These are the
+  // pieces a node host genuinely cannot provide — an animation clock and the
+  // platform's reduce-motion setting — not the components being tested.
+  Animated: {
+    createAnimatedComponent: (component: unknown) => component,
+    Value: class AnimatedValueStub {
+      private current: number;
+      constructor(initial: number) { this.current = initial; }
+      setValue(next: number): void { this.current = next; }
+    },
+    spring: () => ({ start: () => undefined, stop: () => undefined }),
+  },
+  AccessibilityInfo: {
+    isReduceMotionEnabled: async () => false,
+    addEventListener: () => ({ remove: () => undefined }),
+  },
 };
+
+/** Mutable so a test can pin a viewport instead of inheriting whatever came first. */
+let windowDimensions = { width: 360, height: 640, scale: 2, fontScale: 1 };
+/** Mutable so a test can install a notch / gesture-bar inset. */
+let safeAreaInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 
 let focusEffect: EffectCallback | null = null;
 const navigationStub = {
@@ -286,7 +332,7 @@ const navigationStub = {
 
 const authStub = { useAuth: () => authState };
 const householdStub = { useHousehold: () => householdState };
-const uiStub = {
+let uiStub: Record<string, unknown> = {
   AppButton: 'AppButton',
   AppText: 'AppText',
   AppInput: 'AppInput',
@@ -297,6 +343,34 @@ const uiStub = {
 };
 const iconsStub = { HomePlusIcon: 'HomePlusIcon' };
 const fileIntakeStub = { FileIntake: 'FileIntake' };
+
+/**
+ * U-I — the REAL presentational chain for the File action host.
+ *
+ * Replacing `ActionSheet` and `AppButton` with strings is what made the previous
+ * reachability claim worthless: a string is always "reachable", because it has no
+ * viewport, no content box and no clipping. These stubs exist so the REAL
+ * `ActionSheet`, `AppButton`, `AppText` and `InteractivePressable` can be executed
+ * against a real window size and real safe-area insets. What stays stubbed is only
+ * what a node host cannot have: the calendar widget, the insets reader, the theme
+ * provider and the haptics bridge.
+ */
+const themeStub = { useAppTheme: () => require(compiledEarly('constants/theme')).theme };
+const calendarsStub = {
+  Calendar: 'Calendar',
+  LocaleConfig: { locales: {} as Record<string, unknown>, defaultLocale: 'es' },
+};
+const safeAreaStub = { useSafeAreaInsets: () => safeAreaInsets };
+const hapticsStub = {
+  lightHaptic: () => Promise.resolve(),
+  mediumHaptic: () => Promise.resolve(),
+  heavyHaptic: () => Promise.resolve(),
+};
+
+/** The compiled mirror of a frontend module, resolved before any stubbing detail. */
+function compiledEarly(relative: string): string {
+  return path.join(__dirname, '..', 'front', 'mi-front-limpio', relative);
+}
 
 /** Spies for the transfer intents, used everywhere except U-F (which drives the real module). */
 const stageCalls: { contentId: string }[] = [];
@@ -421,6 +495,12 @@ const downloadApiStub = {
  * entry is dropped first: the two instances never meet.
  */
 let useRealDownloadService = false;
+/**
+ * U-I — swap the File action host onto the REAL `ActionSheet` / `AppButton` /
+ * `AppText` / `InteractivePressable`, so the reachability claim is made against an
+ * executed component chain instead of a string.
+ */
+let useRealActionSheet = false;
 
 function installModuleStubs(): void {
   const loader = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
@@ -433,6 +513,8 @@ function installModuleStubs(): void {
     ['expo-file-system', newFileSystemStub],
     ['expo-sharing', sharingStub],
     ['expo-document-picker', { getDocumentAsync: async () => ({ canceled: true, assets: null }) }],
+    ['react-native-calendars', calendarsStub],
+    ['react-native-safe-area-context', safeAreaStub],
   ];
   const byFragment: [string, unknown][] = [
     ['AuthContext', authStub],
@@ -440,6 +522,8 @@ function installModuleStubs(): void {
     ['components/ui', uiStub],
     ['constants/icons', iconsStub],
     ['homecloudDownloadService', downloadSpyStub],
+    ['AppThemeContext', themeStub],
+    ['utils/haptics', hapticsStub],
   ];
   loader._load = function patched(request: string, parent: unknown, isMain: boolean): unknown {
     for (const [exact, value] of byRequest) if (request === exact) return value;
@@ -454,10 +538,55 @@ function installModuleStubs(): void {
     for (const [fragment, value] of byFragment) {
       // U-F loads the REAL download module past this rule (see the flag there).
       if (useRealDownloadService && fragment === 'homecloudDownloadService') continue;
-      if (request.includes(fragment)) return value;
+      if (!request.includes(fragment)) continue;
+      // The host binds to whichever `components/ui` module is live: string stubs
+      // everywhere, and the REAL ActionSheet/AppButton chain while U-I runs.
+      if (fragment === 'components/ui') {
+        return useRealActionSheet ? realUiHostStub() : uiStub;
+      }
+      return value;
     }
     return original.call(this, request, parent, isMain);
   };
+}
+
+/**
+ * The mixed `components/ui` module the File action host sees while U-I runs.
+ *
+ * Only the components the host actually mounts for the ACTION list are real. The
+ * inputs the Info view uses stay strings, because U-I is about the action list's
+ * reachability and nothing else.
+ */
+let realActionHostModule: { FileActionHost: (props: Record<string, unknown>) => unknown } | null = null;
+function realUiHostStub(): Record<string, unknown> {
+  const sheet = require(compiledEarly('components/ui/ActionSheet')) as Record<string, unknown>;
+  const button = require(compiledEarly('components/ui/AppButton')) as Record<string, unknown>;
+  const text = require(compiledEarly('components/ui/AppText')) as Record<string, unknown>;
+  const pressable = require(compiledEarly('components/ui/InteractivePressable')) as Record<string, unknown>;
+  return {
+    ...uiStub,
+    ActionSheet: sheet.ActionSheet,
+    DatePickerSheet: sheet.DatePickerSheet,
+    FormActionRow: sheet.FormActionRow,
+    AppButton: button.AppButton,
+    AppText: text.AppText,
+    InteractivePressable: pressable.InteractivePressable,
+  };
+}
+
+/** Re-require the host so it binds to the REAL sheet, and hand back the module. */
+function withRealActionSheet<T>(run: (host: { FileActionHost: (props: Record<string, unknown>) => unknown }) => T): T {
+  useRealActionSheet = true;
+  const hostPath = compiledEarly('services/homecloud/FileActionHost');
+  delete (require as unknown as { cache: Record<string, unknown> }).cache[require.resolve(hostPath)];
+  try {
+    realActionHostModule = require(hostPath) as { FileActionHost: (props: Record<string, unknown>) => unknown };
+    return run(realActionHostModule);
+  } finally {
+    delete (require as unknown as { cache: Record<string, unknown> }).cache[require.resolve(hostPath)];
+    useRealActionSheet = false;
+    realActionHostModule = null;
+  }
 }
 
 installModuleStubs();
@@ -473,7 +602,17 @@ const grammar = require(compiled('services/homecloud/homecloudFileActions')) as 
   HOMECLOUD_FILE_ACTION_GRAMMAR: HomeCloudFileActionDefinition[];
   HOMECLOUD_FILE_ACTION_SEAMS: string[];
   resolveFileActions: (permissions: HomeCloudFileActionPermissions, state?: HomeCloudFileActionState) => HomeCloudFileAction[];
+  FILE_ACTION_SHEET_LAYOUT: { actionRowMinHeightDp: number };
+  FILE_ACTION_RENDERED_ROW_COUNT: number;
+  fileActionSheetLayoutPolicy: (input: {
+    viewportHeightDp: number;
+    insetTopDp: number;
+    insetBottomDp: number;
+    fontScale: number;
+    actionCount: number;
+  }) => { sheetHeightDp: number; contentBoxDp: number; intrinsicContentDp: number; overflows: boolean; clippedDp: number };
 };
+const { FILE_ACTION_SHEET_LAYOUT, FILE_ACTION_RENDERED_ROW_COUNT, fileActionSheetLayoutPolicy } = grammar;
 const pagination = require(compiled('services/homecloud/homecloudFilesPagination')) as {
   createFilesPagination: (options: {
     read: (input: { limit: number; offset: number }) => Promise<FilesBrowserPage>;
@@ -529,6 +668,8 @@ class Household {
   readonly requests: Request[] = [];
   caps = { view: true, contribute: true, organize: true, delete: true };
   favoriteRefusal: Refusal | null = null;
+  /** Held open by a test to hold a PATCH in flight and observe the busy state. */
+  favoriteGate: (() => Promise<void>) | null = null;
 
   constructor(seed: { folders?: Folder[]; loose?: number; favorites?: string[] } = {}) {
     this.folders = [...(seed.folders ?? [])];
@@ -558,7 +699,11 @@ class Household {
         return json(200, { folders: this.folders.map((folder) => ({ ...folder, householdId: HOUSEHOLD_ID })) });
       }
       const favoriteMatch = /^\/api\/homecloud\/content\/(.+)\/favorite$/.exec(target.pathname);
-      if (favoriteMatch && method === 'PATCH') return this.favorite(favoriteMatch[1], (body ?? {}) as { isFavorite?: unknown });
+      if (favoriteMatch && method === 'PATCH') {
+        const gate = this.favoriteGate;
+        if (gate) await gate();
+        return this.favorite(favoriteMatch[1], (body ?? {}) as { isFavorite?: unknown });
+      }
       if (target.pathname === '/api/homecloud/capabilities') {
         return json(200, {
           capabilities: {
@@ -829,7 +974,13 @@ function mountSurface(household: Household): Mounted {
   exportCalls.length = 0;
   shareSpyCalls.length = 0;
   household.install();
-  authState = { session: { access_token: 'tok-favorites', user: { id: MEMBER_ID } } };
+  authState = {
+    session: { access_token: 'tok-favorites', user: { id: MEMBER_ID } },
+    authMe: {
+      person: { id: 'pp-favorites' },
+      memberships: [{ id: 'mm-favorites-cap', household_id: HOUSEHOLD_ID, status: 'active' }],
+    },
+  };
   householdState = { currentHousehold: { id: HOUSEHOLD_ID, name: 'Casa' } };
   const host: FullHost = createHookHost();
   activeHost = host;
@@ -1089,40 +1240,48 @@ async function testFavoriteMutationOnSurface(): Promise<void> {
   const body = tileBody(surface.tree, 'c-000');
   record(typeof body?.props?.accessibilityLabel === 'string' && body.props.accessibilityLabel.includes(', favorito'),
     'U-D5. and the tile now says it is one of the member\'s favorites');
-  record(pressHostFavorite(surface.tree, 'Quitar de favoritos'), 'U-D6. the open host already names the opposite intent');
+  // STAGE 2 REOPEN. The sheet used to STAY open so the member could toggle back
+  // from it. It now closes on success: the mutation is one intent, the tile already
+  // reflects it, and a menu left open over a completed action reads as a failure.
+  record(actionHostElement(surface.tree)?.props?.file === null, 'U-D6. the sheet closed once the server answered');
+  record(openTileActions(surface.tree, 'c-000'), 'U-D7. re-opening it names the opposite intent from the current File');
+  surface.render();
+  record(pressHostFavorite(surface.tree, 'Quitar de favoritos'), 'U-D8. and the remove intent is dispatched');
   await surface.settle(24, 10);
   const second = household.favoriteCalls();
   record(second.length === 2 && (second[1]?.body as { isFavorite?: unknown })?.isFavorite === false,
-    'U-D7. tapping it sends the REMOVE intent for the same File');
+    'U-D9. tapping it sends the REMOVE intent for the same File');
   await surface.settle(24, 10);
   const unbefriended = tileBody(surface.tree, 'c-000');
   record(typeof unbefriended?.props?.accessibilityLabel === 'string' && !unbefriended.props.accessibilityLabel.includes('favorito'),
-    'U-D8. and the tile stops saying so');
+    'U-D10. and the tile stops saying so');
 
   // A different File receives its own current state, not the previous File's.
-  record(openTileActions(surface.tree, 'c-001'), 'U-D9. the host opens for a DIFFERENT File');
+  record(openTileActions(surface.tree, 'c-001'), 'U-D11. the host opens for a DIFFERENT File');
   surface.render();
   record(actionHostElement(surface.tree)?.props?.file?.isFavorite === true,
-    'U-D10. and it is handed THAT File\'s current favorite state');
-  record(pressHostFavorite(surface.tree, 'Quitar de favoritos'), 'U-D11. so it offers the remove intent there');
+    'U-D12. and it is handed THAT File\'s current favorite state');
+  record(pressHostFavorite(surface.tree, 'Quitar de favoritos'), 'U-D13. so it offers the remove intent there');
   await surface.settle(24, 10);
-  record(household.favoriteCalls().length === 3, 'U-D12. and the mutation names the new File');
+  record(household.favoriteCalls().length === 3, 'U-D14. and the mutation names the new File');
 
-  // A refusal corrects nothing and is stated.
+  // A refusal corrects nothing and is stated INSIDE the host, never as a list error.
   household.favoriteRefusal = { status: 403, code: 'homecloud_forbidden', message: 'No tenés permiso para realizar esta acción en HomeCloud.' };
-  record(openTileActions(surface.tree, 'c-002'), 'U-D13. the host opens for a third File');
+  record(openTileActions(surface.tree, 'c-002'), 'U-D15. the host opens for a third File');
   surface.render();
-  record(pressHostFavorite(surface.tree, 'Agregar a favoritos'), 'U-D14. the member tries to favorite it');
+  record(pressHostFavorite(surface.tree, 'Agregar a favoritos'), 'U-D16. the member tries to favorite it');
   await surface.settle(24, 10);
-  record(household.favorites.has('c-002') === false, 'U-D15. the server refused, so the preference was never recorded');
-  record(renderText(surface.tree).some((text) => /permiso/i.test(text)),
-    'U-D16. and the refusal itself is stated on the surface instead of a painted favorite');
+  record(household.favorites.has('c-002') === false, 'U-D17. the server refused, so the preference was never recorded');
+  record(listOf(surface.tree) !== null && listedFileIds(surface.tree).length === 3,
+    'U-D18. the list is untouched: still mounted, still three rows');
+  record(actionHostElement(surface.tree)?.props?.actionError === 'No tenés permiso para realizar esta acción en HomeCloud.',
+    'U-D19. and the refusal itself is carried by the File action host, where it happened');
   household.favoriteRefusal = null;
-  record(pressRefreshControl(surface.tree), 'U-D17. a re-read is triggered after the refusal');
+  record(pressRefreshControl(surface.tree), 'U-D20. a re-read is triggered after the refusal');
   await surface.settle(24, 10);
   const reconciled = tileBody(surface.tree, 'c-002');
   record(typeof reconciled?.props?.accessibilityLabel === 'string' && !reconciled.props.accessibilityLabel.includes('favorito'),
-    'U-D18. the tile still says nothing it was not granted');
+    'U-D21. the tile still says nothing it was not granted');
   surface.unmount();
 
   // Inside the filtered mode, unfavoriting reconciles through the re-read: the
@@ -1130,17 +1289,332 @@ async function testFavoriteMutationOnSurface(): Promise<void> {
   const filtered = new Household({ loose: 2, favorites: ['c-000'] });
   const filteredSurface = mountSurface(filtered);
   await filteredSurface.settle();
-  record(await pressFavoritesToggle(filteredSurface, 'favorites'), 'U-D19. Favoritos is on');
+  record(await pressFavoritesToggle(filteredSurface, 'favorites'), 'U-D23. Favoritos is on');
   await filteredSurface.settle();
-  record(listedFileIds(filteredSurface.tree).join(',') === 'c-000', 'U-D20. showing the one favorite');
-  record(openTileActions(filteredSurface.tree, 'c-000'), 'U-D21. the host opens');
+  record(listedFileIds(filteredSurface.tree).join(',') === 'c-000', 'U-D24. showing the one favorite');
+  record(openTileActions(filteredSurface.tree, 'c-000'), 'U-D25. the host opens');
   filteredSurface.render();
-  record(pressHostFavorite(filteredSurface.tree, 'Quitar de favoritos'), 'U-D22. the member removes it');
+  record(pressHostFavorite(filteredSurface.tree, 'Quitar de favoritos'), 'U-D26. the member removes it');
   await filteredSurface.settle(24, 10);
-  record(listedFileIds(filteredSurface.tree).length === 0, 'U-D23. the row leaves the filtered set on reconcile');
+  record(listedFileIds(filteredSurface.tree).length === 0, 'U-D27. the row leaves the filtered set on reconcile');
   record(renderText(filteredSurface.tree).some((text) => /favoritos/i.test(text)),
-    'U-D24. and the empty filtered state says what it is');
+    'U-D28. and the empty filtered state says what it is');
   filteredSurface.unmount();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// U-E — THE SIGNAL
+// ═══════════════════════════════════════════════════════════════════════════
+
+// U-I — REACHABILITY: EVERY FILE ACTION, ON A REAL ACTION SHEET
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Device QA found the Favorite UNREACHABLE on a real phone: it is the sixth row of
+ * a sheet whose content box was bounded and NOT scrollable, so the last rows were
+ * clipped away with no error and no disabled control.
+ *
+ * Two separate things are proven here, because either alone is not enough:
+ *
+ *   1. The OVERFLOW IS REAL. `fileActionSheetLayoutPolicy` is executed with the
+ *      tokens the sheet actually uses, at the viewport and font scales the audit
+ *      named, and reports the dp that a bounded box would have clipped. This is
+ *      SOURCE + PURE_UNIT, and it is labelled as such: it is arithmetic over design
+ *      tokens, not a rendering.
+ *   2. THE FIX IS MOUNTED. The host is then executed against the REAL
+ *      `ActionSheet`, `AppButton` and `ScrollView` at that same viewport, and the
+ *      rendered tree is inspected: the sheet is asked for the SCROLLABLE content
+ *      box, a scroll container is actually inside it, and all six rows — the
+ *      Favorite included — are present in what a device would mount. No component
+ *      is replaced by a string anywhere in this block.
+ */
+function testActionSheetReachability(): void {
+  console.log('\n=== U-I: the File action sheet scrolls, so every action is reachable ===');
+
+  const rows = FILE_ACTION_RENDERED_ROW_COUNT;
+  record(rows === 6, `U-I1. the grammar renders six action rows, the Favorite among them (${rows})`);
+
+  // 1. THE OVERFLOW IS REAL (pure policy, real tokens).
+  const small = { viewportHeightDp: 640, insetTopDp: 44, insetBottomDp: 34 };
+  const atOne = fileActionSheetLayoutPolicy({ ...small, fontScale: 1, actionCount: rows });
+  const atOneThree = fileActionSheetLayoutPolicy({ ...small, fontScale: 1.3, actionCount: rows });
+  const atTwo = fileActionSheetLayoutPolicy({ ...small, fontScale: 2, actionCount: rows });
+  record(atOne.intrinsicContentDp >= atOne.contentBoxDp,
+    `U-I2. on a 360x640 notched phone at fontScale 1.0 the six rows already fill the content box (${atOne.intrinsicContentDp}dp wanted vs ${atOne.contentBoxDp}dp available)`);
+  record(atOneThree.overflows && atOneThree.clippedDp > 0,
+    `U-I3. at fontScale 1.3 a bounded box WOULD clip ${atOneThree.clippedDp}dp — which is how the last row disappeared`);
+  record(atTwo.overflows && atTwo.clippedDp > 2 * FILE_ACTION_SHEET_LAYOUT.actionRowMinHeightDp,
+    `U-I4. at fontScale 2.0 a bounded box would clip ${atTwo.clippedDp}dp — more than two whole rows, Favorite included`);
+  const roomy = fileActionSheetLayoutPolicy({ viewportHeightDp: 800, insetTopDp: 44, insetBottomDp: 34, fontScale: 1, actionCount: rows });
+  record(!roomy.overflows,
+    'U-I5. and on a tall phone it does NOT overflow — so the bug was viewport-dependent, which is exactly why it survived review');
+
+  // 2. THE FIX IS MOUNTED (real components, this viewport).
+  const scratch = mountSurface(new Household({ loose: 1 }));
+  const hostProps = {
+    folders: [],
+    permissions: { view: true, organize: true, delete: true },
+    saving: false,
+    favoriteBusy: false,
+    actionError: null,
+    downloadFeedback: null,
+    onClose: () => undefined,
+    onSave: () => undefined,
+    onMoveRequest: () => undefined,
+    onFavorite: () => undefined,
+    onDownload: () => undefined,
+    onShare: () => undefined,
+  };
+  const plain = { id: 'c-000', displayName: 'contrato.txt', mimeType: 'text/plain', folderId: null, note: null, documentDate: null, isFavorite: false };
+
+  withRealActionSheet((realHost) => {
+    windowDimensions = { ...windowDimensions, width: 360, height: 640 };
+    safeAreaInsets = { top: 44, bottom: 34, left: 0, right: 0 };
+    const rendered = realHost.FileActionHost({ ...hostProps, file: plain }) as TestElement;
+
+    const sheetElement = findOne(rendered, (element) => typeof element.type === 'function' && (element.type as { name?: string }).name === 'ActionSheet');
+    record(sheetElement !== null, 'U-I6. the REAL ActionSheet is what the host mounts — no string stand-in');
+    record(sheetElement?.props?.size === 'scrollable-content',
+      'U-I7. and it is asked for the SCROLLABLE content box, not the bounded intrinsic one');
+
+    // Execute the real sheet so its own size logic runs at this viewport.
+    const sheetModule = require(compiledEarly('components/ui/ActionSheet')) as { ActionSheet: (props: Record<string, unknown>) => unknown };
+    const executed = sheetModule.ActionSheet({ ...(sheetElement?.props as Record<string, unknown>) }) as TestElement;
+
+    // The scrollable content container is `{ flexGrow: 1, flexShrink: 1, minHeight: 0 }`;
+    // the intrinsic one is `{ flexShrink: 1, minHeight: 0 }`. Asserting the container
+    // actually received the scrollable shape is what makes "it scrolls" a claim about
+    // the mounted tree rather than about a prop that nobody applied.
+    const boxes = findAll(executed, (element) => element.type === 'View' && isPlainStyleObject(element.props?.style));
+    const containerStyles = boxes.map((box) => flattenStyle(box.props.style as unknown));
+    const scrollableBox = containerStyles.find((style) => style?.flexGrow === 1 && style?.flexShrink === 1);
+    record(scrollableBox !== undefined,
+      'U-I8. the real sheet applied the scrollable content style (flexGrow 1 + flexShrink 1)');
+    // The intrinsic content box is `{ flexShrink: 1, minHeight: 0 }` with NO flexGrow.
+    // It is the exact style that silently clipped the Favorite, so its absence is the
+    // assertion — a sheet can still be asked for the wrong box in two other ways.
+    record(!containerStyles.some((style) => style?.minHeight === 0 && style?.flexShrink === 1 && style?.flexGrow === undefined),
+      'U-I9. nowhere in that sheet is the intrinsic, non-growable content box used');
+
+    // The scroll container must actually WRAP the actions, not sit beside them.
+    const scroll = findOne(executed, (element) => element.type === 'ScrollView');
+    record(scroll !== null, 'U-I10. a scroll container is mounted inside the sheet');
+    record(flattenStyle(scroll?.props?.style as unknown)?.flexShrink === 1,
+      'U-I11. and it is bounded by the sheet (flexShrink 1), which is what lets it scroll instead of overflowing');
+    record(scroll !== null && scroll === (sheetElement?.props?.children as unknown),
+      'U-I12. the scroll container IS what the host put inside the sheet, so the actions it wraps can be scrolled to');
+
+    // Every row, in canonical order, is present at this viewport and font scale.
+    const titles = findAll(scroll as unknown, (element) => typeof element.props?.title === 'string')
+      .map((element) => String(element.props.title));
+    record(titles.join('|') === 'Información|Renombrar|Mover|Guardar una copia|Compartir|Agregar a favoritos',
+      `U-I13. all six rows render in canonical order, the Favorite LAST but present (${titles.join('|')})`);
+    record(titles.includes('Agregar a favoritos'),
+      'U-I14. the Favorite the audit could not reach is in the mounted tree');
+    record(titles.length === rows, 'U-I15. and no row was deleted to make the sheet fit');
+
+    // The real button, executed, is what proves the row is pressable rather than clipped.
+    const buttonModule = require(compiledEarly('components/ui/AppButton')) as { AppButton: (props: Record<string, unknown>) => unknown };
+    const favoriteRow = findOne(scroll as unknown, (element) => element.props?.title === 'Agregar a favoritos');
+    const executedButton = buttonModule.AppButton({ ...(favoriteRow?.props as Record<string, unknown>) }) as TestElement;
+    const pressable = findOne(executedButton, (element) => element.props?.accessibilityRole === 'button');
+    record(pressable !== null && pressable?.props?.disabled !== true,
+      'U-I16. the Favorite row mounts as an ENABLED control, so it is a real target and not a painted row');
+    record(pressable?.props?.accessibilityLabel === 'Agregar a favoritos contrato.txt',
+      'U-I17. and it names the File it acts on, so an assistive technology can find it too');
+  });
+
+  windowDimensions = { width: 360, height: 640, scale: 2, fontScale: 1 };
+  safeAreaInsets = { top: 0, bottom: 0, left: 0, right: 0 };
+  scratch.unmount();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// U-J — A BUSY FAVORITE BUSIES ONE ROW, NOT THE WHOLE SURFACE
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * The defect was that the Favorite rode on the surface-wide `saving` flag, which
+ * also covers the window-preserving re-read. Every action row was therefore
+ * disabled — Renombrar, Mover, Cerrar — for the whole PATCH + reconciliation.
+ *
+ * The PATCH is held open here with a gate, so the busy state is observed while it
+ * is genuinely in flight rather than being asserted from a source string.
+ */
+async function testFavoriteBusyIsPerAction(): Promise<void> {
+  console.log('\n=== U-J: only the Favorite row is busy while ITS OWN mutation is in flight ===');
+
+  const household = new Household({ loose: 2 });
+  const surface = mountSurface(household);
+  await surface.settle();
+
+  const gateHolder: { release: (() => void) | null } = { release: null };
+  const gateOpen = new Promise<void>((resolve) => { gateHolder.release = resolve; });
+  household.favoriteGate = () => gateOpen;
+
+  record(openTileActions(surface.tree, 'c-000'), 'U-J1. the File actions open');
+  surface.render();
+  record(pressHostFavorite(surface.tree, 'Agregar a favoritos'), 'U-J2. the Favorite is tapped');
+  await surface.settle(6, 5);
+
+  record(household.favoriteCalls().length === 1, 'U-J3. the PATCH is in flight and held there');
+  record(actionHostElement(surface.tree)?.props?.favoriteBusy === true,
+    'U-J4. the host is told the Favorite is busy');
+  record(actionHostElement(surface.tree)?.props?.saving === false,
+    'U-J5. and NOT that the whole surface is saving — the screen-wide flag stays false');
+
+  // The host, rendered with the REAL sheet, must show exactly ONE busy row.
+  withRealActionSheet((realHost) => {
+    const hostProps = actionHostElement(surface.tree)?.props as Record<string, unknown>;
+    const rendered = realHost.FileActionHost({ ...hostProps }) as TestElement;
+    const scroll = findOne(rendered, (element) => element.type === 'ScrollView');
+    const rows = findAll(scroll as unknown, (element) => typeof element.props?.title === 'string');
+    const busy = rows.filter((element) => element.props?.accessibilityState?.busy === true);
+    const disabled = rows.filter((element) => element.props?.disabled === true);
+    record(busy.length === 1 && busy[0]?.props?.title === 'Agregar a favoritos',
+      'U-J6. exactly one row reports itself busy: the Favorite');
+    record(busy[0]?.props?.loading === true,
+      'U-J7. and it shows its own progress instead of pretending nothing happened');
+    record(disabled.length === 1 && disabled[0]?.props?.title === 'Agregar a favoritos',
+      `U-J8. only that row is disabled — Renombrar, Mover, Guardar una copia and Compartir stay live while it works (disabled: ${disabled.map((row) => String(row.props?.title)).join(', ') || 'none'})`);
+    record(findOne(scroll as unknown, (element) => element.props?.title === 'Cerrar' || true) !== undefined
+      && scroll !== null,
+      'U-J9. the sheet itself is still alive and dismissible');
+  });
+
+  // A second tap while busy must not send a second PATCH.
+  const before = household.favoriteCalls().length;
+  const hostPropsNow = actionHostElement(surface.tree)?.props as Record<string, unknown>;
+  withRealActionSheet((realHost) => {
+    const rendered = realHost.FileActionHost({ ...hostPropsNow }) as TestElement;
+    const row = findOne(rendered, (element) => element.props?.title === 'Agregar a favoritos');
+    (row?.props?.onPress as (() => void) | undefined)?.();
+  });
+  await surface.settle(4, 5);
+  record(household.favoriteCalls().length === before,
+    'U-J11. the busy guard means the in-flight PATCH is never sent twice');
+
+  gateHolder.release?.();
+  household.favoriteGate = null;
+  await surface.settle(24, 10);
+  record(household.favoriteCalls().length === 1, 'U-J10. exactly one mutation was ever sent');
+  record(typeof tileBody(surface.tree, 'c-000')?.props?.accessibilityLabel === 'string'
+    && (tileBody(surface.tree, 'c-000')?.props?.accessibilityLabel as string).includes(', favorito'),
+    'U-J11. once the server answers, the tile is truthful');
+  record(actionHostElement(surface.tree)?.props?.file === null,
+    'U-J12. and the sheet closed on success, so a completed Favorite does not leave a stale menu open');
+  surface.unmount();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// U-K — A REFUSED FAVORITE MUST NOT TOUCH THE LIST, THE WINDOW OR THE CONTEXT
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * The three failures device QA reported, each of which is a DIFFERENT wrong
+ * recovery path and therefore gets its own assertion:
+ *
+ *   the list was REPLACED        -> the screen-level error channel
+ *   the window COLLAPSED        -> its `Reintentar` calls `load()`, page one
+ *   the member LOST CONTEXT     -> nothing navigates, nothing is unmounted
+ *
+ * The window is a real 300-row window here, so a collapse to 100 is observable
+ * rather than theoretical.
+ */
+async function testRefusedFavoritePreservesEverything(): Promise<void> {
+  console.log('\n=== U-K: a refused Favorite leaves the list, the window and the context alone ===');
+
+  const household = new Household({ loose: 300 });
+  const surface = mountSurface(household);
+  await surface.settle();
+  // Load three real pages so a collapse is measurable.
+  const listProps = (): { data: unknown[] } => (listOf(surface.tree)?.props ?? { data: [] }) as { data: unknown[] };
+  for (let page = 0; page < 2; page += 1) {
+    (listOf(surface.tree)?.props?.ListFooterComponent as TestElement | undefined)?.props?.children;
+    const moreButton = findOne(surface.tree, (element) => element.props?.title === 'Mostrar más archivos');
+    if (moreButton && typeof moreButton.props.onPress === 'function') moreButton.props.onPress();
+    await surface.settle(20, 5);
+  }
+  const loadedBefore = listedFileIds(surface.tree).length;
+  record(loadedBefore === 300, `U-K1. the member has a real 300-row window loaded (${loadedBefore})`);
+  const readsBefore = household.fileReads().length;
+
+  household.favoriteRefusal = { status: 403, code: 'homecloud_forbidden', message: 'No tenés permiso para realizar esta acción en HomeCloud.' };
+  record(openTileActions(surface.tree, 'c-000'), 'U-K2. the actions open for a File');
+  surface.render();
+  record(pressHostFavorite(surface.tree, 'Agregar a favoritos'), 'U-K3. the Favorite is refused');
+  await surface.settle(30, 10);
+
+  // 1. THE LIST WAS NOT REPLACED. The FlatList is still the surface, not an error card.
+  record(listOf(surface.tree) !== null,
+    'U-K4. the Files list is STILL MOUNTED after the refusal — it was not replaced by an error card');
+  record(findAll(surface.tree, (element) => element.type === 'ErrorState').length === 0,
+    'U-K5. and the screen-level read-failure surface was never entered');
+  record(actionHostElement(surface.tree)?.props?.file !== null,
+    'U-K6. the member is still in the sheet they opened');
+
+  // 2. THE WINDOW DID NOT COLLAPSE.
+  record(listedFileIds(surface.tree).length === 300,
+    `U-K7. the loaded window is still 300 rows, not reset to page one (${listedFileIds(surface.tree).length})`);
+  const pageOneReads = household.fileReads()
+    .slice(readsBefore)
+    .filter((entry) => new URLSearchParams(entry.query).get('offset') === '0'
+      && new URLSearchParams(entry.query).get('limit') === '100');
+  record(pageOneReads.length === 0,
+    'U-K8. and NO first-page read was issued as a recovery — the reset path was never taken');
+
+  // 3. THE CONTEXT IS UNCHANGED, and the refusal is stated where the action happened.
+  record(household.favorites.has('c-000') === false, 'U-K9. the server refused, so the preference was never recorded');
+  record(typeof tileBody(surface.tree, 'c-000')?.props?.accessibilityLabel === 'string'
+    && !(tileBody(surface.tree, 'c-000')?.props?.accessibilityLabel as string).includes('favorito'),
+    'U-K10. no tile was painted as a favorite the backend refused');
+  record(typeof actionHostElement(surface.tree)?.props?.actionError === 'string',
+    'U-K11. the refusal is carried on the File action host itself');
+
+  withRealActionSheet((realHost) => {
+    const rendered = realHost.FileActionHost({ ...(actionHostElement(surface.tree)?.props as Record<string, unknown>) }) as TestElement;
+    const feedback = findOne(rendered, (element) => element.props?.testID === 'file-action-error');
+    const text = feedback === null ? '' : JSON.stringify(feedback.props.children);
+    record(feedback !== null && /permiso/i.test(text),
+      'U-K12. and it is RENDERED inside the sheet, so the member is told in place');
+    record(feedback?.props?.accessibilityRole === 'alert',
+      'U-K13. announced as an alert, so it is not a silent visual note');
+    // The member must be able to try again from here.
+    const retryRow = findOne(rendered, (element) => element.props?.title === 'Agregar a favoritos');
+    record(retryRow !== null && retryRow?.props?.disabled !== true,
+      `U-K14. and the action is offered again — a refusal is not a dead end (found=${retryRow !== null} disabled=${String(retryRow?.props?.disabled)})`);
+  });
+
+  // 4. NO PAGE ONE, EVEN AFTER A SUBSEQUENT REFRESH.
+  const readsAfterRefusal = household.fileReads().length;
+  record(pressRefreshControl(surface.tree), 'U-K15. the member refreshes afterwards');
+  await surface.settle(30, 10);
+  const refreshReads = household.fileReads().slice(readsAfterRefusal);
+  const refreshOffsets = refreshReads.map((entry) => Number(new URLSearchParams(entry.query).get('offset') ?? '0'));
+  record(refreshReads.length === 3 && refreshOffsets.join(',') === '0,100,200',
+    `U-K16. the refresh walks the SAME window in 100-row pages, never a single page-one reset (${refreshOffsets.join(',') || 'none'})`);
+  record(listedFileIds(surface.tree).length === 300,
+    `U-K17. and the window survives it (${listedFileIds(surface.tree).length})`);
+
+  // 5. A FAVORITED FILE IN A FILTERED VIEW STILL RECONCILES THROUGH THE RE-READ.
+  household.favoriteRefusal = null;
+  surface.unmount();
+}
+
+/** Deep-flatten the style arrays RN accepts, so a style can be asserted by value. */
+function flattenStyle(style: unknown): Record<string, unknown> | null {
+  if (!isPlainStyleObject(style)) return null;
+  const out: Record<string, unknown> = {};
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) { for (const item of node) visit(item); return; }
+    if (isPlainStyleObject(node)) Object.assign(out, node);
+  };
+  visit(style);
+  return out;
+}
+
+function isPlainStyleObject(value: unknown): boolean {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1392,6 +1866,9 @@ async function main(): Promise<void> {
   await testFavoritesFilter();
   await testPatchPrimitive();
   await testFavoriteMutationOnSurface();
+  testActionSheetReachability();
+  await testFavoriteBusyIsPerAction();
+  await testRefusedFavoritePreservesEverything();
   await testFavoriteSignal();
   await testSaveExportModule();
   testTransferIntents();

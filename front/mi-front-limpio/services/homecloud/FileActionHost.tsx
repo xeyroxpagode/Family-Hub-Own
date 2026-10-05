@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { ActionSheet, AppButton, AppInput, AppText, DatePickerSheet, FormActionRow } from '../../components/ui';
 import { spacing } from '../../constants/theme';
 import {
@@ -33,6 +33,26 @@ export interface FileActionHostProps {
   folders: readonly HomeCloudFolder[];
   permissions: HomeCloudFileActionPermissions;
   saving: boolean;
+  /**
+   * The Favorite mutation is in flight.
+   *
+   * PER ACTION ON PURPOSE. It used to ride on the shared `saving` flag, which also
+   * covers the whole window-preserving reconciliation, so a single Favorite tap
+   * froze the ENTIRE File action surface — including Renombrar and Cerrar — for as
+   * long as the re-read took. On a slow phone that is a surface that appears
+   * broken. Only the Favorite row is busy now.
+   */
+  favoriteBusy?: boolean;
+  /**
+   * The outcome of a REFUSED action, stated INSIDE this host.
+   *
+   * A refused Favorite must never take the Files list down with it: the screen's own
+   * error channel REPLACES the list and its `Reintentar` re-reads page one, which is
+   * how a refused Favorite used to collapse a loaded 300-row window to 100 and throw
+   * the member out of the folder they were in. The member stays exactly where they
+   * were and the refusal is said here, in the sheet they opened it from.
+   */
+  actionError?: string | null;
   /**
    * The outcome of the last Guardar una copia / Compartir attempt. One feedback
    * channel because both intents perform the same signed transfer; they differ
@@ -73,6 +93,8 @@ export function FileActionHost({
   folders,
   permissions,
   saving,
+  favoriteBusy = false,
+  actionError = null,
   downloadFeedback,
   onClose,
   onSave,
@@ -131,6 +153,9 @@ export function FileActionHost({
   const showInfo = view === 'info';
 
   const run = (id: HomeCloudFileActionId): void => {
+    // One row, one guard. A row that is already busy does not re-dispatch: a
+    // double tap on a slow connection used to send two identical PATCHes.
+    if (id === 'favorite' ? favoriteBusy : saving) return;
     switch (id) {
       case 'info':
       case 'rename':
@@ -161,7 +186,17 @@ export function FileActionHost({
         visible
         title={showInfo ? 'Información del archivo' : file.displayName}
         onRequestClose={onClose}
-        size="content"
+        // STAGE 2 REOPEN — REACHABILITY.
+        //
+        // This was `content`: a BOUNDED, NON-scrollable content box. Six action
+        // rows plus a caption do not fit a short or notched sheet at a raised font
+        // scale, so the LAST rows — the Favorite included — were clipped off the
+        // bottom of the sheet and became unreachable, with no error and no disabled
+        // control to explain it. `fileActionSheetLayoutPolicy` decides that
+        // overflow from the real tokens; `scrollable-content` plus the scroll
+        // container below is what makes the answer "reachable" instead of
+        // "present in the tree but clipped away on a real device".
+        size="scrollable-content"
         footer={showInfo ? (
           <View style={styles.list}>
             <AppButton
@@ -173,41 +208,65 @@ export function FileActionHost({
           </View>
         ) : null}
       >
-        {showInfo ? (
-          <View style={styles.list}>
-            <AppInput label="Nombre" value={name} onChangeText={(next) => { setDraft((previous) => ({ ...previous, name: true })); setName(next); }} editable={permissions.organize} />
-            <AppInput label="Nota" value={note} onChangeText={(next) => { setDraft((previous) => ({ ...previous, note: true })); setNote(next); }} editable={permissions.organize} multiline />
-            <FormActionRow
-              label="Carpeta"
-              value={currentFolderLabel}
-              disabled={!permissions.organize}
-              onPress={onMoveRequest}
-            />
-            <FormActionRow
-              label="Fecha del documento"
-              value={file.documentDate ?? 'Agregar fecha'}
-              disabled={!permissions.organize}
-              onPress={() => setDatePicker(true)}
-            />
-          </View>
-        ) : (
-          <View style={styles.list}>
-            <AppText variant="caption" tone="secondary">{currentFolderLabel}</AppText>
-            {actions.map((action) => (
-              <AppButton
-                key={action.id}
-                title={action.label}
-                variant={action.intent === 'danger' ? 'danger' : action.intent}
-                disabled={!action.available || saving}
-                accessibilityLabel={`${action.label} ${file.displayName}`}
-                onPress={() => run(action.id)}
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator
+          keyboardShouldPersistTaps="handled"
+        >
+          {showInfo ? (
+            <>
+              <AppInput label="Nombre" value={name} onChangeText={(next) => { setDraft((previous) => ({ ...previous, name: true })); setName(next); }} editable={permissions.organize} />
+              <AppInput label="Nota" value={note} onChangeText={(next) => { setDraft((previous) => ({ ...previous, note: true })); setNote(next); }} editable={permissions.organize} multiline />
+              <FormActionRow
+                label="Carpeta"
+                value={currentFolderLabel}
+                disabled={!permissions.organize}
+                onPress={onMoveRequest}
               />
-            ))}
-            {downloadFeedback ? (
-              <AppText variant="bodySmall" tone={downloadFeedback.tone}>{downloadFeedback.message}</AppText>
-            ) : null}
-          </View>
-        )}
+              <FormActionRow
+                label="Fecha del documento"
+                value={file.documentDate ?? 'Agregar fecha'}
+                disabled={!permissions.organize}
+                onPress={() => setDatePicker(true)}
+              />
+            </>
+          ) : (
+            <>
+              <AppText variant="caption" tone="secondary">{currentFolderLabel}</AppText>
+              {actions.map((action) => (
+                <AppButton
+                  key={action.id}
+                  title={action.label}
+                  variant={action.intent === 'danger' ? 'danger' : action.intent}
+                  // PER-ACTION BUSY. The Favorite is busy while ITS OWN mutation is
+                  // in flight; the other rows are disabled only by a mutation they
+                  // would actually conflict with. `favoriteBusy` therefore never
+                  // makes Renombrar or Cerrar look dead.
+                  disabled={!action.available || (action.id === 'favorite' ? favoriteBusy : saving)}
+                  loading={action.id === 'favorite' && favoriteBusy}
+                  accessibilityLabel={`${action.label} ${file.displayName}`}
+                  accessibilityState={{
+                    busy: action.id === 'favorite' ? favoriteBusy : saving,
+                  }}
+                  onPress={() => run(action.id)}
+                />
+              ))}
+              {actionError ? (
+                <AppText
+                  variant="bodySmall"
+                  tone="danger"
+                  accessibilityRole="alert"
+                  accessibilityLabel={`Error: ${actionError}`}
+                  testID="file-action-error"
+                >{actionError}</AppText>
+              ) : null}
+              {downloadFeedback ? (
+                <AppText variant="bodySmall" tone={downloadFeedback.tone}>{downloadFeedback.message}</AppText>
+              ) : null}
+            </>
+          )}
+        </ScrollView>
       </ActionSheet>
       <DatePickerSheet
         visible={datePicker}
@@ -223,5 +282,9 @@ export function FileActionHost({
 }
 
 const styles = StyleSheet.create({
+  // `flexShrink: 1` is what lets the scroll container take the ActionSheet's
+  // bounded content box instead of growing past it; without it the ScrollView
+  // would measure its full content and clip the overflow it exists to expose.
+  scroll: { flexShrink: 1 },
   list: { gap: spacing[3], paddingBottom: spacing[2] },
 });

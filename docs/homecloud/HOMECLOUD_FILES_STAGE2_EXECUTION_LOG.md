@@ -576,3 +576,132 @@ original defect was reintroduced and the suite re-run:
 The no-op retry initially turned the suite **red by crashing** rather than by
 asserting, aborting the remaining checks — the same `[object Object]` blind spot hit in
 Phase 4. The retry assertion is now guarded so a regression reports cleanly.
+
+---
+
+# POST-DEVICE-QA REOPEN
+
+Physical-device QA and a subsequent READ-ONLY reopen audit proved the previous Stage 2
+closure INCOMPLETE. The history above is preserved exactly as written and is NOT
+rewritten: the previous closure, the device-QA contradiction, the reopen audit, the
+corrective implementation and the new evidence are all separate, ordered events.
+
+The previous closure's core epistemic error is recorded here once and applies to every
+slice below: **a source grep was treated as a behaviour.** A regex can support
+SOURCE_EVIDENCE. It cannot prove runtime interaction, layout reachability, gesture
+arbitration, native media playback, PDF rendering, safe-area behaviour or scroll wiring.
+Every claim below is tagged with the strongest evidence class that actually supports it.
+
+## RUN IDENTITY (REOPEN)
+
+- Worktree: `C:\Users\thega\Desktop\HomePlus-worktrees\homecloud-files`
+- Branch: `homecloud/files-lane`
+- Starting HEAD: `5bb9775b3a63eddabc647d9684e7cb98914b693f`
+- Starting working tree: clean.
+- Memories worktree: **READ ONLY, never written.**
+- Shared upload engine: **FROZEN and UNTOUCHED.**
+- Stage 3 (Trash / Restore / Purge / Lifecycle / Scanner / OCR): **NOT IMPLEMENTED.**
+- No DB migration was added in this reopen.
+
+### LOCAL RUNTIME DISCOVERY (RESOLVED, NOT ASSUMED)
+
+The reopen brief reported that the previous audit could not reproduce local runtime
+because it checked a default `54321`-style endpoint. That is confirmed, and the actual
+stack was discovered rather than guessed:
+
+| Fact | Value | How |
+|---|---|---|
+| Kong / REST gateway | `127.0.0.1:56221` | `docker ps` on `supabase_kong_HomePlus` |
+| Postgres | `127.0.0.1:56222` | `docker ps` on `supabase_db_HomePlus` |
+| `supabase/config.toml` API port | `56221` | file read |
+| `backend/.env` `SUPABASE_URL` host | `192.168.0.26` (this machine's LAN address), port `56221` | parsed, values never printed |
+
+`backend/.env` therefore advertises the SAME local stack over the LAN interface, and
+`tests/helpers/environment.js` only accepts `127.0.0.1` / `localhost`. Resolved WITHOUT
+touching product behaviour, exactly as the previous run did: a **process-scoped**
+`SUPABASE_URL`/`SUPABASE_JWKS_URL` loopback override for the test process only. No
+product `.env` was modified. No remote Supabase was contacted. `supabase db reset` was
+never run.
+
+Confirmed running: `homecloud-files-favorites-runtime` (39/39) and
+`homecloud-stage2-integrated` (119/119) against the discovered stack.
+---
+
+## SLICE A -- FAVORITES CORRECTNESS
+
+### PRE-AUDIT AGAINST `5bb9775` (THE REOPEN FINDINGS STILL MATCHED)
+
+| Reopen finding | Confirmed at HEAD | Evidence |
+|---|---|---|
+| Favorite is the sixth action in a BOUNDED, NON-SCROLLABLE content sheet | YES | `FileActionHost.tsx` mounted `ActionSheet size="content"`; `ActionSheet` maps `content` to `modalContentIntrinsic` = `{ flexShrink: 1, minHeight: 0 }` -- a box that shrinks and CLIPS |
+| Favorite mutation uses the shared `saving` flag | YES | `toggleFileFavorite` set `saving`, and `FileActionHost` disabled **every** row with `disabled={!action.available \|\| saving}` |
+| Favorite failure uses the SCREEN-LEVEL error channel | YES | `toggleFileFavorite` catch called `setError(...)`; the screen renders `error` as a full-surface error card whose `Reintentar` calls `load()` |
+
+Backend / DB decision: **NO CHANGE.** The Favorites identity, the
+`PATCH /api/homecloud/content/:id/favorite` contract and the `homecloud_content_favorites`
+trigger invariants are correct at HEAD; the real PostgREST runtime suite still passes
+39/39 unmodified. The defect was entirely in the client interaction layer.
+
+### ROOT CAUSE
+
+The Favorite was not missing because the grammar hid it. It was missing because the
+action sheet's content box was not scrollable, so at the audited viewports the LAST
+rows were clipped off the bottom of the sheet -- no error, no disabled control, nothing
+to explain the absence. Two secondary defects rode on the same flow: one surface-wide
+busy flag froze the whole menu, and the failure path offered a recovery that replaced
+the list and re-read page one.
+
+### THE FIX
+
+1. **REACHABILITY.** `FileActionHost` now mounts `ActionSheet size="scrollable-content"`
+   and wraps its content in a `ScrollView` with `flexShrink: 1`, so every row is
+   scrollable to. The overflow that made this necessary is DECIDED by a new pure policy,
+   `fileActionSheetLayoutPolicy`, computed from the real design tokens.
+2. **PER-ACTION BUSY.** The host takes `favoriteBusy`. Only the Favorite row is busy and
+   disabled while its own mutation is in flight; `run()` also refuses to re-dispatch a
+   row that is already busy, so a slow connection cannot send the PATCH twice.
+3. **SUCCESS.** The server answer is authoritative for one row: `patchFile` corrects the
+   loaded rows in place, the sheet closes, and the window-preserving re-read continues
+   WITHOUT being awaited into the busy state. No second Favorites cache, no backend
+   change.
+4. **FAILURE.** The refusal is carried on a new `actionError` prop and rendered INSIDE the
+   sheet as an `accessibilityRole="alert"` line. `setError` is no longer used by the
+   Favorite path, so the list is never replaced, pagination is never reset and no
+   first-page `load()` is ever issued as a recovery. The member stays in the exact
+   folder / query / sort / window they were in.
+
+### EVIDENCE (CLASSIFIED HONESTLY)
+
+| Claim | Class | What actually ran |
+|---|---|---|
+| The content genuinely overflows at the audited viewports | PURE_UNIT (arithmetic over real tokens) | `fileActionSheetLayoutPolicy` at 360x640, inset 44/34: fontScale 1.0 asks 410dp for a 410dp box (exactly at the boundary), 1.3 clips 5dp, 2.0 clips 106dp. At 360x800 it does NOT overflow -- which is why the bug survived review: it was viewport-dependent. |
+| The host mounts the REAL scrollable sheet and every row survives | COMPONENT_BEHAVIOUR | The REAL `ActionSheet`, `AppButton`, `AppText`, `InteractivePressable` were required and executed at that viewport, with real safe-area insets and a mutable `useWindowDimensions`. Assertions read the executed tree: `size="scrollable-content"`, the applied content container is the `flexGrow:1 + flexShrink:1` style and the `flexShrink:1/minHeight:0` intrinsic box appears NOWHERE, the `ScrollView` IS the sheet's child, and all six rows render in canonical order. |
+| One busy row, not a frozen menu | COMPONENT_BEHAVIOUR | The Favorite PATCH was held open with a gate, so the busy state was observed **while in flight**. The host was re-rendered against the real sheet: exactly one row reports `accessibilityState.busy`, exactly one is disabled, and a second press while busy sends no second PATCH. |
+| A refusal preserves list, window and context | COMPONENT_BEHAVIOUR | A real 300-row window (three 100-row pages). After the refusal: the `FlatList` is still mounted, no `ErrorState` anywhere, still 300 rows, **zero** reads at `offset=0&limit=100` were issued as recovery, and the refusal is rendered inside the sheet as an alert. A subsequent refresh walked offsets `0,100,200` and the window was still 300 rows. |
+
+### A HARNESS GAP THIS SLICE FOUND AND CLOSED
+
+`mountSurface` set no `authMe`, so `useHomeCloudCapabilities` could never resolve a
+complete scope (account + household + membership) and every surface assertion ran
+against a permanently **deny-all** descriptor -- i.e. every File action row was
+`disabled: true` in every "behavioural" test, and none of them noticed. The suite now
+installs a real `authMe`, which is what makes the busy/enabled assertions above mean
+anything.
+
+Suite: `homecloud-files-favorites-ui` **156/156**.
+
+### SLICE A REGRESSION
+
+`homecloud-files-favorites` PASS (39 mutation/read/migration) -- `homecloud-files-favorites-ui`
+PASS (156) -- `homecloud-files-slice1-selection-bulk` PASS -- `homecloud-files-freshness`
+PASS -- `homecloud-files-hierarchy-ui` PASS -- `homecloud-w1bc-pagination-reconciliation` PASS
+-- `homecloud-s4iii-files-surface` PASS -- frontend `tsc --noEmit` PASS -- `git diff --check`
+clean.
+
+Real runtime: `homecloud-files-favorites-runtime` **39/39** against the discovered local
+stack. **DEVICE_PENDING**: no physical device is attached to this agent, so sheet
+reachability on real hardware is not claimed here.
+
+### COMMIT
+
+`fix(homecloud): repair file favorites interaction`
