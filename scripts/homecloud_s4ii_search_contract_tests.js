@@ -335,9 +335,22 @@ async function run() {
     const params = paramsOf(contentsRequest());
     record(params.get('folder_id') === 'eq.folder-9', 'folder SEARCH stays scoped to that folder');
     record(orFilter !== null, 'folder SEARCH still filters');
-    record(!requests.some((request) => request.url.includes('/homecloud_folders')
-        && String(new URL(request.url).searchParams.get('select') ?? '').includes('name')),
-    'folder SEARCH does not list folders');
+    // Stage 2 Phase 1 SUPERSESSION. Stage 1 asserted 'folder SEARCH does not list
+    // folders', which was true only because folders were FLAT: a folder had no
+    // subfolders, so listing any would have been meaningless. With the nested
+    // hierarchy a folder HAS direct children, so a folder-context browse must list
+    // them or the user could not keep navigating while searching. What Stage 1 was
+    // really protecting is preserved and now asserted: the subfolder read is
+    // SCOPED to the current folder and carries NO content `.or()` filter.
+    const folderRequests = requests.filter((request) => request.url.includes('/homecloud_folders'));
+    const folderRequest = folderRequests[folderRequests.length - 1];
+    record(Boolean(folderRequest), 'folder SEARCH lists the direct children of the current folder');
+    if (folderRequest) {
+      const folderParams = new URL(folderRequest.url).searchParams;
+      record(folderParams.get('parent_folder_id') === 'eq.folder-9', `folder-context subfolder read is scoped to the current folder (parent_folder_id=${folderParams.get('parent_folder_id')})`);
+      record(folderParams.get('name') === 'ilike.%Informe%', `subfolder read filters by name with the literal ilike pattern (name=${folderParams.get('name')})`);
+      record(!folderParams.has('or'), 'the subfolder read emits NO content .or() filter, so folder search never leaks File predicates into the folder query');
+    }
   }
   {
     const { orFilter } = await emittedFileSearchPatterns({ folderId: 'folder-9', query: '', sort: 'recent' });
@@ -388,8 +401,21 @@ async function run() {
     const filesSource = require('node:fs').readFileSync(FILES_SERVICE, 'utf8');
     record(!filesSource.includes("replace(/,/g, ' ')"),
       'the service no longer rewrites user commas into spaces');
-    record(filesSource.includes('literalContainsPattern(q)'),
+    // Stage 2 Phase 1: the folder read moved into its own helper, so this can no
+    // longer be asserted by matching a call site against one local variable name.
+    // The BEHAVIOUR is asserted instead, and it is the stronger claim: the folder
+    // query is emitted with the canonical encoder's own output as its pattern.
+    const folderSource = filesSource.slice(filesSource.indexOf('async function childFoldersOf'));
+    record(folderSource.includes('literalContainsPattern('),
       'folder-name search uses the canonical plain-filter pattern');
+    {
+      await browseFiles({ folderId: null, query: 'Informe', sort: 'recent' });
+      const emittedFolderRequests = requests.filter((request) => request.url.includes('/homecloud_folders'));
+      const emitted = emittedFolderRequests[emittedFolderRequests.length - 1];
+      const emittedPattern = emitted ? new URL(emitted.url).searchParams.get('name') : null;
+      record(emittedPattern === `ilike.${searchModule.literalContainsPattern('Informe')}`,
+        `the emitted folder-name filter is exactly the canonical encoder output (got ${emittedPattern})`);
+    }
   }
 
   console.log(`\nS4II_SEARCH_CONTRACT_RESULT pass=${passCount} fail=${failCount}`);

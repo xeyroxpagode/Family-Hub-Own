@@ -44,8 +44,9 @@ router.get('/content/:contentId', readController.getContentByIdController)
 // Query: limit, offset, year, albumId, query, kind
 router.get('/memories', readController.listMemoriesController)
 
-// Folders: list and get by ID (protected, household-scoped)
-// No lifecycle on folders; stable ordering by name
+// Folders: list the whole household catalogue and get by ID
+// (protected, household-scoped). The catalogue carries parent_folder_id so a
+// client derives the tree from ONE read; it is not a listing surface.
 router.get('/folders', readController.listFoldersController)
 router.get('/folders/:folderId', readController.getFolderByIdController)
 
@@ -53,6 +54,10 @@ router.get('/folders/:folderId', readController.getFolderByIdController)
 router.get('/files', filesController.browse)
 router.post('/folders', filesController.createFolder)
 router.patch('/folders/:folderId', filesController.renameFolder)
+// Stage 2 Phase 1: reparent a folder. A dedicated verb rather than a name-shaped
+// PATCH, because "where does this folder live" is not a display name and must
+// not be reachable by passing an extra field to the rename body.
+router.post('/folders/:folderId/move', filesController.moveFolder)
 router.delete('/folders/:folderId', filesController.deleteFolder)
 router.patch('/content/:contentId/file', filesController.updateFile)
 // Files Core: personal Favorites. Idempotent toggle of ONE person's preference

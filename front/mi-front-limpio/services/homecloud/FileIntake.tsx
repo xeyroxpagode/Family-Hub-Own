@@ -137,17 +137,22 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
     if (!service.canShowDestinationSelector()) return null;
 
     const initial = service.getInitialFolder();
-    const currentName = initial.folderName ?? 'Archivos';
+    // Stage 2 (Phase 1): a bare folder NAME is ambiguous once folders nest, so the
+    // selector states the FULL path when the catalogue knows one and falls back to
+    // the name only when it genuinely cannot (the very first render, before any
+    // destination read).
+    const knownPath = destinations.find((dest) => dest.id === (initial.folderId ?? 'root'))?.path ?? null;
+    const currentLabel = knownPath ?? initial.folderName ?? 'Archivos';
 
     return (
       <FormActionRow
         label="Guardar en"
-        value={currentName}
+        value={currentLabel}
         onPress={() => {
           Keyboard.dismiss();
           void openDestinationPicker();
         }}
-        accessibilityLabel={`Destino actual: ${currentName}. Toca para cambiar.`}
+        accessibilityLabel={`Destino actual: ${currentLabel}. Toca para cambiar.`}
         disabled={state.status !== 'idle' && state.status !== 'failed' && state.status !== 'completed'}
       />
     );
@@ -168,6 +173,11 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
             <View
               key={dest.id}
               style={[
+                // Stage 2 (Phase 1): the indent is what makes a nested destination
+                // readable at a glance. It is capped so a deep hierarchy stays
+                // usable on a phone, and the accessibility label below always
+                // carries the FULL path, which is the authoritative disambiguator.
+                { marginLeft: Math.min(dest.depth, 5) * spacing[2] },
                 styles.destinationRow,
                 dest.isCurrent && styles.destinationRowSelected,
               ]}
@@ -177,7 +187,9 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
                 size="sm"
                 onPress={() => handleSelectDestination(dest.id === 'root' ? null : dest.id, dest.id === 'root' ? null : dest.name)}
                 disabled={dest.isCurrent}
-                accessibilityLabel={dest.isCurrent ? `${dest.name}, seleccionado` : dest.name}
+                accessibilityLabel={dest.path
+                  ? `${dest.isCurrent ? `${dest.name}, seleccionado` : `Guardar en ${dest.path}`}`
+                  : `${dest.isCurrent ? 'Archivos, seleccionado' : 'Guardar en Archivos'}`}
               >
                 {dest.isCurrent ? (
                   <HomePlusIcon name="checkmark" size={20} color={colors.brand} />

@@ -12,7 +12,8 @@ import { colors, radius, spacing } from '../constants/theme';
 import { FileIntake } from '../services/homecloud/FileIntake';
 import { useHomeCloudCapabilities } from '../services/homecloud/useHomeCloudCapabilities';
 import { homeCloudCapabilitiesNotice } from '../services/homecloud/homecloudCapabilitiesNotice';
-import { createHomeCloudFolder, deleteHomeCloudFolder, fetchFilesBrowser, renameHomeCloudFolder, type FileSort, setHomeCloudFileFavorite, updateHomeCloudFile, FILES_BROWSER_MAX_LIMIT } from '../services/homecloud/homecloudFilesService';
+import { createHomeCloudFolder, deleteHomeCloudFolder, fetchFilesBrowser, moveHomeCloudFolder, renameHomeCloudFolder, type FileSort, setHomeCloudFileFavorite, updateHomeCloudFile, FILES_BROWSER_MAX_LIMIT } from '../services/homecloud/homecloudFilesService';
+import { folderDisplayPath, folderTrail, folderWithDescendantIds, parentFolderIdOf, resolveNearestExistingFolderId } from '../services/homecloud/homecloudFolderTree';
 import { createFilesPagination, hasMoreFilesPages, type FilesPaginationState } from '../services/homecloud/homecloudFilesPagination';
 import {
   beginFileSelectionAt,
@@ -36,8 +37,19 @@ import type { HomeCloudFile, HomeCloudFolder } from '../services/homecloud/homec
 
 type GridItem = { kind: 'folder'; value: HomeCloudFolder } | { kind: 'file'; value: HomeCloudFile };
 
-/** Which Move intent the ONE destination picker is currently serving. */
-type MoveTarget = 'file' | 'bulk';
+/**
+ * WHICH MOVE INTENT the ONE destination picker is currently serving.
+ *
+ * Stage 2 (Phase 1) adds a third one. There is deliberately still exactly ONE
+ * picker INSTANCE and ONE destination grammar: the flat-folder version already
+ * guaranteed that a File's Move and a bulk Move could never offer different
+ * destinations, and a Folder's Move has to obey the same rule or the hierarchy
+ * would gain a second way to be navigated.
+ */
+type MoveIntent =
+  | { readonly kind: 'file' }
+  | { readonly kind: 'bulk' }
+  | { readonly kind: 'folder'; readonly folderId: string };
 
 /**
  * W1-B — the page size of the EXISTING backend contract.
@@ -80,8 +92,8 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   const [downloadFeedback, setDownloadFeedback] = useState<{ tone: 'secondary' | 'danger'; message: string } | null>(null);
   // Selection belongs to the CURRENT browser context and is never persisted.
   const [selection, setSelection] = useState<FileSelection>(emptyFileSelection());
-  // The one destination picker, serving either a single File or the selection.
-  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  // The ONE destination picker, serving a single File, the selection, or a Folder.
+  const [moveIntent, setMoveIntent] = useState<MoveIntent | null>(null);
   // The batch outcome is stated OUTSIDE the selection bar on purpose: when every
   // moved File left the folder the selection itself ends, and the member must
   // still be told what happened.
@@ -365,11 +377,31 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     controllerRef.current!.reset();
   }, [currentHousehold?.id]);
 
+  // ── navigation trail (Stage 2 Phase 1: nested hierarchy) ──────────────────
+  //
+  // The open folder is kept as an ID STACK, not as one "current folder" object.
+  // That is the whole difference between a hierarchy and the old flat list: "back"
+  // means ONE LEVEL UP instead of jumping to the root, which is what a member
+  // expects the moment folders nest to any depth.
+  //
+  // The stack is DERIVED from the household catalogue rather than accumulated, so it
+  // can never disagree with the tree: a folder renamed remotely shows the new name,
+  // a folder moved remotely re-resolves to the new ancestor chain, and a folder
+  // deleted remotely drops out of the trail entirely.
+  const trail = useMemo<readonly HomeCloudFolder[]>(
+    () => folderTrail(allFolders, folder?.id ?? null),
+    [allFolders, folder?.id],
+  );
+  const currentPath = useMemo<string | null>(
+    () => folderDisplayPath(allFolders, folder?.id ?? null),
+    [allFolders, folder?.id],
+  );
+
   // S4-iii B1/B5 — a folder context change CLEARS the query and keeps the sort.
   //
-  //   root -> folder, folder -> root, folder A -> folder B:  query = ''
-  //   any folder change:                                    sort preserved
-  //   any folder change:                                    favoritesOnly PRESERVED
+  //   any folder change:   query = ''
+  //   any folder change:   sort PRESERVED
+  //   any folder change:   favoritesOnly PRESERVED
   //
   // The same text must not silently change meaning because the member
   // navigated: a root query searches every file, a folder query searches only
@@ -384,9 +416,33 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   const openFolder = useCallback((next: HomeCloudFolder) => {
     setFolder(next); setQuery(''); setError(null); setReadFailure(null);
   }, []);
+  /**
+   * Back means ONE LEVEL UP. `trail` is the derived root-to-current chain, so
+   * popping it lands on the immediate parent and is a no-op at the root. The
+   * return is typed as `HomeCloudFolder | undefined` and the `?? null` makes the
+   * root the explicit, always-valid answer rather than a special case.
+   */
   const leaveFolder = useCallback(() => {
-    setFolder(null); setQuery(''); setError(null); setReadFailure(null);
-  }, []);
+    const parent = trail.length >= 2 ? trail[trail.length - 2] : undefined;
+    setFolder(parent ?? null); setQuery(''); setError(null); setReadFailure(null);
+  }, [trail]);
+
+  /**
+   * A folder that no longer exists is not something this surface can keep showing.
+   *
+   * `resolveNearestExistingFolderId` answers the closest folder that still exists,
+   * and the ROOT is the always-valid fallback, so a folder deleted on another device
+   * lands somewhere coherent instead of leaving the browser in a ghost folder or
+   * re-reading a deleted id forever. This runs only while a folder IS open, so it
+   * never costs a write at the root.
+   */
+  useEffect(() => {
+    if (folder === null || allFolders.length === 0) return;
+    if (allFolders.some((candidate) => candidate.id === folder.id)) return;
+    const nearest = resolveNearestExistingFolderId(allFolders, folder);
+    setFolder(nearest === null ? null : allFolders.find((candidate) => candidate.id === nearest) ?? null);
+    setQuery(''); setError(null); setReadFailure(null);
+  }, [allFolders, folder]);
 
   // ── selection ────────────────────────────────────────────────────────────
   //
@@ -468,26 +524,51 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     if (!token || !folderEditor || saving) return;
     setSaving(true);
     try {
-      if (folderEditor.mode === 'create') await createHomeCloudFolder(token, folderName);
+      // Stage 2 Phase 1: creating inside the OPEN folder inherits it, and creating
+      // at the root sends null. The browser stops being disabled inside a folder,
+      // because that restriction existed only while every folder was root-level.
+      if (folderEditor.mode === 'create') await createHomeCloudFolder(token, folderName, folder?.id ?? null);
       else await renameHomeCloudFolder(token, folderEditor.item!.id, folderName);
       setFolderEditor(null); setFolderName('');
       await refreshCatalogue();
       await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : 'No pudimos guardar la carpeta.'); } finally { setSaving(false); }
   };
+  /**
+   * DELETE a folder - its DIRECT contents are PROMOTED to its parent, nothing is
+   * deleted. If the open folder is a DESCENDANT of the one being removed, the
+   * browser follows the promotion instead of being dropped to the root.
+   */
   const removeFolder = async () => {
     if (!token || !folderActions || saving) return;
     setSaving(true);
+    const removedId = folderActions.id;
     try {
-      await deleteHomeCloudFolder(token, folderActions.id);
+      await deleteHomeCloudFolder(token, removedId);
       setFolderActions(null);
-      // A deleted folder can never remain the open context. Its files are not
-      // deleted by the server (the FK detaches them to root), and leaving them
-      // to root is exactly what this context change re-reads.
-      if (folder?.id === folderActions.id) { setFolder(null); setQuery(''); }
+      // A removed folder can never remain the open context. When the open folder
+      // was the one removed, land on its parent; when the open folder was a
+      // DESCENDANT of it, it survived the promotion, so it stays open and the
+      // re-read shows it at its new depth.
+      if (folder?.id === removedId) { setFolder(null); setQuery(''); }
       await refreshCatalogue();
       await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : 'No pudimos eliminar la carpeta.'); } finally { setSaving(false); }
+  };
+  /**
+   * Stage 2 Phase 1 - MOVE a folder. Server-authoritative: a cycle, a
+   * cross-household destination or a taken name is refused there and surfaces here
+   * as a typed message rather than as a silent no-op.
+   */
+  const saveFolderMove = async (destinationFolderId: string | null) => {
+    if (!token || !folderActions || saving) return;
+    setSaving(true);
+    try {
+      await moveHomeCloudFolder(token, folderActions.id, destinationFolderId);
+      setFolderActions(null); setMoveIntent(null);
+      await refreshCatalogue();
+      await refresh();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No pudimos mover la carpeta.'); } finally { setSaving(false); }
   };
   // The ONE single-file mutation path. A single File's Move comes through here
   // too, so renaming, dating, noting and moving one File stay one mutation each.
@@ -534,12 +615,17 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     } finally { setSaving(false); }
   };
 
-  /** The ONE destination picker: both Move intents resolve a destination here. */
+  /**
+   * THE ONE destination handler: all three Move intents resolve a destination here
+   * and nowhere else, so no intent can ever offer a destination another would not.
+   */
   const handleMoveDestination = (folderId: string | null) => {
-    const target = moveTarget;
-    setMoveTarget(null);
-    if (target === 'bulk') { void moveSelectedFiles(folderId); return; }
-    if (target === 'file') void saveFile({ folderId });
+    const intent = moveIntent;
+    setMoveIntent(null);
+    if (intent === null) return;
+    if (intent.kind === 'bulk') { void moveSelectedFiles(folderId); return; }
+    if (intent.kind === 'file') { void saveFile({ folderId }); return; }
+    void saveFolderMove(folderId);
   };
 
   /**
@@ -652,9 +738,36 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     return rows.every((row) => row.folderId === first) ? first : undefined;
   }, [files, selection]);
   const canAdd = caps.contribute; const canOrganize = caps.organize;
+  /**
+   * Stage 2 Phase 1: the folder being moved cannot be a destination for itself, and
+   * neither can any of its descendants. Hiding them is a convenience only - the
+   * server's trigger refuses the identical set regardless of a stale catalogue, so
+   * a race here produces a typed refusal, never a cycle.
+   */
+  const folderMoveExclusions = useMemo(
+    () => (moveIntent?.kind === 'folder' ? folderWithDescendantIds(allFolders, moveIntent.folderId) : new Set<string>()),
+    [allFolders, moveIntent],
+  );
+  const moveIntentTitle = moveIntent === null
+    ? 'Mover a'
+    : moveIntent.kind === 'bulk'
+      ? `Mover ${selectionCount} ${selectionCount === 1 ? 'archivo' : 'archivos'}`
+      : moveIntent.kind === 'folder'
+        ? `Mover ${allFolders.find((candidate) => candidate.id === moveIntent.folderId)?.name ?? 'carpeta'}`
+        : 'Mover a';
+  const moveIntentCurrentFolderId = moveIntent === null
+    ? undefined
+    : moveIntent.kind === 'bulk'
+      ? bulkCurrentFolderId
+      : moveIntent.kind === 'folder'
+        ? parentFolderIdOf(allFolders, moveIntent.folderId)
+        : actionTarget
+          ? actionTarget.folderId
+          : undefined;
   return <View style={styles.screen}>
     <View style={styles.search}><AppInput value={query} onChangeText={setQuery} placeholder={folder ? 'Buscar en esta carpeta' : 'Buscar en archivos'} variant="search" label="Buscar" /></View>
-    <View style={styles.titleRow}>{folder ? <AppButton variant="icon" size="sm" onPress={leaveFolder} accessibilityLabel="Volver a Archivos"><HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} /></AppButton> : null}<AppText variant="title3" weight="800" style={styles.title}>{folder?.name ?? 'Archivos'}</AppText><View style={styles.titleActions}><AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar archivos"><HomePlusIcon name="refresh" size={20} color={colors.text.secondary} /></AppButton><AppButton variant="secondary" size="sm" title={sort === 'recent' ? 'Recientes' : 'A–Z'} onPress={() => setSort(sort === 'recent' ? 'name' : 'recent')} /><AppButton variant={favoritesOnly ? 'primary' : 'secondary'} size="sm" title="Favoritos" onPress={() => setFavoritesOnly((previous) => !previous)} accessibilityLabel={favoritesOnly ? 'Mostrando solo tus favoritos. Desactivar filtro de favoritos' : 'Mostrar solo tus favoritos'} />{!selection.mode ? <AppButton variant="ghost" size="sm" title="Seleccionar" disabled={files.length === 0} onPress={enterSelectionMode} accessibilityLabel="Seleccionar archivos" /> : null}{canAdd ? <AppButton variant="icon" size="sm" onPress={() => setAddOpen(true)} accessibilityLabel="Agregar"><HomePlusIcon name="add" size={24} color={colors.brand} /></AppButton> : null}</View></View>
+    {currentPath ? <View style={styles.breadcrumb}><AppText variant="caption" tone="secondary" numberOfLines={1} accessibilityLabel={`Ruta: ${currentPath}`}>{currentPath}</AppText></View> : null}
+    <View style={styles.titleRow}>{folder ? <AppButton variant="icon" size="sm" onPress={leaveFolder} accessibilityLabel={trail.length >= 2 ? `Volver a ${trail[trail.length - 2].name}` : 'Volver a Archivos'}><HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} /></AppButton> : null}<AppText variant="title3" weight="800" style={styles.title}>{folder?.name ?? 'Archivos'}</AppText><View style={styles.titleActions}><AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar archivos"><HomePlusIcon name="refresh" size={20} color={colors.text.secondary} /></AppButton><AppButton variant="secondary" size="sm" title={sort === 'recent' ? 'Recientes' : 'A–Z'} onPress={() => setSort(sort === 'recent' ? 'name' : 'recent')} /><AppButton variant={favoritesOnly ? 'primary' : 'secondary'} size="sm" title="Favoritos" onPress={() => setFavoritesOnly((previous) => !previous)} accessibilityLabel={favoritesOnly ? 'Mostrando solo tus favoritos. Desactivar filtro de favoritos' : 'Mostrar solo tus favoritos'} />{!selection.mode ? <AppButton variant="ghost" size="sm" title="Seleccionar" disabled={files.length === 0} onPress={enterSelectionMode} accessibilityLabel="Seleccionar archivos" /> : null}{canAdd ? <AppButton variant="icon" size="sm" onPress={() => setAddOpen(true)} accessibilityLabel="Agregar"><HomePlusIcon name="add" size={24} color={colors.brand} /></AppButton> : null}</View></View>
     {capabilitiesNotice ? <View style={styles.notice}><AppText variant="caption" tone="secondary">{capabilitiesNotice}</AppText><AppButton title="Reintentar" size="sm" variant="ghost" onPress={capabilities.revalidate} accessibilityLabel="Reintentar verificación de permisos de HomeCloud" /></View> : null}
     {bulkFeedback ? <View style={styles.banner}><AppText variant="caption" tone={bulkFeedback.tone} align="center">{bulkFeedback.message}</AppText></View> : null}
     {loading || !rowsAreCurrent ? <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>
@@ -668,18 +781,22 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
       extraData={selection}
       renderItem={({ item }) => item.kind === 'folder' ? <FolderTile folder={item.value} onPress={() => openFolder(item.value)} onMore={() => setFolderActions(item.value)} /> : <FileTile file={item.value} selectionMode={selection.mode} selected={isFileSelected(selection, item.value.id)} onPress={() => toggleSelectionAt(item.value.id)} onLongPress={() => beginSelectionAt(item.value.id)} onMore={() => setActionTargetId(item.value.id)} />}
       ListFooterComponent={hasMore || pageError ? <View style={styles.footer}>{pageError ? <View style={styles.pageError}><AppText variant="caption" tone="danger" align="center">{pageError}</AppText><AppButton title="Reintentar" size="sm" variant="secondary" onPress={() => void loadMore()} accessibilityLabel="Reintentar cargar más archivos" /></View> : null}{hasMore ? <AppButton title={loadingMore ? 'Cargando…' : 'Mostrar más archivos'} variant="secondary" disabled={loadingMore} onPress={() => void loadMore()} /> : null}</View> : null} />}
-    {selection.mode ? <FileSelectionBar count={selectionCount} summary={fileSelectionSummary(selection)} canOrganize={canOrganize} busy={saving} onMove={() => setMoveTarget('bulk')} onCancel={leaveSelectionMode} /> : null}
-    <ActionSheet visible={addOpen} title="Agregar" onRequestClose={() => setAddOpen(false)} size="content"><View style={styles.sheetList}><AppButton title="Elegir archivo" onPress={() => { setAddOpen(false); setUploadOpen(true); }} /><AppButton title="Escanear documento" variant="secondary" onPress={() => { setAddOpen(false); navigation.navigate('HomeCloudScanner', { folderId: folder?.id ?? null, folderName: folder?.name ?? null, capabilities: caps }); }} /><AppButton title="Nueva carpeta" variant="secondary" disabled={!!folder || !canOrganize} onPress={() => { setAddOpen(false); setFolderName(''); setFolderEditor({ mode: 'create' }); }} /></View></ActionSheet>
+    {selection.mode ? <FileSelectionBar count={selectionCount} summary={fileSelectionSummary(selection)} canOrganize={canOrganize} busy={saving} onMove={() => setMoveIntent({ kind: 'bulk' })} onCancel={leaveSelectionMode} /> : null}
+    <ActionSheet visible={addOpen} title="Agregar" onRequestClose={() => setAddOpen(false)} size="content"><View style={styles.sheetList}><AppButton title="Elegir archivo" onPress={() => { setAddOpen(false); setUploadOpen(true); }} /><AppButton title="Escanear documento" variant="secondary" onPress={() => { setAddOpen(false); navigation.navigate('HomeCloudScanner', { folderId: folder?.id ?? null, folderName: folder?.name ?? null, capabilities: caps }); }} /><AppButton title="Nueva carpeta" variant="secondary" disabled={!canOrganize} onPress={() => { setAddOpen(false); setFolderName(''); setFolderEditor({ mode: 'create' }); }} />{folder ? <AppText variant="caption" tone="secondary">Se creará dentro de {folder.name}.</AppText> : null}</View></ActionSheet>
     <ActionSheet visible={uploadOpen} title="Elegir archivo" onRequestClose={() => setUploadOpen(false)} size="content"><FileIntake config={{ householdId: currentHousehold?.id ?? '', accessToken: token ?? '', capabilities: caps, initialFolderId: folder?.id ?? null, initialFolderName: folder?.name ?? null, intakeSource: 'homecloud:files' }} onComplete={() => { setUploadOpen(false); void refresh(); }} onDismiss={() => setUploadOpen(false)} /></ActionSheet>
     <ActionSheet visible={!!folderEditor} title={folderEditor?.mode === 'rename' ? 'Renombrar carpeta' : 'Nueva carpeta'} onRequestClose={() => setFolderEditor(null)} size="content" footer={<AppButton title="Guardar" disabled={!folderName.trim() || saving} onPress={() => void saveFolder()} />}><AppInput value={folderName} onChangeText={setFolderName} label="Nombre" autoFocus /></ActionSheet>
-    <ActionSheet visible={!!folderActions} title={folderActions?.name ?? 'Carpeta'} onRequestClose={() => setFolderActions(null)} size="content"><View style={styles.sheetList}><AppButton title="Renombrar" variant="secondary" disabled={!canOrganize} onPress={() => { setFolderName(folderActions!.name); setFolderEditor({ mode: 'rename', item: folderActions! }); setFolderActions(null); }} /><AppButton title="Eliminar carpeta" variant="danger" disabled={!canOrganize || saving} onPress={() => void removeFolder()} /><AppText variant="caption" tone="secondary">Los archivos no se eliminan: volverán a Archivos.</AppText></View></ActionSheet>
+    <ActionSheet visible={!!folderActions} title={folderActions?.name ?? 'Carpeta'} onRequestClose={() => setFolderActions(null)} size="content"><View style={styles.sheetList}><AppButton title="Renombrar" variant="secondary" disabled={!canOrganize} onPress={() => { setFolderName(folderActions!.name); setFolderEditor({ mode: 'rename', item: folderActions! }); setFolderActions(null); }} /><AppButton title="Mover" variant="secondary" disabled={!canOrganize} onPress={() => { setMoveIntent({ kind: 'folder', folderId: folderActions!.id }); setFolderActions(null); }} /><AppButton title="Eliminar carpeta" variant="danger" disabled={!canOrganize || saving} onPress={() => void removeFolder()} />{/* HONEST delete copy (Stage 2 Phase 1). A nested delete does NOT recursively
+        delete content, so wording that implied it would be a lie: the folder is
+        removed and its DIRECT contents move up to its parent. Files are never
+        deleted by removing a folder. */}<AppText variant="caption" tone="secondary">Al eliminar la carpeta no se borra ningún archivo: su contenido directo pasa a {folderActions ? (folderDisplayPath(allFolders, folderActions.parentFolderId) ?? 'Archivos') : 'Archivos'}.</AppText></View></ActionSheet>
     {/* The canonical per-File action host. It is always mounted and decides its own
         visibility, so there is never a second place that can open a File menu. */}
-    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setDownloadFeedback(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveTarget('file')} onFavorite={(isFavorite) => void toggleFileFavorite(isFavorite)} onDownload={() => void saveCopyOfFile()} onShare={() => void shareFile()} />
-    {/* The ONE destination picker, for a single File's Move and for the selection's
-        Move alike. It reads the same household catalogue the host does, never the
-        browser payload, which is empty inside a folder. */}
-    <FileMoveDestinationPicker visible={moveTarget !== null} title={moveTarget === 'bulk' ? `Mover ${selectionCount} ${selectionCount === 1 ? 'archivo' : 'archivos'}` : 'Mover a'} folders={allFolders.length > 0 ? allFolders : folders} currentFolderId={moveTarget === 'bulk' ? bulkCurrentFolderId : actionTarget ? actionTarget.folderId : undefined} busy={saving} onSelect={handleMoveDestination} onClose={() => setMoveTarget(null)} />
+    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setDownloadFeedback(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveIntent({ kind: 'file' })} onFavorite={(isFavorite) => void toggleFileFavorite(isFavorite)} onDownload={() => void saveCopyOfFile()} onShare={() => void shareFile()} />
+    {/* THE ONE destination picker. A single File's Move, the selection's Move and a
+        Folder's Move all resolve their destination here, so a move can never offer
+        a destination the other move would not. It reads the same household catalogue
+        the host does, never the browser payload, which holds only the current level. */}
+    <FileMoveDestinationPicker visible={moveIntent !== null} title={moveIntentTitle} folders={allFolders.length > 0 ? allFolders : folders} currentFolderId={moveIntentCurrentFolderId} excludeFolderIds={folderMoveExclusions} busy={saving} onSelect={handleMoveDestination} onClose={() => { setMoveIntent(null); setFolderActions(null); }} />
   </View>;
 }
 
@@ -736,4 +853,4 @@ export function FileTile({
   </View>;
 }
 
-const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, titleRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, grid: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4] }, tile: { flex: 1, minHeight: 174, gap: spacing[2], position: 'relative', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent' }, tileSelected: { borderColor: colors.brand }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, visualSelected: { backgroundColor: colors.brand, borderColor: colors.brand }, more: { position: 'absolute', right: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card }, favorite: { position: 'absolute', left: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card, borderRadius: radius.sm, padding: 2 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, banner: { paddingHorizontal: spacing[5], paddingBottom: spacing[3] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] } });
+const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, breadcrumb: { paddingHorizontal: spacing[5], paddingBottom: spacing[1] }, titleRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, grid: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4] }, tile: { flex: 1, minHeight: 174, gap: spacing[2], position: 'relative', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent' }, tileSelected: { borderColor: colors.brand }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, visualSelected: { backgroundColor: colors.brand, borderColor: colors.brand }, more: { position: 'absolute', right: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card }, favorite: { position: 'absolute', left: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card, borderRadius: radius.sm, padding: 2 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, banner: { paddingHorizontal: spacing[5], paddingBottom: spacing[3] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] } });

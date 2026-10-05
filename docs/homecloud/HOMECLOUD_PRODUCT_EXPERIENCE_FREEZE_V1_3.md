@@ -910,9 +910,12 @@ Rules:
 
 
 
-\- flat only;
+- ~~flat only;~~ **SUPERSEDED FOR FILES (Stage 2):** folders are HIERARCHICAL via
+  `parent_folder_id` (NULL = root), unique among SIBLINGS per Household, with a
+  same-Household parent, no cycles, and delete-with-promotion. The canonical
+  statement is in HOMECLOUD_FILES_UX_UI_FREEZE_V1.md.
 
-\- no nested folders;
+\- nested folders ARE part of Files Stage 2 (see the flat-only rule above and HOMECLOUD_FILES_UX_UI_FREEZE_V1.md);
 
 \- File 0..1 Folder;
 
@@ -4296,7 +4299,7 @@ Do NOT implement V1:
 
 
 
-\- nested Folders;
+\- nested Folders — **SUPERSEDED FOR FILES (Stage 2):** now implemented. Nested Albums and every other item in this section still stand.
 
 \- nested Albums;
 

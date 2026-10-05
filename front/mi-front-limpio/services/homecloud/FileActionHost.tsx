@@ -9,7 +9,7 @@ import {
 } from './homecloudFileActions';
 import type { updateHomeCloudFile } from './homecloudFilesService';
 import type { HomeCloudFile, HomeCloudFolder } from './homecloudTypes';
-import { ROOT_DESTINATION_LABEL } from './FileMoveDestinationPicker';
+import { ROOT_DESTINATION_LABEL } from './homecloudMoveDestinations';
 
 /** Exactly the fields `PATCH /api/homecloud/content/:contentId/file` accepts. */
 export type FilePatch = Parameters<typeof updateHomeCloudFile>[2];

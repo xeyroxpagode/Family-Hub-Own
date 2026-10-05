@@ -22,9 +22,34 @@ layouts can naturally add columns from a minimum tile width.  The primary grid
 is never wrapped in a ScrollView.
 
 Folders appear first, then only loose active Files (`folder_id = NULL`). Files
-inside a folder never duplicate at root. Folders are flat only. Tapping a
-folder enters the same browser in folder context; it contains files only and
-the add action inherits that destination. Back restores the root context.
+inside a folder never duplicate at root.
+
+> **STAGE 2 SUPERSESSION — folders are HIERARCHICAL.** The sentences that said
+> "Folders are flat only", that a folder "contains files only", and that "Back
+> restores the root context" are superseded. The canonical statement is now:
+>
+> - A folder has ONE nullable self reference, `parent_folder_id`. `NULL` means a
+>   root-level folder. Depth is arbitrary in practice.
+> - A folder may directly contain Files **and** child Folders.
+> - Tapping a folder enters the browser in that folder's context, and that folder
+>   lists its own **direct** children. Back returns ONE LEVEL UP, not to the root.
+> - Sibling uniqueness is per (Household, parent, normalized name). `Root/Invoices`
+>   and `Projects/Invoices` are both allowed; two same-normalized-name folders
+>   under the SAME parent are not. `lower(btrim(name))` remains the normalizer.
+> - The parent must belong to the same Household. Cycles are forbidden, and the
+>   DATABASE refuses both — a UI-only rule is not the authority.
+> - Deleting a folder **promotes its DIRECT contents to its parent** (to the root
+>   when the folder was root-level) and deletes nothing. Grandchildren stay with
+>   their own immediate parent. A promotion that would collide with an existing
+>   sibling name is refused as a typed conflict with **zero** mutation.
+> - There is **no materialized path**. Display paths such as
+>   `Projects / 2026 / Contracts` are computed from `parent_folder_id`, because a
+>   stored path would have to be rewritten for a whole subtree on every rename or
+>   move.
+> - One catalogue read per Household is the ONLY ancestry source. No surface may
+>   ask the server "who is my parent?" once per folder.
+> - Root search stays GLOBAL and folder search stays folder-scoped to that folder.
+>   Nesting does not silently redefine either.
 
 Folder and file tiles share one visual grammar: visual area, optional quiet
 badge/indicator, contextual overflow, title below (maximum two lines), and
@@ -123,11 +148,14 @@ scope. Scanner must not introduce an unsafe native dependency.
 
 ## Organization and information
 
-Folders are optional, flat, and unique per Household using trim/case-insensitive
-names. Create, rename, and delete use focused sheets. Deleting a folder is an
-in-sheet destructive confirmation that clearly states the folder disappears
-while its files survive at root (`folder_id = NULL`); it never deletes content.
-Move changes only `folder_id`, allowing root or a same-Household folder.
+Folders are optional, hierarchical, and unique among SIBLINGS per Household
+(`parent_folder_id` plus trim/case-insensitive names), per the Stage 2 supersession
+above. Create, rename, move, and delete use focused sheets. Deleting a folder is an
+in-sheet destructive confirmation whose copy is HONEST about promotion: the folder
+disappears, its direct contents move to its parent, and **no File is deleted**. It
+never deletes content and never deletes a descendant folder. Move changes only
+`folder_id` for a File; a FOLDER moves by re-parenting, which preserves its id, its
+whole descendant subtree and its Files.
 
 File Info is an ActionSheet, never a detail route. It provides localized edits
 for Name, Folder, Document date, and Note; useful optional-value actions replace
@@ -158,6 +186,14 @@ it cannot prove; backing out of the sheet is a quiet, non-error outcome.
 Both **Mover** paths — a single File and the selection — resolve a destination
 through the **same** picker, which offers root (**Archivos**, `folder_id = NULL`)
 or any same-Household folder. There is one destination grammar, not two.
+
+> **STAGE 2 EXTENSION - the same picker also serves a FOLDER Move.** A single File's
+> Move, a bulk Move and a Folder's Move resolve their destination through ONE picker
+> instance and ONE grammar, so a move can never offer a destination the other move
+> would not. The destination list is the whole tree, depth-first, and every row states
+> its full computed path, because two same-named folders in different branches are two
+> different real destinations. A Folder's Move excludes that folder and its whole
+> subtree from the choices; the server refuses the identical set regardless.
 
 A bulk Move is N of the **existing** single-file mutations
 (`PATCH /api/homecloud/content/:contentId/file` carrying only `folderId`), one per

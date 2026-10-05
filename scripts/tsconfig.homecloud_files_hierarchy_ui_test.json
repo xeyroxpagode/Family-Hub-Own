@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-files-hierarchy-ui"
+  },
+  "include": [
+    "../scripts/homecloud_files_hierarchy_ui_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudFolderTree.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMoveDestinations.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudTypes.ts",
+    "../front/mi-front-limpio/services/homecloud/FileMoveDestinationPicker.tsx",
+    "../front/mi-front-limpio/services/homecloud/homecloudFileIntakeTypes.ts",
+    "../front/mi-front-limpio/screens/HomeCloudFilesScreen.tsx"
+  ],
+  "exclude": ["node_modules"]
+}

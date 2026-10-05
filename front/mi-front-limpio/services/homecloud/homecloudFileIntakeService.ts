@@ -4,6 +4,7 @@ import { createSharedUploadQueue } from './homecloudUploadQueue';
 import { ensureHomeCloudUploadRuntime } from './homecloudUploadRuntime';
 import { ensureUploadCoordinator, type ActiveUploadProgress } from './homecloudUploadCoordinator';
 import { fetchHomeCloudFoldersCached } from './homecloudReadService';
+import { flattenFolderTree, folderDisplayPath } from './homecloudFolderTree';
 import { copyArtifactToDurableWorkspace, cleanupTerminalJobArtifact, sweepOrphanDurableWorkspaces } from './homecloudDurableArtifact';
 import type { FileIntakeConfig, FileIntakeState, FileIntakeDestination, FileIntakeItemState } from './homecloudFileIntakeTypes';
 import type { UploadJob, UploadLocalArtifact } from './homecloudUploadTypes';
@@ -195,12 +196,22 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
       const token = getAccessToken();
       if (!token) throw new Error('no access token');
       const folders = await fetchHomeCloudFoldersCached(token, { householdId });
+      // Stage 2 (Phase 1, nested hierarchy): the catalogue is ONE read of the whole
+      // tree, and the destination rows are derived from it locally. Each row carries
+      // its depth and its full path, so two same-named folders in different branches
+      // are distinguishable instead of looking like the same destination.
       availableFolders = [
-        { id: 'root', name: 'Archivos', isCurrent: selectedFolderId === null },
-        ...folders.map((f) => ({ id: f.id, name: f.name, isCurrent: f.id === selectedFolderId })),
+        { id: 'root', name: 'Archivos', path: null, depth: 0, isCurrent: selectedFolderId === null },
+        ...flattenFolderTree(folders).map((node) => ({
+          id: node.folder.id,
+          name: node.folder.name,
+          path: folderDisplayPath(folders, node.folder.id),
+          depth: node.depth,
+          isCurrent: node.folder.id === selectedFolderId,
+        })),
       ];
     } catch {
-      availableFolders = [{ id: 'root', name: 'Archivos', isCurrent: selectedFolderId === null }];
+      availableFolders = [{ id: 'root', name: 'Archivos', path: null, depth: 0, isCurrent: selectedFolderId === null }];
     }
   }
 

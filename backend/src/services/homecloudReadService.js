@@ -150,9 +150,20 @@ async function getContentById(req, contentId) {
 }
 
 /**
- * List folders for current household (protected).
+ * List the WHOLE household folder catalogue (protected).
  * Returns active folders (no lifecycle on folders).
  * Stable technical ordering: name asc.
+ *
+ * Stage 2 (Phase 1, nested hierarchy): this is the ONE catalogue read from which
+ * a client derives the whole tree, every display path and every destination
+ * picker. It therefore carries `parent_folder_id` for every folder and it
+ * deliberately returns the ENTIRE household, at every depth, in ONE query —
+ * because the alternative (one ancestry request per folder) is exactly the N+1 a
+ * growing hierarchy would make expensive.
+ *
+ * The browser itself does NOT use this to render a level: it reads the direct
+ * children of the current folder from `GET /files`. This endpoint is the
+ * catalogue, not a listing surface.
  */
 async function listFolders(req) {
   const context = await getHomeCloudContext(req);
@@ -164,7 +175,7 @@ async function listFolders(req) {
 
   const { data: folders, error } = await supabaseAdmin
     .from('homecloud_folders')
-    .select('id, household_id, name, created_by_member_id, created_at, updated_at')
+    .select('id, household_id, name, parent_folder_id, created_by_member_id, created_at, updated_at')
     .eq('household_id', context.householdId)
     .order('name', { ascending: true });
 
@@ -188,7 +199,7 @@ async function getFolderById(req, folderId) {
 
   const { data: folder, error } = await supabaseAdmin
     .from('homecloud_folders')
-    .select('id, household_id, name, created_by_member_id, created_at, updated_at')
+    .select('id, household_id, name, parent_folder_id, created_by_member_id, created_at, updated_at')
     .eq('id', folderId)
     .eq('household_id', context.householdId)
     .maybeSingle();

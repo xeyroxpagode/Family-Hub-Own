@@ -390,14 +390,20 @@ const grammar = require(compiled('services/homecloud/homecloudFileActions')) as 
   HOMECLOUD_FILE_ACTION_SEAMS: string[];
   resolveFileActions: (permissions: HomeCloudFileActionPermissions) => HomeCloudFileAction[];
 };
-const destinationPicker = require(compiled('services/homecloud/FileMoveDestinationPicker')) as {
+// Stage 2 Phase 1: the destination GRAMMAR moved into its own pure module, because
+// the contract ("what destinations exist, in what order, which one is current") is
+// not a rendering concern. The sheet still owns nothing but presentation. These
+// assertions keep testing the same grammar, from its canonical home.
+const destinationSheet = require(compiled('services/homecloud/FileMoveDestinationPicker')) as {
+  FileMoveDestinationPicker: (props: Record<string, unknown>) => unknown;
+};
+const destinationGrammar = require(compiled('services/homecloud/homecloudMoveDestinations')) as {
   ROOT_DESTINATION_FOLDER_ID: string | null;
   ROOT_DESTINATION_LABEL: string;
-  FileMoveDestinationPicker: (props: Record<string, unknown>) => unknown;
   fileMoveDestinations: (
-    folders: { id: string; name: string }[],
+    folders: { id: string; name: string; parentFolderId?: string | null }[],
     currentFolderId: string | null | undefined,
-  ) => { folderId: string | null; label: string; isCurrent: boolean }[];
+  ) => { folderId: string | null; label: string; path: string | null; depth: number; isCurrent: boolean }[];
 };
 const selectionBar = require(compiled('services/homecloud/FileSelectionBar')) as {
   FileSelectionBar: (props: Record<string, unknown>) => unknown;
@@ -673,7 +679,7 @@ function selectionSummary(tree: unknown): string {
 }
 
 const pickerElements = (tree: unknown): TestElement[] =>
-  findAll(tree, (element) => element.type === destinationPicker.FileMoveDestinationPicker);
+  findAll(tree, (element) => element.type === destinationSheet.FileMoveDestinationPicker);
 
 const pickerElement = (tree: unknown): TestElement | null => pickerElements(tree)[0] ?? null;
 
@@ -1087,17 +1093,17 @@ async function testCanonicalHostOnTheSurface(): Promise<void> {
 
   // The destination vocabulary itself.
   const folders = [{ id: 'ff-viajes', name: 'Viajes' }, { id: 'ff-recetas', name: 'Recetas' }];
-  const destinations = destinationPicker.fileMoveDestinations(folders, null);
-  record(destinationPicker.ROOT_DESTINATION_FOLDER_ID === null, 'C35. root is expressed as null, exactly as the backend stores it');
-  record(destinations[0].label === destinationPicker.ROOT_DESTINATION_LABEL, 'C36. and it is offered as "Archivos"');
+  const destinations = destinationGrammar.fileMoveDestinations(folders, null);
+  record(destinationGrammar.ROOT_DESTINATION_FOLDER_ID === null, 'C35. root is expressed as null, exactly as the backend stores it');
+  record(destinations[0].label === destinationGrammar.ROOT_DESTINATION_LABEL, 'C36. and it is offered as "Archivos"');
   record(destinations.map((entry) => entry.label).join(',') === 'Archivos,Viajes,Recetas', 'C37. every household folder is offered too');
-  record(destinationPicker.fileMoveDestinations(folders, undefined).every((entry) => !entry.isCurrent),
+  record(destinationGrammar.fileMoveDestinations(folders, undefined).every((entry) => !entry.isCurrent),
     'C38. a mixed selection marks NO destination as current rather than lying about root');
-  record(destinationPicker.fileMoveDestinations(folders, 'ff-viajes').filter((entry) => entry.isCurrent).length === 1,
+  record(destinationGrammar.fileMoveDestinations(folders, 'ff-viajes').filter((entry) => entry.isCurrent).length === 1,
     'C39. and a selection that does share one folder marks exactly that one');
 
   // The rendered picker states each destination with a meaningful label.
-  const renderedPicker = destinationPicker.FileMoveDestinationPicker({
+  const renderedPicker = destinationSheet.FileMoveDestinationPicker({
     visible: true, title: 'Mover a', folders, currentFolderId: null, busy: false, onSelect: () => undefined, onClose: () => undefined,
   });
   record(findAll(renderedPicker, (element) => element.props?.title === 'Archivos').length === 1, 'C40. the picker lists root');

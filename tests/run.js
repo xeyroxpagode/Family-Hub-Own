@@ -44,6 +44,14 @@ const RUNTIME_ENVIRONMENT = {
     'SUPABASE_ANON_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
   ],
+  'homecloud-files-hierarchy-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+  ],
+  'homecloud-files-hierarchy-migration': [
+    'LOCAL_DATABASE_URL',
+  ],
 };
 
 const suiteClass = {
@@ -63,6 +71,8 @@ const suiteClass = {
   'homecloud-s4ii': 'DETERMINISTIC',
   'homecloud-s4iii': 'DETERMINISTIC',
   'homecloud-s4ii-search-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-files-hierarchy-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-files-hierarchy-migration': 'LOCAL_RUNTIME_REQUIRED',
 };
 
 /** Probes the local runtime without failing the deterministic gate. */
@@ -440,12 +450,53 @@ const commands = {
       { env },
     );
   },
+  // Stage 2 Phase 1: deterministic client-side hierarchy evidence. Compiles the
+  // real tree module, the real destination picker and the real Files screen.
+  'homecloud-files-hierarchy-ui': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud Files compile nested hierarchy UI tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_files_hierarchy_ui_test.json'],
+    );
+    return runCommand(
+      'HomeCloud Files nested folder hierarchy UI tests',
+      'node',
+      ['scripts/compiled-files-hierarchy-ui/scripts/homecloud_files_hierarchy_ui_tests.js'],
+      { env },
+    );
+  },
+  // Stage 2 Phase 1: migration safety in throwaway local databases. Proves both the
+  // FRESH chain and the Stage 1 UPGRADE, and drops only what it created.
+  'homecloud-files-hierarchy-migration': {
+    label: 'HomeCloud Files nested folder hierarchy migration safety (isolated local DBs)',
+    run: () => runCommand(
+      'HomeCloud Files nested folder hierarchy migration safety (isolated local DBs)',
+      'node',
+      ['scripts/homecloud_files_hierarchy_migration_tests.js'],
+    ),
+  },
   'homecloud-files-favorites-runtime': {
     label: 'HomeCloud Files Core personal favorites (real PostgREST)',
     run: () => runCommand(
       'HomeCloud Files Core personal favorites (real PostgREST)',
       'node',
       ['scripts/homecloud_files_favorites_runtime_tests.js'],
+    ),
+  },
+  // Stage 2 Phase 1: nested folder hierarchy. LOCAL_RUNTIME_REQUIRED because every
+  // hierarchy invariant (sibling uniqueness, same-household parent, cycle refusal,
+  // transactional promotion, concurrency) is a DATABASE behaviour no stub can assert.
+  'homecloud-files-hierarchy-runtime': {
+    label: 'HomeCloud Files nested folder hierarchy (real PostgREST)',
+    run: () => runCommand(
+      'HomeCloud Files nested folder hierarchy (real PostgREST)',
+      'node',
+      ['scripts/homecloud_files_hierarchy_runtime_tests.js'],
     ),
   },
   'homecloud-4c1-memory-create': () => runCommand(
@@ -1129,10 +1180,17 @@ const suites = {
     'homecloud-files-freshness',
     'homecloud-files-favorites',
     'homecloud-files-favorites-ui',
+    // Stage 2 Phase 1: the nested hierarchy seams, deterministic and runtime.
+    'homecloud-files-hierarchy-ui',
     'homecloud-files-favorites-runtime',
+    // Stage 2 Phase 1: the nested hierarchy runtime seam is part of the Files
+    // gate so a hierarchy invariant can never be broken without failing here.
+    'homecloud-files-hierarchy-runtime',
+    'homecloud-files-hierarchy-migration',
     'selection-system',
     'homecloud-3a-3d-acceptance',
   ],
+  'homecloud-files-hierarchy': ['homecloud-files-hierarchy-ui', 'homecloud-files-hierarchy-runtime', 'homecloud-files-hierarchy-migration'],
   'homecloud-s4ii': ['homecloud-s4ii-search-contract', 'homecloud-s4ii-document-date'],
   'homecloud-s4iii': ['homecloud-s4iii-files-hasmore', 'homecloud-s4iii-files-surface'],
   'homecloud-3a-3d': ['homecloud-3a-3d-acceptance'],

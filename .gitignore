@@ -22,6 +22,7 @@ supabase/snippets/
 /scripts/compiled-files-slice1/
 /scripts/compiled-files-freshness/
 /scripts/compiled-files-favorites-ui/
+/scripts/compiled-files-hierarchy-ui/
 /scripts/scripts/
 /.env
 /.env.local

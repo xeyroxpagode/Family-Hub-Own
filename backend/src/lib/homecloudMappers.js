@@ -143,11 +143,23 @@ function mapMemoryRowToReadDto(row, albumIds = []) {
 /**
  * Safe folder mapper: DB row -> canonical HomeCloud Folder DTO.
  * Minimal representation per HC-1F Product Truth.
+ *
+ * Stage 2 (Phase 1, nested hierarchy) adds exactly one field:
+ * `parentFolderId`. It is the ONLY ancestry authority in the DTO. There is no
+ * materialized path and no duplicated depth, precisely so the client can derive
+ * the tree and every display path from ONE household catalogue read instead of
+ * asking the server "who is my parent?" once per folder (an N+1 that a growing
+ * hierarchy would turn into a real latency problem).
+ *
+ * `parentFolderId === null` means a root-level folder, which is also how every
+ * pre-Stage-2 folder reads after the migration: the old flat tree IS the new
+ * hierarchy with every node at the root.
  */
 function mapFolderRowToDto(row) {
   return {
     id: row.id,
     name: row.name,
+    parentFolderId: row.parent_folder_id ?? null,
     createdByMemberId: row.created_by_member_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

@@ -166,10 +166,21 @@ export function isHomeCloudMemory(content: HomeCloudContent): content is HomeClo
   return content.role === 'memory';
 }
 
-/** Folder DTO — minimal per HC-1F Product Truth. */
+/** Folder DTO - minimal per HC-1F Product Truth.
+ *
+ * Stage 2 (Phase 1, nested hierarchy): `parentFolderId` is the ONLY ancestry
+ * authority. `null` means a root-level folder, which is also how every
+ * pre-Stage-2 folder reads after the migration.
+ *
+ * There is deliberately no `path` and no `depth`: a persisted path would have to
+ * be rewritten for an entire subtree on every rename or move, and the hierarchy
+ * is an adjacency list precisely to avoid that. Display paths are computed from
+ * this one field by `homecloudFolderTree`.
+ */
 export interface HomeCloudFolder {
   readonly id: string;
   readonly name: string;
+  readonly parentFolderId: string | null;
   readonly createdByMemberId: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;

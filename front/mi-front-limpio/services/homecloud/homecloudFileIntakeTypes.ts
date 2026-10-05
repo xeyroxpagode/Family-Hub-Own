@@ -13,9 +13,22 @@ export interface FileIntakeConfig {
   intakeSource?: string;
 }
 
+/**
+ * Stage 2 (Phase 1, nested hierarchy): a destination row carries its DEPTH and
+ * its full display PATH alongside its name.
+ *
+ * Without them, two genuinely different destinations that happen to share a name
+ * (`Projects / Facturas` and `Archivos / Facturas`) would render as two identical
+ * rows and the member could file a document into the wrong one. The name stays the
+ * visible label; depth and path are what disambiguate it.
+ */
 export interface FileIntakeDestination {
   id: 'root' | string;
   name: string;
+  /** Full `Projects / 2026 / Contracts` trail, or null at the root. */
+  path: string | null;
+  /** 0 for the root destination, 1 for a top-level folder, and so on. */
+  depth: number;
   isCurrent: boolean;
 }
 
