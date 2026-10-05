@@ -3,9 +3,12 @@
   "compilerOptions": { "module": "CommonJS", "moduleResolution": "Bundler", "outDir": "./compiled-hc2c" },
   "include": [
     "../scripts/homecloud_hc2c_viewer_opening_tests.ts",
+    "../scripts/homecloud_hc2c_albums_rail_tests.ts",
+    "../scripts/homecloud_hc2c_memories_root_tests.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudMemoryViewerOpening.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudMemoryViewerSource.ts",
-    "../front/mi-front-limpio/services/homecloud/homecloudMemoryMediaPlayback.ts"
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryMediaPlayback.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudAlbumsPagination.ts"
   ],
   "exclude": ["node_modules"]
 }

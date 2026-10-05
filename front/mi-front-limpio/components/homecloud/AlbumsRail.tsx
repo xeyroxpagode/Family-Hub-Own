@@ -4,33 +4,37 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { colors, radius, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
 import { ALBUMS_EMPTY_BODY, ALBUMS_EMPTY_TITLE, ALBUMS_RAIL_TITLE } from '../../services/homecloud/homecloudAlbumScope';
+import { solveAlbumsRailPhase, type AlbumsRailState } from '../../services/homecloud/homecloudAlbumsPagination';
 import type { HomeCloudAlbum } from '../../services/homecloud/homecloudTypes';
 import { AppButton, AppText, ErrorState, Skeleton } from '../ui';
 import { AlbumTile } from './AlbumTile';
 
 /**
- * HomeCloud MO-A2 — Albums rail.
+ * HomeCloud MO-A2 — Albums rail. HC2-C: the five honest states of §23.
  *
- * Albums live INSIDE Memories: this rail is the `ListHeaderComponent` of the
- * Memories SectionList, never a third HomeCloud tab and never a synthetic
+ * Albums live INSIDE Memories: this rail is part of the `ListHeaderComponent` of
+ * the Memories SectionList, never a third HomeCloud tab and never a synthetic
  * Timeline section. The Timeline grouping architecture is untouched, so the rail
  * can only appear above it, never inside it.
  *
- * States, all honest:
- *  - loading        -> the existing Skeleton card grammar
- *  - read failure   -> ErrorState + retry (an access problem is never "no Albums")
- *  - 0 Albums       -> a small, actionable area when organize is granted;
- *                      nothing at all when it is not (no mutation advertised,
- *                      and no permission denial dressed as an empty household)
- *  - N Albums       -> a horizontal rail of Album tiles
+ * The state is RESOLVED, not re-derived here. `solveAlbumsRailPhase` is the single
+ * decision, and it is what makes the reported defect impossible to reintroduce by
+ * hand: the whole BUG B report was one `loading` boolean standing in for four
+ * different situations, so a failed read could be rendered as a permanent pair of
+ * grey blocks.
+ *
+ *   loading     -> a skeleton, and ONLY while a real first answer is pending
+ *   error       -> ErrorState + retry, never an empty household in disguise
+ *   ready-empty -> honest explanation + creation CTA (organize only)
+ *   ready-data  -> the horizontal rail of Album tiles
+ *   refreshing  -> the SAME tiles, kept on screen, no skeleton
  *
  * The component is pure presentation: every read decision belongs to the Albums
  * rail controller and every mutation to the Memories subtree.
  */
 export function AlbumsRail({
   albums,
-  loading,
-  error,
+  state,
   canOrganize,
   accessToken,
   onOpenAlbum,
@@ -39,8 +43,8 @@ export function AlbumsRail({
   onRetry,
 }: {
   albums: readonly HomeCloudAlbum[];
-  loading: boolean;
-  error: string | null;
+  /** HC2-C: the controller's own state, so the phase is resolved in ONE place. */
+  state: AlbumsRailState;
   /** `homecloud.organize`. The ONLY capability that unlocks Album actions. */
   canOrganize: boolean;
   accessToken: string | null;
@@ -49,15 +53,17 @@ export function AlbumsRail({
   onCreateAlbum: () => void;
   onRetry: () => void;
 }) {
+  const phase = solveAlbumsRailPhase(state);
+
   // A read that has failed with nothing on screen is an ERROR state, never an
   // empty household.
-  if (error !== null && albums.length === 0) {
+  if (phase === 'error') {
     return (
       <View style={styles.container}>
         <Header canOrganize={canOrganize} onCreateAlbum={onCreateAlbum} />
         <ErrorState
           title="No pudimos cargar tus álbumes"
-          description={error}
+          description={state.error ?? ''}
           retryLabel="Reintentar"
           onRetry={onRetry}
           style={styles.error}
@@ -66,7 +72,9 @@ export function AlbumsRail({
     );
   }
 
-  if (loading) {
+  // The skeleton appears ONLY here, and `solveAlbumsRailPhase` can only answer
+  // `loading` while there is genuinely no answer yet.
+  if (phase === 'loading') {
     return (
       <View style={styles.container}>
         <Header canOrganize={canOrganize} onCreateAlbum={onCreateAlbum} />
@@ -82,7 +90,7 @@ export function AlbumsRail({
     );
   }
 
-  if (albums.length === 0) {
+  if (phase === 'ready-empty') {
     return (
       <View style={styles.container}>
         <Header canOrganize={canOrganize} onCreateAlbum={onCreateAlbum} />
@@ -100,12 +108,14 @@ export function AlbumsRail({
     );
   }
 
+  // `ready-data` and `refreshing` render the SAME tiles on purpose: a re-read
+  // preserves the already-valid Albums, so a refresh is never a skeleton flash.
   return (
     <View style={styles.container}>
       <Header canOrganize={canOrganize} onCreateAlbum={onCreateAlbum} />
-      {error !== null ? (
+      {state.error !== null ? (
         <AppText variant="caption" tone="danger">
-          {error}
+          {state.error}
         </AppText>
       ) : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>

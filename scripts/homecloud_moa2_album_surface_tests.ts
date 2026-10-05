@@ -35,6 +35,7 @@ import {
 import {
   ALBUMS_RAIL_INITIAL,
   createAlbumsRailController,
+  solveAlbumsRailPhase,
   type AlbumsRailState,
 } from '../front/mi-front-limpio/services/homecloud/homecloudAlbumsPagination';
 import {
@@ -903,10 +904,20 @@ record(
   RAIL.includes('No pudimos cargar tus álbumes') && RAIL.includes('retryLabel="Reintentar"'),
   'a failed rail read is an ErrorState with a retry, never an empty household',
 );
+// HC2-C STALE_TEST RETARGET. The OLD assertion proved this by matching the exact
+// source text `if (error !== null && albums.length === 0)` — the boolean
+// re-derivation that HC2-C §23 replaced with ONE resolved phase, precisely
+// because standing in for four situations with one boolean is what turned a
+// failed read into a permanent pair of grey blocks.
+//
+// The BEHAVIOUR is unchanged and is now proved behaviourally: a successful read
+// with no Albums resolves to `ready-empty` (never `loading`, never `error`), and
+// the EMPTY COPY is rendered outside the organize gate while only the CREATE
+// ACTION is behind it. That is stronger than the old regex, not weaker.
 record(
-  RAIL_CODE.includes('if (error !== null && albums.length === 0)')
-  && !RAIL_CODE.includes('if (!canOrganize) return null;')
-  && RAIL_CODE.includes("canOrganize ? <AppButton title=\"Crear álbum\""),
+  solveAlbumsRailPhase({ albums: [], loading: false, refreshing: false, error: null }) === 'ready-empty'
+    && !RAIL_CODE.includes('if (!canOrganize) return null;')
+    && /phase === 'ready-empty'[\s\S]*?canOrganize \? <AppButton title="Crear álbum"/.test(RAIL_CODE),
   'the zero-Album state stays visible to every member and only organizers see create',
 );
 record(

@@ -39,6 +39,7 @@ import {
 import {
   ALBUMS_RAIL_INITIAL,
   createAlbumsRailController,
+  solveAlbumsRailShowsSkeleton,
 } from '../services/homecloud/homecloudAlbumsPagination';
 import {
   ALBUM_DETAIL_INITIAL,
@@ -232,6 +233,14 @@ export function HomeCloudMemoriesView() {
   const householdId = currentHousehold?.id ?? null;
 
   const [memories, setMemories] = useState<HomeCloudMemoryListItem[]>([]);
+  /**
+   * Latest Timeline content, readable by the load callbacks WITHOUT becoming one
+   * of their dependencies. It exists so a page-0 re-read can ask "is there
+   * already content on screen?" without changing the identity of `loadFirstPage`
+   * — which would re-fire the very effect that calls it.
+   */
+  const memoriesRef = useRef(memories);
+  memoriesRef.current = memories;
   const [viewer, setViewer] = useState<MemoryViewerSession | null>(null);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -254,7 +263,20 @@ export function HomeCloudMemoriesView() {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    /**
+     * HC2-C (§9 / §23.8) — A PAGE-0 RE-READ WITH CONTENT NEVER SHOWS A SKELETON.
+     *
+     * This callback is reached on mount, on every focus and from the
+     * reconciliation, so a plain `setLoading(true)` blanked a Timeline the user
+     * was already reading. `refresh()` never had that problem; now the read
+     * itself owns the distinction, so every caller gets the honest behaviour
+     * instead of each one having to remember it.
+     *
+     * The question is asked of a REF, never of `memories` as a dependency, so
+     * this callback keeps a stable identity and the effect below cannot loop.
+     */
+    const skeleton = solveAlbumsRailShowsSkeleton(memoriesRef.current.length === 0);
+    if (skeleton) setLoading(true);
     setError(null);
     try {
       const page = await listMemories(token, { limit: MEMORIES_PAGE_SIZE });
@@ -368,14 +390,16 @@ export function HomeCloudMemoriesView() {
   }
   const reloadRail = useCallback(() => railControllerRef.current!.reload(), []);
 
-  const loadRail = useCallback(async () => {
-    if (!token || !householdId) return;
-    await railControllerRef.current!.load();
-  }, [token, householdId]);
-
-  useEffect(() => {
-    void loadRail();
-  }, [loadRail]);
+  /**
+   * HC2-C (B2) — the FIRST-PAINT rail read has no effect of its own any more.
+   *
+   * It used to. Two effects — a `loadRail()` effect and the `useFocusEffect`
+   * `reloadRail()` — both fired on mount, and both answers were then discarded by
+   * the scope reset that ran after them, with no later read to replace them. The
+   * single first-paint read now lives in the ONE scope effect that owns the
+   * reset, below, and is emitted AFTER the reset. See that effect for the full
+   * ordering argument.
+   */
 
   useFocusEffect(
     useCallback(() => {
@@ -612,8 +636,6 @@ export function HomeCloudMemoriesView() {
   // props never change identity.
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
-  const memoriesRef = useRef(memories);
-  memoriesRef.current = memories;
   const openAlbumIdRef = useRef(openAlbumId);
   openAlbumIdRef.current = openAlbumId;
   const railRef = useRef(rail);
@@ -1343,6 +1365,35 @@ export function HomeCloudMemoriesView() {
   // =========================================================================
   // MO-A2 — Household reset — nothing from household A may render in household B
   // =========================================================================
+  //
+  // HC2-C (B1 / B2) — WHY THE RAIL READ IS THE LAST LINE HERE
+  // --------------------------------------------------------
+  // This is the ONE AND ONLY scope authority, so it is also where the Albums read
+  // belongs: the reset and the read are two halves of the same fact, "these are
+  // the Albums of THIS household".
+  //
+  // The defect was an ORDERING one. `loadRail()` used to run from its own effect,
+  // declared BEFORE this one, and `useFocusEffect` fires on the same commit as the
+  // mount. The sequence was therefore `load -> reload -> reset`. `reset()` bumps
+  // the rail generation and clears `hasLoadedOnce`, so BOTH answers were rejected
+  // by the controller's own generation check and NOTHING re-read afterwards: the
+  // rail stayed at `loading: true, albums: []` forever — the pair of permanent
+  // grey blocks that were reported. No focus event could rescue it, because
+  // switching `Archivos -> Recuerdos` is local state rather than a focus change
+  // and both panes stay mounted.
+  //
+  // Emitting the read HERE, AFTER `reset()`, fixes it structurally: whatever order
+  // React runs the focus effect in relative to this one, there is now always a
+  // read whose generation is the newest, so the first paint resolves.
+  //
+  // HOUSEHOLD ISOLATION IS NOT WEAKENED (HC2-C R3)
+  // ------------------------------------------------
+  // On a REAL household/token change `reset()` still runs FIRST, so the previous
+  // household's albums, its detail, its editor, its selection and its open
+  // collection are all dropped before the new scoped read is even issued. The
+  // skeleton that follows is honest, because nothing is yet known about the new
+  // household. Removing the reset would have "fixed" the skeleton by letting one
+  // household's Albums leak into the next, which is not a fix.
   useEffect(() => {
     setOpenAlbumId(null);
     setRemovingContentId(null);
@@ -1366,6 +1417,9 @@ export function HomeCloudMemoriesView() {
     setSelection(resetMemorySelectionScope());
     setCollections(MEMORY_COLLECTIONS_INITIAL);
     collectionsControllerRef.current!.reset();
+    // AND the one scoped Albums read that replaces this scope's contents. Skipped
+    // without a scope, because there is nothing to read.
+    if (token && householdId) void railControllerRef.current!.load();
   }, [abortDrag, householdId, token]);
 
   const showAlbumDetail = !selecting && openAlbumId !== null;
@@ -1411,6 +1465,50 @@ export function HomeCloudMemoriesView() {
         </AppText>
       </View>
     ) : null;
+
+  /**
+   * HC2-C (B4) — THE TIMELINE'S OWN STATE, INSIDE THE TIMELINE.
+   *
+   * This used to be a whole-body branch: `loading ? <MemoriesLoadingSkeleton/> :
+   * … : gridList`. While the first Timeline page was in flight the ENTIRE body —
+   * including the Albums section, which is this very list's `ListHeaderComponent`
+   * — was unmounted. That is why the Albums appeared LATE and then appeared as
+   * skeletons: the section only started existing after the Timeline had already
+   * finished, with its own read still unresolved.
+   *
+   * The three surfaces are now independent, exactly as §23 requires:
+   *
+   *  - Albums renders its own LOADING, and stays mounted throughout;
+   *  - Types is four fixed tiles, never a skeleton;
+   *  - the Timeline declares ITS state through `ListEmptyComponent`, which the
+   *    SectionList only reaches when it genuinely has no sections.
+   *
+   * Nothing about grouping, ordering, pagination, sticky headers or D4 changes:
+   * this only decides what the list shows when it is empty, and the honest answer
+   * differs by WHY it is empty.
+   */
+  const timelineEmptyState = loading ? (
+    <MemoriesLoadingSkeleton />
+  ) : error && memories.length === 0 ? (
+    <View style={styles.timelineEmpty}>
+      <ErrorState
+        title="No pudimos cargar tus recuerdos"
+        description={error}
+        retryLabel="Reintentar"
+        onRetry={() => void loadFirstPage()}
+      />
+    </View>
+  ) : (
+    <View style={styles.timelineEmpty}>
+      <HomePlusIcon name="image-outline" size={38} color={colors.text.tertiary} />
+      <AppText variant="title3" weight="800" align="center">
+        {'Aún no hay recuerdos'}
+      </AppText>
+      <AppText variant="body" tone="secondary" align="center">
+        {'Las fotos, videos, audios y escritos que quieran conservar van a aparecer acá.'}
+      </AppText>
+    </View>
+  );
 
   const gridFooter =
     selecting && selection.source.kind === 'collection'
@@ -1488,8 +1586,7 @@ export function HomeCloudMemoriesView() {
           : (
             <AlbumsRail
               albums={rail.albums}
-              loading={rail.loading}
-              error={rail.error}
+              state={rail}
               canOrganize={canOrganize}
               accessToken={token}
               onOpenAlbum={openAlbum}
@@ -1544,6 +1641,7 @@ export function HomeCloudMemoriesView() {
         />
       )}
       ListFooterComponent={gridFooter}
+      ListEmptyComponent={timelineEmptyState}
       onEndReached={() => { if (!selecting) void loadMore(); }}
       onEndReachedThreshold={0.6}
     />
@@ -1684,28 +1782,15 @@ export function HomeCloudMemoriesView() {
         ) : (
           gridList
         )
-      ) : loading ? (
-        <MemoriesLoadingSkeleton />
-      ) : error && memories.length === 0 ? (
-        <View style={styles.center}>
-          <ErrorState
-            title="No pudimos cargar tus recuerdos"
-            description={error}
-            retryLabel="Reintentar"
-            onRetry={() => void loadFirstPage()}
-          />
-        </View>
-      ) : memories.length === 0 ? (
-        <View style={styles.center}>
-          <HomePlusIcon name="image-outline" size={38} color={colors.text.tertiary} />
-          <AppText variant="title3" weight="800" align="center">
-            {'Aún no hay recuerdos'}
-          </AppText>
-          <AppText variant="body" tone="secondary" align="center">
-            {'Las fotos, videos, audios y escritos que quieran conservar van a aparecer acá.'}
-          </AppText>
-        </View>
       ) : (
+        /*
+         * HC2-C (B4): NORMAL MODE IS ALWAYS THE GRID LIST.
+         *
+         * The `loading` / `error` / `memories.length === 0` branches that used to
+         * live here are now the list's own `ListEmptyComponent`, so the composed
+         * root header (Albums, and from C1 Types) stays mounted through the first
+         * Timeline read instead of being unmounted behind a full-body skeleton.
+         */
         gridList
       )}
 
@@ -1879,6 +1964,7 @@ const styles = StyleSheet.create({
   sectionHeader: { paddingTop: spacing[3], paddingBottom: spacing[2], gap: 2 },
   footer: { paddingVertical: spacing[4], alignItems: 'center' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] },
+  timelineEmpty: { alignItems: 'center', justifyContent: 'center', paddingVertical: spacing[8], gap: spacing[3] },
   skeletonRow: { flexDirection: 'row', gap: spacing[2], marginVertical: spacing[2] },
   skeletonTile: { flex: 1, borderRadius: radius.lg },
   skeletonWrap: { paddingHorizontal: spacing[5], gap: spacing[3] },

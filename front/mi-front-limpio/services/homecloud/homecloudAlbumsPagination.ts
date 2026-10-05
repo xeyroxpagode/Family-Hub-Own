@@ -78,6 +78,50 @@ export type AlbumsRailController = {
 const DEFAULT_ERROR = 'No pudimos cargar tus álbumes.';
 
 /**
+ * THE FIVE MUTUALLY EXCLUSIVE STATES of the Albums surface (HC2-C §23).
+ *
+ * This is a RESOLVER, not a set of booleans the surface re-derives by hand: the
+ * whole BUG B report was one boolean (`loading`) standing in for four different
+ * situations, which is how a real read failure came to be rendered as a
+ * permanent pair of grey blocks.
+ *
+ *  - `loading`     — real initial content is expected and has never arrived;
+ *  - `ready-empty` — the read SUCCEEDED and the household genuinely has none;
+ *  - `ready-data`  — real Albums on screen;
+ *  - `error`       — the read FAILED with nothing to show beside it;
+ *  - `refreshing`  — a re-read while valid Albums are already on screen.
+ *
+ * Two rules do the real work:
+ *
+ *  1. A FAILURE WITH CONTENT beside it is `refreshing`, not `error`: the
+ *     already-valid tiles stay and the message is published next to them. A
+ *     dropped connection is never read as "this home has no Albums".
+ *  2. `refreshing` can never render a skeleton: an `ALBUMS_RAIL_INITIAL` with
+ *     `refreshing: true` and no albums is not reachable, because a refresh by
+ *     definition follows a successful first paint.
+ */
+export type AlbumsRailPhase = 'loading' | 'ready-empty' | 'ready-data' | 'error' | 'refreshing';
+
+export function solveAlbumsRailPhase(state: AlbumsRailState): AlbumsRailPhase {
+  if (state.albums.length > 0) return state.refreshing ? 'refreshing' : 'ready-data';
+  if (state.error !== null) return 'error';
+  if (state.refreshing) return 'loading';
+  return state.loading ? 'loading' : 'ready-empty';
+}
+
+/**
+ * Does a page-0 RE-READ have to show a skeleton?
+ *
+ * HC2-C §9 / §23.8: re-reading page 0 with data already on screen must NOT
+ * re-render the skeleton, or a focus refresh empties a Timeline the user is
+ * reading. `hasContent` is read from a REF by the caller, never from a state
+ * dependency, so the decision can never re-fire the effect that made it.
+ */
+export function solveAlbumsRailShowsSkeleton(hasContent: boolean): boolean {
+  return !hasContent;
+}
+
+/**
  * A failed read never invents an empty household: the previous albums stay on
  * screen and the error is published next to them, so a dropped connection is
  * never read as "this home has no Albums".
