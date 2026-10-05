@@ -199,7 +199,7 @@ check(/player\.pause\(\)/.test(videoCode) && /if \(authorized\) return;/.test(vi
 check(!/transcod|poster|Poster|saveToFiles|Sharing|shareAsync|expo-sharing/.test(videoCode), 'HC2-B video invents no poster, no transcode and no Save/Share action');
 
 // PAGER + LIFECYCLE, as code-level integration.
-check(/onScrollBeginDrag=\{revoke\}/.test(viewer), 'a pager drag immediately revokes playback authorization');
+check(/onScrollBeginDrag=\{beginPagerDrag\}/.test(viewer), 'a pager drag immediately revokes playback authorization');
 check(/active=\{item\.id === activeContentId\}/.test(viewer), 'the Viewer passes the active-page authority to every page');
 check((viewer.match(/AppState\.addEventListener/g) ?? []).length === 1, 'the Viewer owns exactly ONE AppState listener for media, so Video and Audio cannot compete');
 check(!/\.play\(/.test(codeOf(viewer)), 'the Viewer itself never starts playback');
@@ -249,5 +249,51 @@ check(!/waveform|Waveform|sampleListener|useAudioSampleListener/.test(audioCode)
 
 // CAPTURE BOUNDARY (§56): the Viewer must not touch recording configuration.
 check(!/setAudioModeAsync|useAudioRecorder|RecordingPresets|requestRecordingPermissions|allowsRecording|stopAndDiscard/.test(audioCode), 'the Viewer playback page never reopens recording or audio-session configuration');
+
+// ===========================================================================
+// HC2-B — COMBINED MEDIA LIFECYCLE
+// ===========================================================================
+console.log('\n=== HC2-B COMBINED MEDIA LIFECYCLE ===');
+
+// The invariant has to survive BOTH media types at once, so these are asserted
+// against the Viewer's single intent rather than per component.
+const viewerCode = codeOf(viewer);
+check((viewer.match(/AppState\.addEventListener/g) ?? []).length === 1, 'exactly ONE AppState listener serves both media types (no competing answers)');
+check(!/AppState/.test(videoPage.replace(/^import .*$/gm, '')) && !/AppState/.test(audioCode), 'neither media component installs its own AppState listener');
+check(!/useFocusEffect|useIsFocused/.test(videoCode) && !/useFocusEffect|useIsFocused/.test(audioCode), 'focus is resolved once, by the Viewer, not per media component');
+
+// EVERY revocation path must be represented, and NOTHING may restore it.
+for (const [label, pattern] of [
+  ['pager drag start', /onScrollBeginDrag=\{beginPagerDrag\}/],
+  ['settled page change', /onActiveChange\(item\.id\)/],
+  ['HomeCloud blur', /screenFocused/],
+  ['app background', /appActive/],
+  ['Viewer close', /viewerOpen: true/],
+  ['scope / household change', /scopeChanged/],
+] as [string, RegExp][]) {
+  check(pattern.test(viewerCode), `the single intent accounts for ${label}`);
+}
+check(!/\bautoResume\b|\bresumeOn|\bonForeground\s*=\s*true\b/.test(viewerCode), 'no path automatically restores playback authorization');
+
+// A drag released WITHOUT momentum never fires onMomentumScrollEnd, so the
+// no-momentum path must restore authorization or a cancelled drag would leave
+// media suspended forever.
+check(/onScrollEndDrag=\{endPagerDrag\}/.test(viewerCode) && /onMomentumScrollBegin/.test(viewerCode) && /if \(!momentumRef\.current\) setDragging\(false\)/.test(viewerCode), 'a drag released without momentum restores authorization');
+
+// NO DOUBLE RELEASE (§62): the Expo hooks own release, so nothing may also
+// release, and no parent may hold a player a child owns.
+for (const [label, source] of [['Video', videoCode], ['Audio', audioCode]] as [string, string][]) {
+  check(!/player\.(remove|release)\(/.test(source), `${label} never manually releases a hook-owned native object`);
+}
+check(!/useVideoPlayer|useAudioPlayer|VideoView/.test(viewerCode), 'the Viewer parent holds no player instance owned by a child');
+
+// SOURCE CONTEXT (§67): media kind must never recompute the Viewer source.
+check(!/memoryViewerSession|libraryViewerSession|albumViewerSession|collectionViewerSession/.test(viewerCode), 'the Viewer never recomputes its own source from the media kind');
+check(viewer.includes('{source.label}'), 'the chrome still names the ACTUAL source context (Library / Album / Collection)');
+
+// WRITTEN + IMAGE ARE REGRESSION-FROZEN (§65/§66): the existing branches must
+// still be the untouched implementations.
+check(/memory\.kind === 'written'[\s\S]{0,80}<ScrollView/.test(viewerCode), 'Written remains a plain scrollable text page in the same Viewer');
+check(/return <ImagePage memory=\{memory\}/.test(viewerCode), 'Image keeps its existing page implementation');
 
 if (failed) process.exitCode = 1;

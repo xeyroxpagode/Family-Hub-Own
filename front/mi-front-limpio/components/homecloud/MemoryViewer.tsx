@@ -30,9 +30,15 @@ import type { MemoryViewerSource } from '../../services/homecloud/homecloudMemor
  * TWO INDEPENDENT SWIPE SAFEGUARDS
  * 1. `onScrollBeginDrag` revokes authorization the moment a finger touches the
  *    pager, so audible playback stops immediately — before the page changes.
+ *    Authorization returns when the pager settles, INCLUDING when the drag was
+ *    released without momentum and would otherwise never settle at all.
  * 2. A settled page change makes the outgoing page inactive, so its player
  *    component unmounts and the hook releases it. Programmatic page changes
  *    revoke through this same path.
+ *
+ * SCOPE
+ * A household switch / re-auth revokes too: the bytes already loaded belong to
+ * the previous scope.
  */
 
 export function MemoryViewer({ memories, activeContentId, accessToken, source, onClose, onActiveChange, onNearEnd }: {
@@ -46,13 +52,23 @@ export function MemoryViewer({ memories, activeContentId, accessToken, source, o
   const [dragging, setDragging] = useState(false);
   const [appActive, setAppActive] = useState(() => AppState.currentState === 'active');
   const screenFocused = useIsFocused();
+  // A SCOPE change (household switch, re-auth) must revoke playback: the bytes
+  // already loaded belong to the previous scope. Derived during render from the
+  // same latest-value ref pattern the rest of HomeCloud uses, so no effect and
+  // no second lifecycle signal is needed.
+  const tokenRef = useRef(accessToken);
+  const scopeChanged = tokenRef.current !== accessToken;
+  tokenRef.current = accessToken;
   const authorized = mediaPlaybackAuthorized({
-    isActivePage: true, viewerOpen: true, appActive, screenFocused, dragging,
+    isActivePage: true, viewerOpen: true, appActive, screenFocused, dragging: dragging || scopeChanged,
   });
-  // The suspension intent is also what a settled page change and a close mean:
-  // revoking is the only thing that ever happens, and nothing restores it
-  // automatically.
-  const revoke = useCallback(() => { setDragging(true); }, []);
+  // Whether the current drag has already handed off to momentum. A drag that is
+  // released without momentum never produces `onMomentumScrollEnd`, so restoring
+  // authorization on that path too is what keeps a cancelled drag from leaving
+  // the media permanently suspended.
+  const momentumRef = useRef(false);
+  const beginPagerDrag = useCallback(() => { momentumRef.current = false; setDragging(true); }, []);
+  const endPagerDrag = useCallback(() => { if (!momentumRef.current) setDragging(false); }, []);
   useEffect(() => { list.current?.scrollToIndex({ index: activeIndex, animated: false }); }, [activeContentId, activeIndex]);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => { setAppActive(next === 'active'); });
@@ -64,8 +80,10 @@ export function MemoryViewer({ memories, activeContentId, accessToken, source, o
     <FlatList ref={list} data={memories} horizontal pagingEnabled showsHorizontalScrollIndicator={false} initialScrollIndex={activeIndex}
       keyExtractor={(memory) => memory.id} getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
       initialNumToRender={VIEWER_WINDOW} maxToRenderPerBatch={VIEWER_WINDOW} windowSize={VIEWER_WINDOW * 2 + 1}
-      onScrollBeginDrag={revoke}
-      onMomentumScrollEnd={(event) => { setDragging(false); const index = Math.round(event.nativeEvent.contentOffset.x / width); const item = memories[index]; if (item) { onActiveChange(item.id); if (index >= memories.length - 3) onNearEnd(); } }}
+      onScrollBeginDrag={beginPagerDrag}
+      onMomentumScrollBegin={() => { momentumRef.current = true; }}
+      onScrollEndDrag={endPagerDrag}
+      onMomentumScrollEnd={(event) => { momentumRef.current = false; setDragging(false); const index = Math.round(event.nativeEvent.contentOffset.x / width); const item = memories[index]; if (item) { onActiveChange(item.id); if (index >= memories.length - 3) onNearEnd(); } }}
       renderItem={({ item }) => <ViewerPage memory={item} accessToken={accessToken} width={width} active={item.id === activeContentId} authorized={authorized} onTap={() => setChrome((value) => !value)} />}
     />
     {chrome ? <View style={styles.bottom}><AppText tone="inverse" variant="caption">{source.label}</AppText></View> : null}
