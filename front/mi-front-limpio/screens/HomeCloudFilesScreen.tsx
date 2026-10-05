@@ -1,22 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, FlatList, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
-import { AppButton, AppInput, AppText, ActionSheet, ErrorState } from '../components/ui';
+import { ActionSheet, AppButton, AppInput, AppText, ErrorState, InteractivePressable } from '../components/ui';
 import { FileActionHost, type FilePatch } from '../services/homecloud/FileActionHost';
 import { FileMoveDestinationPicker } from '../services/homecloud/FileMoveDestinationPicker';
+import { FilesFilterMenu } from '../services/homecloud/FilesFilterMenu';
 import { FileSelectionBar } from '../services/homecloud/FileSelectionBar';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
 import { FileIntake } from '../services/homecloud/FileIntake';
 import { useHomeCloudCapabilities } from '../services/homecloud/useHomeCloudCapabilities';
 import { homeCloudCapabilitiesNotice } from '../services/homecloud/homecloudCapabilitiesNotice';
-import { createHomeCloudFolder, deleteHomeCloudFolder, fetchFilesBrowser, moveHomeCloudFolder, renameHomeCloudFolder, type FileSort, setHomeCloudFileFavorite, updateHomeCloudFile, FILES_BROWSER_MAX_LIMIT } from '../services/homecloud/homecloudFilesService';
+import {
+  DEFAULT_FILES_FILTER_STATE,
+  filesFavoritesOnly,
+  filesFilterAccessibilityLabel,
+  hasNonDefaultFilesFilter,
+  type FilesFilterState,
+  type FilesShowMode,
+} from '../services/homecloud/homecloudFilesFilters';
+import { createHomeCloudFolder, deleteHomeCloudFolder, fetchFilesBrowser, moveHomeCloudFolder, renameHomeCloudFolder, setHomeCloudFileFavorite, updateHomeCloudFile, FILES_BROWSER_MAX_LIMIT } from '../services/homecloud/homecloudFilesService';
 import { folderDisplayPath, folderTrail, folderWithDescendantIds, parentFolderIdOf, resolveNearestExistingFolderId } from '../services/homecloud/homecloudFolderTree';
 import { createFilesPagination, hasMoreFilesPages, type FilesPaginationState } from '../services/homecloud/homecloudFilesPagination';
 import {
-  beginFileSelectionAt,
   emptyFileSelection,
   enterFileSelection,
   fileSelectionCount,
@@ -77,7 +85,21 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   // answer the move picker: `browser.folders` is the browser's own display
   // payload and is empty inside a folder, so it is never used as a catalogue.
   const [allFolders, setAllFolders] = useState<HomeCloudFolder[]>([]);
-  const [query, setQuery] = useState(''); const [sort, setSort] = useState<FileSort>('recent');
+  const [query, setQuery] = useState('');
+  /**
+   * STAGE 2 (Phase 2) — DISPLAY FILTER / ORDER.
+   *
+   * `sort` and `favoritesOnly` were two permanent buttons in the title row; they
+   * are now ONE filter state behind a single compact icon. The SEMANTICS are
+   * unchanged and server-side: `sort` is still the canonical server order and
+   * `favoritesOnly` is still a predicate applied before the page is taken.
+   */
+  const [filterState, setFilterState] = useState<FilesFilterState>(DEFAULT_FILES_FILTER_STATE);
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const sort = filterState.sort;
+  const favoritesOnly = filesFavoritesOnly(filterState);
   // Files Core — the personal-Favorites FILTER MODE.
   //
   // It is a mode, not a search term: it composes with folder, search, sort and
@@ -85,7 +107,7 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   // the page is taken. That is why it travels with the read context instead of
   // filtering the rows already loaded — filtering a page in the client is what
   // corrupts pagination and has-more evidence.
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [readFailure, setReadFailure] = useState<{ kind: HomeCloudReadFailure; message: string; detail?: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false); const [uploadOpen, setUploadOpen] = useState(false); const [folderEditor, setFolderEditor] = useState<{ mode: 'create' | 'rename'; item?: HomeCloudFolder } | null>(null); const [folderName, setFolderName] = useState(''); const [folderActions, setFolderActions] = useState<HomeCloudFolder | null>(null); const [actionTargetId, setActionTargetId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
@@ -365,7 +387,7 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   }, [token, catalogueScope?.householdId]);
 
   useEffect(() => {
-    setFolder(null); setQuery(''); setFavoritesOnly(false); setAllFolders([]); setError(null); setReadFailure(null);
+    setFolder(null); setQuery(''); setFilterState(DEFAULT_FILES_FILTER_STATE); setAllFolders([]); setError(null); setReadFailure(null);
     // The return guard belongs to the household being LEFT: it is released here so
     // the new household's first return is never mistaken for a duplicate of the
     // old one's in-flight read.
@@ -456,20 +478,35 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     setBulkFeedback(null);
     setSelection(enterFileSelection);
   }, []);
-  /** A long press enters the mode and selects the pressed File in one intent. */
-  const beginSelectionAt = useCallback((fileId: string) => {
-    setBulkFeedback(null);
-    setSelection((previous) => beginFileSelectionAt(previous, fileId));
-  }, []);
   /**
-   * A tap is a toggle ONLY while selection mode is active. Outside it the tap is
-   * unassigned — reserved for the Viewer, which is not implemented in this slice —
-   * so it changes nothing at all. The guard lives in the production model, not in
-   * a render closure, so it cannot go stale while rows are memoised.
+   * STAGE 2 (Phase 2) — THE FILE INTERACTION GRAMMAR. This supersedes the Stage 1
+   * rule, under which a long press ENTERED selection.
+   *
+   *   OUTSIDE selection:   tap  -> Viewer (reserved seam until Phase 3 wires it)
+   *                        long press -> contextual File actions
+   *   INSIDE selection:    tap  -> toggle
+   *                        long press -> NOTHING (no menu, no navigation)
+   *
+   * Only ONE gesture may be live at a time, so the long press inside selection is a
+   * deliberate no-op rather than a "tap" or a "menu". A contextual menu during a
+   * multi-select would let a member destroy or move a File they had only meant to
+   * include in a batch.
+   *
+   * Selection is entered ONLY from the header overflow, so the gesture is never
+   * hidden and never ambiguous.
    */
-  const toggleSelectionAt = useCallback((fileId: string) => {
+  const handleFileTap = useCallback((fileId: string) => {
+    // Outside selection the tap is the Viewer's. Phase 3 opens it; until then the
+    // seam is intentionally unassigned rather than faked, and it is never a
+    // selection gesture.
+    if (!selection.mode) return;
     setSelection((previous) => (previous.mode ? toggleFileSelection(previous, fileId) : previous));
-  }, []);
+  }, [selection.mode]);
+  const handleFileLongPress = useCallback((fileId: string) => {
+    if (selection.mode) return;
+    setBulkFeedback(null);
+    setActionTargetId(fileId);
+  }, [selection.mode]);
   const leaveSelectionMode = useCallback(() => {
     setBulkFeedback(null);
     setSelection(leaveFileSelection());
@@ -738,6 +775,34 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     return rows.every((row) => row.folderId === first) ? first : undefined;
   }, [files, selection]);
   const canAdd = caps.contribute; const canOrganize = caps.organize;
+  /** STAGE 2 (Phase 2): one boolean drives the filter icon's accent + dot. */
+  const filterIsNonDefault = hasNonDefaultFilesFilter(filterState);
+  /**
+   * STAGE 2 (Phase 2) — PULL TO REFRESH, the canonical manual refresh gesture.
+   *
+   * The visible refresh button is gone, but manual refresh is not: this is the
+   * primary path, and the header overflow keeps a secondary `Actualizar` so the
+   * gesture is never the ONLY way. Both call the SAME `refresh()`, which is the
+   * window-preserving authority. There is no second refresh implementation, no
+   * `refreshV2`, no first-page-only reload and no second cache.
+   *
+   * The indicator is driven by a LOCAL flag rather than the list's own loading
+   * state on purpose: the list also loads while paging and while the context
+   * changes, and tying the pull spinner to those would make the indicator lie
+   * about what the user's gesture did.
+   */
+  const pullToRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await refresh();
+    } finally {
+      // Settled on BOTH success and failure. A rejected request must not leave a
+      // spinner running forever, and it is reported through the surface's own
+      // read-failure surface rather than through this gesture.
+      setRefreshing(false);
+    }
+  }, [refreshing, refresh]);
   /**
    * Stage 2 Phase 1: the folder being moved cannot be a destination for itself, and
    * neither can any of its descendants. Hiding them is a convenience only - the
@@ -767,21 +832,50 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   return <View style={styles.screen}>
     <View style={styles.search}><AppInput value={query} onChangeText={setQuery} placeholder={folder ? 'Buscar en esta carpeta' : 'Buscar en archivos'} variant="search" label="Buscar" /></View>
     {currentPath ? <View style={styles.breadcrumb}><AppText variant="caption" tone="secondary" numberOfLines={1} accessibilityLabel={`Ruta: ${currentPath}`}>{currentPath}</AppText></View> : null}
-    <View style={styles.titleRow}>{folder ? <AppButton variant="icon" size="sm" onPress={leaveFolder} accessibilityLabel={trail.length >= 2 ? `Volver a ${trail[trail.length - 2].name}` : 'Volver a Archivos'}><HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} /></AppButton> : null}<AppText variant="title3" weight="800" style={styles.title}>{folder?.name ?? 'Archivos'}</AppText><View style={styles.titleActions}><AppButton variant="icon" size="sm" onPress={() => void refresh()} accessibilityLabel="Actualizar archivos"><HomePlusIcon name="refresh" size={20} color={colors.text.secondary} /></AppButton><AppButton variant="secondary" size="sm" title={sort === 'recent' ? 'Recientes' : 'A–Z'} onPress={() => setSort(sort === 'recent' ? 'name' : 'recent')} /><AppButton variant={favoritesOnly ? 'primary' : 'secondary'} size="sm" title="Favoritos" onPress={() => setFavoritesOnly((previous) => !previous)} accessibilityLabel={favoritesOnly ? 'Mostrando solo tus favoritos. Desactivar filtro de favoritos' : 'Mostrar solo tus favoritos'} />{!selection.mode ? <AppButton variant="ghost" size="sm" title="Seleccionar" disabled={files.length === 0} onPress={enterSelectionMode} accessibilityLabel="Seleccionar archivos" /> : null}{canAdd ? <AppButton variant="icon" size="sm" onPress={() => setAddOpen(true)} accessibilityLabel="Agregar"><HomePlusIcon name="add" size={24} color={colors.brand} /></AppButton> : null}</View></View>
+    <View style={styles.titleRow}>{folder ? <AppButton variant="icon" size="sm" onPress={leaveFolder} accessibilityLabel={trail.length >= 2 ? `Volver a ${trail[trail.length - 2].name}` : 'Volver a Archivos'}><HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} /></AppButton> : null}<AppText variant="title3" weight="800" style={styles.title}>{folder?.name ?? 'Archivos'}</AppText><View style={styles.titleActions}>
+      {/* STAGE 2 (Phase 2) — ONE compact filter/order icon replaces the permanent
+          `Recientes / A-Z` button and the permanent `Favoritos` toggle. The active
+          indication is the DONOR screen's own convention: the icon tint flips to the
+          accent and a small dot appears. A number is deliberately NOT used, because
+          `2` would be ambiguous here (Favoritos + A-Z) and a badge would fight the
+          content-first promise of this screen. */}
+      <InteractivePressable style={styles.headerIconButton} onPress={() => setFilterMenuOpen(true)} accessibilityRole="button" accessibilityLabel={filesFilterAccessibilityLabel(filterState)} haptic="light">
+        <HomePlusIcon name="options-outline" size={20} color={filterIsNonDefault ? colors.terracotta[600] : colors.text.secondary} />
+        {filterIsNonDefault ? <View style={styles.headerFilterDot} accessible={false} /> : null}
+      </InteractivePressable>
+      {canAdd ? <InteractivePressable style={styles.headerIconButton} onPress={() => setAddOpen(true)} accessibilityRole="button" accessibilityLabel="Agregar" accessibilityHint="Subir archivos, escanear un documento o crear una carpeta" haptic="light"><HomePlusIcon name="add" size={22} color={colors.terracotta[600]} /></InteractivePressable> : null}
+      <InteractivePressable style={styles.headerIconButton} onPress={() => setOverflowOpen(true)} accessibilityRole="button" accessibilityLabel="Más opciones de Archivos" accessibilityHint="Seleccionar archivos o actualizar" haptic="light"><HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.secondary} /></InteractivePressable>
+    </View></View>
     {capabilitiesNotice ? <View style={styles.notice}><AppText variant="caption" tone="secondary">{capabilitiesNotice}</AppText><AppButton title="Reintentar" size="sm" variant="ghost" onPress={capabilities.revalidate} accessibilityLabel="Reintentar verificación de permisos de HomeCloud" /></View> : null}
     {bulkFeedback ? <View style={styles.banner}><AppText variant="caption" tone={bulkFeedback.tone} align="center">{bulkFeedback.message}</AppText></View> : null}
     {loading || !rowsAreCurrent ? <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>
     : readFailure ? <View style={styles.center}><ErrorState title={homeCloudReadFailureTitle(readFailure.kind, 'tus archivos')} description={readFailure.message} detail={readFailure.detail} retryLabel="Reintentar" onRetry={() => void load()} /></View>
     : error ? <View style={styles.center}><AppText variant="body" tone="danger" align="center">{error}</AppText><AppButton title="Reintentar" variant="secondary" onPress={() => void load()} style={{ marginTop: spacing[3] }} /></View>
-    : items.length === 0 ? <View style={styles.center}><HomePlusIcon name={favoritesOnly ? 'heart-outline' : 'folder-open-outline'} size={38} color={colors.text.tertiary} /><AppText variant="title3" weight="800">{favoritesOnly ? 'No tenés archivos favoritos acá' : folder ? 'Esta carpeta está vacía' : query ? 'Sin resultados' : 'Todavía no hay archivos'}</AppText>{favoritesOnly ? <AppButton title="Ver todos los archivos" variant="secondary" onPress={() => setFavoritesOnly(false)} /> : canAdd && !query ? <AppButton title="Agregar archivo" onPress={() => setAddOpen(true)} style={{ marginTop: spacing[3] }} /> : null}</View>
+    : items.length === 0 ? <View style={styles.center}><HomePlusIcon name={favoritesOnly ? 'heart-outline' : 'folder-open-outline'} size={38} color={colors.text.tertiary} /><AppText variant="title3" weight="800">{favoritesOnly ? 'No tenés archivos favoritos acá' : folder ? 'Esta carpeta está vacía' : query ? 'Sin resultados' : 'Todavía no hay archivos'}</AppText>{favoritesOnly ? <AppButton title="Ver todos los archivos" variant="secondary" onPress={() => setFilterState((previous) => ({ ...previous, show: 'all' }))} /> : canAdd && !query ? <AppButton title="Agregar archivo" onPress={() => setAddOpen(true)} style={{ marginTop: spacing[3] }} /> : null}</View>
     : <FlatList data={items} numColumns={2} key="files-grid" keyExtractor={(item) => `${item.kind}-${item.value.id}`} contentContainerStyle={styles.grid} columnWrapperStyle={styles.gridRow}
+      // STAGE 2 (Phase 2): pull-to-refresh is the canonical manual refresh. It is
+      // attached to the LIST rather than to a wrapper, so it works identically
+      // whether the level has rows, is an empty folder, or is an empty Favorites
+      // result - an empty state that cannot be refreshed is a dead surface.
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void pullToRefresh()} tintColor={colors.terracotta[600]} />}
       // The selected visual state is part of the row's own data, and `data` does
       // not change when only the selection does — without this a selected row
       // would keep painting itself as unselected.
       extraData={selection}
-      renderItem={({ item }) => item.kind === 'folder' ? <FolderTile folder={item.value} onPress={() => openFolder(item.value)} onMore={() => setFolderActions(item.value)} /> : <FileTile file={item.value} selectionMode={selection.mode} selected={isFileSelected(selection, item.value.id)} onPress={() => toggleSelectionAt(item.value.id)} onLongPress={() => beginSelectionAt(item.value.id)} onMore={() => setActionTargetId(item.value.id)} />}
+      renderItem={({ item }) => item.kind === 'folder' ? <FolderTile folder={item.value} onPress={() => openFolder(item.value)} onLongPress={() => setFolderActions(item.value)} /> : <FileTile file={item.value} selectionMode={selection.mode} selected={isFileSelected(selection, item.value.id)} onPress={() => handleFileTap(item.value.id)} onLongPress={() => handleFileLongPress(item.value.id)} />}
       ListFooterComponent={hasMore || pageError ? <View style={styles.footer}>{pageError ? <View style={styles.pageError}><AppText variant="caption" tone="danger" align="center">{pageError}</AppText><AppButton title="Reintentar" size="sm" variant="secondary" onPress={() => void loadMore()} accessibilityLabel="Reintentar cargar más archivos" /></View> : null}{hasMore ? <AppButton title={loadingMore ? 'Cargando…' : 'Mostrar más archivos'} variant="secondary" disabled={loadingMore} onPress={() => void loadMore()} /> : null}</View> : null} />}
     {selection.mode ? <FileSelectionBar count={selectionCount} summary={fileSelectionSummary(selection)} canOrganize={canOrganize} busy={saving} onMove={() => setMoveIntent({ kind: 'bulk' })} onCancel={leaveSelectionMode} /> : null}
+    {/* STAGE 2 (Phase 2) — the screen-level overflow. It carries exactly the two
+        screen-level actions and nothing speculative:
+          Seleccionar  the ONLY discoverable entry into selection mode. It is
+                       WITHDRAWN while the mode is active, so there is never a
+                       second way in and the selection bar is the only surface.
+          Actualizar   the secondary manual-refresh path, so pull-to-refresh is
+                       never the only way to refresh for someone who cannot pull
+        Both are deliberately NOT display filters, which is why they live here and
+        not in the filter menu. */}
+    <ActionSheet visible={overflowOpen} title="Archivos" onRequestClose={() => setOverflowOpen(false)} size="content"><View style={styles.sheetList}>{!selection.mode ? <AppButton title="Seleccionar" variant="secondary" disabled={files.length === 0} onPress={() => { setOverflowOpen(false); enterSelectionMode(); }} accessibilityLabel="Seleccionar archivos" /> : null}<AppButton title="Actualizar" variant="secondary" onPress={() => { setOverflowOpen(false); void refresh(); }} accessibilityLabel="Actualizar archivos" /></View></ActionSheet>
+    <FilesFilterMenu visible={filterMenuOpen} state={filterState} onChangeShow={(show: FilesShowMode) => setFilterState((previous) => ({ ...previous, show }))} onChangeSort={(nextSort) => setFilterState((previous) => ({ ...previous, sort: nextSort }))} onClose={() => setFilterMenuOpen(false)} />
     <ActionSheet visible={addOpen} title="Agregar" onRequestClose={() => setAddOpen(false)} size="content"><View style={styles.sheetList}><AppButton title="Elegir archivo" onPress={() => { setAddOpen(false); setUploadOpen(true); }} /><AppButton title="Escanear documento" variant="secondary" onPress={() => { setAddOpen(false); navigation.navigate('HomeCloudScanner', { folderId: folder?.id ?? null, folderName: folder?.name ?? null, capabilities: caps }); }} /><AppButton title="Nueva carpeta" variant="secondary" disabled={!canOrganize} onPress={() => { setAddOpen(false); setFolderName(''); setFolderEditor({ mode: 'create' }); }} />{folder ? <AppText variant="caption" tone="secondary">Se creará dentro de {folder.name}.</AppText> : null}</View></ActionSheet>
     <ActionSheet visible={uploadOpen} title="Elegir archivo" onRequestClose={() => setUploadOpen(false)} size="content"><FileIntake config={{ householdId: currentHousehold?.id ?? '', accessToken: token ?? '', capabilities: caps, initialFolderId: folder?.id ?? null, initialFolderName: folder?.name ?? null, intakeSource: 'homecloud:files' }} onComplete={() => { setUploadOpen(false); void refresh(); }} onDismiss={() => setUploadOpen(false)} /></ActionSheet>
     <ActionSheet visible={!!folderEditor} title={folderEditor?.mode === 'rename' ? 'Renombrar carpeta' : 'Nueva carpeta'} onRequestClose={() => setFolderEditor(null)} size="content" footer={<AppButton title="Guardar" disabled={!folderName.trim() || saving} onPress={() => void saveFolder()} />}><AppInput value={folderName} onChangeText={setFolderName} label="Nombre" autoFocus /></ActionSheet>
@@ -800,20 +894,33 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   </View>;
 }
 
-function FolderTile({ folder, onPress, onMore }: { folder: HomeCloudFolder; onPress: () => void; onMore: () => void }) { return <View style={styles.tile}><AppButton variant="icon" size="sm" onPress={onMore} style={styles.more} accessibilityLabel={`Acciones de la carpeta ${folder.name}`}><HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} /></AppButton><AppButton variant="secondary" onPress={onPress} style={styles.visual} accessibilityLabel={`Abrir carpeta ${folder.name}`}><HomePlusIcon name="folder" size={48} color={colors.terracotta[500]} /></AppButton><AppText variant="bodySmall" weight="700" numberOfLines={2}>{folder.name}</AppText></View>; }
+/**
+ * A FOLDER tile. Two gestures, one owner (STAGE 2 Phase 2):
+ *
+ *   tap        -> navigate into the folder
+ *   long press -> folder actions (Renombrar / Mover / Eliminar carpeta)
+ *
+ * The permanent per-folder ellipsis is GONE. Long press must not be the only way
+ * to reach those actions, so the same intents are also exposed as accessibility
+ * actions on the tile.
+ */
+function FolderTile({ folder, onPress, onLongPress }: { folder: HomeCloudFolder; onPress: () => void; onLongPress: () => void }) { return <View style={styles.tile}><AppButton variant="secondary" onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={styles.visual} accessibilityLabel={`Abrir carpeta ${folder.name}`} accessibilityHint="Toca para abrir. Mantené presionado para ver sus acciones." accessibilityActions={[{ name: 'activate', label: 'Abrir carpeta' }, { name: 'longpress', label: 'Acciones de la carpeta' }]} onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'longpress') onLongPress(); }}><HomePlusIcon name="folder" size={48} color={colors.terracotta[500]} /></AppButton><AppText variant="bodySmall" weight="700" numberOfLines={2}>{folder.name}</AppText></View>; }
 
 /**
- * A File tile. Three gestures, one owner:
+ * A File tile. Two gestures, one owner:
  *
- *   long press             -> enter selection mode and select this File
+ *   long press             -> contextual File actions   (outside selection)
  *   tap, mode active       -> toggle this File
  *   tap, mode inactive     -> RESERVED for the Viewer: deliberately unassigned
+ *   long press, mode active-> NOTHING: no menu, no navigation
  *
- * The overflow stays exactly where it was: it opens the canonical action host.
+ * The permanent per-File ellipsis is GONE, so long press would otherwise be the
+ * only route to the File actions. The same intents are therefore exposed as
+ * accessibility actions, which keeps the tile clean visually without making the
+ * gesture exclusive.
  *
  * FILES CORE — the personal-Favorite signal is a single small marker in the
- * existing visual grammar, mirrored from the overflow so it can never be
- * mistaken for a control. It is decorative for assistive technology: the tile's
+ * existing visual grammar. It is decorative for assistive technology: the tile's
  * own label already states whether the File is one of this member's favorites,
  * so the marker is not announced twice.
  */
@@ -823,29 +930,37 @@ export function FileTile({
   selected,
   onPress,
   onLongPress,
-  onMore,
 }: {
   file: HomeCloudFile;
   selectionMode: boolean;
   selected: boolean;
   onPress: () => void;
   onLongPress: () => void;
-  onMore: () => void;
 }) {
   const icon = file.mimeType.startsWith('image/') ? 'image-outline' : file.mimeType === 'application/pdf' ? 'document-text-outline' : 'document-outline';
   const showCheck = selectionMode && selected;
   const favoriteHint = file.isFavorite ? ', favorito' : '';
   return <View style={[styles.tile, showCheck ? styles.tileSelected : null]}>
-    <AppButton variant="icon" size="sm" onPress={onMore} style={styles.more} accessibilityLabel={`Acciones de ${file.displayName}`}><HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} /></AppButton>
     {file.isFavorite ? <View style={styles.favorite} accessible={false}><HomePlusIcon name="heart" size={15} color={colors.danger.base} /></View> : null}
     <AppButton
       variant="secondary"
       onPress={onPress}
       onLongPress={onLongPress}
+      // The framework's standard long-press threshold. There is no custom timer
+      // anywhere in Files, so a long press behaves like every other long press in
+      // the app, and releasing it never fires the normal press action.
+      delayLongPress={350}
       style={[styles.visual, showCheck ? styles.visualSelected : null]}
       accessibilityRole={selectionMode ? 'checkbox' : 'button'}
       accessibilityState={{ selected: selectionMode ? selected : undefined }}
       accessibilityLabel={`${selectionMode ? `${file.displayName}${selected ? ', seleccionado' : ', no seleccionado'}` : file.displayName}${favoriteHint}`}
+      accessibilityHint={selectionMode ? undefined : 'Toca para abrir. Mantené presionado para ver sus acciones.'}
+      // Long press must not be the ONLY route to the File actions now that the
+      // permanent ellipsis is gone, so the same intent is offered to assistive
+      // technology. While selecting, the action is removed entirely: there is no
+      // File menu during a multi-select.
+      accessibilityActions={selectionMode ? undefined : [{ name: 'longpress', label: `Acciones de ${file.displayName}` }]}
+      onAccessibilityAction={(event) => { if (!selectionMode && event.nativeEvent.actionName === 'longpress') onLongPress(); }}
     >
       {showCheck ? <HomePlusIcon name="checkmark" size={26} color={colors.text.inverse} /> : <HomePlusIcon name={icon as any} size={44} color={colors.info.base} />}
     </AppButton>
@@ -853,4 +968,4 @@ export function FileTile({
   </View>;
 }
 
-const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, breadcrumb: { paddingHorizontal: spacing[5], paddingBottom: spacing[1] }, titleRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, grid: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4] }, tile: { flex: 1, minHeight: 174, gap: spacing[2], position: 'relative', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent' }, tileSelected: { borderColor: colors.brand }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, visualSelected: { backgroundColor: colors.brand, borderColor: colors.brand }, more: { position: 'absolute', right: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card }, favorite: { position: 'absolute', left: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card, borderRadius: radius.sm, padding: 2 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, banner: { paddingHorizontal: spacing[5], paddingBottom: spacing[3] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] } });
+const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, breadcrumb: { paddingHorizontal: spacing[5], paddingBottom: spacing[1] }, titleRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, headerIconButton: { width: 44, height: 44, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' }, headerFilterDot: { position: 'absolute', top: 9, right: 9, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.terracotta[600] }, grid: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4] }, tile: { flex: 1, minHeight: 174, gap: spacing[2], position: 'relative', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent' }, tileSelected: { borderColor: colors.brand }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, visualSelected: { backgroundColor: colors.brand, borderColor: colors.brand }, favorite: { position: 'absolute', left: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card, borderRadius: radius.sm, padding: 2 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, banner: { paddingHorizontal: spacing[5], paddingBottom: spacing[3] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] } });

@@ -361,6 +361,9 @@ const actionHost = require(compiled('services/homecloud/FileActionHost')) as {
 const destinationPicker = require(compiled('services/homecloud/FileMoveDestinationPicker')) as {
   FileMoveDestinationPicker: (props: Record<string, unknown>) => unknown;
 };
+const filesFilterMenuModule = require(compiled('services/homecloud/FilesFilterMenu')) as {
+  FilesFilterMenu: (props: Record<string, unknown>) => unknown;
+};
 const filesScreen = require(compiled('screens/HomeCloudFilesScreen')) as {
   HomeCloudFilesView: (props?: Record<string, unknown>) => unknown;
   FileTile: (props: Record<string, unknown>) => unknown;
@@ -611,14 +614,35 @@ function pressFolder(tree: unknown, folderId: string): boolean {
   return true;
 }
 
-/** The sort control is the only labelled-by-title button in the title row. */
-function pressSortToggle(tree: unknown): boolean {
-  const control = findOne(tree, (element) => typeof element.props?.onPress === 'function'
-    && element.props?.title && element.props?.accessibilityLabel === undefined);
-  if (typeof control?.props.onPress !== 'function') return false;
-  control.props.onPress();
-  return true;
-}
+/**
+ * Choose an order through the ONE compact filter icon.
+ *
+ * STAGE 2 (Phase 2) SUPERSESSION. This pressed "the only labelled-by-title button
+ * in the title row", which was the `Recientes / A-Z` button. Stage 2 removed it and
+ * moved both order and Favoritos behind one compact filter icon, so there is no
+ * such button any more. The behavior this suite proves is untouched: a changed
+ * order SURVIVES returning to the browser, because it is part of the context that
+ * return re-reads.
+ */
+async function chooseSortThroughFilterMenu(surface: { tree: unknown; settle: (rounds?: number, waitMs?: number) => Promise<void> }, orderLabel: string): Promise<boolean> {
+    const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
+      && element.props.accessibilityLabel.startsWith('Filtros y orden.')
+      && typeof element.props?.onPress === 'function');
+    if (!filterIcon) return false;
+    filterIcon.props.onPress();
+    await surface.settle();
+    // This host records elements but does not execute function components, so the
+    // menu's options are reached by rendering the component with the props the
+    // SCREEN gave it.
+    const menuElement = findOne(surface.tree, (element) => element.type === filesFilterMenuModule.FilesFilterMenu);
+    if (!menuElement) return false;
+    const rendered = filesFilterMenuModule.FilesFilterMenu(menuElement.props as Record<string, unknown>);
+    const chip = findOne(rendered, (element) => element.props?.label === orderLabel
+      && typeof element.props?.onPress === 'function');
+    if (!chip) return false;
+    chip.props.onPress();
+    return true;
+  }
 
 function pressLoadMore(tree: unknown): boolean {
   const control = findOne(tree, (element) => element.props?.title === 'Mostrar más archivos');
@@ -627,17 +651,26 @@ function pressLoadMore(tree: unknown): boolean {
   return true;
 }
 
+/**
+ * Open a File's contextual actions the way a member now does: a LONG PRESS.
+ *
+ * STAGE 2 (Phase 2) SUPERSESSION. This pressed the per-File overflow ellipsis,
+ * which Stage 2 removed in favour of the long-press gesture. `onMore` is kept as a
+ * fallback so the helper keeps describing "open this File's actions" rather than
+ * one particular control.
+ */
 const openTileActions = (tree: unknown, id: string): boolean => {
-  const list = listOf(tree);
-  if (!list) return false;
-  const props = list.props as ListProps;
-  const index = (props.data ?? []).findIndex((item) => item.kind === 'file' && item.value.id === id);
-  if (index === -1) return false;
-  const tile = props.renderItem({ item: props.data[index], index }) as TestElement;
-  if (typeof tile?.props?.onMore !== 'function') return false;
-  tile.props.onMore();
-  return true;
-};
+    const list = listOf(tree);
+    if (!list) return false;
+    const props = list.props as ListProps;
+    const index = (props.data ?? []).findIndex((item) => item.kind === 'file' && item.value.id === id);
+    if (index === -1) return false;
+    const tile = props.renderItem({ item: props.data[index], index }) as TestElement;
+    const gesture = tile?.props?.onLongPress ?? tile?.props?.onMore;
+    if (typeof gesture !== 'function') return false;
+    (gesture as () => void)();
+    return true;
+  };
 
 // ── the surface, mounted ─────────────────────────────────────────────────────
 
@@ -940,7 +973,7 @@ async function testContextSurvivesTheReturn(): Promise<void> {
 
   record(pressFolder(surface.tree, 'ff-viajes'), 'B2.1. a folder is entered');
   await surface.settle();
-  record(pressSortToggle(surface.tree), 'B2.2. the sort is toggled');
+  record(await chooseSortThroughFilterMenu(surface, 'A-Z'), 'B2.2. the order is changed through the filter menu');
   await surface.settle();
   record(typeSearch(surface.tree, 'pasaporte'), 'B2.3. a query is typed');
   await surface.settle(24, 20);

@@ -303,8 +303,17 @@ installModuleStubs();
 type FilesScreenModule = { HomeCloudFilesView: () => unknown };
 
 const screenModule: FilesScreenModule = require(
-  path.join(__dirname, '..', 'front', 'mi-front-limpio', 'screens', 'HomeCloudFilesScreen.js'),
-) as FilesScreenModule;
+    path.join(__dirname, '..', 'front', 'mi-front-limpio', 'screens', 'HomeCloudFilesScreen.js'),
+  ) as FilesScreenModule;
+
+/**
+ * The real filter menu module, required from the SAME compiled tree the screen
+ * was compiled into, so the element identity compared below is the very component
+ * the screen rendered rather than a second copy of it.
+ */
+const filterMenuModule = require(
+  path.join(__dirname, '..', 'front', 'mi-front-limpio', 'services', 'homecloud', 'FilesFilterMenu.js'),
+) as { FilesFilterMenu: (props: Record<string, unknown>) => unknown };
 
 // ── transport: the backend `browseFiles` contract ────────────────────────────
 
@@ -519,23 +528,40 @@ function typeSearch(tree: unknown, text: string): boolean {
 }
 
 /**
- * The sort control is the titled button the header owns. It is found next to the
- * refresh control (the only titled sibling in that row), so this asserts a place
- * in the surface, not a label: nothing here depends on what it says.
+ * STAGE 2 (Phase 2) SUPERSESSION. The sort control was the titled button the
+ * header owned, found next to the refresh control as the only titled sibling in
+ * that row. Stage 2 removed the permanent refresh icon and moved BOTH sort and
+ * the Favoritos mode behind ONE compact filter icon, so that sibling no longer
+ * exists and the control is reached in two real steps: open the filter menu, then
+ * choose the order.
+ *
+ * What is asserted did NOT weaken. The same four behaviors are still proven
+ * end-to-end: the control is reachable, the chosen order is what the READ
+ * receives, the new order starts a new window at offset 0, and exactly ONE read
+ * is spent. Nothing here depends on what the control is called; it is found by
+ * the filter icon's own accessibility label and the order chip's own label.
  */
-function pressSortToggle(tree: unknown): boolean {
-  const refresh = findOne(tree, (element) => typeof element.props?.accessibilityLabel === 'string'
-    && element.props.accessibilityLabel.length > 0
+async function chooseSortThroughFilterMenu(surface: { tree: unknown; settle: () => Promise<void> }, orderLabel: string): Promise<boolean> {
+  const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
+    && element.props.accessibilityLabel.startsWith('Filtros y orden.')
     && typeof element.props?.onPress === 'function');
-  if (!refresh) return false;
-  const row = parentOf(tree, refresh);
-  const siblings = findAll(row, (element) => element.type === 'AppButton'
-    && typeof element.props?.title === 'string'
-    && element.props.title.length > 0
-    && typeof element.props?.onPress === 'function'
-    && element.props.accessibilityLabel === undefined);
-  if (siblings.length !== 1) return false;
-  siblings[0].props.onPress();
+  if (!filterIcon) return false;
+  filterIcon.props.onPress();
+  await surface.settle();
+
+  // This host does not EXECUTE function components: it records the element the
+  // screen created. The filter menu is one of those, so its own options are
+  // reached by rendering the component with the props the SCREEN gave it - the
+  // same technique this suite already uses for the canonical File action host.
+  // Nothing is re-implemented and no callback is called blind: the chip found is
+  // the real chip, and pressing it invokes the real handler the screen wired up.
+  const menuElement = findOne(surface.tree, (element) => element.type === filterMenuModule.FilesFilterMenu);
+  if (!menuElement) return false;
+  const rendered = filterMenuModule.FilesFilterMenu(menuElement.props as Record<string, unknown>);
+  const chip = findOne(rendered, (element) => element.props?.label === orderLabel
+    && typeof element.props?.onPress === 'function');
+  if (!chip) return false;
+  chip.props.onPress();
   return true;
 }
 
@@ -648,7 +674,7 @@ async function testSortReachesTheRead(): Promise<void> {
   record(transport.lastFileRead()?.params.get('sort') === 'recent', 'C1. the surface starts on the default sort');
   record(newestFirst === 'c-100', 'C2. and the list follows it (newest first, as the read ordered it)');
 
-  record(pressSortToggle(surface.tree), 'C3. the sort control is reachable');
+  record(await chooseSortThroughFilterMenu(surface, 'A-Z'), 'C3. the sort control is reachable through the filter menu');
   await surface.settle();
 
   const read = transport.lastFileRead();

@@ -397,6 +397,9 @@ const grammar = require(compiled('services/homecloud/homecloudFileActions')) as 
 const destinationSheet = require(compiled('services/homecloud/FileMoveDestinationPicker')) as {
   FileMoveDestinationPicker: (props: Record<string, unknown>) => unknown;
 };
+const filesFilterMenuModule = require(compiled('services/homecloud/FilesFilterMenu')) as {
+  FilesFilterMenu: (props: Record<string, unknown>) => unknown;
+};
 const destinationGrammar = require(compiled('services/homecloud/homecloudMoveDestinations')) as {
   ROOT_DESTINATION_FOLDER_ID: string | null;
   ROOT_DESTINATION_LABEL: string;
@@ -710,18 +713,48 @@ function pressFolder(tree: unknown, folderId: string): boolean {
   return true;
 }
 
-function pressSortToggle(tree: unknown): boolean {
-  const control = findOne(tree, (element) => element.props?.title && element.props?.onPress && element.props?.accessibilityLabel === undefined);
+
+
+/** The manual refresh control: a same-context re-read, never a first-page reset. */
+/**
+ * STAGE 2 (Phase 2): the secondary manual-refresh path moved into the header
+ * overflow and is still labelled "Actualizar archivos", so the secondary path is
+ * proven through the same seam as before.
+ */
+function pressRefreshControl(tree: unknown): boolean {
+  const control = findOne(tree, (element) => element.props?.accessibilityLabel === 'Actualizar archivos');
   if (typeof control?.props.onPress !== 'function') return false;
   control.props.onPress();
   return true;
 }
 
-/** The manual refresh control: a same-context re-read, never a first-page reset. */
-function pressRefreshControl(tree: unknown): boolean {
-  const control = findOne(tree, (element) => element.props?.accessibilityLabel === 'Actualizar archivos');
-  if (typeof control?.props.onPress !== 'function') return false;
-  control.props.onPress();
+/**
+ * Choose an order through the ONE compact filter icon.
+ *
+ * STAGE 2 (Phase 2) SUPERSESSION. The order used to be a permanent titled button
+ * found as the only titled sibling of the refresh control in the title row; Stage 2
+ * removed the refresh control and moved both order and Favoritos behind one filter
+ * icon, so that sibling is gone. The behavior proven by the caller is unchanged:
+ * changing the order clears the selection, because the order is part of the
+ * browser context the selection belongs to.
+ */
+async function chooseSortThroughFilterMenu(surface: Mounted, orderLabel: string): Promise<boolean> {
+  const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
+    && element.props.accessibilityLabel.startsWith('Filtros y orden.')
+    && typeof element.props?.onPress === 'function');
+  if (!filterIcon) return false;
+  filterIcon.props.onPress();
+  await surface.settle();
+  // This host records elements but does not execute function components, so the
+  // menu's options are reached by rendering the component with the props the SCREEN
+  // gave it - the same technique this suite already uses for the File action host.
+  const menuElement = findOne(surface.tree, (element) => element.type === filesFilterMenuModule.FilesFilterMenu);
+  if (!menuElement) return false;
+  const rendered = filesFilterMenuModule.FilesFilterMenu(menuElement.props as Record<string, unknown>);
+  const chip = findOne(rendered, (element) => element.props?.label === orderLabel
+    && typeof element.props?.onPress === 'function');
+  if (!chip) return false;
+  chip.props.onPress();
   return true;
 }
 
@@ -747,12 +780,20 @@ const tapFile = (tree: unknown, id: string): boolean => {
   return true;
 };
 
+/**
+ * Open a File's contextual actions the way a member now does: a LONG PRESS.
+ *
+ * STAGE 2 (Phase 2) SUPERSESSION. This pressed the per-File overflow ellipsis,
+ * which Stage 2 removed. `onMore` is kept as a fallback so the helper keeps
+ * describing "open this File's actions" rather than one particular control.
+ */
 const openTileActions = (tree: unknown, id: string): boolean => {
-  const tile = fileTileElement(tree, id);
-  if (typeof tile?.props?.onMore !== 'function') return false;
-  tile.props.onMore();
-  return true;
-};
+    const tile = fileTileElement(tree, id);
+    const gesture = tile?.props?.onLongPress ?? tile?.props?.onMore;
+    if (typeof gesture !== 'function') return false;
+    (gesture as () => void)();
+    return true;
+  };
 
 type Mounted = {
   tree: unknown;
@@ -785,11 +826,20 @@ function mountSurface(household: Household): Mounted {
   };
 }
 
-/** Enter selection mode and pick `ids`, through the production gestures only. */
+/**
+ * Enter selection mode and pick `ids`, through the production gestures only.
+ *
+ * STAGE 2 (Phase 2) SUPERSESSION. This used to long-press the first File, which
+ * both ENTERED selection and selected it. Long press no longer enters selection -
+ * it opens the contextual File actions - so the entry is now the header overflow
+ * `Seleccionar`, and each File is then selected by tapping it. The resulting
+ * MODEL is identical, which is what every caller asserts.
+ */
 function selectFiles(surface: Mounted, ids: readonly string[]): void {
-  selectByLongPress(surface.tree, ids[0]);
+  if (ids.length === 0) return;
+  pressSelectControl(surface.tree);
   surface.render();
-  for (const id of ids.slice(1)) {
+  for (const id of ids) {
     tapFile(surface.tree, id);
     surface.render();
   }
@@ -876,10 +926,17 @@ async function testSelectionGestures(): Promise<void> {
   record(pressSelectControl(surface.tree) === false, 'B10. the control is withdrawn while the mode is active (one bar, never two)');
   surface.render();
 
-  // Long press on a File also enters, and selects the pressed File.
-  record(selectByLongPress(surface.tree, 'c-001'), 'B11. a File long press is reachable');
-  surface.render();
-  record(selectionSummary(surface.tree) === '1 seleccionado', 'B12. the bar states the count the model holds');
+// STAGE 2 (Phase 2) SUPERSESSION. Stage 1 continued here: "Long press on a File
+    // also enters, and selects the pressed File". Long press NO LONGER enters
+    // selection - it opens the contextual File actions - and selection is entered
+    // only from the header overflow. The model asserted below is therefore reached
+    // by the gesture that now owns it: a TAP inside selection mode toggles the
+    // File. What is proven is identical (the count the bar states comes from the
+    // model); only the producing gesture changed, and the superseded gesture is
+    // asserted to be inert a few lines below.
+    record(tapFile(surface.tree, 'c-001'), 'B11. a tap inside selection mode is reachable');
+    surface.render();
+    record(selectionSummary(surface.tree) === '1 seleccionado', 'B12. the bar states the count the model holds');
 
   const bar = renderSelectionBar(surface.tree);
   record(findAll(bar, (element) => element.props?.title === 'Mover').length === 1, 'B13. and offers the ONE bulk action of this slice');
@@ -909,12 +966,21 @@ async function testSelectionGestures(): Promise<void> {
   record(findAll(renderFileTile(surface.tree, 'c-002'), (element) => element.props?.name === 'checkmark').length === 0,
     'B27. and an unselected File does not');
 
-  // Normal File action access is preserved, even inside selection mode.
-  const overflow = tileOverflow(surface.tree, 'c-001');
-  record(overflow?.props?.accessibilityLabel === 'Acciones de file-001.txt', 'B28. the overflow entry point has a meaningful accessibility label');
-  record(openTileActions(surface.tree, 'c-001'), 'B29. the overflow still opens the canonical actions inside selection mode');
-  surface.render();
-  record(actionHostElement(surface.tree)?.props?.file?.id === 'c-001', 'B30. and it targets the pressed File, not the selection');
+// STAGE 2 (Phase 2) SUPERSESSION, and this one REVERSES the Stage 1 expectation.
+    // Stage 1 asserted "normal File action access is preserved, even inside
+    // selection mode", via the per-File overflow ellipsis. Stage 2 removed that
+    // ellipsis AND forbade the File menu during a multi-select, so inside
+    // selection there is deliberately NO route to the contextual actions - a member
+    // batching Files must not be able to move or delete one by long-pressing it.
+    const bodyInsideSelection = tileBody(surface.tree, 'c-001');
+    const actionsInsideSelection = (bodyInsideSelection?.props?.accessibilityActions ?? []) as { name: string; label: string }[];
+    record(actionsInsideSelection.length === 0, 'B28. inside selection the tile offers NO contextual action at all');
+    // The host is ALWAYS mounted - it decides its own visibility - so "the menu did
+    // not open" means the host holds NO resolved target, not that it is absent.
+    record(selectByLongPress(surface.tree, 'c-001') && actionHostElement(surface.tree)?.props?.file == null,
+      'B29. a long press inside selection does NOT open the canonical actions');
+    surface.render();
+    record(actionHostElement(surface.tree)?.props?.file == null, 'B29b. the File action host stays closed for the whole selection');
 
   // Leaving selection mode.
   findOne(renderSelectionBar(surface.tree), (element) => element.props?.title === 'Cancelar')?.props.onPress();
@@ -951,7 +1017,7 @@ async function testSelectionScope(): Promise<void> {
   // SORT CHANGE clears.
   selectFiles(surface, ['in-ff-viajes-0', 'in-ff-viajes-1']);
   record(selectionSummary(surface.tree) === '2 seleccionados', 'B40. selected again inside the folder');
-  record(pressSortToggle(surface.tree), 'B41. the sort control is reachable');
+  record(await chooseSortThroughFilterMenu(surface, 'A-Z'), 'B41. the sort control is reachable through the filter menu');
   await surface.settle();
   record(selectionBarElement(surface.tree) === null, 'B42. a SORT change clears the selection');
 

@@ -389,6 +389,9 @@ const filesScreen = require(path.join(__dirname, '..', 'front', 'mi-front-limpio
   { HomeCloudFilesView: () => unknown };
 const fileIntakeModule = require(path.join(__dirname, '..', 'front', 'mi-front-limpio', 'services', 'homecloud', 'FileIntake.js')) as
   { FileIntake: (props: Record<string, unknown>) => unknown };
+/** The real Stage 2 filter menu, from the SAME compiled tree the screen came from. */
+const filesFilterMenuModule = require(path.join(__dirname, '..', 'front', 'mi-front-limpio', 'services', 'homecloud', 'FilesFilterMenu.js')) as
+  { FilesFilterMenu: (props: Record<string, unknown>) => unknown };
 
 // ── transport: the REAL backend contracts for Files ─────────────────────────
 
@@ -656,23 +659,39 @@ function searchText(tree: unknown): string {
   return String(input?.props?.value ?? '');
 }
 
-function pressSortToggle(tree: unknown): boolean {
-  const refresh = findOne(tree, (element) => typeof element.props?.accessibilityLabel === 'string'
-    && element.props.accessibilityLabel.length > 0
-    && typeof element.props?.onPress === 'function');
-  if (!refresh) return false;
-  const row = parentOf(tree, refresh);
-  const siblings = findAll(row, (element) => element.type === 'AppButton'
-    && typeof element.props?.title === 'string'
-    && element.props.title.length > 0
-    && typeof element.props?.onPress === 'function'
-    && element.props.accessibilityLabel === undefined);
-  if (siblings.length !== 1) return false;
-  siblings[0].props.onPress();
-  return true;
-}
+/**
+ * Choose an order through the ONE compact filter icon.
+ *
+ * STAGE 2 (Phase 2) SUPERSESSION. The order used to be a permanent titled button
+ * found as the only titled sibling of the refresh control in the title row. Stage
+ * 2 removed the refresh control and moved BOTH order and Favoritos behind one
+ * filter icon, so that sibling is gone.
+ *
+ * The four behaviors these callers prove are unchanged and still proven here: the
+ * control is reachable, the chosen order reaches the READ, the order SURVIVES
+ * folder navigation, and one intentional change costs EXACTLY ONE read.
+ */
+async function chooseSortThroughFilterMenu(surface: { tree: unknown; settle: () => Promise<void> }, orderLabel: string): Promise<boolean> {
+    const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
+      && element.props.accessibilityLabel.startsWith('Filtros y orden.')
+      && typeof element.props?.onPress === 'function');
+    if (!filterIcon) return false;
+    filterIcon.props.onPress();
+    await surface.settle();
+    // This host records elements but does not execute function components, so the
+    // menu's own options are reached by rendering the component with the props the
+    // SCREEN gave it - the same technique this suite uses for the File host.
+    const menuElement = findOne(surface.tree, (element) => element.type === filesFilterMenuModule.FilesFilterMenu);
+    if (!menuElement) return false;
+    const rendered = filesFilterMenuModule.FilesFilterMenu(menuElement.props as Record<string, unknown>);
+    const chip = findOne(rendered, (element) => element.props?.label === orderLabel
+      && typeof element.props?.onPress === 'function');
+    if (!chip) return false;
+    chip.props.onPress();
+    return true;
+  }
 
-function pressRefreshControl(tree: unknown): boolean {
+  function pressRefreshControl(tree: unknown): boolean {
   const refresh = findOne(tree, (element) => element.props?.accessibilityLabel === 'Actualizar archivos');
   if (!refresh || typeof refresh.props.onPress !== 'function') return false;
   refresh.props.onPress();
@@ -700,15 +719,29 @@ function pressFolder(tree: unknown, folderId: string): boolean {
 }
 
 /** Open a tile's own action sheet (rename / delete / file info). */
+/**
+ * Open a tile's contextual actions the way a member now does.
+ *
+ * STAGE 2 (Phase 2) SUPERSESSION. This used to press the tile's permanent
+ * `onMore` ellipsis. Stage 2 removed that control, so the contextual surface is
+ * reached by LONG PRESS, which is the canonical gesture for both File and Folder
+ * tiles. `onMore` is still accepted as a fallback so the helper keeps describing
+ * "open this tile's actions" rather than one particular control.
+ *
+ * Nothing is weakened: the assertion is still that the actions surface opens for
+ * that exact tile, and it is now proven through the gesture the product actually
+ * specifies.
+ */
 function openTileActions(tree: unknown, kind: 'folder' | 'file', id: string): boolean {
-  const props = listOf(tree).props as ListProps;
-  const index = props.data.findIndex((item) => item.kind === kind && item.value.id === id);
-  if (index === -1) return false;
-  const tile = props.renderItem({ item: props.data[index], index }) as TestElement;
-  if (typeof tile?.props?.onMore !== 'function') return false;
-  tile.props.onMore();
-  return true;
-}
+    const props = listOf(tree).props as ListProps;
+    const index = props.data.findIndex((item) => item.kind === kind && item.value.id === id);
+    if (index === -1) return false;
+    const tile = props.renderItem({ item: props.data[index], index }) as TestElement;
+    const gesture = tile?.props?.onLongPress ?? tile?.props?.onMore;
+    if (typeof gesture !== 'function') return false;
+    (gesture as () => void)();
+    return true;
+  }
 
 function pressButton(tree: unknown, title: string): boolean {
   const button = findAll(tree, (element) => element.props?.title === title && typeof element.props?.onPress === 'function');
@@ -1020,7 +1053,7 @@ async function testNavigationAndQuery(): Promise<void> {
   record(bIds.length === 2 && bIds.every((id) => id.startsWith('in-ff-viajes')), 'B34. and the list is folder B\'s own files');
 
   // SORT SURVIVES NAVIGATION.
-  record(pressSortToggle(surface.tree), 'B35. the sort control is reachable');
+  record(await chooseSortThroughFilterMenu(surface, 'A-Z'), 'B35. the sort control is reachable through the filter menu');
   await surface.settle();
   record(household.lastFileRead()?.params.get('sort') === 'name', 'B36. the new sort reached the read');
   const sortBeforeNav = household.lastFileRead()?.params.get('sort');
@@ -1049,7 +1082,7 @@ async function testNavigationAndQuery(): Promise<void> {
   record(debounced.lastFileRead()?.params.get('query') === 'a', 'B36. carrying the intended query');
 
   const readsBeforeSort = debounced.fileReads().length;
-  record(pressSortToggle(debounceSurface.tree), 'B37. a sort change');
+  record(await chooseSortThroughFilterMenu(debounceSurface, 'A-Z'), 'B37. a sort change');
   await debounceSurface.settle();
   record(debounced.fileReads().length === readsBeforeSort + 1, 'B38. costs exactly ONE read (no duplicate)');
   debounceSurface.unmount();

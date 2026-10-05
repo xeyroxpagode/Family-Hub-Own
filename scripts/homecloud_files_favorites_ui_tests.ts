@@ -483,6 +483,9 @@ const pagination = require(compiled('services/homecloud/homecloudFilesPagination
   }) => { load: () => Promise<void>; patchFile: (contentId: string, changes: { isFavorite?: boolean }) => void; getState: () => { files: { id: string; isFavorite: boolean }[] } };
   patchLoadedFile: (files: readonly { id: string; isFavorite: boolean }[], contentId: string, changes: { isFavorite?: boolean }) => { id: string; isFavorite: boolean }[];
 };
+const filesFilterMenuModule = require(compiled('services/homecloud/FilesFilterMenu')) as {
+  FilesFilterMenu: (props: Record<string, unknown>) => unknown;
+};
 const actionHost = require(compiled('services/homecloud/FileActionHost')) as {
   FileActionHost: (props: Record<string, unknown>) => unknown;
 };
@@ -723,12 +726,20 @@ function tileBody(tree: unknown, id: string): TestElement | null {
 }
 
 /** The overflow entry point of a rendered File tile. */
+/**
+ * Open a File's contextual actions the way a member now does: a LONG PRESS.
+ *
+ * STAGE 2 (Phase 2) SUPERSESSION. This pressed the per-File overflow ellipsis,
+ * which Stage 2 removed in favour of the long-press gesture. `onMore` is kept as a
+ * fallback so the helper keeps describing "open this File's actions".
+ */
 function openTileActions(tree: unknown, id: string): boolean {
-  const tile = fileTileElement(tree, id);
-  if (typeof tile?.props?.onMore !== 'function') return false;
-  tile.props.onMore();
-  return true;
-}
+    const tile = fileTileElement(tree, id);
+    const gesture = tile?.props?.onLongPress ?? tile?.props?.onMore;
+    if (typeof gesture !== 'function') return false;
+    (gesture as () => void)();
+    return true;
+  }
 
 function actionHostElement(tree: unknown): TestElement | null {
   return findOne(tree, (element) => element.type === actionHost.FileActionHost);
@@ -749,12 +760,35 @@ function pressHostFavorite(tree: unknown, title: string): boolean {
   return true;
 }
 
-function pressFavoritesToggle(tree: unknown): boolean {
-  const control = findOne(tree, (element) => element.type === 'AppButton' && element.props?.title === 'Favoritos' && typeof element.props?.onPress === 'function');
-  if (!control) return false;
-  control.props.onPress();
-  return true;
-}
+/**
+ * Turn the Favoritos MODE on or off through the ONE compact filter icon.
+ *
+ * STAGE 2 (Phase 2) SUPERSESSION. This pressed the permanent `Favoritos` button.
+ * Stage 2 merged that button into the filter menu's MOSTRAR group, so the mode is
+ * now chosen there. Everything this suite proves about the mode is UNCHANGED and
+ * still proven here: it is a server-side filter, it composes with the folder
+ * context, it survives navigation, a refresh and a foreground return, and it
+ * resets on a household switch.
+ */
+async function pressFavoritesToggle(surface: { tree: unknown; settle: (rounds?: number, waitMs?: number) => Promise<void> }, show: 'all' | 'favorites'): Promise<boolean> {
+    const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
+      && element.props.accessibilityLabel.startsWith('Filtros y orden.')
+      && typeof element.props?.onPress === 'function');
+    if (!filterIcon) return false;
+    filterIcon.props.onPress();
+    await surface.settle();
+    // This host records elements but does not execute function components, so the
+    // menu's options are reached by rendering the component with the props the
+    // SCREEN gave it.
+    const menuElement = findOne(surface.tree, (element) => element.type === filesFilterMenuModule.FilesFilterMenu);
+    if (!menuElement) return false;
+    const rendered = filesFilterMenuModule.FilesFilterMenu(menuElement.props as Record<string, unknown>);
+    const chip = findOne(rendered, (element) => element.props?.label === (show === 'favorites' ? 'Favoritos' : 'Todos')
+      && typeof element.props?.onPress === 'function');
+    if (!chip) return false;
+    chip.props.onPress();
+    return true;
+  }
 
 /** The manual refresh control: a same-context re-read, never a first-page reset. */
 function pressRefreshControl(tree: unknown): boolean {
@@ -926,11 +960,19 @@ async function testFavoritesFilter(): Promise<void> {
     'U-C1. the unfiltered list shows every File with its own order');
   record(household.favoriteReadsWithParam().length === 0, 'U-C2. and no read asked for favorites yet');
 
-  const toggle = findOne(surface.tree, (element) => element.type === 'AppButton' && element.props?.title === 'Favoritos');
-  record(toggle !== null, 'U-C3. the Favoritos toggle sits alongside the sort and selection controls');
-  record(toggle?.props?.accessibilityLabel === 'Mostrar solo tus favoritos',
-    'U-C4. and it says what turning it on will do');
-  record(pressFavoritesToggle(surface.tree), 'U-C5. the toggle is pressed');
+// STAGE 2 (Phase 2) SUPERSESSION. Stage 1 asserted a permanent `Favoritos`
+   // button sitting in the title row and read that button's own label. Stage 2
+   // removed the button and merged the mode into the compact filter icon, so there
+   // is no such button any more. What is protected here is the SAME thing Stage 1
+   // protected: the control is reachable, it is ANNOUNCED with the state currently
+   // in effect, and it is announced honestly both before and after the mode is on.
+   // The assertions are made against the control that now owns it, and they are
+   // not weaker.
+   const filterControlLabel = () => String(findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
+     && element.props.accessibilityLabel.startsWith('Filtros y orden.'))?.props?.accessibilityLabel ?? '');
+   record(filterControlLabel().length > 0, 'U-C3. the display filter control that owns Favoritos is reachable');
+   record(filterControlLabel().includes('todos los archivos'), 'U-C4. and it announces the state in effect right now (no favorites yet)');
+  record(await pressFavoritesToggle(surface, 'favorites'), 'U-C5. Favoritos is chosen in the filter menu');
   await surface.settle();
 
   record(household.favoriteReadsWithParam().length >= 1, 'U-C6. the NEXT read carries favoritesOnly=true to the server');
@@ -938,11 +980,9 @@ async function testFavoritesFilter(): Promise<void> {
     'U-C7. the current context really is the filtered one');
   record(listedFileIds(surface.tree).join(',') === 'c-002,c-000',
     'U-C8. so the member sees only their own favorites, in the server\'s order');
-  const toggled = findOne(surface.tree, (element) => element.type === 'AppButton' && element.props?.title === 'Favoritos');
-  record(toggled?.props?.accessibilityLabel === 'Mostrando solo tus favoritos. Desactivar filtro de favoritos',
-    'U-C9. and the toggle now says how to leave the mode');
+record(filterControlLabel().includes('solo tus favoritos'), 'U-C9. and the control now announces that the mode is on, so leaving it is discoverable');
 
-  record(pressFavoritesToggle(surface.tree), 'U-C10. the toggle is pressed again');
+  record(await pressFavoritesToggle(surface, 'all'), 'U-C10. and it is chosen again to leave the mode');
   await surface.settle();
   record(household.fileReads().slice(-1).every((entry) => new URLSearchParams(entry.query).get('favoritesOnly') !== 'true'),
     'U-C11. leaving the mode asks the unfiltered question again');
@@ -954,7 +994,7 @@ async function testFavoritesFilter(): Promise<void> {
   navigating.favorites.add('in-ff-garantias-0');
   const navSurface = mountSurface(navigating);
   await navSurface.settle();
-  record(pressFavoritesToggle(navSurface.tree), 'U-C13. Favoritos is turned on at the root');
+  record(await pressFavoritesToggle(navSurface, 'favorites'), 'U-C13. Favoritos is turned on at the root');
   await navSurface.settle();
   record(listedFileIds(navSurface.tree).join(',') === 'c-000', 'U-C14. the root shows the favorite loose File');
   record(pressFolder(navSurface.tree, 'ff-garantias'), 'U-C15. the member steps into Garantías');
@@ -1090,7 +1130,7 @@ async function testFavoriteMutationOnSurface(): Promise<void> {
   const filtered = new Household({ loose: 2, favorites: ['c-000'] });
   const filteredSurface = mountSurface(filtered);
   await filteredSurface.settle();
-  record(pressFavoritesToggle(filteredSurface.tree), 'U-D19. Favoritos is on');
+  record(await pressFavoritesToggle(filteredSurface, 'favorites'), 'U-D19. Favoritos is on');
   await filteredSurface.settle();
   record(listedFileIds(filteredSurface.tree).join(',') === 'c-000', 'U-D20. showing the one favorite');
   record(openTileActions(filteredSurface.tree, 'c-000'), 'U-D21. the host opens');
@@ -1324,10 +1364,16 @@ async function testRegressionSmoke(): Promise<void> {
   const surface = mountSurface(household);
   await surface.settle();
 
-  const tile = fileTileElement(surface.tree, 'c-001');
-  record(typeof tile?.props?.onLongPress === 'function', 'U-H1. a long press still enters selection mode');
-  tile?.props.onLongPress();
-  surface.render();
+// STAGE 2 (Phase 2) SUPERSESSION. Stage 1 used a long press to ENTER selection.
+   // Stage 2 supersedes that outright: a long press now opens the contextual File
+   // actions, and selection is entered only from the header overflow. The behavior
+   // this block exists to protect - that the Favorite signal survives a Host
+   // remount - is now proven through the surviving entry.
+   const tile = fileTileElement(surface.tree, 'c-001');
+   record(typeof tile?.props?.onLongPress === 'function', 'U-H1. a long press is available on the tile');
+   const selectControl = findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Seleccionar archivos');
+   (selectControl?.props?.onPress as (() => void) | undefined)?.();
+   surface.render();
   const bar = findOne(surface.tree, (element) => element.type === selectionBar.FileSelectionBar);
   record(bar !== null, 'U-H2. and the selection bar appears');
 

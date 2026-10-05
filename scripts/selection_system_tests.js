@@ -74,15 +74,29 @@ try {
 
   // ── Files selection: the CURRENT contract, not the one the Stage-3 freeze had.
   //
-  // A file tap stays RESERVED for the Viewer, so it is never a selection gesture.
-  // Selection is ENTERED by a long press or by the explicit, labelled "Seleccionar"
-  // control — nobody has to know a hidden gesture — and only while the mode is
-  // active does a tap toggle.
-  assert.match(files, /onLongPress=\{\(\) => beginSelectionAt\(item\.value\.id\)\}/);
+  // STAGE 2 (Phase 2) SUPERSESSION, recorded explicitly. Stage 1 stated: "Selection
+  // is ENTERED by a long press or by the explicit, labelled 'Seleccionar' control".
+  // Stage 2 removes the long-press entry outright, because long press now owns the
+  // contextual File actions. The remaining guarantees are unchanged and still
+  // asserted here:
+  //   - a File tap stays RESERVED for the Viewer and is never a selection gesture;
+  //   - selection is entered ONLY through the labelled "Seleccionar" control, so
+  //     nobody has to know a hidden gesture;
+  //   - only while the mode is active does a tap toggle;
+  //   - a long press inside selection opens NOTHING;
+  //   - selection stays scoped to one context and is pruned on reconciliation.
+  assert.doesNotMatch(files, /beginSelectionAt/);
+  assert.doesNotMatch(files, /beginFileSelectionAt/);
+  assert.match(files, /const handleFileLongPress = useCallback[\s\S]*?if \(selection\.mode\) return;/);
+  assert.match(files, /const handleFileTap = useCallback[\s\S]*?if \(!selection\.mode\) return;/);
   assert.match(files, /accessibilityLabel="Seleccionar archivos"/);
   assert.match(files, /previous\.mode \? toggleFileSelection\(previous, fileId\) : previous/);
   assert.match(files, /selectionScope/);
   assert.match(files, /pruneFileSelection\(previous, files\.map\(\(file\) => file\.id\)\)/);
+  // Selection has exactly ONE entry point, and the overflow withdraws it while the
+  // mode is active, so there is never a second way in.
+  assert.equal((files.match(/enterSelectionMode\(\)/g) || []).length, 1);
+  assert.match(files, /\{!selection\.mode \? <AppButton title="Seleccionar"/);
 
   // ONE canonical action host, ONE shared move destination picker: no second menu
   // can perform a File operation, and a move has a single destination grammar.
@@ -103,10 +117,25 @@ try {
   assert.equal((grammar.match(/implemented: false/g) || []).length, 2);
   assert.match(grammar, /\{ id: 'open', label: 'Abrir'/);
   assert.match(grammar, /\{ id: 'trash', label: 'Mover a la papelera'/);
-  // The Favoritos retrieval is a SERVER filter mode, never a client filter: the
-  // read carries it as part of the question, so pagination, search and folder
-  // scope cannot be corrupted by removing rows from an already-taken page.
-  assert.match(files, /const \[favoritesOnly, setFavoritesOnly\] = useState\(false\)/);
+// The Favoritos retrieval is a SERVER filter mode, never a client filter: the
+   // read carries it as part of the question, so pagination, search and folder
+   // scope cannot be corrupted by removing rows from an already-taken page.
+   //
+   // STAGE 2 (Phase 2): `favoritesOnly` is now DERIVED from the single filter
+   // state rather than held in its own `useState`, because the mode and the order
+   // moved behind one compact control. What is protected here is unchanged and is
+   // asserted behaviourally: the mode is still a parameter of the READ, it is still
+   // computed by the canonical helper, and the client still never filters locally.
+   assert.doesNotMatch(files, /const \[favoritesOnly, setFavoritesOnly\]/);
+   assert.match(files, /const favoritesOnly = filesFavoritesOnly\(filterState\)/);
+   assert.match(files, /filesFavoritesOnly/);
+   assert.match(files, /favoritesOnly: context\.favoritesOnly/);
+   assert.match(files, /queryContextRef = useRef\(\{ token, folderId: folder\?\.id \?\? null, query, sort, favoritesOnly, contextKey \}\)/);
+   // The server-side encoding of the mode lives in the read client, and it is
+   // asserted there; what matters here is that the mode travels with EVERY read of
+   // the current context rather than being applied once at a call site.
+   const filesReadClient = read('front/mi-front-limpio/services/homecloud/homecloudFilesService.ts');
+   assert.match(filesReadClient, /if \(options\.favoritesOnly\) params\.set\('favoritesOnly', 'true'\)/);
   assert.match(files, /favoritesOnly: context\.favoritesOnly/);
   const filesClient = read('front/mi-front-limpio/services/homecloud/homecloudFilesService.ts');
   assert.match(filesClient, /params\.set\('favoritesOnly', 'true'\)/);

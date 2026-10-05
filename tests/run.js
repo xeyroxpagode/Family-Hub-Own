@@ -472,6 +472,25 @@ const commands = {
   },
   // Stage 2 Phase 1: migration safety in throwaway local databases. Proves both the
   // FRESH chain and the Stage 1 UPGRADE, and drops only what it created.
+  // Stage 2 Phase 2: deterministic Files UX / interaction grammar evidence.
+  'homecloud-files-ux': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud Files compile UX / interaction tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_files_ux_test.json'],
+    );
+    return runCommand(
+      'HomeCloud Files UX / interaction grammar tests',
+      'node',
+      ['scripts/compiled-files-ux/scripts/homecloud_files_ux_tests.js'],
+      { env },
+    );
+  },
   'homecloud-files-hierarchy-migration': {
     label: 'HomeCloud Files nested folder hierarchy migration safety (isolated local DBs)',
     run: () => runCommand(
