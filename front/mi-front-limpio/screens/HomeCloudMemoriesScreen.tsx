@@ -81,6 +81,7 @@ import {
   memoryViewerDataset,
   type MemoryViewerSession,
 } from '../services/homecloud/homecloudMemoryViewerSource';
+import { reuseMemoryViewerDataset } from '../services/homecloud/homecloudMemoryViewerOpening';
 import {
   createMemoryExitGestureLock,
   scrollMemoryListToOffset,
@@ -148,6 +149,8 @@ const NO_ALBUMS_DESTINATION_BODY =
   'Creá un álbum desde la barra de álbumes de Recuerdos para agrupar estos recuerdos.';
 
 const EMPTY_EXCLUSIONS: ReadonlySet<string> = new Set<string>();
+/** Stable empty dataset identity, so a closed Viewer never re-renders the list. */
+const EMPTY_MEMORIES: readonly HomeCloudMemoryListItem[] = [];
 
 /*
  * MO-A3 DEVICE FIX (D1) — THE GRID HOST REF IS THE PUBLISHED SECTIONLIST TYPE.
@@ -639,10 +642,16 @@ export function HomeCloudMemoriesView() {
   collectionsMemoriesRef.current = collections.memories;
 
   const selecting = isMemorySelecting(selection);
+  /**
+   * HC2-C: a session is SOURCE IDENTITY plus the OPENING AUTHORITY. The dataset
+   * is not captured here — it is resolved live by `viewerMemories`, so the
+   * Viewer's pages can never come from a stale snapshot that disagrees with its
+   * own source.
+   */
   const openLibraryViewer = useCallback((memory: HomeCloudMemoryListItem) => {
     if (isMemorySelecting(selectionRef.current)) return;
-    setViewer(libraryViewerSession(memories, memory.id));
-  }, [memories]);
+    setViewer(libraryViewerSession(memory.id));
+  }, []);
 
   // =========================================================================
   // MO-A3 — DRAG: refs only, never React state per pointer event
@@ -1103,11 +1112,37 @@ export function HomeCloudMemoriesView() {
    */
   const gridGroupingMode: TimelineGroupingMode = activeCollection?.kind === 'album' ? 'album' : 'timeline';
 
-  const viewerMemories = viewer === null ? [] : memoryViewerDataset(viewer.source, {
-    library: memories,
-    album: { sourceId: openAlbumId, memories: detail.memories },
-    collection: { sourceId: collections.collectionId, memories: collections.memories },
-  });
+  /**
+   * HC2-C (A4) — THE VIEWER DATASET, MEMOIZED AND IDENTITY-STABLE.
+   *
+   * This used to be recomputed on EVERY render of this screen, and for a type
+   * collection `memoryViewerDataset` calls `.filter(...)`, so `FlatList data`
+   * received a brand-new array identity on each render. Dataset identity must
+   * never cause an arbitrary active-content change.
+   *
+   * Two independent protections, both about identity and neither about content:
+   *  1. `useMemo` with EXPLICIT dependencies — the six inputs the resolver
+   *     actually reads, and nothing else;
+   *  2. `reuseMemoryViewerDataset` — re-reading page 0 or appending a page
+   *     rebuilds arrays and objects, so when the ids are equal the PREVIOUS
+   *     array is returned verbatim. A refresh that did not change what is in
+   *     the dataset therefore cannot move the active Memory.
+   *
+   * The source is never consulted as a fallback: a source dataset that empties
+   * yields `Missing`, never "switch to another source".
+   */
+  /** Previous dataset identity. Declared BEFORE the memo that reads it. */
+  const previousViewerMemoriesRef = useRef<readonly HomeCloudMemoryListItem[]>(EMPTY_MEMORIES);
+  const viewerMemories = useMemo(() => {
+    if (viewer === null) return EMPTY_MEMORIES;
+    const resolved = memoryViewerDataset(viewer.source, {
+      library: memories,
+      album: { sourceId: openAlbumId, memories: detail.memories },
+      collection: { sourceId: collections.collectionId, memories: collections.memories },
+    });
+    return reuseMemoryViewerDataset(previousViewerMemoriesRef.current, resolved, (memory) => memory.id);
+  }, [collections.collectionId, collections.memories, detail.memories, memories, openAlbumId, viewer]);
+  previousViewerMemoriesRef.current = viewerMemories;
 
   /**
    * The Timeline grouping, with NO mode argument: the global Timeline keeps the
@@ -1498,7 +1533,6 @@ export function HomeCloudMemoriesView() {
                     ? rail.albums.find((album) => album.id === activeCollection.albumId)?.name ?? null
                     : null,
                 ),
-                collections.memories,
                 memory.id,
               ))}
           onLongPress={handleLongPress}
@@ -1705,7 +1739,6 @@ export function HomeCloudMemoriesView() {
             onOpenMemory={(memory) => setViewer(albumViewerSession(
               openAlbumId,
               openAlbumRecord?.name ?? null,
-              detail.memories,
               memory.id,
             ))}
           />

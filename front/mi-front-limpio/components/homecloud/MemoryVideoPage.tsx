@@ -41,16 +41,30 @@ import type { HomeCloudMemoryListItem } from '../../services/homecloud/homecloud
 
 const LABEL = MEMORY_MEDIA_KIND_LABEL.video;
 
-export function MemoryVideoPage({ memory, accessToken, active, authorized }: {
+export function MemoryVideoPage({ memory, accessToken, active, authorized, width }: {
   memory: HomeCloudMemoryListItem;
   accessToken: string | null;
   /** This page is the pager's active page: the ONLY page allowed a player. */
   active: boolean;
   /** Global lifecycle intent; `false` means pause, and never auto-resume. */
   authorized: boolean;
+  /**
+   * HC2-C (A1) — THE PAGER'S OWN PAGE WIDTH.
+   *
+   * The pager's `getItemLayout` asserts `length === width` for every page, so
+   * this page MUST declare exactly that width. Video used to return a plain
+   * `height: '100%'` container, which made the physical page narrower than the
+   * pager's own arithmetic: `initialScrollIndex`/`scrollToIndex` landed outside
+   * the page bounds and the snap no longer satisfied `offset ≈ index * width`.
+   * That is why a tapped video was observed handing the Viewer over to a
+   * different Memory.
+   *
+   * No other geometry changes: the video surface still fills its page.
+   */
+  width: number;
 }) {
-  if (!active) return <View style={styles.placeholder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />;
-  return <ActiveMemoryVideoPage memory={memory} accessToken={accessToken} authorized={authorized} />;
+  if (!active) return <View style={[styles.placeholder, { width }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />;
+  return <ActiveMemoryVideoPage memory={memory} accessToken={accessToken} authorized={authorized} width={width} />;
 }
 
 /**
@@ -59,10 +73,11 @@ export function MemoryVideoPage({ memory, accessToken, active, authorized }: {
  * player is constructed exactly once, always with a real source, and never for
  * a page that lost ownership mid-flight.
  */
-function ActiveMemoryVideoPage({ memory, accessToken, authorized }: {
+function ActiveMemoryVideoPage({ memory, accessToken, authorized, width }: {
   memory: HomeCloudMemoryListItem;
   accessToken: string | null;
   authorized: boolean;
+  width: number;
 }) {
   const [uri, setUri] = useState<string | null>(null);
   const [failure, setFailure] = useState<MemoryMediaFailure | null>(null);
@@ -89,18 +104,21 @@ function ActiveMemoryVideoPage({ memory, accessToken, authorized }: {
     return () => { mounted = false; access.invalidate(); };
   }, [access, accessToken, memory.id]);
 
-  if (failure !== null) return <MemoryVideoFailure failure={failure} />;
-  if (uri === null) return <MemoryVideoLoading />;
-  return <MemoryVideoPlayer key={memory.id} uri={uri} authorized={authorized} onFailure={setFailure} />;
+  // HC2-C (A1): EVERY branch declares the pager's width, including the two
+  // states the user actually saw at the moment of the reported jump.
+  if (failure !== null) return <MemoryVideoFailure failure={failure} width={width} />;
+  if (uri === null) return <MemoryVideoLoading width={width} />;
+  return <MemoryVideoPlayer key={memory.id} uri={uri} authorized={authorized} width={width} onFailure={setFailure} />;
 }
 
 /**
  * The ONLY place a `VideoPlayer` exists. It is mounted only for the active page
  * and only once the canonical original is reachable.
  */
-function MemoryVideoPlayer({ uri, authorized, onFailure }: {
+function MemoryVideoPlayer({ uri, authorized, width, onFailure }: {
   uri: string;
   authorized: boolean;
+  width: number;
   onFailure: (failure: MemoryMediaFailure) => void;
 }) {
   const [ready, setReady] = useState(false);
@@ -144,14 +162,14 @@ function MemoryVideoPlayer({ uri, authorized, onFailure }: {
     player.pause();
   }, [authorized, player]);
 
-  return <View style={styles.wrap}>
+  return <View style={[styles.wrap, { width }]}>
     <VideoView player={player} nativeControls contentFit="contain" fullscreenOptions={{ enable: false }} style={styles.video} accessibilityLabel={`${LABEL} del recuerdo`} />
     {ready ? null : <View pointerEvents="none" style={styles.loadingOverlay}><ActivityIndicator color={colors.text.inverse} /><AppText tone="inverse">Cargando video…</AppText></View>}
   </View>;
 }
 
-function MemoryVideoLoading() {
-  return <View style={styles.wrap}><View style={styles.loadingOverlay}><ActivityIndicator color={colors.text.inverse} /><AppText tone="inverse">Cargando video…</AppText></View></View>;
+function MemoryVideoLoading({ width }: { width: number }) {
+  return <View style={[styles.wrap, { width }]}><View style={styles.loadingOverlay}><ActivityIndicator color={colors.text.inverse} /><AppText tone="inverse">Cargando video…</AppText></View></View>;
 }
 
 /**
@@ -160,13 +178,13 @@ function MemoryVideoLoading() {
  * offering one next to an unplayable file would be a promise the product does
  * not keep yet.
  */
-function MemoryVideoFailure({ failure }: { failure: MemoryMediaFailure }) {
+function MemoryVideoFailure({ failure, width }: { failure: MemoryMediaFailure; width: number }) {
   const copy = failure === 'access'
     ? 'No pudimos abrir este video.'
     : failure === 'unsupported'
       ? 'Este video no se puede reproducir en este dispositivo.'
       : 'No pudimos reproducir este video.';
-  return <View style={styles.failure}>
+  return <View style={[styles.failure, { width }]}>
     <HomePlusIcon name="alert-circle-outline" size={34} color={colors.text.inverse} />
     <AppText tone="inverse" align="center">{copy}</AppText>
   </View>;

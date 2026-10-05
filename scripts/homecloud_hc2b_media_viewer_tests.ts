@@ -51,10 +51,20 @@ check([...applyMemoryVisualRange(new Set(order), ['2','3','4','5'], 'deselect')]
 
 const photo = memory('photo', 'image'); const video = memory('video', 'video'); const audio = memory('audio', 'audio'); const note = memory('note', 'written');
 const all = [photo, video, audio, note];
-const library = libraryViewerSession(all, photo.id);
+// HC2-C STALE_TEST RETARGET (§13 / A4). The OLD expectation was that a session
+// factory SNAPSHOTS the dataset (`libraryViewerSession(memories, id)`), and the
+// field was then never read by anyone. The freeze replaces that with: a session
+// is SOURCE IDENTITY plus the OPENING AUTHORITY, and the dataset is resolved
+// live by `memoryViewerDataset`. The assertions below are therefore retargeted,
+// not weakened: source identity is still asserted exactly, and the live dataset
+// is now asserted to agree with the source it was opened with.
+const library = libraryViewerSession(photo.id);
 check(library.source.kind === 'library' && library.source.label === 'Recuerdos', 'Library opener produces Library source');
-const album = albumViewerSession('album-7', 'Viaje', [photo, note], note.id);
+check(library.activeContentId === photo.id, 'Library opener records the tapped Memory as the opening authority');
+check(!('memories' in library), 'a session carries no dataset snapshot: the dead field is gone, not merely unread');
+const album = albumViewerSession('album-7', 'Viaje', note.id);
 check(album.source.kind === 'album' && album.source.sourceId === 'album-7' && album.source.label === 'Viaje', 'Album opener preserves exact Album source');
+check(album.activeContentId === note.id, 'Album opener records the tapped Memory as the opening authority');
 const cases = [
   { kind: 'image' as const, label: 'Fotos', item: photo },
   { kind: 'video' as const, label: 'Videos', item: video },
@@ -63,14 +73,16 @@ const cases = [
 ];
 for (const item of cases) {
   const sourceId = `type:${item.kind}`;
-  const session = collectionViewerSession({ kind: 'type', memoryKind: item.kind }, sourceId, item.label, all, item.item.id);
+  const session = collectionViewerSession({ kind: 'type', memoryKind: item.kind }, sourceId, item.label, item.item.id);
   const pager = memoryViewerDataset(session.source, {
     library: all,
     album: { sourceId: 'album-7', memories: [photo, note] },
     collection: { sourceId, memories: all },
   });
   check(session.source.kind === 'collection' && session.source.sourceId === sourceId && session.source.label === item.label, `${item.label} opener produces exact Collection source`);
+  check(session.activeContentId === item.item.id, `${item.label} opener records the tapped Memory as the opening authority`);
   check(pager.length === 1 && pager[0]?.kind === item.kind, `${item.label} pager contains only its Collection kind`);
+  check(pager.indexOf(item.item) !== -1 || pager.some((m) => m.id === item.item.id), `${item.label} pager resolves the tapped Memory from the LIVE dataset`);
 }
 const root = process.cwd();
 const screen = fs.readFileSync(path.join(root, 'front/mi-front-limpio/screens/HomeCloudMemoriesScreen.tsx'), 'utf8');
@@ -278,7 +290,19 @@ check(!/\bautoResume\b|\bresumeOn|\bonForeground\s*=\s*true\b/.test(viewerCode),
 // A drag released WITHOUT momentum never fires onMomentumScrollEnd, so the
 // no-momentum path must restore authorization or a cancelled drag would leave
 // media suspended forever.
-check(/onScrollEndDrag=\{endPagerDrag\}/.test(viewerCode) && /onMomentumScrollBegin/.test(viewerCode) && /if \(!momentumRef\.current\) setDragging\(false\)/.test(viewerCode), 'a drag released without momentum restores authorization');
+// HC2-C STALE_TEST RETARGET: this assertion used to name the PROP BINDING
+// (`onScrollEndDrag={endPagerDrag}`) as its proof. HC2-C had to give the drag-end
+// reader the scroll offset, because `onScrollEndDrag` is the second lock-release
+// path the freeze names, so the binding is now `dragEndAt`. The HC2-B INVARIANT
+// itself is untouched and is now asserted more robustly: the drag-end reader is
+// wired AND is the one that performs the conditional no-momentum restore.
+check(
+  /onScrollEndDrag=\{dragEndAt\}/.test(viewerCode)
+    && /onMomentumScrollEnd=\{settleAt\}/.test(viewerCode)
+    && /onMomentumScrollBegin/.test(viewerCode)
+    && /const endPagerDrag = useCallback\([\s\S]{0,120}?if \(!momentumRef\.current\) setDragging\(false\);/.test(viewerCode),
+  'a drag released without momentum restores authorization',
+);
 
 // NO DOUBLE RELEASE (§62): the Expo hooks own release, so nothing may also
 // release, and no parent may hold a player a child owns.

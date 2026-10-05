@@ -46,22 +46,33 @@ import type { HomeCloudMemoryListItem } from '../../services/homecloud/homecloud
 
 const LABEL = MEMORY_MEDIA_KIND_LABEL.audio;
 
-export function MemoryAudioPage({ memory, accessToken, active, authorized }: {
+export function MemoryAudioPage({ memory, accessToken, active, authorized, width }: {
   memory: HomeCloudMemoryListItem;
   accessToken: string | null;
   /** This page is the pager's active page: the ONLY page allowed a player. */
   active: boolean;
   /** Global lifecycle intent; `false` means pause, and never auto-resume. */
   authorized: boolean;
+  /**
+   * HC2-C (A1) — THE PAGER'S OWN PAGE WIDTH.
+   *
+   * Identical contract to Video: the pager's `getItemLayout` asserts
+   * `length === width` for every page, so this page must declare exactly that
+   * width in EVERY state. Audio previously returned height-only containers,
+   * which is the same geometry lie that made a tapped audio hand the Viewer
+   * over to a different Memory.
+   */
+  width: number;
 }) {
-  if (!active) return <View style={styles.placeholder} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />;
-  return <ActiveMemoryAudioPage memory={memory} accessToken={accessToken} authorized={authorized} />;
+  if (!active) return <View style={[styles.placeholder, { width }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />;
+  return <ActiveMemoryAudioPage memory={memory} accessToken={accessToken} authorized={authorized} width={width} />;
 }
 
-function ActiveMemoryAudioPage({ memory, accessToken, authorized }: {
+function ActiveMemoryAudioPage({ memory, accessToken, authorized, width }: {
   memory: HomeCloudMemoryListItem;
   accessToken: string | null;
   authorized: boolean;
+  width: number;
 }) {
   const [uri, setUri] = useState<string | null>(null);
   const [failure, setFailure] = useState<MemoryMediaFailure | null>(null);
@@ -86,9 +97,10 @@ function ActiveMemoryAudioPage({ memory, accessToken, authorized }: {
     return () => { mounted = false; access.invalidate(); };
   }, [access, accessToken, memory.id]);
 
-  if (failure !== null) return <MemoryAudioFailure failure={failure} />;
-  if (uri === null) return <MemoryAudioLoading />;
-  return <MemoryAudioPlayer key={memory.id} uri={uri} authorized={authorized} onFailure={setFailure} />;
+  // HC2-C (A1): every branch declares the pager's width.
+  if (failure !== null) return <MemoryAudioFailure failure={failure} width={width} />;
+  if (uri === null) return <MemoryAudioLoading width={width} />;
+  return <MemoryAudioPlayer key={memory.id} uri={uri} authorized={authorized} width={width} onFailure={setFailure} />;
 }
 
 /**
@@ -96,9 +108,10 @@ function ActiveMemoryAudioPage({ memory, accessToken, authorized }: {
  * only once the canonical original is reachable, and it opens PAUSED: nothing
  * here calls `play()` except the explicit user press below.
  */
-function MemoryAudioPlayer({ uri, authorized, onFailure }: {
+function MemoryAudioPlayer({ uri, authorized, width, onFailure }: {
   uri: string;
   authorized: boolean;
+  width: number;
   onFailure: (failure: MemoryMediaFailure) => void;
 }) {
   const player = useAudioPlayer(uri, { updateInterval: 250 });
@@ -150,7 +163,7 @@ function MemoryAudioPlayer({ uri, authorized, onFailure }: {
   const duration = validMediaDuration(status.duration);
   const playing = status.playing;
 
-  return <View style={styles.page}>
+  return <View style={[styles.page, { width }]}>
     <View style={styles.identity}>
       <HomePlusIcon name="musical-notes" size={30} color={colors.text.inverse} />
       <AppText tone="inverse" weight="700">{LABEL}</AppText>
@@ -177,8 +190,8 @@ function MemoryAudioPlayer({ uri, authorized, onFailure }: {
   </View>;
 }
 
-function MemoryAudioLoading() {
-  return <View style={styles.page}><View style={styles.loading}><ActivityIndicator color={colors.text.inverse} /><AppText tone="inverse">Cargando audio…</AppText></View></View>;
+function MemoryAudioLoading({ width }: { width: number }) {
+  return <View style={[styles.page, { width }]}><View style={styles.loading}><ActivityIndicator color={colors.text.inverse} /><AppText tone="inverse">Cargando audio…</AppText></View></View>;
 }
 
 /**
@@ -186,11 +199,11 @@ function MemoryAudioLoading() {
  * HC2-B, and offering one next to an unplayable file would be a promise the
  * product does not keep yet.
  */
-function MemoryAudioFailure({ failure }: { failure: MemoryMediaFailure }) {
+function MemoryAudioFailure({ failure, width }: { failure: MemoryMediaFailure; width: number }) {
   const copy = failure === 'access'
     ? 'No pudimos abrir este audio.'
     : 'No pudimos reproducir este audio.';
-  return <View style={styles.failure}>
+  return <View style={[styles.failure, { width }]}>
     <HomePlusIcon name="alert-circle-outline" size={34} color={colors.text.inverse} />
     <AppText tone="inverse" align="center">{copy}</AppText>
   </View>;
