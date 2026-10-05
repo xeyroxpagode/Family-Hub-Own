@@ -31,7 +31,11 @@ import {
   type PresenceMemberLocation,
 } from '../../services/presence';
 import { useLocationSharing, type PublishedPresenceLocation } from '../../services/presenceLocationSharing';
+import { presenceDiagnostics } from '../../services/presenceDiagnostics';
 import { supabase } from '../../supabase';
+import { PresenceDiagnosticsPanel } from '../../components/presence/PresenceDiagnosticsPanel';
+
+const IS_DEVELOPMENT = typeof __DEV__ !== 'undefined' && __DEV__;
 
 const DEFAULT_REGION: Region = {
   latitude: -34.6037,
@@ -115,14 +119,38 @@ const isStale = (recordedAt: string | null | undefined) => {
 
 const getInitials = (name: string) => name.trim().slice(0, 2).toUpperCase() || '?';
 
+const abbreviateMembershipId = (value: string | null | undefined) => (
+  value ? `${value.slice(0, 6)}...${value.slice(-4)}` : null
+);
+
 const PresenceMarker = React.memo(function PresenceMarker({
   member,
   onPress,
+  onRendered,
 }: {
   member: PresenceMember;
   onPress: () => void;
+  onRendered: (details: {
+    memberId: string;
+    locationTimestamp: string | null;
+    latitude: number;
+    longitude: number;
+  }) => void;
 }) {
   const coordinate = getMemberCoordinate(member);
+  const latitude = coordinate?.latitude ?? null;
+  const longitude = coordinate?.longitude ?? null;
+
+  useEffect(() => {
+    if (latitude === null || longitude === null) return;
+    onRendered({
+      memberId: member.membership_id,
+      locationTimestamp: member.location?.updated_at ?? member.location?.recorded_at ?? null,
+      latitude,
+      longitude,
+    });
+  }, [latitude, longitude, member.location?.recorded_at, member.location?.updated_at, member.membership_id, onRendered]);
+
   if (!coordinate) return null;
 
   const markerColor = member.is_self
@@ -204,6 +232,7 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [showMemberPicker, setShowMemberPicker] = useState(false);
   const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now());
+  const [debugPanelVisible, setDebugPanelVisible] = useState(false);
 
   const visibleMembers = useMemo(
     () => members.filter((member) => getMemberCoordinate(member) && member.sharing_enabled),
@@ -215,10 +244,26 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
     () => members.find((member) => member.membership_id === selectedMemberId) ?? null,
     [members, selectedMemberId],
   );
+  const debugMember = selectedMember ?? myMember;
   const getLiveRelativeTime = useCallback(
     (iso: string | null | undefined) => getRelativeTime(iso, relativeTimeNow),
     [relativeTimeNow],
   );
+
+  const handleMarkerRendered = useCallback((details: {
+    memberId: string;
+    locationTimestamp: string | null;
+    latitude: number;
+    longitude: number;
+  }) => {
+    presenceDiagnostics.markerRendered(details);
+    if (IS_DEVELOPMENT) {
+      console.log('[PRESENCE:UI] marker.rendered', {
+        membershipId: details.memberId,
+        locationTimestamp: details.locationTimestamp,
+      });
+    }
+  }, []);
   const initialRegion = useMemo(() => {
     const coordinate = visibleMembers[0] ? getMemberCoordinate(visibleMembers[0]) : null;
     return coordinate ? { ...DEFAULT_REGION, ...coordinate } : DEFAULT_REGION;
@@ -249,9 +294,9 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
       setMembers(nextMembers);
       if (typeof __DEV__ !== 'undefined' && __DEV__) {
         const currentMembershipId = nextMembers.find((member) => member.is_self)?.membership_id ?? null;
-        console.log('[Presence QA] initialLocations.loaded', {
+        console.log('[PRESENCE:REALTIME] initialLocations.loaded', {
           householdId,
-          currentMembershipId,
+          currentMembershipId: abbreviateMembershipId(currentMembershipId),
           count: nextMembers.length,
           sharingCount: nextMembers.filter((member) => member.sharing_enabled).length,
         });
@@ -285,7 +330,7 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
       longitudeDelta: FOCUSED_LOCATION_DELTA,
     }, 350);
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
-      console.log('[Presence] map.centerOn', { membershipId });
+      console.log('[PRESENCE:UI] map.centerOn', { membershipId: abbreviateMembershipId(membershipId) });
     }
   }, []);
 
@@ -371,8 +416,8 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
       ));
       membersRef.current = next;
       if (typeof __DEV__ !== 'undefined' && __DEV__) {
-        console.log('[Presence] ownLocation.merged', { membershipId });
-        console.log('[Presence] state.location.updated', { membershipId });
+        console.log('[PRESENCE:UI] ownLocation.merged', { membershipId: abbreviateMembershipId(membershipId) });
+        console.log('[PRESENCE:UI] state.location.updated', { membershipId: abbreviateMembershipId(membershipId) });
       }
       return next;
     });
@@ -385,6 +430,10 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
       });
     }
   }, [centerMapOn, myMember?.membership_id, sharing.lastPublishedLocation]);
+
+  useEffect(() => {
+    presenceDiagnostics.setDebugMember(debugMember?.membership_id ?? null);
+  }, [debugMember?.membership_id]);
 
   useEffect(() => {
     void loadLocations(false);
@@ -411,17 +460,30 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
           const row = payload.new as RealtimeLocationRow;
           if (!row.membership_id || row.household_id !== householdId) return;
 
+          const locationTimestamp = row.updated_at ?? row.recorded_at ?? null;
+          presenceDiagnostics.realtimeEvent({
+            memberId: row.membership_id,
+            locationTimestamp,
+            changedNormalizedState: null,
+          });
+
           if (typeof __DEV__ !== 'undefined' && __DEV__) {
-            console.log('[Presence QA] realtime.location.received', {
+            console.log('[PRESENCE:REALTIME] received', {
               householdId,
-              currentMembershipId: membersRef.current.find((member) => member.is_self)?.membership_id ?? null,
-              changedMembershipId: row.membership_id,
+              currentMembershipId: abbreviateMembershipId(membersRef.current.find((member) => member.is_self)?.membership_id),
+              changedMembershipId: abbreviateMembershipId(row.membership_id),
               sharingEnabled: row.sharing_enabled === true,
+              locationTimestamp,
             });
           }
 
           const knownMember = membersRef.current.some((member) => member.membership_id === row.membership_id);
           if (!knownMember) {
+            presenceDiagnostics.realtimeEvent({
+              memberId: row.membership_id,
+              locationTimestamp,
+              changedNormalizedState: false,
+            });
             void loadLocations(false);
             return;
           }
@@ -435,19 +497,32 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
               changed = true;
               return incoming;
             });
-            if (!changed) return previous;
+            if (!changed) {
+              presenceDiagnostics.realtimeEvent({
+                memberId: row.membership_id!,
+                locationTimestamp,
+                changedNormalizedState: false,
+              });
+              return previous;
+            }
             membersRef.current = next;
+            presenceDiagnostics.realtimeEvent({
+              memberId: row.membership_id!,
+              locationTimestamp,
+              changedNormalizedState: true,
+            });
             if (typeof __DEV__ !== 'undefined' && __DEV__) {
-              console.log('[Presence] state.location.updated', { membershipId: row.membership_id });
-              console.log('[Presence] marker.updated', { membershipId: row.membership_id });
+              console.log('[PRESENCE:REALTIME] state.merged', { membershipId: abbreviateMembershipId(row.membership_id) });
+              console.log('[PRESENCE:UI] marker.updated', { membershipId: abbreviateMembershipId(row.membership_id) });
             }
             return next;
           });
         },
       )
       .subscribe((status, subscriptionError) => {
+        presenceDiagnostics.realtimeSubscription(status);
         if (typeof __DEV__ !== 'undefined' && __DEV__) {
-          console.log('[Presence QA] realtime.subscription', {
+          console.log('[PRESENCE:REALTIME] subscription', {
             householdId,
             status,
             error: subscriptionError?.message ?? null,
@@ -488,17 +563,6 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
       edgePadding: { top: 72, right: 40, bottom: 180, left: 40 },
     });
   }, [visibleMembers]);
-
-  const visibleMemberRenderKey = visibleMembers
-    .map((member) => `${member.membership_id}:${member.location?.updated_at ?? 'none'}`)
-    .join('|');
-
-  useEffect(() => {
-    if (typeof __DEV__ === 'undefined' || !__DEV__) return;
-    visibleMembers.forEach((member) => {
-      console.log('[Presence QA] marker.rendered', { membershipId: member.membership_id });
-    });
-  }, [visibleMemberRenderKey, visibleMembers]);
 
   if (Platform.OS === 'web') {
     const fallback = <EmptyState title="GPS disponible en mobile" description="El mapa en vivo usa permisos nativos de ubicación." />;
@@ -541,12 +605,14 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
             initialRegion={initialRegion}
             showsUserLocation={permissionState === 'granted'}
             onPanDrag={() => { mapWasMovedByUser.current = true; }}
+            onLongPress={IS_DEVELOPMENT ? () => setDebugPanelVisible(true) : undefined}
           >
             {visibleMembers.map((member) => (
               <PresenceMarker
                 key={member.membership_id}
                 member={member}
                 onPress={() => focusMember(member)}
+                onRendered={handleMarkerRendered}
               />
             ))}
           </MapView>
@@ -617,6 +683,11 @@ export function FamilyMapPanel({ embedded = false }: FamilyMapPanelProps) {
               <MapContextNavigation activeItem={contextSection} onSelect={handleContextSelect} />
             </View>
           </View>
+
+          <PresenceDiagnosticsPanel
+            visible={debugPanelVisible}
+            onClose={() => setDebugPanelVisible(false)}
+          />
         </View>
       )}
       {refreshing ? null : null}
