@@ -23,11 +23,17 @@ Leyenda de confianza: `PROVEN_STATIC` (verificable leyendo codigo) · `DEVICE_OB
 | --- | --- |
 | Worktree | `C:\Users\thega\Desktop\HomePlus-worktrees\homecloud-current` |
 | Branch | `homecloud/memories-lane` — coincide con lo esperado |
-| HEAD inicial | `1ae24e9fb38081fe7c9df14d0b5ad7ddf04efdc1` |
-| HEAD esperado historico | `1ae24e9fb38081fe7c9df14d0b5ad7ddf04efdc1` — **COINCIDE** |
-| HEAD final | `1ae24e9fb38081fe7c9df14d0b5ad7ddf04efdc1` (sin commits de codigo) |
+| HEAD al inicio de la sesion de patch (2026-10-05) | `02662ac657856134fb3bce9c022c1c9915b79bfe` — `docs(homecloud): freeze final memories product truth` |
+| HEAD esperado de la sesion de patch | `02662ac657856134fb3bce9c022c1c9915b79bfe` — **COINCIDE** |
+| HEAD final | sin commits de codigo de producto; solo commits `docs(homecloud):` |
 | Push | **NO** |
 | Codigo de producto modificado | **NO** |
+
+> Nota de baseline: el `HEAD inicial` que figura en la reconstruccion original de este
+> documento era `1ae24e9` (fin de Run A de HC2-C). La sesion de patch de audio
+> (2026-10-05) parte de `02662ac`, que es el commit de congelacion de la verdad final y
+> sobre el que se aplico el patch de las tres autoridades. El codigo de producto no cambio
+> entre `1ae24e9` y `02662ac`: la diferencia son commits de documentacion.
 
 ### 1.1 Dirt preexistente (verificado y fingerprinteado)
 
@@ -353,6 +359,9 @@ informacion de toda la auditoria. **Implicacion:** dos cambios, ninguno de los c
 | 8 | **Un "bug" fisico no es bug:** P1 y P9 en su parte de extraccion. Lo que falta es senalizacion (poster) y correccion (fecha editable) |
 | 9 | **Un hallazgo de seguridad no estaba en ninguna observacion:** `homecloud.delete` se proyecta al cliente y **ninguna ruta la exige**. Lifecycle lo cierra |
 | 10 | **13 de 53 archivos de test de HomeCloud estan huerfanos**, incluidos los 5 unicos que probarian el enforcement de capacidades |
+| 11 | **`Importar audio` ya funciona en CURRENT pero no es alcanzable como accion de primer nivel.** La capacidad (`DocumentPicker audio/*`, MIME, `AudioReview`, `submitBinary`, `AudioViewer`) es solida; el gap es puramente de enrutado de menu (CRT-07, CRT-09). Al promoverlo a item 3 de 5, `CRT-01` deja de ser `IMPLEMENTED` |
+| 12 | **Un audio importado sin fecha no tiene ninguna salida.** `unknown` forzado + fecha read-only + sin PATCH = `Sin fecha` corregible nunca (INTAKE-03b). Al ser `Importar audio` IN V1, esto pasa de ser un caso limite a un P0 de datos |
+| 13 | **Resurfacing exact-only ya era correcto y ya estaba decidido.** Lo unico que faltaba era la transicion `partial → exact` por correccion del usuario (DATE-11, RESURF-08). **No se abrio ningun gap de resurfacing mensual** |
 
 ---
 
@@ -392,11 +401,11 @@ TRUTH: banda de resurfacing determinista. CURR: **ninguna**; solo existe el camp
 
 ### CREATE
 
-**CRT-01** Create: menú de 4 modos · `IMPLEMENTED` · frontend · LOW · device si · cubierto
-TRUTH: menú de primer nivel, sin submenú. CURR: los 4 existen en un único `ActionSheet size="content"` titulado `Guardar un recuerdo`; el item de galería está rotulado `Elegir foto/video/audio` en vez de `Fotos y videos`. EVID: `MemoryIntake.tsx:674-687`. NOTES: el copy difiere del congelado (ajuste cosmético); **la decisión de NO submenú está cumplida**.
+**CRT-01** Create: menú de **5 acciones planas de primer nivel** · `PARTIAL` · frontend · MED · device si · **test contradictorio**
+TRUTH: **cinco items**, en orden congelado, **sin submenú**: `Fotos y videos`, `Capturar momento`, **`Importar audio`**, `Grabar audio`, `Escribir un recuerdo` (Product Truth §4.1.1). CURR: **cuatro items** en un único `ActionSheet size="content"` titulado `Guardar un recuerdo` — `Capturar momento`, `Elegir foto/video/audio`, `Grabar audio`, `Escribir un recuerdo` — y detrás del item de galería hay una **segunda** hoja `Elegir contenido` que recién ahí ofrece `Audio`. EVID: `MemoryIntake.tsx:674-687` (menu de primer nivel) y `:699-750` (segunda hoja con `Audio` en `:745`) y `:341` (`runPicker('audio-import', …)`). GAP: dos correcciones **distintas**: (a) el menu tiene 4 items y debe tener 5; (b) `Importar audio` debe ser item de primer nivel y hoy exige un nivel de navegacion adicional. NOTES: **la decisión de NO submenú sigue CUMPLIÉNDOSE** — CURRENT no tiene `Audio >`, tiene un segundo nivel de hoja que cumple el mismo efecto de agregar navegación. Lo que se corrige es la **promoción del item** y el **conteo**, no la prohibición de submenú. El copy del item de galería también difiere del congelado. TEST: `homecloud_2c_memory_intake_tests` y `homecloud_s0_gallery_intake_contract_tests` **afirman el menu de 4 items** ⇒ `RETARGET_LATER`.
 
 **CRT-02** Create: `Nuevo álbum` NO está en el menú de create · `IMPLEMENTED` · producto · LOW · device no · cubierto
-TRUTH: ausente. CURR: ausente; `MemoryIntake.tsx` no importa `createAlbum` y el servicio de intake prohíbe crear álbumes por contrato. EVID: 14 hits de `crear álbum` en `front/`, 0 en `MemoryIntake.tsx`. NOTES: correcto.
+TRUTH: ausente. CURR: ausente; `MemoryIntake.tsx` no importa `createAlbum` y el servicio de intake prohíbe crear álbumes por contrato. EVID: 14 hits de `crear álbum` en `front/`, 0 en `MemoryIntake.tsx`. NOTES: correcto. **No se abre al agregar el quinto item**: `Importar audio` no es `Nuevo álbum`. La creación de álbum sigue siendo el tile final del riel (§10.3) y la creación contextual desde selección (§10.5).
 
 **CRT-03** Create: un solo modal a la vez · `IMPLEMENTED` · frontend · MED · device si · cubierto
 TRUTH: nunca dos modales. CURR: un solo `ActionSheet` que reemplaza contenido; el Viewer **no** es `Modal`, así que abrir una hoja desde él produce **un** modal. EVID: `SCREEN:1924-2000`; `MemoryViewer.tsx:2,78,291`. NOTES: **riesgo a vigilar** cuando el Viewer pase a ser `Modal` (VIEW-01).
@@ -408,7 +417,19 @@ CURR: monta solo con token+household; `triggerDisabled = !capabilities.contribut
 CURR: el `+` está en la rama `else` del header mutuamente excluyente. EVID: `SCREEN:1699-1743`.
 
 **CRT-06** Create: `Abrir configuración` en error de permiso · `BROKEN` · frontend · LOW · device si · sin cobertura
-TRUTH: el usuario puede recuperar un permiso denegado permanentemente. CURR: el código renderiza `Abrir configuración` cuando `permissionDenied && canAskAgain === false`, pero **`permissionDenied` y `canAskAgain` nunca los emite ningún picker** ⇒ rama **inalcanzable**. EVID: `MemoryIntake.tsx:683,747`; `homecloudMemoryIntakeService.ts:230`; `homecloudMemoryPicker.ts:51,124-146`. NOTES: dead code.
+TRUTH: el usuario puede recuperar un permiso denegado permanentemente. CURR: el código renderiza `Abrir configuración` cuando `permissionDenied && canAskAgain === false`, pero **`permissionDenied` y `canAskAgain` nunca los emite ningún picker** ⇒ rama **inalcanzable**. EVID: `MemoryIntake.tsx:683,747`; `homecloudMemoryIntakeService.ts:230`; `homecloudMemoryPicker.ts:51,124-146`. NOTES: dead code. **Al promover `Importar audio` a item de primer nivel, `DocumentPicker` pasa a ser el primer picker de un item de primer nivel**, así que esta rama muerta también aplica a audio importado, no solo a galería.
+
+**CRT-07** Create: `Importar audio` como acción de PRIMER NIVEL · `MISSING` · frontend · **MED** · device sí · sin cobertura
+TRUTH: `root` → `+` → **`Importar audio`** (item 3) → picker de audio → review binario con fecha **editable**, álbum opcional, descripción opcional → `Guardar recuerdo` (Product Truth §4.1.2, §6.4). CURR: **inalcanzable como item de primer nivel**. El único camino es `Elegir foto/video/audio` → hoja `Elegir contenido` → item `Audio`. EVID: `MemoryIntake.tsx:677` (item de galería) `:699-750` (hoja `Elegir contenido`) `:745` (item `Audio`) `:397` (`chooseAudio`). GAP: **solo enrutado de menú**. La capacidad de fondo — `pickAudioMemory`, `DocumentPicker audio/*`, resolución de MIME, `AudioReview`, `submitBinary`, upload, `AudioViewer` — **existe, funciona y se preserva**. NOTES: es el gap de **menor effort/impacto** de todo el carril de Create. Prohibido reescribir el intake de audio para lucrarlo (Product Truth §6.6). **No se elimina ninguna pieza de audio existente.** TEST: no hay cobertura; añadirla al promover el item.
+
+**CRT-08** Create: `Grabar audio` como acción de PRIMER NIVEL · `IMPLEMENTED` · frontend · LOW · device sí · cubierto
+TRUTH: `root` → `+` → `Grabar audio` (item 4) → grabador → review binario con fecha `exact` (Product Truth §4.1.3). CURR: ya es item de primer nivel con el copy exacto `Grabar audio`, abre el grabador directo y produce `capturePrecision:'exact'`. EVID: `MemoryIntake.tsx:678`; `:468` (`openRecorder`, `attemptAuthorityRef.current.begin('audio-record','audio')`); `MemoryAudioRecorder.tsx:119`; `homecloudMemoryPicker.ts:178-187`. NOTES: correcto. Lo único que cambia con el patch de audio es su **posición relativa** (pasa a item 4 de 5, después de `Importar audio`) y su copy, que ya era correcto. **No abrir este gap.**
+
+**CRT-09** Create: `Importar audio` NO es un atajo de `Fotos y videos` · `BROKEN` · frontend · MED · device sí · sin cobertura
+TRUTH: `Fotos y videos` ofrece **solo** imagen y video. `Importar audio` es un item propio. No existe `Audio >`. No existe una hoja `Elegir contenido` obligatoria para llegar a audio (Product Truth §4.1.1). CURR: un **único** item `Elegir foto/video/audio` mezcla dos intenciones y reparte galería y audio en una segunda hoja. EVID: `MemoryIntake.tsx:677` y `:745`. GAP: **unificar el item de galería en `Fotos y videos`** (galería sola, con `mediaTypes: ['images','videos']`, que es exactamente lo que ya pide el picker) **y sacar el item `Audio` de la hoja `Elegir contenido`**, sustituyéndolo por el item de primer nivel de CRT-07. NOTES: la hoja `Elegir contenido` se **elimina**, no se reescribe: se queda sin items. Esto es coherente con CRT-03 (un solo host) porque el menú de create vuelve a ser un solo nivel real.
+
+**CRT-10** Create: los dos caminos de audio convergen en UN review · `PARTIAL` · producto · LOW · device sí · cubierto
+TRUTH: `Importar audio` y `Grabar audio` convergen después de la adquisición de la fuente: mismo `BinaryMemoryDraft`, mismo review, mismo `submitBinary`, mismo upload, mismo Audio Viewer; la única diferencia es la fecha automática (`unknown` / `exact`) (Product Truth §6.4). CURR: **la convergencia ya existe y es correcta**: `pickAudioMemory` devuelve el mismo shape `{success, artifact, capture, source}` que `persistRecordedAudio`; ambos entran por `setBinaryDraft`; ambos renderizan `AudioReview`; ambos van al mismo `submitBinary`; el único campo divergente es `source`. EVID: `homecloudMemoryPicker.ts:145` (`audio-import`, `unknownMediaCaptureMetadata()`) y `:187` (`audio-recorder`, `capturePrecision:'exact'`); `MemoryIntake.tsx:364`/`:399-414`/`:477`/`:560`; `MemoryMediaReview.tsx:112-124`. NOTES: **converge por construcción; no abrir.** El gap real es la promoción del item (CRT-07 / CRT-09), no la convergencia.
 
 ### INTAKE
 
@@ -419,7 +440,13 @@ TRUTH: preview dominante, fecha editable, álbum opcional, descripción opcional
 TRUTH: preview + fecha editable. CURR: `MemoryVideoPreview` con `nativeControls`, overlay y error boundary; probe de 32 bytes para el formato real con fail-open; fecha `unknown`. EVID: `MemoryMediaReview.tsx:69-108`; `homecloudArtifactMime.ts:99-112`. GAP: fecha editable.
 
 **INTAKE-03** Importar audio · `PARTIAL` · frontend · MED · device si · parcial
-TRUTH: identidad + reloj + seek; fecha editable. CURR: `DocumentPicker` `audio/*`, MIME por prefijo o extensión, `AudioReview` con reloj y play/pause, fecha `unknown` forzado. EVID: `homecloudMemoryPicker.ts:132-146`; `MemoryMediaReview.tsx:112-124`. GAP: fecha editable.
+TRUTH: identidad + reloj + seek; fecha **editable** (IN en V1, Product Truth §6.5). El `Sin fecha` automático es un estado de espera de corrección, **nunca terminal**. CURR: `DocumentPicker` `audio/*`, MIME por prefijo o extensión, `AudioReview` con reloj y play/pause, fecha `unknown` forzado. EVID: `homecloudMemoryPicker.ts:128-146`; `MemoryMediaReview.tsx:112-124`. GAP: fecha editable. NOTES: **la capacidad se preserva íntegra; no se reescribe el intake de audio.** El `unknown` forzado es correcto como decisión de derivación; lo que falta es la corrección. **La única vía para que un audio importado sea corregible es DATE-03 (en intake) y DATE-04 (post-guardado)**, y a partir de ahí pasa a ser elegible en resurfacing (RESURF-08). Prohibido derivar la fecha del nombre de archivo, del mtime, del momento de la subida, de la duración o de cualquier heurística.
+
+**INTAKE-03b** Importar audio: el `Sin fecha` es corregible, no terminal · `MISSING` · frontend+backend · **P1** · device sí · sin cobertura
+TRUTH: un audio importado sin fecha parseable llega a `Sin fecha`, y el usuario **puede corregirlo**: en el review de intake (Product Truth §6.3) y después en `Información del recuerdo` (§8). Con la corrección a `exact` pasa a resurfacing (§21.3.2). CURR: la fecha del review es **read-only** (3 `AppText` sin `onPress`) y **no existe** ninguna superficie de Info, luego **no hay ninguna vía de corrección en ningún momento** de la vida del Memory. EVID: `MemoryIntake.tsx:806-820` (read-only) vs `:791` (`MemorySemanticDateFields` montado solo en el formulario escrito); `homecloudMemoryPicker.ts:145` (`unknownMediaCaptureMetadata()`). PHYS: P9. GAP: los dos componentes de corrección **ya existen y están desconectados**; falta el endpoint PATCH de memory (INFO-03). NOTES: es el mismo gap que DATE-03 + DATE-04, visto desde el audio importado. **Se contabiliza una sola vez**: se cierra con DATE-03 y DATE-04, no con trabajo de audio.
+
+**INTAKE-03c** Importar audio: no se deriva fecha de fuentes no soportadas · `IMPLEMENTED` (como decisión) · n/a · LOW · device no · cubierto
+TRUTH: prohibido derivar la fecha de audio importado de `filename`, `mtime`, `uploaded_at`, `duración`, o cualquier heurística (Product Truth §6.5, §7.1). CURR: forzado `unknown`, con las alternativas evaluadas y rechazadas **por escrito en el propio código**: `asset.creationTime` no existe en el SDK; `duration` es longitud, no fecha; `assetId` requeriría `expo-media-library` (no instalada); parsear `fileName` es heurística. EVID: `homecloudMemoryPicker.ts:145`; `homecloudMediaCaptureMetadata.ts:24-36`. NOTES: correcto y **se preserva**. El patch de audio NO rehabilita ninguna de estas fuentes. La ausencia de fecha no es un bug; la ausencia de **corrección** sí (INTAKE-03b).
 
 **INTAKE-04** Importar N imágenes (batch) · `MISSING` · frontend · HIGH · device si · sin cobertura
 TRUTH: batch obligatorio, N fechas independientes, álbum masivo con override, un submit. CURR: `allowsMultipleSelection:false` + `assets?.[0]` + un único `binaryDraft`. EVID: `homecloudMemoryPicker.ts:113-114`; `MemoryIntake.tsx:130`. GAP: todo el dominio batch.
@@ -457,7 +484,10 @@ TRUTH: la fecha es editable en intake, con las 4 precisiones. CURR: **read-only*
 TRUTH: `Información del recuerdo` permite editar fecha, descripción y membresías. CURR: **no existe ninguna vía**; la única ruta PATCH de contenido es `/content/:contentId/file`, que es de **Files**. EVID: `backend/src/routes/homecloud.js:29-92,60`; `homecloudReadService.ts:380-434`. PHYS: P9. GAP: endpoint + servicio + superficie. **Requiere backend.**
 
 **DATE-05** Fecha: audio importado siempre `unknown` · `IMPLEMENTED` (como decisión) · n/a · LOW · device si · cubierto
-CURR: forzado, con las 4 alternativas evaluadas y rechazadas por escrito. EVID: `homecloudMemoryPicker.ts:145`; `homecloudMediaCaptureMetadata.ts:24-36`. NOTES: correcto; se resuelve con DATE-04, no con heurística.
+CURR: forzado, con las 4 alternativas evaluadas y rechazadas por escrito. EVID: `homecloudMemoryPicker.ts:145`; `homecloudMediaCaptureMetadata.ts:24-36`. NOTES: correcto; se resuelve con DATE-03 + DATE-04, no con heurística. **Se mantiene sin cambios tras el patch de audio**: `Importar audio` pasa a ser item de primer nivel, pero la **derivación** de fecha no cambia ni se rehabilita ninguna fuente.
+
+**DATE-11** Fecha: una fecha PARCIAL solo pasa a `exact` por corrección explícita del usuario · `MISSING` · frontend+backend · **P1** · device sí · sin cobertura
+TRUTH: `month_year`, `year` y `unknown` **no** pasan a `exact` solas. El único camino es la **elección explícita del usuario** de una fecha con día (Product Truth §7.3.1). HomeCloud **nunca** inventa día: prohibido `day=1`, `day=hoy`, `day=día de subida`, `day=primer día del mes`, `day=medio del mes`, o cualquier día sintético. No existe conversión automática `partial → exact`: sin job, sin tarea, sin trigger, sin heurística. CURR: **no hay ninguna vía de corrección en absoluto** (fecha read-only en intake y sin endpoint PATCH), así que la transición no existe ni siquiera como opción del usuario. EVID: `MemoryIntake.tsx:806-820`; `homecloudIntakeValidation.js` (validación de semántica de captura ya existente y que se preserva). GAP: la transición, como **opción del usuario**, no existe. NOTES: **es la transición que devuelve Memories al resurfacing** (RESURF-08). Se implementa con el componente `MemorySemanticDateFields` **ya existente** y con las validaciones de captura **ya existentes** en backend. **Prohibido** cualquier implementación que complete la fecha sin acción del usuario, aunque parezca una mejora: sería una mentira de producto y un bug P0 de datos.
 
 **DATE-06** Fecha: video de galería siempre `unknown` · `IMPLEMENTED` (como decisión) · n/a · LOW · device VERIFY
 CURR: el SDK iOS no entrega EXIF para video; documentado. EVID: `homecloudMediaCaptureMetadata.ts:38-41`. PHYS: P9. NOTES: la afirmación "no EXIF para video" es del equipo y **no está verificada por esta auditoría** en cada versión de iOS.
@@ -795,7 +825,10 @@ CURR: **ninguna**. GAP: banda, algoritmo, `viewer` factory, selector de destino.
 CURR: campo `boolean NOT NULL DEFAULT false`, validado en backend (400 propio; prohibido `true` para `role='file'`), proyectado en el mapper, y el cliente lo escribe **hardcodeado `false`** para escritos. `grep` en `front/` ⇒ **2 ocurrencias, ambas no-UI**. EVID: `20260925000000:50`; `homecloudIntakeValidation.js:254-268`; `homecloudMappers.js:73`; `homecloudWrittenMemoryService.ts:34`. TEST: `homecloud_moa3_memory_selection_tests:1163` exige que la **selección** no incluya el flag. NOTES: `CURRENT_AUDIT_AFTER_SLICE_01.md:73` ya lo registra como GAP UI.
 
 **RESURF-03** Determinismo y sensibilidad a precisión · `DEFERRED` (por ausencia de superficie) · n/a · MED · device sí · sin cobertura
-TRUTH: solo `exact` y con fecha anterior a hoy participa; `month_year`/`year`/`unknown` quedan fuera; **nunca** inventar día o mes. NOTA CRÍTICA: como los videos de galería y el audio importado resuelven **siempre** `unknown` (DATE-05, DATE-06), **nunca aparecerían** en resurfacing. Eso es correcto y se resuelve con DATE-03/DATE-04, **no** con una heurística.
+TRUTH: **solo `exact` y con fecha anterior a hoy participa**; `month_year`/`year`/`unknown` quedan fuera; **nunca** inventar día o mes. NOTA CRÍTICA: como los videos de galería y el audio importado resuelven **siempre** `unknown` (DATE-05, DATE-06), **nunca aparecerían** en resurfacing. Eso es correcto y se resuelve con DATE-03/DATE-04, **no** con una heurística. NOTES: **exact-only es una decisión congelada, no un hueco de implementación.** No se abre ningún gap de resurfacing mensual ni por `month_year`. La clave de agrupación es siempre día+mes; no existe clave alternativa para precisión parcial (Product Truth §21.3.1, §21.4).
+
+**RESURF-08** Una fecha parcial corregida a `exact` pasa a ser elegible · `MISSING` · frontend+backend · HIGH · device sí · sin cobertura
+TRUTH: un Memory en `month_year`, `year` o `unknown` **no aparece** en `Para volver a ver`. Si el usuario lo edita a una fecha exacta **explícitamente**, **aparece** en la siguiente lectura, sin ninguna acción adicional y sin ningún estado intermedio (Product Truth §7.3.1, §21.3.2). Si el usuario lo vuelve a dejar parcial, **desaparece** de nuevo: la elegibilidad es una función de lectura, no un estado. CURR: no hay superficie de resurfacing (RESURF-01) ni vía de corrección (DATE-03/DATE-04), luego **ninguna de las dos mitades del comportamiento existe**. EVID: `hidden_from_resurfacing` sí está persistido/validado/proyectado; `listMemories` ya filtra por `year` y `kind` en SQL y ya tiene orden total determinista por `captured_year/month/at`; no hay `PATCH` de memory. GAP: **se implementa con las piezas que ya existen** — la misma validación de fecha semántica, el mismo PATCH de metadata, la misma lógica de lectura de resurfacing. NOTES: **NO se crea un segundo sistema de fechas, ni un motor de resurfacing paralelo, ni una columna de "evaluado", ni una tabla de historial, ni un job de re-evaluación.** La corrección es un PATCH de `capture_*` + `capture_precision` y nada más. TEST: hoy ningún test cubre este cruce.
 
 **RESURF-04** Un grupo por año · `DEFERRED` · n/a · LOW · device sí · n/a
 TRUTH: si el mismo día aparece en tres años, hay tres grupos. NOTES: decisión de algoritmo ya tomada.
@@ -808,6 +841,9 @@ TRUTH: abrir grupo, abrir Memory (pager solo del grupo), agregar a álbum, trash
 
 **RESURF-07** Ocultar un grupo o rango de fechas · `DEFERRED` · schema · LOW · device — · n/a
 TRUTH: OUT de V1 explícito. CURR: solo existe el flag **por Memory**. DONOR: Google permite ocultar personas, fechas y rangos, y apagar la función entera. NOTES: requiere modelo de datos nuevo. **Declarado OUT para no dejarlo como ambigüedad.**
+
+**RESURF-09** No existe resurfacing mensual ni por `month_year`/`year` · `IMPLEMENTED` (por decisión) · producto · LOW · device sí (verificación negativa) · cubierto
+TRUTH: **OUT de V1, decisión congelada.** No existe grupo `Octubre 2023 — hace 3 años`, ni `este mes de hace N años`, ni ninguna banda derivada de `month_year` o `year`. La única banda es la de grupos por día+mes exactos. Los Memories parciales siguen visibles en su sección `Sin fecha` / `2023` del Timeline, que es **grouping, no resurfacing** (Product Truth §2.2, §21.3.1, §21.4). CURR: **cumple vacío**: no hay superficie de resurfacing, luego no hay banda mensual que pueda aparecer. EVID: ninguna superficie de resurfacing en `front/`. NOTES: **no se abre como gap y no se diseña en V1.** Al implementar RESURF-01, este gap **debe seguir cerrado**: es un requisito de aceptación negativo del slice de resurfacing, no trabajo adicional. TEST: verificación negativa — con Memories `month_year`/`year` presentes y al menos un `exact` elegible, la banda debe contener **solo** grupos exactos.
 
 ### CAM
 
@@ -927,6 +963,8 @@ CURR: según la sesion HC2-C, `tsc -p scripts/tsconfig.test.json` falla con 5 er
 | **LIFE-03** | El backend nunca escribe `trashed` | solo escribe `'staging'` y `'active'` | backend | HIGH |
 | **LIFE-05** | Filas `staging` abandonadas para siempre | nada barre staging en Postgres | backend | HIGH |
 | **UPL-04** | `/verify` fallido deja la fila en staging sin reintento de servidor | 409 y no hay estado de reintento backend | backend | MED |
+| **CRT-01** | El menú de create expone 4 items y no 5 | CURRENT implementa la gramática de 4 modos, superada por la decisión de audio | frontend | MED |
+| **CRT-09** | `Importar audio` no es una acción de primer nivel: exige `Fotos y videos` → `Elegir contenido` → `Audio` | item único de galería reparte dos intenciones + hoja intermedia | frontend | MED |
 | **CRT-06** | `Abrir configuración` inalcanzable | `permissionDenied`/`canAskAgain` nunca emitidos | frontend | LOW |
 | **INTAKE-09** | Doble modelo de destino en intake | API de destinos exportada y no usada por el JSX | frontend | LOW |
 | **INTAKE-10** | `durationMillis` capturado y descartado | sin columna, sin payload | frontend+backend | MED |
@@ -967,6 +1005,10 @@ CURR: según la sesion HC2-C, `tsc -p scripts/tsconfig.test.json` falla con 5 er
 | **ALB-14** | `Agregar a otro álbum` | frontend | MED |
 | **ROOT-10** | Banda de resurfacing en la raíz | frontend | HIGH |
 | **PERF-02** | Deduplicación de requests en vuelo | frontend | MED |
+| **CRT-07** | `Importar audio` no es alcanzable como acción de primer nivel | solo enrutado de menú; la capacidad de audio existe y funciona | frontend | MED |
+| **INTAKE-03b** | La `Sin fecha` de un audio importado no es corregible en ningún momento | fecha read-only en intake + sin PATCH de memory | frontend+backend | **P1** |
+| **DATE-11** | No existe `partial → exact` por corrección del usuario | ninguna vía de corrección, ni en intake ni post-guardado | frontend+backend | **P1** |
+| **RESURF-08** | Un Memory con fecha parcial corregida a `exact` no pasa a resurfacing | faltan las dos mitades: la banda (RESURF-01) y el PATCH (INFO-03) | frontend+backend | HIGH |
 
 ## 8. Partial Paths
 
@@ -979,6 +1021,8 @@ CURR: según la sesion HC2-C, `tsc -p scripts/tsconfig.test.json` falla con 5 er
 | **ROOT-06** | Verificar cambio de household con draft de intake abierto |
 | **ROOT-08** | Offset de Album y de Tipo |
 | **INTAKE-01/02/03** | Fecha editable (comparten la misma causa) |
+| **CRT-01** | 5 items en vez de 4, `Importar audio` promovido a primer nivel, y el copy del item de galería corregido a `Fotos y videos` |
+| **CRT-10** | Los dos caminos de audio convergen en un review por construcción; no abrir |
 | **INTAKE-07/08** | Jerarquía de la fecha; no pedir lo que ya se sabe |
 | **DATE-08** | `exif:true` muerto en cámara |
 | **TYP-03** | La selección dentro de un Tipo no debe cambiar la estructura |
@@ -1012,6 +1056,21 @@ CURR: según la sesion HC2-C, `tsc -p scripts/tsconfig.test.json` falla con 5 er
 | **ALB-06** | HC2-C §12: la eliminación de membresía se hace desde selección **dentro del Album** | Igual, pero hoy la selección no es visible en Album ⇒ la ruta es inalcanzable en la práctica | `AlbumDetailView.tsx:182` |
 | **SEL-03** | HC2-C §10: "el contexto de álbum **se preserva**" | Correcto como intención, **pero no implementado**: el gate lo desmonta | `SCREEN:1442` vs `:921-924` |
 | **TEST-COUNTER** | `homecloud_hc2c_memories_root_tests.ts:264-265` **afirma positivamente** el `+ Nuevo` del header | El header no debe tenerlo | test contradictorio |
+| **TEST-COUNTER-2** | `homecloud_2c_memory_intake_tests` y `homecloud_s0_gallery_intake_contract_tests` **afirman el menú de create de 4 items** con el item de galería rotulado `Elegir foto/video/audio` | Menú de **5 acciones planas**: `Fotos y videos`, `Capturar momento`, `Importar audio`, `Grabar audio`, `Escribir un recuerdo` | test contradictorio |
+| **TEST-COUNTER-3** | Cualquier test que afirme `Fotos y videos` → `Elegir contenido` → `Audio` como camino de audio importado | `Importar audio` es item de primer nivel; `Fotos y videos` **no** ofrece audio | test contradictorio |
+
+**Decisiones reclasificadas por el patch de audio de 2026-10-05:**
+
+| Decisión | Estado anterior | Estado final |
+| --- | --- | --- |
+| Menú de create de **4** items con un único item de audio | congelado en §4.1 de Product Truth | **SUPERSEDED** — son **5** items |
+| `Importar audio` como camino `Fotos y videos` → `Elegir contenido` → `Audio` | comportamento implícito de CURRENT, nunca declarado como verdad | **SUPERSEDED** — acción de primer nivel |
+| `Importar audio` fuera de V1 / no expuesto | implícito en el congelado de 4 items | **SUPERSEDED** — **IN V1** |
+| Capacidad de fondo de import de audio | `EXISTING_UNUSED_CAPABILITY` implícita | **KEEP** — capacidad real y verificada; solo se corrige el enrutado |
+| Resurfacing exact-only; `month_year`/`year`/`unknown` fuera | congelado en §21.3 | **KEEP** — reaffirmed y explicitado en §21.3.1 / §21.3.2 |
+| Resurfacing mensual / por `month_year` | nunca declarado | **OUT de V1 explícito** — no es ambigüedad |
+| Conversión `partial → exact` automática | nunca declarado | **PROHIBIDO** — solo por corrección explícita del usuario |
+| NO submenú de audio | congelado en §4.1 | **KEEP** — el item 3 se **promueve**, no se anida |
 
 **Decisiones previas clasificadas:**
 
@@ -1074,6 +1133,8 @@ Clasificación porPrompt §53: `KEEP` · `RETARGET_LATER` · `DELETE_LATER` · `
 | `homecloud_hc2b_media_viewer_tests.ts:177` | Afirma que la página de video **nunca** llama `play()` | **`KEEP`** — invariante correcta |
 | `homecloud_hc2b_media_viewer_tests.ts:264` | Afirma que la página de audio **no** llama `setAudioModeAsync` | **`KEEP`** — decisión correcta |
 | `homecloud_hc2b_media_viewer_tests.ts:64` | Afirma la **ausencia** de `memories` en la sesión del Viewer | **`KEEP`** — invariante correcta |
+| `homecloud_2c_memory_intake_tests` + `homecloud_s0_gallery_intake_contract_tests` | Afirman el menú de create de **4 items** y el item de galería `Elegir foto/video/audio` | **`RETARGET_LATER`** — deben exigir los **5 items** por nombre y copy, y la **ausencia** de `Elegir contenido` |
+| Cualquier test que afirme el camino de audio vía galería | Afirma `Fotos y videos → Audio` | **`RETARGET_LATER`** — `Importar audio` es item de primer nivel; la galería no ofrece audio |
 | `homecloud_hc2a_memories_viewer_tests.ts` | Hace **grep** de `pagingEnabled` + `getMemoryOriginalUrl` + `written` | **`DELETE_LATER` / sustituir** — el propio freeze HC2-C §36 dice que "no se congelan pruebas cuyo único valor sea buscar una cadena" |
 | `homecloud_moa3_memory_selection_tests.ts:1163` | Exige que la selección **no** incluya `hidden_from_resurfacing` | **`KEEP`** — correcto |
 
@@ -1113,6 +1174,11 @@ diferencia de todos los demás grupos TS.
 | **Batch: fechas distintas no se sobrescriben** | No cubierto porque no existe (INTAKE-04) |
 | **Back de Android cierra el Viewer** | No cubierto (VIEW-07) |
 | **Texto fuera de `<Text>` (P8)** | El barrido estático da 0; el warning es de librería ⇒ **requiere device trace, no un test** |
+| **Menú de create de 5 acciones, sin nivel intermedio** | Los tests actuales afirman 4 items: hay que retargetearlos antes de poder afirmar la regla (CRT-01, CRT-09) |
+| **`Importar audio` alcanzable en un tap desde el menú** | Es reachability de UI; ningún test lo cubre, y una regresión podría reintroducir la hoja intermedia sin romper nada (CRT-07) |
+| **`partial → exact` solo por elección del usuario** | Ningún test afirma la ausencia de una conversión automática; es una regla negativa (DATE-11) |
+| **Una fecha parcial corregida aparece en resurfacing** | Ninguna de las dos mitades existe todavía ⇒ no hay nada que probar (RESURF-08) |
+| **Resurfacing no muestra nada derivado de `month_year`/`year`** | Verificación negativa; sin superficie no hay nada que rodar (RESURF-09) |
 
 ## 12. Device-Only Gaps
 
@@ -1136,6 +1202,12 @@ Lo que **no** puede cerrarse por inspección de fuente.
 | 14 | Qué campos EXIF entrega el SDK por versión de iOS | No garantizable | DATE-01, DATE-06 |
 | 15 | Primer ingreso con 0/1/N álbumes, red lenta y sin red | Combinación de estados | ROOT-01 |
 | 16 | `useAudioSampleListener` con `RECORD_AUDIO` en Android | Platform-gated | AUD-06 |
+| 17 | **`Importar audio` alcanzable y usable desde el menú de primer nivel** | La promoción de un item y la ausencia de un nivel de hoja no son demostrables por fuente | CRT-07, CRT-09, B-07 |
+| 18 | **Que `Fotos y videos` NO ofrezca audio** | Verificación negativa de affordance | CRT-09, B-09 |
+| 19 | **Que la `Sin fecha` de un audio importado sea corregible en el review** | El componente de corrección está construido y desconectado; el comportamiento en pantalla no es verificable por fuente | DATE-03, DATE-11, INTAKE-03b |
+| 20 | **Que un Memory con fecha parcial corregida a `exact` aparezca en `Para volver a ver`** | Cruce de dos superficies; ninguna existe todavía | RESURF-08, Q-08 |
+| 21 | **Que la banda de resurfacing no muestre grupos `month_year`/`year`** | Verificación negativa con datos reales | RESURF-09, Q-09 |
+| 22 | **Que el Audio Viewer trate igual a audio importado y grabado** | La igualdad de capacidades en pantalla no es verificable por fuente | K-01b |
 
 ## 13. Backend / Schema Gaps
 
@@ -1184,6 +1256,10 @@ Lo que **no** puede cerrarse por inspección de fuente.
 | F22 | Acciones de cámara: solo 4 de 6 | ACT-01 |
 | F23 | Handoff de audio invisible | CAM-08 |
 | F24 | El Viewer solo puede abrirse desde 3 de 5 datasets | TYP-04, RESURF-06 |
+| F25 | Menú de create de 4 items; `Importar audio` no es de primer nivel | CRT-01, CRT-07, CRT-09 |
+| F26 | `Fotos y videos` ofrece audio y reparte dos intenciones en una hoja intermedia | CRT-09 |
+| F27 | La `Sin fecha` de un audio importado no es corregible en ningún momento | DATE-11, INTAKE-03b |
+| F28 | Una fecha parcial nunca puede pasar a `exact` por acción del usuario | DATE-11 |
 
 ## 15. Media / Performance Gaps
 
@@ -1260,6 +1336,31 @@ fecha exacta. Por lo tanto **no aparecerán nunca** en `Para volver a ver` hasta
 corrija la fecha (DATE-03/DATE-04). Eso es correcto y honesto, y es el argumento más fuerte a
 favor de implementar la corrección de fecha.
 
+### 18.1 Resurfacing es EXACT-ONLY: no es un hueco, es una decisión
+
+**No se abre ningún gap de resurfacing mensual ni por `month_year`.** §21.3.1 del Product
+Truth congela la elegibilidad en `exact` y prohíbe explícitamente el grupo
+`Octubre 2023 — hace 3 años`. Razón: "este día" requiere día; la clave de agrupación es
+día+mes, y un `month_year` no tiene día con que agrupar. `month_year` sigue siendo
+información **válida y suficiente** para el Timeline (`oct 2023`) — solo es insuficiente
+para un resurfacing por día.
+
+**El único camino de vuelta es la corrección explícita del usuario** (§21.3.2, DATE-11,
+RESURF-08): si edita el Memory a una fecha exacta, aparece en la siguiente lectura; si lo
+vuelve a dejar parcial, desaparece. La elegibilidad es una **función de lectura**, no un
+estado, así que **no hace falta**:
+
+- ningún segundo motor de fechas
+- ninguna columna de "resurfacing evaluado"
+- ninguna tabla de historial
+- ningún job de re-evaluación
+- ninguna normalización automática que complete una fecha parcial (**PROHIBIDA**)
+
+**Implicación de planificación:** la corrección de fecha (DATE-03 en intake, DATE-04 /
+INFO-03 post-guardado) no es solo un P1 de datos; es **la habilitante de resurfacing para
+los videos de galería y todo el audio importado**. Sin ella, la banda de resurfacing
+funciona pero casi nunca tiene contenido.
+
 ## 19. Dependency / Expo Capability Findings
 
 | Hallazgo | Evidencia | Consecuencia de producto |
@@ -1300,28 +1401,39 @@ Ordenados por severidad de producto, **no** por dificultad de implementación.
 | R14 | **RLS sin policies**: default deny hoy, sin defensa en profundidad mañana | B12 | LOW | Documentar; no agregar GRANT |
 | R15 | **`albumIds` puede projectar ids de otro hogar** | B11 | LOW | Filtrar por household en el 2º query |
 | R16 | **Fallo en CI por gates preexistentes ajenos** | TEST-02 | LOW | Ejecutar los comandos de Memories individualmente |
-| R17 | **Ambigüedad de producto no resuelta** | ninguna | LOW | Las 3 decisiones abiertas están listadas en el veredicto |
+| R17 | **Ambigüedad de producto no resuelta** | ninguna | LOW | Las 7 decisiones de §21.3 están cerradas |
+| R18 | **`Importar audio` sigue inalcanzable como acción de primer nivel** | el único camino es `Fotos y videos` → `Elegir contenido` → `Audio` | MED | CRT-07 + CRT-09: promover el item, unificar galería, eliminar la hoja intermedia |
+| R19 | **La `Sin fecha` del audio importado no es corregible en ningún momento** | `unknown` forzado + fecha read-only + sin PATCH | **P0 datos** | DATE-03 + DATE-04. Al ser `Importar audio` IN V1, este gap pasa a ser de primera clase |
+| R20 | **Un Memory con fecha parcial nunca puede volver a resurfacing** | no existe `partial → exact` por acción del usuario | HIGH | DATE-11 + INFO-03, sin ninguna conversión automática |
+| R21 | **Un plan que "arregle" fechas parciales automáticamente** | tentación de implementación al hacer resurfacing | **P0 datos** | Prohibido por §7.3.1: sin día sintético. Test negativo requerido |
+| R22 | **Regresión de audio al promover el item** | riesgo de reescribir intake de audio en vez de enrutar | MED | §6.6 del Product Truth enumera las piezas prohibidas de eliminar; CRT-10 es la prueba de convergencia |
 
 ## 21. FINAL READINESS VERDICT
 
 ### 21.1 Conteo por status
 
-| Status | Filas |
-| --- | --- |
-| `IMPLEMENTED` | 69 |
-| `PARTIAL` | 32 |
-| `MISSING` | 29 |
-| `DEFERRED` | 15 |
-| `BROKEN` | 15 |
-| `EXISTING_UNUSED_CAPABILITY` | 7 |
-| `STALE` | 3 |
-| **TOTAL** | **170** |
+| Status | Filas | Pre-patch | Delta |
+| --- | --- | --- | --- |
+| `IMPLEMENTED` | 71 | 69 | −1 (`CRT-01` sale de `IMPLEMENTED`) +3 (`CRT-08`, `INTAKE-03c`, `RESURF-09`) |
+| `PARTIAL` | 34 | 32 | +1 (`CRT-01` baja de `IMPLEMENTED`) +1 (`CRT-10` convergencia de los dos caminos de audio) |
+| `MISSING` | 33 | 29 | +4 (`CRT-07` `Importar audio` de primer nivel, `INTAKE-03b` `Sin fecha` corregible, `DATE-11` `partial → exact`, `RESURF-08` corregido ⇒ elegible) |
+| `DEFERRED` | 15 | 15 | 0 |
+| `BROKEN` | 16 | 15 | +1 (`CRT-09` audio no es atajo de `Fotos y videos`) |
+| `EXISTING_UNUSED_CAPABILITY` | 7 | 7 | 0 |
+| `STALE` | 3 | 3 | 0 |
+| **TOTAL** | **179** | **170** | **+9** |
 
-Conteo **verificado por extracción**, no estimado: 170 filas de encabezado en §5, 170 IDs únicos
-(sin duplicados). `PERF-01` es compuesto (`BROKEN` para imagen, `IMPLEMENTED` para video/audio) y
-se cuenta una sola vez por el peor caso. Las secciones §6-§9 son **vistas de corte** sobre el
-mismo registro y agrupan filas que comparten causa, así que sus conteos de filas pueden diferir
-de los de §5; §6 y §7 se verificaron contra §5 y coinciden exactamente.
+Conteo **verificado por extracción**, no estimado: **179** filas de encabezado en §5, **179**
+IDs únicos (sin duplicados). `PERF-01` es compuesto (`BROKEN` para imagen, `IMPLEMENTED` para
+video/audio) y se cuenta una sola vez por el peor caso. Las secciones §6-§9 son **vistas de
+corte** sobre el mismo registro y agrupan filas que comparten causa, así que sus conteos de
+filas pueden diferir de los de §5.
+
+**Delta del patch de audio (2026-10-05):** +9 filas. El cambio de status más relevante es
+**`CRT-01`: `IMPLEMENTED` → `PARTIAL`**, porque CURRENT expone la gramática vieja de 4 items,
+que el patch supersede. La decisión de **NO submenú sigue cumplida** en CURRENT: lo que se
+corrige es el conteo de items y la promoción de `Importar audio` a primer nivel. Ninguna fila
+existente se eliminó y ningún status se heredó de la gramática vieja.
 
 ### 21.2 Veredicto
 
@@ -1332,8 +1444,8 @@ MEMORIES_FINAL_PRODUCT_RECONSTRUCTION_COMPLETE
 Lo que esto **significa**:
 
 - El producto final esta **definido** en 31 secciones con decisiones, no hallazgos.
-- Los **147 paths** tienen los 13 campos obligatorios, con éxito, cancelación, error y retorno.
-- Los **170 gaps** de §5 tienen ID estable, status de §11, evidencia y capa.
+- Los **155 paths** tienen los 13 campos obligatorios, con éxito, cancelación, error y retorno.
+- Los **179 gaps** de §5 tienen ID estable, status de §11, evidencia y capa.
 - Las **9 observaciones fisicas** tienen causa raiz clasificada por confianza.
 - Las **13 contradicciones** del prompt §62 estan resueltas explicitamente.
 - Los **4 caminos de retorno** de las superficies secundarias estan congelados como contrato.
@@ -1342,7 +1454,45 @@ Lo que esto **NO** significa:
 
 - **NO** significa `MEMORIES_IMPLEMENTATION_COMPLETE`.
 - **NO** significa que los gaps de esta tabla estén resueltos.
-- **NO** cierra los 16 unknowns de §12, que requieren dispositivo.
+- **NO** cierra los 22 unknowns de §12, que requieren dispositivo.
+
+### 21.1b Delta del patch de audio (aplicado 2026-10-05)
+
+Dos decisiones explícitas de producto se aplicaron a las tres autoridades y **solo** a ellas.
+
+**A. `Importar audio` es IN V1 como acción de primer nivel.**
+
+| | Antes | Después |
+| --- | --- | --- |
+| Menú de create | **4** items: `Fotos y videos`, `Capturar momento`, `Grabar audio`, `Escribir un recuerdo` | **5** items: `Fotos y videos`, `Capturar momento`, **`Importar audio`**, `Grabar audio`, `Escribir un recuerdo` |
+| Camino de audio importado | `Fotos y videos` → hoja `Elegir contenido` → `Audio` | `+` → **`Importar audio`** → picker de audio |
+| `CRT-01` | `IMPLEMENTED` | **`PARTIAL`** |
+| Capacidad de fondo de audio | preservada | **preservada, sin cambios** |
+| Submenú de audio | NO | **NO** (confirmado) |
+| `Nuevo álbum` en create | NO | **NO** (confirmado) |
+
+Filas nuevas: `CRT-07` (MISSING), `CRT-08` (IMPLEMENTED), `CRT-09` (BROKEN), `CRT-10`
+(PARTIAL), `INTAKE-03b` (MISSING), `INTAKE-03c` (IMPLEMENTED). Paths nuevos: `B-07`, `B-08`,
+`B-09`, `B-10`, `K-01b`. Paths reconciliados: `B-01`, `C-05`, `D-04`, `D-05`, `D-06`, `D-07`.
+
+**B. Resurfacing sigue exact-only, con un único camino de vuelta.**
+
+| `capture_precision` | Elegibilidad | Cambio |
+| --- | --- | --- |
+| `exact` | **elegible** si `ACTIVE` + `!hidden` + fecha pasada | sin cambio |
+| `month_year` | **no elegible** | sin cambio, ahora **explícito** |
+| `year` | **no elegible** | sin cambio, ahora **explícito** |
+| `unknown` | **no elegible** | sin cambio, ahora **explícito** |
+| `partial → exact` | **solo por elección explícita del usuario** | **NUEVO** (`DATE-11`) |
+| Fecha parcial corregida | pasa a ser elegible en la siguiente lectura | **NUEVO** (`RESURF-08`) |
+| Resurfacing mensual | — | **OUT de V1 explícito** (`RESURF-09`) |
+
+Filas nuevas: `DATE-11` (MISSING), `RESURF-08` (MISSING), `RESURF-09` (IMPLEMENTED por
+decisión). Paths nuevos: `D-05b`, `Q-08`, `Q-09`. Paths reconciliados: `D-05`, `D-07`, `Q-07`.
+
+**Lo que el patch NO abre:** ningún gap de resurfacing mensual, ningún motor de fechas
+paralelo, ninguna conversión automática de fecha parcial, ninguna reescritura del intake de
+audio, ningún submenú, ninguna copia de Create existente en Product Truth.
 
 ### 21.3 Readiness para el plan de implementación
 
@@ -1353,7 +1503,13 @@ abiertas en la sección 22 del prompt fueron tomadas con evidencia:
 | --- | --- | --- |
 | Favoritos | **`DEFER`** | Donor: personal en 3 de 4. Semántica incompatible con "historia compartida"; compartido duplica Albums; personal requiere modelo de datos por miembro que no existe |
 | Waveform | **`FAKE OUT` / `REAL = CANDIDATE`, veredicto `REAL_WAVEFORM_EXPENSIVE`** | `expo-audio` expone muestreo público, pero solo de reproducción y platform-gated; ningún donor lo muestra; V1 recibe diseño honesto no-waveform no vacío |
-| Precisión del resurfacing | **Solo `exact` y anterior a hoy** | La regla de no inventar día/mes ya está en el schema (`capture_semantics_check`); extenderla a resurfacing es coherente y evita la mentira de "un día de 2024" |
+| Precisión del resurfacing | **Solo `exact` y anterior a hoy** | La regla de no inventar día/mes ya está en el schema (`capture_semantics_check`); extenderla a resurfacing es coherente y evita la mentira de "un día de 2024". Reafirmada y explicitada en §21.3.1 |
+| `Importar audio` en V1 | **IN, acción de primer nivel** (§21.1b) | Dos intenciones de usuario distintas; la capacidad ya existe en CURRENT; cinco items planos siguen siendo un menú finito |
+| `partial → exact` | **Solo por corrección explícita del usuario** (§7.3.1) | Un día sintético es una mentira de producto y un bug P0 de datos; el schema ya lo prohíbe en `capture_semantics_check` |
+| Resurfacing mensual | **OUT de V1, congelado** (§21.3.1) | No hay clave de agrupación día+mes para una fecha sin día; habría que inventar el día |
+
+**Las cuatro decisiones de esta tabla están cerradas. No hay decisiones de producto abiertas
+que bloqueen el plan.**
 
 ### 21.4 Dependencias de contrato (grafo alto nivel, no secuencia)
 
@@ -1369,10 +1525,28 @@ LIFE-01 (endpoints + escritura de 'trashed')
 
 INFO-03 (PATCH de memory)
    └─ desbloquea: DATE-04 (corrección posterior)
-                     └─ desbloquea RESURF-03 (videos/audio con fecha corregida)
+                     └─ desbloquea RESURF-08 (parcial → exact ⇒ elegible)
 
 DATE-03 (fecha editable en intake)
    └─ no depende de nada: el componente YA EXISTE, está desconectado
+        └─ cierra INTAKE-03b (la `Sin fecha` del audio importado deja de ser terminal)
+
+DATE-11 (partial → exact por elección del usuario)
+   ├─ depende de DATE-03 (en intake) y/o DATE-04/INFO-03 (post-guardado)
+   └─ NO tiene camino automático: su ausencia de autotrigger es parte del contrato
+
+CRT-07 + CRT-09 (`Importar audio` de primer nivel)
+   ├─ no dependen de nada: es enrutado de menú dentro de un único ActionSheet
+   ├─ NO dependen de DATE-03: la `Sin fecha` del audio importado es correcta aunque
+   │   no corregible (P9 ya lo trata). Se cierran aunque DATE-03 siga abierto.
+   └─ su acceptance incluye la AUSENCIA de la hoja `Elegir contenido` (CRT-09)
+
+CRT-10 (convergencia de los dos caminos de audio)
+   └─ cumple vacío por construcción: no abrir
+
+RESURF-01 (banda)
+   └─ depende de INFO-03/DATE-04 para que los videos/audio tengan fecha elegible
+        └─ y su cierre debe dejar cerrado RESURF-09 (nada de month_year/year en la banda)
 
 SEL-03 (gates de overlay)
    └─ no depende de nada: un cambio en dos condiciones
@@ -1380,9 +1554,6 @@ SEL-03 (gates de overlay)
 VIEW-01 (inmersividad + safe-area)
    ├─ no requiere dependencia nueva (safe-area-context instalada)
    └─ introduce R13 (riesgo de dos modales) → exige revisar CRT-03/ACT-08
-
-RESURF-01 (banda)
-   └─ depende de INFO-03/DATE-04 para que los videos/audio tengan fecha elegible
 ```
 
 ### 21.5 Ambigüedades de producto que quedan abiertas

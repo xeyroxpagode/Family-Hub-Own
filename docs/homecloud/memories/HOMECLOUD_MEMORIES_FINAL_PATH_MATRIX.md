@@ -14,6 +14,11 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 `root` · `album:<id>` · `type:<kind>` · `resurfacing:<group>` · `trash` · `intake` · `camera`.
 **Root nunca es un fallback de conveniencia.**
 
+**Total de paths: 155.** Reconciliado tras el patch de audio de 2026-10-05 (antes 147).
+IDs existentes **preservados, sin renumerar**. Paths nuevos: `B-07`, `B-08`, `B-09`, `B-10`,
+`K-01b`, `D-05b`, `Q-08`, `Q-09`. Paths reconciliados: `B-01`, `C-05`, `D-04`, `D-05`,
+`D-06`, `D-07`, `K-01`, `Q-07`.
+
 ---
 
 ## A. Root
@@ -168,13 +173,13 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 - **USER ACTION**: tap en `+`
 - **NEXT SURFACE**: bottom sheet `Guardar un recuerdo`
 - **STATE CHANGE**: `intake` sheet abierto
-- **SUCCESS**: 4 items: `Fotos y videos`, `Capturar momento`, `Grabar audio`, `Escribir un recuerdo`
+- **SUCCESS**: **5 items**, en este orden y sin submenu: `Fotos y videos`, `Capturar momento`, `Importar audio`, `Grabar audio`, `Escribir un recuerdo`. Los items 3 y 4 son **acciones distintas**, no dos ventanas al mismo destino
 - **CANCEL**: `Volver` / X / gesto → `root` sin cambios
 - **ERROR**: copy de error en la hoja + `Reintentar`
 - **RETURN CONTEXT**: `root`
 - **PERMISSION**: `homecloud.contribute`
 - **DEVICE QA**: si
-- **CURRENT STATUS**: `IMPLEMENTED` — 4 modos con copy congelado; el item de galeria esta rotulado `Elegir foto/video/audio` en vez de `Fotos y videos`, y el menu no tiene submenu (que es la decision final)
+- **CURRENT STATUS**: `PARTIAL` — la gramatica de 4 items con un unico item de audio esta **superada** (§4.1.1 del Product Truth): CURRENT expone 4 items y el de galeria esta rotulado `Elegir foto/video/audio`, y detras de el hay una **segunda** hoja `Elegir contenido` que recien ahi ofrece `Audio`. Es decir, CURRENT cumple "sin submenu" y **viola** "5 acciones planas de primer nivel" e "Importar audio de primer nivel". Dos correcciones distintas: agregar el item 3 y promover `Importar audio` a primer nivel
 
 ### PATH B-02 — El `+` con `contribute = false`
 - **START CONTEXT**: `root`
@@ -207,8 +212,8 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 ### PATH B-04 — Elegir `Fotos y videos` desde el menu
 - **START CONTEXT**: `root`
 - **PRECONDITIONS**: `contribute = true`
-- **USER ACTION**: tap en el item de galeria
-- **NEXT SURFACE**: picker del sistema
+- **USER ACTION**: tap en el item `Fotos y videos` (item 1)
+- **NEXT SURFACE**: picker del sistema de galeria, **directo**: `ImagePicker` con `mediaTypes: ['images','videos']`. **No** hay hoja intermedia, y **no** ofrece audio
 - **STATE CHANGE**: `intake` en fase `picking`
 - **SUCCESS**: vuelve al review con 1 draft (o N, con batch: ver C-04)
 - **CANCEL**: cerrar el picker → vuelve a `root` sin draft
@@ -216,7 +221,7 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 - **RETURN CONTEXT**: `root`
 - **PERMISSION**: `homecloud.contribute`
 - **DEVICE QA**: si
-- **CURRENT STATUS**: `PARTIAL` — funciona para 1 item; el selector multiple esta deshabilitado
+- **CURRENT STATUS**: `PARTIAL` — funciona para 1 item y el selector multiple esta deshabilitado; ademas el item no ofrece audio de forma directa, exige una **segunda** hoja `Elegir contenido` (B-09)
 
 ### PATH B-05 — Elegir `Capturar momento`
 - **START CONTEXT**: `root`
@@ -245,6 +250,62 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 - **PERMISSION**: `homecloud.contribute`
 - **DEVICE QA**: si
 - **CURRENT STATUS**: `IMPLEMENTED`
+
+### PATH B-07 — Elegir `Importar audio` (accion de primer nivel)
+- **START CONTEXT**: `root` → menu create
+- **PRECONDITIONS**: `contribute = true`; el item es visible en el menu de primer nivel sin pasar por ninguna hoja intermedia
+- **USER ACTION**: tap en `Importar audio` (item 3)
+- **NEXT SURFACE**: picker de documentos/audio del sistema
+- **STATE CHANGE**: `intake` sheet → estado `picking` con `source = 'audio-import'`
+- **SUCCESS**: vuelve al review binario de audio (C-05) con la fecha `Sin fecha` **editable**, album opcional y descripcion opcional
+- **CANCEL**: cerrar el picker → vuelve a `root` sin draft, sin artefacto
+- **ERROR**: `El archivo seleccionado no es un audio compatible.` en la hoja, `intake` intacto, `root` no cambia
+- **RETURN CONTEXT**: `root`
+- **PERMISSION**: `homecloud.contribute`
+- **DEVICE QA**: si, obligatorio (la promoción de un item y la ausencia de la hoja intermedia no son verificables por fuente)
+- **CURRENT STATUS**: `BROKEN` — la **capacidad existe y funciona**, pero **no es alcanzable como accion de primer nivel**: CURRENT obliga a `Elegir foto/video/audio` → hoja `Elegir contenido` → item `Audio`. La correccion es de enrutado del menu, no de intake
+
+### PATH B-08 — Elegir `Grabar audio` (accion de primer nivel, item 4)
+- **START CONTEXT**: `root` → menu create
+- **PRECONDITIONS**: `contribute = true`; permiso de microfono concedido o solicitable
+- **USER ACTION**: tap en `Grabar audio` (item 4)
+- **NEXT SURFACE**: grabador
+- **STATE CHANGE**: `intake` sheet → estado `recorder`, `source = 'audio-recorder'`
+- **SUCCESS**: ver D-04: fecha `exact` (instante de inicio de grabacion) y review binario de audio
+- **CANCEL**: `Cancelar` → `stopAndDiscard` + restauracion del modo de audio → `root`
+- **ERROR**: `empty recording` / validacion de URI y tamano, con copy honesto
+- **RETURN CONTEXT**: `root`
+- **PERMISSION**: `homecloud.contribute` + permiso de microfono
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `IMPLEMENTED` — ya es item de primer nivel con copy `Grabar audio`; el copy y el lugar en el menu son correctos. Lo unico que cambia es la **posicion relativa** respecto de `Importar audio` (item 4 de 5)
+
+### PATH B-09 — Menu de create: `Importar audio` NO es un atajo de `Fotos y videos`
+- **START CONTEXT**: `root` → menu create
+- **PRECONDITIONS**: —
+- **USER ACTION**: inspeccionar el menu de primer nivel
+- **NEXT SURFACE**: —
+- **STATE CHANGE**: ninguna
+- **SUCCESS**: `Fotos y videos` ofrece **solo** imagen y video. No ofrece audio. `Importar audio` es un item propio del menu de primer nivel. No existe `Audio >`. No existe una hoja `Elegir contenido` obligatoria para llegar a audio
+- **CANCEL**: —
+- **ERROR**: —
+- **RETURN CONTEXT**: —
+- **PERMISSION**: —
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `BROKEN` — CURRENT usa un unico item `Elegir foto/video/audio` cuya segunda hoja reparte galeria **y** audio. Mezcla dos intenciones en un item y agrega un nivel de navegacion para una accion que el producto congela como plana
+
+### PATH B-10 — Los dos caminos de audio convergen en un unico review
+- **START CONTEXT**: `root` → menu create → `Importar audio` | `Grabar audio`
+- **PRECONDITIONS**: hay un draft binario de audio, sea de la fuente que sea
+- **USER ACTION**: —
+- **NEXT SURFACE**: review binario de audio
+- **STATE CHANGE**: ninguna por la distincion de origen
+- **SUCCESS**: el review es **el mismo** para audio importado y audio grabado: misma jerarquia de informacion (preview dominante, Fecha editable, Album opcional, Descripcion opcional, `Guardar recuerdo`), mismo `submitBinary`, mismo upload engine, mismo Audio Viewer. La unica diferencia observable es la fecha derivada automaticamente (`unknown` importado / `exact` grabado)
+- **CANCEL**: cerrar el review → artefacto temporal borrado → `root`
+- **ERROR**: copy honesto del review, sin perder el draft
+- **RETURN CONTEXT**: `root`
+- **PERMISSION**: `homecloud.contribute`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `PARTIAL` — la convergencia **ya existe** en CURRENT (`setBinaryDraft` comun, `MemoryMediaReview` con `AudioReview`, `source` como unico campo divergente): el gap es la **promocion del item 3**, no la convergencia
 
 ---
 
@@ -307,18 +368,18 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 - **CURRENT STATUS**: `MISSING` — mismo bloqueo que C-03; ademas el review actual elige un unico componente por MIME, sin seleccion de item
 
 ### PATH C-05 — Importar audio
-- **START CONTEXT**: `root` → menu create → `Fotos y videos` → `Audio`
+- **START CONTEXT**: `root` → menu create → **`Importar audio`** (item 3 de primer nivel; ver B-07)
 - **PRECONDITIONS**: `contribute = true`
-- **USER ACTION**: elegir `Audio` → elegir un archivo
+- **USER ACTION**: elegir `Importar audio` → elegir un archivo de audio
 - **NEXT SURFACE**: review binario de audio
-- **STATE CHANGE**: `binaryDraft` con `capture.precision = 'unknown'` forzado
-- **SUCCESS**: reproductor con reloj; fecha `Sin fecha` **editable**
-- **CANCEL**: cerrar la hoja → artefacto borrado
+- **STATE CHANGE**: `binaryDraft` con `capture.precision = 'unknown'` forzado (`source = 'audio-import'`)
+- **SUCCESS**: reproductor con reloj y play/pause; fecha `Sin fecha` **editable** (D-06); album opcional; descripcion opcional; `Guardar recuerdo`
+- **CANCEL**: cerrar la hoja → artefacto borrado → `root`
 - **ERROR**: `El archivo seleccionado no es un audio compatible.`
 - **RETURN CONTEXT**: `root`
 - **PERMISSION**: `homecloud.contribute`
 - **DEVICE QA**: si
-- **CURRENT STATUS**: `PARTIAL` — el MIME se resuelve por prefijo o por extension con fallback; **la fecha es siempre `unknown` y no corregible** (P9)
+- **CURRENT STATUS**: `PARTIAL` — la **capacidad** es solida y se preserva: el MIME se resuelve por prefijo o por extension con fallback, `DocumentPicker` con `audio/*` y el `AudioReview` con reloj existen y funcionan. Los dos huecos son (a) el **enrutado de primer nivel** (B-07, B-09: hoy exige `Fotos y videos` → `Elegir contenido` → `Audio`) y (b) **la fecha es siempre `unknown` y no corregible** en ningun momento (P9; se cierra con D-06 y D-07)
 
 ### PATH C-06 — Guardar el review binario
 - **START CONTEXT**: review binario
@@ -409,7 +470,7 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 - **CURRENT STATUS**: `IMPLEMENTED` con deuda — se pide `exif: true` en `takePictureAsync` pero **`result.exif` nunca se lee**; la fecha viene del reloj del cliente, que es correcto para una captura nativa
 
 ### PATH D-04 — Fecha de audio grabado
-- **START CONTEXT**: `intake` → grabador
+- **START CONTEXT**: `intake` → `Grabar audio` (item 4 de primer nivel; ver B-08)
 - **PRECONDITIONS**: permiso de microfono concedido
 - **USER ACTION**: grabar → detener
 - **NEXT SURFACE**: review binario de audio con reproductor
@@ -423,26 +484,40 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 - **CURRENT STATUS**: `PARTIAL` — `durationMillis` se captura con `Math.max(antes, despues)` y **se descarta**: no esta en `BinaryMemoryMetadata`, ni en el payload de `register`, ni existe columna en DB
 
 ### PATH D-05 — Fecha de audio importado
-- **START CONTEXT**: review binario de audio
+- **START CONTEXT**: `root` → menu create → `Importar audio` → review binario de audio
 - **PRECONDITIONS**: archivo `.m4a`/`.mp3`/etc
 - **USER ACTION**: —
 - **NEXT SURFACE**: review
 - **STATE CHANGE**: `unknown` forzado
-- **SUCCESS**: `Sin fecha`
+- **SUCCESS**: `Sin fecha`. **`Sin fecha` es automatico y NO terminal**: el usuario puede corregirla **en este review** (D-06) y **despues** en `Informacion del recuerdo` (D-07). Con la correccion a `exact`, el Memory pasa a ser elegible para resurfacing (Q-07)
 - **CANCEL**: n/a
 - **ERROR**: n/a
 - **RETURN CONTEXT**: review
 - **PERMISSION**: —
 - **DEVICE QA**: si
-- **CURRENT STATUS**: `IMPLEMENTED` como decision / **`BROKEN` como producto** por falta de correccion (P9). Alternativas evaluadas y rechazadas en el codice: `asset.creationTime` no existe en el SDK, `duration` es longitud, `assetId` requeriria `expo-media-library` (no instalada), parsear `fileName` es heuristica
+- **CURRENT STATUS**: `IMPLEMENTED` como decision / **`BROKEN` como producto** por falta de correccion (P9). Alternativas evaluadas y rechazadas en el codice: `asset.creationTime` no existe en el SDK, `duration` es longitud, `assetId` requeriria `expo-media-library` (no instalada), parsear `fileName` es heuristica. **Ninguna se rehabilita**: la fecha del audio importado no se deriva, se pregunta. Prohibido derivarla del nombre de archivo, del mtime del archivo, del momento de la subida, de la duracion o de cualquier heuristica
+
+### PATH D-05b — Completar una fecha parcial a `exact`
+- **START CONTEXT**: review binario (D-06) o `Informacion del recuerdo` (D-07)
+- **PRECONDITIONS**: el draft / Memory esta en `month_year`, `year` o `unknown`
+- **USER ACTION**: abrir la edicion de fecha y elegir **explicitamente** una fecha exacta **con dia**
+- **NEXT SURFACE**: el mismo review o la misma hoja de Info
+- **STATE CHANGE**: `capture_precision = 'exact'`; `captured_at` completo; `captured_month` presente
+- **SUCCESS**: la fecha corregida prevalece sobre cualquier valor automatico, se persiste, y el Memory pasa a participar de resurfacing por fecha exacta (Q-07)
+- **CANCEL**: cerrar sin guardar → la precision parcial anterior se conserva intacta
+- **ERROR**: validacion en 3 capas (front, servicio, backend) con copy por capa
+- **RETURN CONTEXT**: el review, o el Viewer desde el que se abrio Info
+- **PERMISSION**: `homecloud.contribute` (en intake) / `homecloud.organize` (post-guardado)
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — no existe ninguna via de correccion, ni en intake ni post-guardado. Es la transicion `partial → exact` y es la **unica** que devuelve un Memory al resurfacing. Prohibido que HomeCloud la ejecute solo: sin eleccion explicita del usuario no hay transicion
 
 ### PATH D-06 — Corregir la fecha en el review binario
-- **START CONTEXT**: review binario
+- **START CONTEXT**: review binario (imagen, video, **audio importado**, audio grabado)
 - **PRECONDITIONS**: hay un draft
 - **USER ACTION**: editar la fecha (exacta / mes y ano / ano / sin fecha)
 - **NEXT SURFACE**: review binario
 - **STATE CHANGE**: el draft pasa a derivarse de la correccion del usuario
-- **SUCCESS**: la fecha corregida prevalece sobre cualquier valor automatico y se persiste
+- **SUCCESS**: la fecha corregida prevalece sobre cualquier valor automatico y se persiste. Aplica **igual** al audio importado (D-05), cuya `Sin fecha` automatica es corregible aqui
 - **CANCEL**: descartar la correccion → vuelve al valor derivado
 - **ERROR**: validacion en 3 capas (front, servicio, backend) con copy por capa
 - **RETURN CONTEXT**: review binario
@@ -456,7 +531,7 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 - **USER ACTION**: editar la fecha
 - **NEXT SURFACE**: la misma hoja de Info
 - **STATE CHANGE**: `captured_*` y `capture_precision` se actualizan; el Timeline reordena
-- **SUCCESS**: la fecha corregida se ve en Timeline, en el album y en resurfacing
+- **SUCCESS**: la fecha corregida se ve en Timeline, en el album y en resurfacing. Si la correccion lleva un Memory de `month_year`/`year`/`unknown` a `exact`, pasa a ser elegible de resurfacing en la siguiente lectura, **sin ninguna accion adicional** (Q-07). Si la correccion es a una precision parcial o a `Sin fecha`, el Memory queda fuera de resurfacing
 - **CANCEL**: cerrar sin guardar → sin cambios
 - **ERROR**: copy honesto; si el Memory no esta ACTIVE, no se edita
 - **RETURN CONTEXT**: el Viewer desde el que se abrio
@@ -1164,6 +1239,20 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 - **DEVICE QA**: si
 - **CURRENT STATUS**: `PARTIAL` — la identidad visual es solo un icono + la palabra `Audio` + una barra recta de 6px; no hay nada que_failure ver si el archivo es largo
 
+### PATH K-01b — Abrir un audio importado (mismo visor que un audio grabado)
+- **START CONTEXT**: cualquiera (Timeline, Album, Tipo `Audios`, Resurfacing)
+- **PRECONDITIONS**: el Memory tiene `kind = audio` y `mimeType` de audio, sea cual sea su origen
+- **USER ACTION**: tap
+- **NEXT SURFACE**: pagina de audio — **la misma** que K-01
+- **STATE CHANGE**: `useAudioPlayer(uri)` sobre el original del Memory
+- **SUCCESS**: **capacidades identicas** a un audio grabado: identidad visual, play/pause, seek por toque, reloj y duracion, `-10`/`+10` (K-03), velocidad (K-04), buffering, error honesto. El origen (`audio-import` vs `audio-recorder`) **no cambia nada visible ni ninguna capacidad**. No hay un visor degradado para audio importado, ni una copy de "no soportado" por ser importado
+- **CANCEL**: n/a
+- **ERROR**: si el original no se puede reproducir, copy honesto de playback igual que para audio grabado. **Nunca** un fallo atribuido al origen
+- **RETURN CONTEXT**: el llamador
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `IMPLEMENTED` — el Audio Viewer de CURRENT **ya** es agnostico al origen: reproduce por `kind`/`mimeType`, no por `source`. Se preserva tal cual. Lo unico pendiente es que el audio importado sea alcanzable como accion de primer nivel (B-07) para poder llegar aqui
+
 ### PATH K-02 — Seek de audio
 - **START CONTEXT**: pagina de audio
 - **PRECONDITIONS**: hay duracion conocida y el track midio
@@ -1838,13 +1927,41 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 - **USER ACTION**: —
 - **NEXT SURFACE**: —
 - **STATE CHANGE**: —
-- **SUCCESS**: **solo `exact` y con fecha anterior a hoy participa.** `month_year`, `year` y `unknown` quedan fuera del resurfacing por fecha exacta
+- **SUCCESS**: **solo `exact` y con fecha anterior a hoy participa.** `month_year`, `year` y `unknown` quedan fuera del resurfacing por fecha exacta. No existe resurfacing mensual ni por mes y ano
 - **CANCEL**: —
 - **ERROR**: —
 - **RETURN CONTEXT**: —
 - **PERMISSION**: `homecloud.view`
 - **DEVICE QA**: si
 - **CURRENT STATUS**: `MISSING` — pero la consecuencia es importante y ya es verificable: como los videos de galeria y el audio importado resuelven **siempre** `unknown`, **nunca aparecerian en resurfacing**. Eso es correcto y honesto, y se resuelve con la correccion de fecha (D-06, D-07), no con una heuristica
+
+### PATH Q-08 — Una fecha parcial, corregida a `exact`, pasa a ser elegible
+- **START CONTEXT**: `root` (banda de resurfacing), con Memories `exact`, `month_year`, `year` y `unknown` presentes
+- **PRECONDITIONS**: hay al menos un Memory elegible y al menos uno con precision parcial
+- **USER ACTION**: en `Informacion del recuerdo` (o en el review de intake), elegir **explicitamente** una fecha exacta con dia para uno de los parciales
+- **NEXT SURFACE**: la misma hoja de edicion; luego `root` en la siguiente lectura
+- **STATE CHANGE**: ese Memory pasa a `capture_precision = 'exact'`; **no hay ninguna otra escritura**: sin columna de evaluacion, sin cache, sin job, sin tabla de historial
+- **SUCCESS**: el Memory corregido **aparece** en `Para volver a ver` sin que el usuario vuelva a hacer nada. Si el usuario lo vuelve a dejar parcial o en `Sin fecha`, **desaparece** de nuevo. La elegibilidad se evalua en cada lectura con una sola funcion
+- **CANCEL**: cerrar sin guardar → no hay cambio de precision, la evaluacion no cambia
+- **ERROR**: copy honesto de la validacion de fecha; la precision anterior se conserva
+- **RETURN CONTEXT**: el llamador de la edicion
+- **PERMISSION**: `homecloud.organize` para editar; `homecloud.view` para ver la banda
+- **DEVICE QA**: si, obligatorio (es el cruce de DATE-04 y resurfacing; ninguna fuente lo demuestra)
+- **CURRENT STATUS**: `MISSING` — depende de D-07 (o D-06) + la banda de Q-01. Se implementa con las **mismas** validaciones de fecha semantica existentes y la misma logica de lectura de resurfacing. **No se crea un segundo sistema de fechas ni un motor de resurfacing paralelo**
+
+### PATH Q-09 — No existe resurfacing mensual
+- **START CONTEXT**: `root`, con Memories `month_year` y/o `year` presentes y al menos un `exact` elegible
+- **PRECONDITIONS**: hay Memories con precision parcial
+- **USER ACTION**: —
+- **NEXT SURFACE**: —
+- **STATE CHANGE**: ninguna
+- **SUCCESS**: **no existe ningun grupo `Octubre 2023 — hace 3 años`**, ni `este mes de hace N años`, ni ninguna banda derivada de `month_year` o `year`. La unica banda es la de grupos por dia+mes exactos (Q-01). Los Memories parciales siguen visibles en su seccion `Sin fecha` / `2023` del Timeline, que es un grouping distinto y no un resurfacing
+- **CANCEL**: —
+- **ERROR**: —
+- **RETURN CONTEXT**: —
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si (verificacion negativa: que la banda no aparezca con datos parciales)
+- **CURRENT STATUS**: `IMPLEMENTED` (por decision) — no hay superficie de resurfacing, asi que la regla se cumple vacio. Queda **congelada**: no se abre como gap faltante ni se diseña en V1. La unica forma de que un Memory parcial llegue a la banda es D-05b / Q-08
 
 ---
 
@@ -2159,23 +2276,23 @@ Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
 | Dominio | Paths | Estados cubiertos |
 | --- | --- | --- |
 | A. Root | 10 | primera entrada, datos, vacio, refresh, household, tab global, 3 retornos, upload pendiente |
-| B. Create | 6 | menu, gates de permiso y de seleccion, 3 modos |
+| B. Create | 10 | menu de 5 acciones, gates de permiso y de seleccion, 3 modos, `Importar audio` de primer nivel, `Grabar audio` de primer nivel, audio no atajo de galeria, convergencia de los dos caminos de audio |
 | C. Import | 8 | 1 imagen, 1 video, N imagenes, lote mixto, audio, guardar, preview fail, falla parcial |
-| D. Date | 9 | 6 fuentes, correccion en intake, correccion post-guardado, correccion en lote, grupo `Sin fecha` |
+| D. Date | 10 | 6 fuentes, completar `partial → exact`, correccion en intake, correccion post-guardado, correccion en lote, grupo `Sin fecha` |
 | E. Albums | 12 | riel 0/1/N, crear, abrir, vacio, renombrar, eliminar, agregar, quitar, quitar 1 desde Viewer, `Agregar a otro album` |
 | F. Types | 5 | fila, abrir, vacio, seleccion, pager |
 | G. Selection | 8 | entrar desde 5 llamadores, D4, agregar, crear album, quitar, 0 seleccionados |
 | H. Viewer common | 8 | apertura exacta, inmersividad, cerrar, acciones, fuente, append, back Android, background |
 | I. Image | 6 | abrir, zoom, pan, reset, doble toque, carga infinita |
 | J. Video | 6 | shell, P1, reproducir, fullscreen, pagina inactiva, codec |
-| K. Audio | 6 | abrir, seek, +/-10, velocidad, waveform, background |
+| K. Audio | 7 | abrir, abrir audio importado con el mismo visor, seek, +/-10, velocidad, waveform, background |
 | L. Written | 6 | crear, precision, leer, copiar, compartir texto, compartir binario |
 | M. Info/Edit | 5 | abrir, las dos fechas, descripcion, membresias, identidad tecnica |
 | N. Actions | 8 | seleccion, gates, compartir multi, album, un-solo-host, Viewer, resurfacing, favoritos |
 | O. Lifecycle | 4 | trash desde Viewer, trash desde seleccion, undo, permisos |
 | P. Trash | 12 | ver, vacia, restaurar 1/N, restaurar sin album, purge 1/N, vaciar, en album/tipo/resurfacing, signed URL |
-| Q. Resurfacing | 7 | con grupos, sin grupos, abrir grupo, abrir Memory, seleccionar, ocultar, elegibilidad |
+| Q. Resurfacing | 9 | con grupos, sin grupos, abrir grupo, abrir Memory, seleccionar, ocultar, elegibilidad por precision, parcial corregido a `exact`, ausencia de resurfacing mensual |
 | R. Upload | 7 | enviar, salir, retry, cancelar, reinicio, staging, filas huerfanas |
 | S. Camera | 9 | 3 estados de permiso, foto, video, background, handoff, guardar, retorno |
 | T. Permissions | 5 | sin view, sin organize, sin contribute, sin delete, cambio de household con draft |
-| **TOTAL** | **147** | |
+| **TOTAL** | **155** | |

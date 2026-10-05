@@ -19,6 +19,21 @@ Jerarquia de autoridad aplicada (prompt §2):
 
 Un test verde NO sobreescribe un bug observado en un iPhone fisico.
 
+**Revision de producto aplicada 2026-10-05 (patch de audio).** Esta version incorpora las
+dos ultimas decisiones explicitas de producto:
+
+1. **`Importar audio` es IN V1 como accion de primer nivel** y el menu del `+` pasa de
+   **4 items a 5**, planos y sin submenu (§4.1.1). El camino congelado de `Importar audio`
+   esta en §4.1.2; el de `Grabar audio`, en §4.1.3. La distincion intake de audio esta en
+   §6.4; la regla de `Sin fecha` corregible del audio importado, en §6.5; las piezas que
+   **no** se pueden borrar, en §6.6.
+2. **Resurfacing sigue siendo EXACT-ONLY** y no hay resurfacing mensual (§21.3.1). Una
+   fecha parcial se vuelve `exact` **solo** por correccion explicita del usuario (§7.3.1,
+   §21.3.2). No existe ninguna conversion automatica y no se prohibe ningun dia sintetico.
+
+Las decisiones anteriores que estas dos sustituyen quedan marcadas como **SUPERSEDED** en el
+punto exacto donde aparecem, no borradas, para que la historia siga siendo legible.
+
 ---
 
 ## 1. Product Definition
@@ -79,6 +94,8 @@ de Memories V1 aunque Apple, Google o Immich la tengan.
 | Resurfacing deterministico "Para volver a ver" | IN |
 | Ocultar de resurfacing ("No mostrar este recuerdo aca") | IN |
 | Camera como fuente de intake | IN |
+| **`Importar audio` como accion de primer nivel de Create** | **IN** (§4.1.1, §6.4) |
+| **`Grabar audio` como accion de primer nivel de Create** | **IN** (§4.1.1, §6.4) |
 
 ### 2.2 OUT (no re-discutir sin contradiccion real)
 
@@ -103,6 +120,10 @@ de Memories V1 aunque Apple, Google o Immich la tengan.
 | Doble toque para zoom en imagen | **DEFER** | Ver §14.6. |
 | Reproduccion en background | OUT | Ver §16.4. |
 | Ocultar un GRUPO de resurfacing (rango de fechas) | OUT (V1) | Requiere modelo de datos que no existe. Ver §21.6. |
+| **Resurfacing mensual / por `month_year`** | **OUT de V1, decision congelada** | "Este dia" requiere dia. Ver §21.3.1. |
+| **Resurfacing por `year` o por `unknown`** | **OUT de V1, decision congelada** | Ver §21.3.1. |
+| **Submenu `Audio >` en el menu del `+`** | **OUT de V1, decision congelada** | `Importar audio` y `Grabar audio` son acciones planas de primer nivel. Ver §4.1.1. |
+| **Conversion automatica de una fecha parcial a `exact`** | **PROHIBIDO** | Solo por correccion explicita del usuario. Ver §7.3.1. |
 
 ### 2.3 EXISTING_UNUSED_CAPABILITY (declarado, no expuesto, no borrado)
 
@@ -179,25 +200,95 @@ upload pendiente, retorno desde Viewer / Album / Tipo / Resurfacing / Camera / I
 ### 4.1 Menu del `+`
 
 El `+` abre un **anchored bottom sheet** (mismo host `ActionSheet` del producto) titulado
-`Guardar un recuerdo`. Menu de primer nivel, **cuatro items, sin submenu**:
+`Guardar un recuerdo`. Menu de primer nivel, **cinco items, sin submenu**:
 
-| Item | Copy | Comportamiento |
-| --- | --- | --- |
-| Fotos y videos | `Fotos y videos` | Lanza picker de galeria directo |
-| Camara | `Capturar momento` | Lanza Camera directo |
-| Audio | `Grabar audio` | Lanza grabador directo |
-| Recuerdo escrito | `Escribir un recuerdo` | Abre el formulario escrito |
+| # | Item | Copy | Comportamiento |
+| --- | --- | --- | --- |
+| 1 | Fotos y videos | `Fotos y videos` | Lanza picker de galeria directo |
+| 2 | Camara | `Capturar momento` | Lanza Camera directo |
+| 3 | Importar audio | `Importar audio` | Lanza el picker de documentos de audio directo |
+| 4 | Grabar audio | `Grabar audio` | Lanza el grabador directo |
+| 5 | Recuerdo escrito | `Escribir un recuerdo` | Abre el formulario escrito |
 
-El concepto `Fotos y videos / Camara / Audio > / Escribir recuerdo` del prompt §14 es la
-**candidata** evaluada. Decision: **NO se anade submenu**.
+**El orden es congelado y es el orden de arriba.** No se reordena.
 
-Razon congelada: un submenu `Audio > Importar audio / Grabar audio` agrega un nivel de
-navegacion para UNA decision binaria, y obligaria a dos menus modales encadenados.
-El costo de interaccion de un submenu es mayor que el beneficio de un solo item.
-Separar "importar audio" y "grabar audio" en dos items de primer nivel seria un menu mas
-plano y directamente reversible. La **misma** logica de submenu se aplicara donde si hay
-mas de una eleccion real: la creacion de Album desde una seleccion (§10.5) y el selector
-de destino (§18.4).
+### 4.1.1 Decision de cierre: IMPORT_AUDIO = IN V1, RECORD_AUDIO = IN V1, ambos de primer nivel
+
+Esta clausula **SUPERSEDE** el congelado anterior de este mismo documento que declaraba
+`cuatro items` con un unico item de audio rotulado `Grabar audio`.
+
+```
+IMPORT_AUDIO = IN V1   (accion de primer nivel, item 3)
+RECORD_AUDIO = IN V1   (accion de primer nivel, item 4)
+AUDIO SUBMENU = NO
+```
+
+Razon congelada:
+
+1. **Importar un archivo de audio existente y grabar uno nuevo son dos intenciones de
+   usuario distintas.** No son dos ventanas al mismo destino: una conserva algo que ya
+   existia fuera de HomeCloud; la otra crea algo que no existia.
+2. **La capacidad ya existe en CURRENT.** `DocumentPicker` con `audio/*`, resolucion de
+   MIME por prefijo o extension, `AudioReview` e intake binario de audio estan
+   implementados y verificados. Ocultar una capacidad ya soportada detras de un submenu es
+   una perdida neta.
+3. **Cinco acciones planas son preferibles a cuatro items con un submenu.** La decision
+   previa ("un submenu para una decision binaria cuesta mas de lo que aporta") era
+   correcta **mientras la eleccion fuese realmente binaria**. Al promover `Importar audio`
+   a accion de primer nivel, el argumento se invierte: un submenu `Audio >` obligaria a
+   un segundo nivel de navegacion modal para dos intenciones que ya caben en dos lineas de
+   un menu plano.
+4. **El menu sigue siendo finito y entendible.** Cinco items, ninguno duplica a otro,
+   ninguno es un submenu. No es "un menu infinito".
+
+**Lo que NO se hace:**
+
+- **NO** existe `Audio >` con `Importar audio` / `Grabar audio`.
+- **NO** se conserva una hoja intermedia `Elegir contenido` como paso obligatorio para
+  llegar a audio importado.
+- **NO** se elimina, oculta ni reescribe la implementacion de importacion de audio de
+  CURRENT (§6.6).
+- **NO** aparece `Nuevo album` aqui (ver §4.1.3).
+
+### 4.1.2 Camino congelado de `Importar audio`
+
+```
+root
+  → `+`
+    → `Importar audio`                        <- accion de primer nivel, item 3
+      → picker de documentos/audio del sistema
+        → review binario de audio
+          → Fecha semantica EDITABLE
+          → Album opcional
+          → Descripcion opcional
+          → Guardar
+            → shared upload engine
+              → Memory ACTIVE
+                → root
+```
+
+Se reusa **exacto** el servicio de importacion de audio existente en CURRENT. La decision
+es de **enrutado de primer nivel**, no de reescritura de intake. §6.6.
+
+### 4.1.3 Camino congelado de `Grabar audio`
+
+```
+root
+  → `+`
+    → `Grabar audio`                          <- accion de primer nivel, item 4
+      → grabador
+        → review binario de audio
+          → Fecha semantica EDITABLE
+          → Album opcional
+          → Descripcion opcional
+          → Guardar
+            → shared upload engine
+              → Memory ACTIVE
+                → root
+```
+
+Los dos caminos **convergen despues** de la adquisicion de la fuente, en el mismo review
+binario, con la misma jerarquia de informacion (§6.2) y el mismo `submitBinary`.
 
 `Nuevo album` **NO** aparece aqui. Albums tienen su propia semantica de creacion (§10.3).
 
@@ -275,7 +366,86 @@ Razon de producto: si HomeCloud resuelve `Sin fecha` para un video de galeria, y
 no puede corregirlo en ningun momento, HomeCloud pierde el recuerdo de una manera que el
 usuario no puede reparar. Un dato que HomeCloud no sabe no es un dato del usuario.
 
-### 6.4 Batch intake
+### 6.4 Intake de audio: importado y grabado, DOS entradas, UN review
+
+El review de audio es **uno solo**, pero **los caminos de entrada son dos y ambos son
+acciones de primer nivel del menu del `+`** (§4.1.1).
+
+| | `Importar audio` | `Grabar audio` |
+| --- | --- | --- |
+| Origen | archivo de audio existente, fuera de HomeCloud | nueva grabacion hecha en la app |
+| Adquisicion | picker de documentos/audio del sistema | grabador con permiso de microfono |
+| `source` | `audio-import` | `audio-recorder` |
+| Fecha automatica | **`unknown` → `Sin fecha`** (§7.2) | **`exact`** = instante real de inicio |
+| Precision inicial | `unknown` | `exact` |
+| Review | **el mismo** review binario de audio | **el mismo** review binario de audio |
+| Fecha editable | **SI**, obligatoria como en cualquier binario | **SI** |
+| Album / Descripcion | opcional / opcional | opcional / opcional |
+| Submit | el mismo `submitBinary` | el mismo `submitBinary` |
+| Audio Viewer | **el mismo** Audio Viewer (§16) | **el mismo** Audio Viewer (§16) |
+
+**Reglas que no se negocian:**
+
+1. Los dos caminos **convergen despues** de la adquisicion de la fuente. No hay dos
+   reviews, ni dos formularios, ni dos pipelines de subida.
+2. La distincion entre importado y grabado **no** cambia el review, **no** cambia el
+   guardado y **no** cambia el Audio Viewer. Solo cambia como se obtiene el archivo y que
+   fecha se deriva automaticamente.
+3. `Importar audio` **no** es un submenu de `Fotos y videos`, **no** es un item de un
+   selector `Elegir contenido`, y **no** comparte item con `Grabar audio`.
+4. **Importar audio NO es un atajo de `Fotos y videos`.** Un archivo de audio no es una
+   foto ni un video. El menu `Fotos y videos` no ofrece audio.
+
+### 6.5 Fecha del audio importado: `Sin fecha` es automatico, nunca terminal
+
+El audio importado no tiene ninguna fuente de fecha parseable en el stack actual, asi que
+la derivacion automatica produce `capture_precision = 'unknown'` → `Sin fecha` (§7.2).
+
+Eso es **aceptable y correcto**. Lo que es **inaceptable** es que ese `Sin fecha` sea
+incorregible.
+
+Regla congelada:
+
+```
+automatico  ->  capture_precision = unknown  ->  `Sin fecha`
+corregible  ->  el usuario edita en intake (§6.3)  ->  se persiste
+             ->  el usuario edita despues en Informacion del recuerdo (§8)  ->  se persiste
+```
+
+- `Sin fecha` en un audio importado es un **estado de espera de correccion**, no un
+  veredicto final.
+- Si el usuario nunca corrige, el Memory queda honestamente en `Sin fecha` y no participa de
+  resurfacing (§21.3). Esa consecuencia es aceptada, no es un bug.
+- Si el usuario corrige a `exact`, el Memory pasa a comportarse como cualquier otro Memory
+  con fecha, **incluida la elegibilidad de resurfacing**.
+
+**Prohibido** derivar la fecha de un audio importado de cualquiera de estos (§7.1):
+
+- el **nombre del archivo**
+- el **mtime / fecha de modificacion del archivo**, salvo que se congele explicitamente
+  como autoridad semantica (no lo esta)
+- el **momento de la subida** (`uploaded_at`)
+- la **duracion** del audio
+- cualquier heuristica, estadistica o eleccion automatica
+
+### 6.6 Importar audio se preserva: no se borra, no se reescribe
+
+La correccion de §4.1 es de **enrutado**, no de reimplementacion. Las siguientes piezas de
+CURRENT **se conservan** y quedan **prohibidas** de eliminacion:
+
+| Pieza | Donde |
+| --- | --- |
+| `DocumentPicker` con `audio/*` | `homecloudMemoryPicker.ts` (`pickAudioMemory`) |
+| Resolucion de MIME de audio por prefijo o extension, con fallback | `homecloudMemoryPicker.ts` |
+| `AudioReview` con reloj y play/pause | `MemoryMediaReview.tsx` |
+| Intake binario de audio (draft, submit, job, finalize) | `homecloudMemoryIntakeService.ts` |
+| Audio Viewer compatible con audio importado **y** grabado | `MemoryAudioPage.tsx` |
+| `unknownMediaCaptureMetadata()` para audio importado | `homecloudMediaCaptureMetadata.ts` |
+
+Si CURRENT expone hoy `Importar audio` a traves de un selector compartido
+`foto/video/audio`, **ese enrutado se convierte en hueco**, no en verdad.
+
+### 6.7 Batch intake
 
 Batch es obligatorio (§18 del prompt) y NO puede convertirse en N formularios.
 
@@ -335,7 +505,7 @@ Si HomeCloud no tiene un valor parseable de un campo soportado, el resultado es
 | MP4 de galeria | Mismos 3 campos EXIF | 1,2,3 | `unknown` |
 | Video de camara | **Instante real de captura de HomeCloud** (no el reloj del cliente al importar, sino el instante de la captura) | directo | n/a |
 | Imagen de camara | Instante real de captura de HomeCloud | directo | n/a |
-| Audio importado | **Ninguna fuente soportada.** El audio importado no tiene campo de captura parseable en el stack actual. | — | **siempre `unknown`** |
+| Audio importado (`Importar audio`, item 3 del menu del `+`) | **Ninguna fuente soportada.** El audio importado no tiene campo de captura parseable en el stack actual. | — | **siempre `unknown` → `Sin fecha`**, y §6.5 obliga a que ese `Sin fecha` sea corregible por el usuario en intake y despues en `Información del recuerdo` |
 | Audio grabado | Instante real de inicio de grabacion | directo | n/a |
 | Recuerdo escrito | Eleccion del usuario; por defecto el dia actual | usuario | `unknown` |
 
@@ -353,6 +523,49 @@ Cuatro precisiones, congeladas:
 **Prohibido inventar dia o mes para contenido `year`-only o `unknown`.**
 El backend ya lo valida con `homecloud_contents_capture_semantics_check` y
 `homecloud_contents_capture_component_range_check`. Esa validacion se conserva intacta.
+
+### 7.3.1 Precision parcial → `exact`: SOLO por correccion explicita del usuario
+
+Este es el unico camino por el cual una precision parcial se vuelve `exact`, y es
+**exclusivamente** la correccion explicita del usuario.
+
+| Precision actual | Se vuelve `exact` sola, sin usuario | Camino permitido |
+| --- | --- | --- |
+| `month_year` | **NO** | el usuario edita y elige **explicitamente** un dia -> `exact` |
+| `year` | **NO** | el usuario edita y elige **explicitamente** mes **y** dia -> `exact` |
+| `unknown` | **NO** | el usuario edita y elige **explicitamente** una fecha exacta -> `exact` |
+| `exact` | ya es `exact` | edicion posterior se evalua por §7.4 |
+
+Ejemplo canonico:
+
+```
+Memory con `Octubre 2023` (capture_precision = month_year)
+  → el usuario abre la edicion de fecha
+    → elige explicitamente `18 octubre 2023`
+      → capture_precision = exact
+        → SOLO AHORA puede participar de resurfacing por fecha exacta (§21.3)
+```
+
+**HomeCloud NUNCA inventa un dia.** Prohibido, sin excepcion:
+
+```
+day = 1
+day = hoy
+day = el dia de la subida
+day = el dia de la importacion
+day = el dia del primer dia del mes
+day = el medio del mes
+cualquier dia sintetico
+```
+
+**No existe conversion automatica `month_year → exact`, ni `year → exact`, ni
+`unknown → exact`.** No hay job, ni tarea, ni trigger, ni heuristica que complete una fecha
+parcial. La fecha parcial es honesta hasta que el usuario la completa; despues es exacta
+porque **el usuario** la hizo exacta.
+
+La unica via de edicion post-guardado es `Información del recuerdo` (§8), que es la
+**unica** superficie de edicion de metadata (§8.3). No se crea una segunda via, ni una
+pantalla de "completar fechas pendientes".
 
 ### 7.4 Correccion de fechas
 
@@ -866,6 +1079,17 @@ largo sobre red movil produce exactamente la experiencia "tarda una eternidad".
 
 Un Audio no puede estar visualmente vacio. La barra de progreso no es identidad visual.
 
+**El Audio Viewer es UNO y sirve a las dos fuentes.** Un audio importado (`Importar audio`,
+item 3) y un audio grabado (`Grabar audio`, item 4) usan **el mismo** Audio Viewer, con las
+mismas capacidades y el mismo diseno honesto no-waveform (§16.3). No hay un visor de audio
+"importado" y otro "grabado", ni una variante degradada para el audio importado, ni un
+"no se puede reproducir" presumido.
+
+La distincion de origen (`source: 'audio-import'` vs `'audio-recorder'`) **no** es visible
+en el Viewer y **no** altera ninguna capacidad. Si un audio importado no se puede
+reproducir, el Viewer lo dice con copy honesta de playback (§16.2), igual que para un audio
+grabado.
+
 ### 16.2 Capacidades V1
 
 | Capacidad | Decision |
@@ -942,6 +1166,8 @@ Un Recuerdo escrito es **contenido**, no una nota de tareas.
 | Capacidad | Decision |
 | --- | --- |
 | Crear (texto) | IN |
+| `Importar audio` (archivo de audio existente) | **IN** — accion de primer nivel del menu del `+` (§4.1.1, §6.4) |
+| `Grabar audio` (grabacion nueva) | **IN** — accion de primer nivel del menu del `+` (§4.1.1, §6.4) |
 | Fecha (4 precisiones) | IN |
 | Album opcional | IN |
 | Leer | IN |
@@ -1183,9 +1409,60 @@ Un Memory es elegible si y solo si:
 Razon: "este dia" requiere dia. Inventar un dia a partir de un ano seria mentir, y esta
 prohibido (§7.1). Un Memory `2024` no es "un dia de 2024".
 
-Esta regla hace que los videos de galeria y el audio importado —que hoy son siempre
-`unknown`— **no aparezcan nunca** en `Para volver a ver`. Eso es correcto y honesto. Se
-resuelve dando al usuario la correccion de fecha (§7.4).
+### 21.3.1 Resurfacing es EXACT-ONLY. No existe resurfacing mensual.
+
+Clausula de cierre, sin ambiguedad:
+
+```
+capture_precision = exact       -> ELEGIBLE  (si lifecycle=ACTIVE, !hidden, fecha pasada)
+capture_precision = month_year  -> NO ELEGIBLE
+capture_precision = year        -> NO ELEGIBLE
+capture_precision = unknown     -> NO ELEGIBLE
+```
+
+**NO existe** un grupo `Octubre 2023 — hace 3 años`.
+**NO existe** resurfacing por mes y ano en V1.
+**NO existe** "este mes de hace N años".
+**NO existe** un segundo motor de fechas junto al de `exact`.
+**NO se abre** un gap de resurfacing mensual. No es un olvido ni una ambiguedad: es una
+decision congelada.
+
+Un `month_year` es informacion real y suficiente para **agrupar en Timeline** y para
+**presentar** `oct 2023` (§7.5). No es suficiente para afirmar que algo paso "este dia".
+
+### 21.3.2 Una fecha parcial puede volverse elegible: solo si el usuario la completa
+
+La exclusividad de §21.3.1 no es una sentencia permanente. Hay **un unico** camino de
+vuelta, y no lo ejecuta HomeCloud:
+
+```
+Memory `month_year`, `year` o `unknown`
+  -> NO aparece en `Para volver a ver`                       (§21.3.1)
+    -> el usuario abre `Información del recuerdo`             (§8) o edita en intake (§6.3)
+      -> el usuario elige EXPLICITAMENTE una fecha exacta     (§7.3.1)
+        -> capture_precision = exact
+          -> la elegibilidad se evalua NORMALMENTE desde ese momento
+```
+
+Consecuencias congeladas:
+
+1. La evaluacion de elegibilidad es **una sola funcion** y se corre en cada lectura. No hay
+   estado cacheado de "ya era elegible" que una correccion de fecha tenga que invalidar.
+2. El mismo Memory corregido a `exact` **aparece** en `Para volver a ver` sin ninguna
+   accion adicional del usuario.
+3. Un Memory corregido a una precision **parcial** (`month_year`, `year`, `Sin fecha`)
+   **vuelve a quedar fuera**. La correccion puede ir en cualquier direccion y el motor no
+   asume nada.
+4. El cambio es de `capture_*` + `capture_precision` unicamente. No hay columna de
+   "resurfacing evaluated", ni tabla de historial, ni job de re-evaluacion.
+5. **No existe** camino automatico de vuelta. Ningun motor de dates, ninguna normalizacion,
+   ninguna migracion convierte una fecha parcial en exacta. Si un dia existiera, seria una
+   mentira de producto y un bug P0 de datos (§7.3.1).
+
+Esta regla hace que los videos de galeria y el audio importado —que son siempre
+`unknown`— **no aparezcan nunca** en `Para volver a ver` mientras el usuario no corrija la
+fecha. Eso es correcto y honesto. Se resuelve dando al usuario la correccion de fecha
+(§6.3 en intake, §8 despues), **nunca** con una heuristica.
 
 ### 21.4 Algoritmo de agrupacion (nivel producto)
 
@@ -1196,6 +1473,11 @@ Cada grupo muestra Memories **de un solo anio**.
 
 Si un mismo dia aparece en tres anios, hay **tres grupos**, no uno con tres anos. Esto
 mantiene la precision de "hace 3 anios" honesta.
+
+**La clave de agrupacion es `day` + `month`, nunca `month` + `year`.** La clave de grupo
+incluye siempre el dia, y por eso solo puede construirse sobreMemories `exact`. Un
+`month_year` no tiene dia con que agrupar, y por eso queda fuera antes de la agrupacion
+(§21.3.1). No existe una clave de agrupacion alternativa para precision parcial.
 
 ### 21.5 Acciones de resurfacing
 
@@ -1393,14 +1675,16 @@ Camera es **IN** y es una **fuente de intake**, no un modelo de contenido separa
 La salida de Camera entra **exactamente** en el mismo pipeline semantico que la importacion:
 
 ```
-Camera ─┐
-Import ─┼→ { artifact, capture, source }  →  BinaryMemoryDraft  →  review  →  submitBinary
-Audio ───┤
-Grabación┘
+Camera ───────────┐
+Fotos y videos ───┤
+Importar audio ───┼→ { artifact, capture, source }  →  BinaryMemoryDraft  →  review  →  submitBinary
+Grabar audio ─────┤
+                  ┘
 ```
 
 Un solo `submitBinary`. Una sola subida. Un solo review. **No hay un segundo modelo de
-producto para Camera.**
+producto para Camera.** Y `Importar audio` y `Grabar audio` **tampoco** tienen un segundo
+modelo entre si: convergen en el mismo `BinaryMemoryDraft` (§6.4).
 
 ### 25.2 Permisos
 
@@ -1454,6 +1738,7 @@ Se computan por rol del hogar, con override por hogar.
 | --- | --- |
 | Ver Memories, albums, tipos, papelera | `homecloud.view` |
 | Crear Memory (import, camera, audio, escrito) | `homecloud.contribute` |
+| **`Importar audio`** (item 3 del menu del `+`) | `homecloud.contribute` |
 | Grabar audio | `homecloud.contribute` |
 | **Mover a papelera** | `homecloud.contribute` |
 | **Restaurar** | `homecloud.contribute` |
@@ -1674,11 +1959,12 @@ Ver §24.1. Los dos vocabularios (job durable + proyeccion de UI) coexisten.
    idle
      │ abrir create
      ▼
-   (sheet: elegir modo)
-     │  ├─ camara   -> camera(permisos) -> capture -> review
-     │  ├─ galeria  -> picker(sin feather)  ─────────────> review
-     │  ├─ audio    -> picker / grabador ─────────────────> review
-     │  └─ escrito  ──────────────────────────────────────> formulario escrito
+   (sheet: 5 acciones planas de primer nivel, §4.1)
+     │  ├─ 1 Fotos y videos -> picker(sin feather)  ────────> review
+     │  ├─ 2 Capturar momento -> camera(permisos) -> capture ─> review
+     │  ├─ 3 Importar audio  -> picker de audio ───────────> review
+     │  ├─ 4 Grabar audio    -> grabador ──────────────────> review
+     │  └─ 5 Escribir un recuerdo ────────────────────────> formulario escrito
      ▼
    submitting
      │  ├─ exito   -> completed -> onComplete -> root
@@ -1711,8 +1997,14 @@ AppState fuera de `active` -> invalidar, detener, volver a `ready`.
         │                                    excluido para siempre
         │                                    (reversible solo por API, no hay UI de re-inclusion en V1)
         ├─ Mover a papelera -> TRASHED -> excluido
-        └─ Restaurar -> ACTIVE -> vuelve a ser elegible
+        ├─ Restaurar -> ACTIVE -> vuelve a ser elegible
+        └─ el usuario edita la fecha a `exact` (§7.3.1)
+                 -> el diagrama se vuelve a evaluar desde arriba en la siguiente lectura
 ```
+
+Un Memory que **nunca** fue `exact` (`month_year`, `year`, `unknown`) no tiene entrada a
+este diagrama: queda fuera desde el principio (§21.3.1). Editar su fecha a `exact` es lo
+unico que lo hace entrar. Ningun otro estado lo saca ni lo mete.
 
 ---
 
@@ -1762,8 +2054,12 @@ bloqueos y sin sorpresas:
 
 1. Entrar a Memories por primera vez con 0, 1 y N albums. Estados correctos, sin skeleton
    permanente.
-2. Crear un recuerdo desde cada modo: galeria, camara foto, camara video, audio importado,
-   audio grabado, recuerdo escrito.
+2. Crear un recuerdo desde cada modo: galeria, camara foto, camara video, **audio importado**,
+   **audio grabado**, recuerdo escrito. Los dos modos de audio se alcanzan como **acciones
+   de primer nivel distintas** del menu del `+`, sin submenu (§4.1.1).
+2b. Corregir la fecha de un audio importado de `Sin fecha` a una fecha exacta — en intake y
+   despues en `Informacion del recuerdo` — y verificar que a partir de ahi ya aparece en
+   `Para volver a ver` (§21.3.2).
 3. Ver la fecha derivada, **corregirla**, y verla persistida.
 4. Ver el recuerdo en Timeline con la fecha correcta.
 5. Crear un album desde el tile final del riel.
@@ -1808,7 +2104,7 @@ Solo capacidades que afectan una decision real de este documento.
 | Capacidad | Apple | Google | Samsung | Immich | Patron comun | Decision HomeCloud | Razon |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Create visible desde la galeria | si | si | si | si | siempre | **IN** | Una galeria sin ruta para agregar esta incompleta |
-| Menu de create con subniveles | no | no | no | no | menu plano | **menu plano, sin submenu** | Un submenu para una decision binaria cuesta mas de lo que aporta |
+| Menu de create con subniveles | no | no | no | no | menu plano | **menu plano de 5 acciones, sin submenu** (§4.1.1) | `Importar audio` y `Grabar audio` son intenciones distintas; un submenu `Audio >` para eso cuesta mas de lo que aporta |
 | Crear album desde el riel de albums | `Edit → +` | `+` en la pestana Albums | `+` en la lista | `Create album` | accion dedicada en la seccion de albums | **tile final del riel, sin `+ Nuevo` en el header** | El header action compite con el titulo; el tile final hace lo que el usuario espera y sobrevive con 0 albums |
 | Crear album desde una seleccion | si (`Add to Album → New Album`) | si (`+ → Add to → Create new`) | si (`+` en el mismo dialogo) | si (mismo dialog, tabs Albums/Create) | **si, en los cuatro** | **IN, mismo flujo logico** | Es el patron mas universal y el de menor friccion: no hacer reseleccionar |
 | Devolver al llamador tras crear album | vuelve al origen | vuelve al origen + notificacion con `View album` | vuelve al origen | el commit #8270 lo arreglo porque **perdia** el scroll | volver al origen | **volver al llamador, offset preservado** | El caso de Immich es evidencia de que este detalle se rompe si no se congela |
