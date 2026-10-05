@@ -372,6 +372,10 @@ const commands = {
       ['scripts/compiled-moa3-device-gesture/scripts/homecloud_moa3_device_gesture_fix_tests.js'],
     );
   },
+  'homecloud-hc2a-memories-viewer': () => {
+    runCommand('HomeCloud HC2-A memory viewer compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2a_test.json']);
+    return runCommand('HomeCloud HC2-A memory viewer foundation tests', 'node', ['scripts/compiled-hc2a/scripts/homecloud_hc2a_memories_viewer_tests.js']);
+  },
   'homecloud-1f-dto-leak': () => runCommand(
     'HomeCloud 1F DTO leak regression tests',
     'node',

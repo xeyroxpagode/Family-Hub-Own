@@ -87,6 +87,7 @@ export function MemorySelectableCard({
   disabled,
   albumScopeAction,
   onToggle,
+  onOpen,
   onLongPress,
   onDragArm,
   onDragMove,
@@ -111,6 +112,8 @@ export function MemorySelectableCard({
    */
   albumScopeAction?: MemoryAlbumScopeAction;
   onToggle: (contentId: string) => void;
+  /** Normal-mode destination; selection mode never opens a Viewer. */
+  onOpen?: (memory: HomeCloudMemoryListItem) => void;
   onLongPress: (contentId: string) => void;
   /** Called with the arming card so the owner can start a drag from it. */
   onDragArm: (contentId: string, isSelected: boolean) => void;
@@ -172,9 +175,10 @@ export function MemorySelectableCard({
 
   const handlePress = useCallback(() => {
     // An already-in-destination Memory stays visible and NOT toggleable.
-    if (!selecting || unselectable) return;
+    if (!selecting) { onOpen?.(memory); return; }
+    if (unselectable) return;
     onToggle(contentId);
-  }, [contentId, onToggle, selecting, unselectable]);
+  }, [contentId, memory, onOpen, onToggle, selecting, unselectable]);
 
   const handleLayout = useCallback(() => {
     onLayout?.();

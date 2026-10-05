@@ -21,6 +21,7 @@ import { AlbumsRail } from '../components/homecloud/AlbumsRail';
 import { AlbumActionsSheet, AlbumNameSheet, type AlbumEditorMode } from '../components/homecloud/AlbumSheets';
 import { MemoryCollectionAlbumTile, MemoryCollectionTile } from '../components/homecloud/MemoryCollectionTile';
 import { MemorySelectionHeader, type MemorySelectionSourceTab } from '../components/homecloud/MemorySelectionHeader';
+import { MemoryViewer, type MemoryViewerSource } from '../components/homecloud/MemoryViewer';
 import { MemoryTimelineRow, type MemoryTimelineCell, type MemoryTimelineRowEntry } from '../components/homecloud/MemoryTimelineRow';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
@@ -70,6 +71,7 @@ import {
   unregisterMemoryRow,
   type MemoryDragState,
   type MemoryEdgeTicker,
+  type MemoryGridPosition,
   type MemoryRowRegistry,
 } from '../services/homecloud/homecloudMemoryDrag';
 import {
@@ -221,6 +223,7 @@ export function HomeCloudMemoriesView() {
   const householdId = currentHousehold?.id ?? null;
 
   const [memories, setMemories] = useState<HomeCloudMemoryListItem[]>([]);
+  const [viewer, setViewer] = useState<{ source: MemoryViewerSource; activeContentId: string } | null>(null);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -309,6 +312,7 @@ export function HomeCloudMemoriesView() {
     setMemories([]);
     setNextOffset(null);
     setError(null);
+    setViewer(null);
   }, [householdId]);
 
   /**
@@ -629,6 +633,10 @@ export function HomeCloudMemoriesView() {
   collectionsMemoriesRef.current = collections.memories;
 
   const selecting = isMemorySelecting(selection);
+  const openViewer = useCallback((memory: HomeCloudMemoryListItem) => {
+    if (isMemorySelecting(selectionRef.current)) return;
+    setViewer({ source: 'library', activeContentId: memory.id });
+  }, []);
 
   // =========================================================================
   // MO-A3 — DRAG: refs only, never React state per pointer event
@@ -639,6 +647,7 @@ export function HomeCloudMemoriesView() {
   const rowRegistryRef = useRef<MemoryRowRegistry | null>(null);
   if (rowRegistryRef.current === null) rowRegistryRef.current = createMemoryRowRegistry();
   const fingerRef = useRef<{ x: number; y: number } | null>(null);
+  const gridPositionsRef = useRef<ReadonlyMap<string, MemoryGridPosition>>(new Map());
   const listRef = useRef<SectionList<TimelineRow, TimelineListSection> | null>(null);
   const rootScrollRef = useRef<ScrollView | null>(null);
   const viewportHeightRef = useRef(0);
@@ -726,13 +735,20 @@ export function HomeCloudMemoriesView() {
     if (!drag.active) return;
     fingerRef.current = { x, y };
     const hit = resolveMemoryAtPoint(memoryRowZones(rowRegistryRef.current as MemoryRowRegistry), x, y);
-    const crossed = hit === null ? [] : [hit.contentId];
-    const outcome = stepMemoryDrag(drag, crossed);
+    const outcome = stepMemoryDrag(drag, hit?.contentId ?? null, gridPositionsRef.current);
     dragRef.current = moveMemoryDragPointer(outcome.state, x, y);
-    if (outcome.step.kind === 'applied') {
+    if (outcome.step.kind === 'range') {
       const ids = outcome.step.contentIds;
       const mode = outcome.step.mode;
-      setSelection((previous) => toggleMemorySelectionMany(previous, ids, mode));
+      setSelection((previous) => {
+        const baseline = new Set(drag.baselineSelectedIds);
+        if (mode === 'select') {
+          for (const id of ids) if (!previous.excludedIds.has(id)) baseline.add(id);
+        } else {
+          for (const id of ids) baseline.delete(id);
+        }
+        return { ...previous, selectedIds: baseline };
+      });
     }
     edgeTickerRef.current?.update(y);
   }, []);
@@ -830,7 +846,12 @@ export function HomeCloudMemoriesView() {
     // The mode comes from the ORIGIN cell only: a drag that starts on an
     // unselected Memory selects everything it crosses, and one that starts on a
     // selected Memory deselects everything it crosses.
-    dragRef.current = beginMemoryDrag(armed, contentId, () => isSelected);
+    const current = selectionRef.current;
+    const baseline = new Set(current.selectedIds);
+    // A normal-mode long press enters selection asynchronously; its anchor is
+    // still part of the baseline for the range machine.
+    if (!isMemorySelecting(current)) baseline.add(contentId);
+    dragRef.current = beginMemoryDrag(armed, contentId, () => isSelected, gridPositionsRef.current, baseline);
   }, []);
 
   const handleDragMove = useCallback((pageX: number, pageY: number) => {
@@ -1146,6 +1167,22 @@ export function HomeCloudMemoriesView() {
     return map;
   }, [gridSections, selecting, selection]);
 
+  // Logical coordinates intentionally derive from the exact rendered rows,
+  // across section boundaries. Mounted measurements only resolve pointer hits;
+  // this mapping gives a rectangular sweep stable virtualized semantics.
+  const gridPositions = useMemo<ReadonlyMap<string, MemoryGridPosition>>(() => {
+    const next = new Map<string, MemoryGridPosition>();
+    let visualRowOrdinal = 0;
+    for (const section of gridSections) {
+      for (const row of section.data) {
+        row.items.forEach((memory, column) => next.set(memory.id, { visualRowOrdinal, column }));
+        visualRowOrdinal += 1;
+      }
+    }
+    return next;
+  }, [gridSections]);
+  gridPositionsRef.current = gridPositions;
+
   // =========================================================================
   // MO-A3 — scroll, list ownership and edge auto-scroll
   // =========================================================================
@@ -1445,6 +1482,7 @@ export function HomeCloudMemoriesView() {
           measureRows={selecting}
           disabled={selectionBusy}
           onToggle={handleToggle}
+          onOpen={openViewer}
           onLongPress={handleLongPress}
           onDragArm={handleDragArm}
           onDragMove={handleDragMove}
@@ -1454,6 +1492,8 @@ export function HomeCloudMemoriesView() {
         />
       )}
       ListFooterComponent={gridFooter}
+      onEndReached={() => { if (!selecting) void loadMore(); }}
+      onEndReachedThreshold={0.6}
     />
   );
 
@@ -1644,8 +1684,21 @@ export function HomeCloudMemoriesView() {
             onLongPressMemory={(contentId) => {
               if (openAlbumId !== null) enterRemoveFromAlbum(openAlbumId, contentId);
             }}
+            onOpenMemory={(memory) => setViewer({ source: 'album', activeContentId: memory.id })}
           />
         </View>
+      ) : null}
+
+      {viewer ? (
+        <MemoryViewer
+          memories={viewer.source === 'album' ? detail.memories : viewer.source === 'collection' ? collections.memories : memories}
+          activeContentId={viewer.activeContentId}
+          accessToken={token}
+          source={viewer.source}
+          onClose={() => setViewer(null)}
+          onActiveChange={(activeContentId) => setViewer((current) => current ? { ...current, activeContentId } : current)}
+          onNearEnd={() => void loadMore()}
+        />
       ) : null}
 
       <AlbumNameSheet

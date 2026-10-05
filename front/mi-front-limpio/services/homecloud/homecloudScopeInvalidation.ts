@@ -23,6 +23,7 @@
 
 import { plannerCache } from '../planner/plannerCache';
 import { clearMemoryPreviewCache } from './homecloudMemoryPreview';
+import { clearMemoryOriginalCache } from './homecloudMemoryOriginal';
 import { invalidateHomeCloudHousehold } from './homecloudReadService';
 
 export type HomeCloudScopeInvalidationResult = {
@@ -74,6 +75,7 @@ export function invalidateHomeCloudScope(
   // leaving it cached would be a cross-household leak even when no read key
   // happened to exist for the previous household.
   clearMemoryPreviewCache();
+  clearMemoryOriginalCache();
 
   return { reads, plannerScoped, previewsCleared: true };
 }

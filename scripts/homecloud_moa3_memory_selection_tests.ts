@@ -52,12 +52,14 @@ import {
   memoryRowZones,
   moveMemoryDragPointer,
   registerMemoryRow,
+  resolveMemoryRectangleIds,
   resolveMemoryAtPoint,
   resolveMemoryIdsAtPoint,
   solveMemoryEdgeAutoScroll,
   stepMemoryDrag,
   unregisterMemoryRow,
   type MemoryDragState,
+  type MemoryGridPosition,
   type MemoryRowHitZone,
 } from '../front/mi-front-limpio/services/homecloud/homecloudMemoryDrag';
 import {
@@ -331,73 +333,42 @@ section('2. Identity, already-member and cross-source selection');
 }
 
 // ===========================================================================
-section('3. Drag state machine: select, deselect, visited-once, reversal');
+section('3. Drag state machine: rectangular baseline range and reversal');
 // ===========================================================================
 
 {
-  const neverSelected = () => false;
-  const alwaysSelected = () => true;
-
-  record(
-    MEMORY_DRAG_IDLE.armed === false && MEMORY_DRAG_IDLE.active === false && MEMORY_DRAG_IDLE.visitedIds.size === 0,
-    'the drag starts disarmed, inactive and with no visited Memory',
-  );
+  const grid = new Map<string, MemoryGridPosition>([
+    ['a', { visualRowOrdinal: 0, column: 0 }], ['b', { visualRowOrdinal: 0, column: 1 }], ['c', { visualRowOrdinal: 0, column: 2 }],
+    ['d', { visualRowOrdinal: 1, column: 0 }], ['e', { visualRowOrdinal: 1, column: 1 }], ['f', { visualRowOrdinal: 1, column: 2 }],
+    ['g', { visualRowOrdinal: 2, column: 0 }], ['h', { visualRowOrdinal: 2, column: 1 }], ['i', { visualRowOrdinal: 2, column: 2 }],
+  ]);
+  record(MEMORY_DRAG_IDLE.armed === false && MEMORY_DRAG_IDLE.active === false && MEMORY_DRAG_IDLE.currentRangeIds.size === 0, 'the drag starts disarmed with no active rectangle');
 
   // Arming happens ONLY on the long press and does not start the drag.
   const armed = armMemoryDrag(MEMORY_DRAG_IDLE);
   record(armed.armed === true && armed.active === false, 'the long press arms the drag without starting it');
-  record(beginMemoryDrag(MEMORY_DRAG_IDLE, 'm-1', neverSelected) === MEMORY_DRAG_IDLE, 'a drag cannot begin while disarmed');
-
-  // SELECT drag: starts on an UNSELECTED Memory.
-  const selectDrag = beginMemoryDrag(armed, 'm-1', neverSelected);
-  record(selectDrag.mode === 'select' && selectDrag.active === true, 'a drag starting on an unselected Memory SELECTS');
-  const first = stepMemoryDrag(selectDrag, ['m-1']);
+  record(beginMemoryDrag(MEMORY_DRAG_IDLE, 'a', () => false, grid) === MEMORY_DRAG_IDLE, 'a drag cannot begin while disarmed');
+  const selectDrag = beginMemoryDrag(armed, 'a', () => false, grid, new Set(['z']));
+  const wide = stepMemoryDrag(selectDrag, 'h', grid);
+  record(wide.step.kind === 'range' && wide.step.contentIds.slice().sort().join() === 'a,b,d,e,g,h', 'A to H uses a rectangular range');
+  const shrink = stepMemoryDrag(wide.state, 'e', grid);
+  record(shrink.step.kind === 'range' && shrink.step.contentIds.slice().sort().join() === 'a,b,d,e', 'moving backward shrinks from baseline, not paintbrush history');
+  record(resolveMemoryRectangleIds(grid.get('b')!, grid.get('h')!, grid).join() === 'b,e,h', 'section rows preserve geometric columns');
+  const deselectDrag = beginMemoryDrag(armed, 'a', () => true, grid, new Set(['a', 'b', 'd', 'e', 'z']));
+  record(deselectDrag.mode === 'deselect' && deselectDrag.baselineSelectedIds.has('z'), 'deselect captures its immutable baseline');
+  const ended = endMemoryDrag(wide.state);
   record(
-    first.step.kind === 'applied' && first.step.contentIds.join() === 'm-1' && first.step.mode === 'select',
-    'the origin cell is applied as a select',
+    ended.armed === false && ended.active === false && ended.mode === null && ended.currentRangeIds.size === 0,
+    'release / terminate / cancel clears the mode, rectangle and pointer',
   );
-  const second = stepMemoryDrag(first.state, ['m-2', 'm-3']);
+  const restarted = beginMemoryDrag(armMemoryDrag(ended), 'a', () => false, grid);
   record(
-    second.step.kind === 'applied' && second.step.contentIds.join() === 'm-2,m-3',
-    'every newly crossed Memory is applied, batched into ONE step',
-  );
-
-  // VISITED ONCE, including a REVERSAL over an already visited cell.
-  const reversal = stepMemoryDrag(second.state, ['m-2']);
-  record(reversal.step.kind === 'idle' && reversal.state === second.state, 'reversing over a visited Memory is a NO-OP');
-  const backOverOrigin = stepMemoryDrag(second.state, ['m-1']);
-  record(
-    backOverOrigin.step.kind === 'idle',
-    'a diagonal drag back over the ORIGIN cell does not toggle it twice',
-  );
-  const emptyMove = stepMemoryDrag(second.state, []);
-  record(emptyMove.step.kind === 'idle' && emptyMove.state === second.state, 'an empty move produces no state write at all');
-
-  // DESELECT drag: starts on a SELECTED Memory, and the mode does NOT flip per cell.
-  const deselectDrag = beginMemoryDrag(armed, 'm-1', alwaysSelected);
-  record(deselectDrag.mode === 'deselect', 'a drag starting on a selected Memory DESELECTS');
-  const deselectStep = stepMemoryDrag(deselectDrag, ['m-1', 'm-2']);
-  record(
-    deselectStep.step.kind === 'applied'
-      && deselectStep.step.mode === 'deselect'
-      && deselectStep.step.contentIds.join() === 'm-1,m-2',
-    'a deselect drag applies deselect to every cell it crosses, including unselected ones',
-  );
-
-  // A NEW GESTURE resets the visited set: the same Memory may change again.
-  const ended = endMemoryDrag(second.state);
-  record(
-    ended.armed === false && ended.active === false && ended.mode === null && ended.visitedIds.size === 0,
-    'release / terminate / cancel clears the mode, the visited set and the pointer',
-  );
-  const restarted = beginMemoryDrag(armMemoryDrag(ended), 'm-1', neverSelected);
-  record(
-    restarted.visitedIds.size === 0 && stepMemoryDrag(restarted, ['m-1']).step.kind === 'applied',
-    'a NEW gesture starts with a fresh visited set, so the same Memory can change again',
+    restarted.currentRangeIds.size === 0 && stepMemoryDrag(restarted, 'a', grid).step.kind === 'range',
+    'a NEW gesture starts with a fresh rectangle',
   );
 
   // A step while NOT dragging is inert.
-  record(stepMemoryDrag(MEMORY_DRAG_IDLE, ['m-1']).step.kind === 'idle', 'a step outside a drag is inert');
+  record(stepMemoryDrag(MEMORY_DRAG_IDLE, 'a', grid).step.kind === 'idle', 'a step outside a drag is inert');
   const moved = moveMemoryDragPointer(restarted, 10, 20);
   record(moved.fingerX === 10 && moved.fingerY === 20, 'the drag keeps the current finger position');
   record(
@@ -1102,12 +1073,12 @@ record(
 );
 
 // ===========================================================================
-section('9. Product boundaries: no Viewer, no delete, no route, no smart collections');
+section('9. Product boundaries: local Viewer, no delete, no route, no smart collections');
 // ===========================================================================
 
 record(
-  !/Viewer|viewer/i.test(SCREEN_CODE + SELECTABLE_CODE + ROW_CODE + HEADER_CODE + TILE_CODE + DETAIL),
-  'no Viewer exists anywhere in the MO-A3 surface',
+  /MemoryViewer/.test(SCREEN_CODE) && !/navigate\(['"]HomeCloud/.test(SCREEN_CODE),
+  'Viewer remains local overlay state and introduces no navigation route',
 );
 /**
  * EVERY method the selection surface calls on a navigation object.
@@ -1236,8 +1207,8 @@ record(
   'the long press is the ONLY place the drag is armed',
 );
 record(
-  SELECTABLE_CODE.includes('onPress={handlePress}') && SELECTABLE_CODE.includes('if (!selecting || unselectable) return;'),
-  'a tap toggles while selecting and is inert otherwise (no Viewer is invented)',
+  SELECTABLE_CODE.includes('onPress={handlePress}') && SELECTABLE_CODE.includes('if (!selecting)') && SELECTABLE_CODE.includes('onOpen?.(memory)'),
+  'a tap toggles while selecting and opens Viewer only in normal mode',
 );
 record(
   SELECTABLE_CODE.includes('accessibilityState={{ selected, disabled: disabled === true }}'),

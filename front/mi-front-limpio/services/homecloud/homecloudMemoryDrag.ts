@@ -223,12 +223,19 @@ export function clearMemoryRowRegistry(registry: MemoryRowRegistry): void {
   registry.clear();
 }
 
+export type MemoryGridPosition = { readonly visualRowOrdinal: number; readonly column: number };
+
 export type MemoryDragState = {
   /** False until the long press arms the drag. */
   readonly armed: boolean;
   readonly active: boolean;
   readonly mode: MemoryDragMode | null;
-  readonly visitedIds: ReadonlySet<string>;
+  /** Immutable truth at the instant the drag starts. Never mutate cumulatively. */
+  readonly baselineSelectedIds: ReadonlySet<string>;
+  readonly anchorContentId: string | null;
+  readonly anchorPosition: MemoryGridPosition | null;
+  /** The CURRENT rectangle, recalculated on every pointer move. */
+  readonly currentRangeIds: ReadonlySet<string>;
   /** The last position the finger was seen at, kept for re-hit-testing. */
   readonly fingerX: number | null;
   readonly fingerY: number | null;
@@ -238,7 +245,10 @@ export const MEMORY_DRAG_IDLE: MemoryDragState = {
   armed: false,
   active: false,
   mode: null,
-  visitedIds: new Set<string>(),
+  baselineSelectedIds: new Set<string>(),
+  anchorContentId: null,
+  anchorPosition: null,
+  currentRangeIds: new Set<string>(),
   fingerX: null,
   fingerY: null,
 };
@@ -268,15 +278,20 @@ export function beginMemoryDrag(
   state: MemoryDragState,
   startContentId: string,
   isSelected: (contentId: string) => boolean,
+  gridPositions: ReadonlyMap<string, MemoryGridPosition> = new Map(),
+  baselineSelectedIds: ReadonlySet<string> = new Set(),
 ): MemoryDragState {
   if (!state.armed || typeof startContentId !== 'string' || startContentId.length === 0) return state;
   const mode: MemoryDragMode = isSelected(startContentId) ? 'deselect' : 'select';
-  // A fresh gesture ALWAYS starts with a fresh visited set.
+  const anchorPosition = gridPositions.get(startContentId) ?? null;
   return {
     armed: true,
     active: true,
     mode,
-    visitedIds: new Set<string>(),
+    baselineSelectedIds: new Set(baselineSelectedIds),
+    anchorContentId: startContentId,
+    anchorPosition,
+    currentRangeIds: new Set<string>(),
     fingerX: null,
     fingerY: null,
   };
@@ -284,7 +299,29 @@ export function beginMemoryDrag(
 
 export type MemoryDragStep =
   | { readonly kind: 'idle' }
-  | { readonly kind: 'applied'; readonly mode: MemoryDragMode; readonly contentIds: readonly string[] };
+  | { readonly kind: 'range'; readonly mode: MemoryDragMode; readonly contentIds: readonly string[] };
+
+/**
+ * Resolve the Windows-like rectangle in logical grid coordinates. The registry
+ * identifies the cell beneath a finger; this resolver deliberately operates on
+ * ALL loaded rows so virtualization cannot turn the range into a paint trail.
+ */
+export function resolveMemoryRectangleIds(
+  anchor: MemoryGridPosition,
+  current: MemoryGridPosition,
+  gridPositions: ReadonlyMap<string, MemoryGridPosition>,
+): readonly string[] {
+  const minRow = Math.min(anchor.visualRowOrdinal, current.visualRowOrdinal);
+  const maxRow = Math.max(anchor.visualRowOrdinal, current.visualRowOrdinal);
+  const minColumn = Math.min(anchor.column, current.column);
+  const maxColumn = Math.max(anchor.column, current.column);
+  const ids: string[] = [];
+  gridPositions.forEach((position, contentId) => {
+    if (position.visualRowOrdinal >= minRow && position.visualRowOrdinal <= maxRow
+      && position.column >= minColumn && position.column <= maxColumn) ids.push(contentId);
+  });
+  return ids;
+}
 
 /**
  * ONE MOVE.
@@ -295,23 +332,21 @@ export type MemoryDragStep =
  */
 export function stepMemoryDrag(
   state: MemoryDragState,
-  crossedContentIds: Iterable<string>,
+  currentContentId: string | null,
+  gridPositions: ReadonlyMap<string, MemoryGridPosition> = new Map(),
 ): { readonly state: MemoryDragState; readonly step: MemoryDragStep } {
   if (!state.active || state.mode === null) return { state, step: { kind: 'idle' } };
-  const visitedIds = new Set(state.visitedIds);
-  const fresh: string[] = [];
-  for (const contentId of crossedContentIds) {
-    if (visitedIds.has(contentId)) continue;
-    visitedIds.add(contentId);
-    fresh.push(contentId);
-  }
-  if (fresh.length === 0) {
-    // No state write for an empty move: the visited set did not change.
-    return { state, step: { kind: 'idle' } };
-  }
+  if (currentContentId === null || state.anchorPosition === null) return { state, step: { kind: 'idle' } };
+  const currentPosition = gridPositions.get(currentContentId);
+  if (!currentPosition) return { state, step: { kind: 'idle' } };
+  const contentIds = resolveMemoryRectangleIds(state.anchorPosition, currentPosition, gridPositions);
+  const currentRangeIds = new Set(contentIds);
+  let identical = currentRangeIds.size === state.currentRangeIds.size;
+  if (identical) for (const id of currentRangeIds) if (!state.currentRangeIds.has(id)) { identical = false; break; }
+  if (identical) return { state, step: { kind: 'idle' } };
   return {
-    state: { ...state, visitedIds },
-    step: { kind: 'applied', mode: state.mode, contentIds: fresh },
+    state: { ...state, currentRangeIds },
+    step: { kind: 'range', mode: state.mode, contentIds },
   };
 }
 
@@ -338,7 +373,10 @@ export function endMemoryDrag(state: MemoryDragState): MemoryDragState {
     armed: false,
     active: false,
     mode: null,
-    visitedIds: new Set<string>(),
+    baselineSelectedIds: new Set<string>(),
+    anchorContentId: null,
+    anchorPosition: null,
+    currentRangeIds: new Set<string>(),
     fingerX: null,
     fingerY: null,
   };

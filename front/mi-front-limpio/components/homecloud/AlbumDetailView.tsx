@@ -65,6 +65,7 @@ export function AlbumDetailView({
   onAddMemories,
   onRemoveMemory,
   onLongPressMemory,
+  onOpenMemory,
 }: {
   album: HomeCloudAlbum | null;
   state: AlbumDetailState;
@@ -85,6 +86,7 @@ export function AlbumDetailView({
   onRemoveMemory: (memory: HomeCloudMemoryListItem) => void;
   /** MO-A3 entry D: a long press starts a bulk removal from THIS Album. */
   onLongPressMemory: (contentId: string) => void;
+  onOpenMemory: (memory: HomeCloudMemoryListItem) => void;
 }) {
   // The Album read used `order: 'album'`, so the grouper is asked for the
   // `album` placement: unknown FIRST, year-only FIRST within its year. The
@@ -197,6 +199,7 @@ export function AlbumDetailView({
                       : undefined
                   }
                   onToggle={noop}
+                  onOpen={onOpenMemory}
                   onLongPress={onLongPressMemory}
                   onDragArm={noop}
                   onDragMove={noop}

@@ -83,10 +83,6 @@ export function AlbumsRail({
   }
 
   if (albums.length === 0) {
-    // Without organize there is no action to offer, so an Albums area would be
-    // a dead end. It stays hidden rather than pretending this home has no
-    // Albums: the server already answered, this member simply may not organize.
-    if (!canOrganize) return null;
     return (
       <View style={styles.container}>
         <Header canOrganize={canOrganize} onCreateAlbum={onCreateAlbum} />
@@ -98,7 +94,7 @@ export function AlbumsRail({
           <AppText variant="caption" tone="secondary">
             {ALBUMS_EMPTY_BODY}
           </AppText>
-          <AppButton title="Nuevo álbum" size="sm" variant="secondary" onPress={onCreateAlbum} />
+          {canOrganize ? <AppButton title="Crear álbum" size="sm" variant="secondary" onPress={onCreateAlbum} /> : null}
         </View>
       </View>
     );

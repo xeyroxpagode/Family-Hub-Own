@@ -759,7 +759,7 @@ record(
   'an already-included Memory stays VISIBLE and says so instead of being hidden',
 );
 record(
-  /if \(!selecting \|\| unselectable\) return;/.test(
+  /if \(!selecting\).*onOpen\?\.\(memory\).*if \(unselectable\) return;/s.test(
     readCode('front/mi-front-limpio/components/homecloud/MemorySelectableCard.tsx'),
   ),
   'an already-included Memory cannot be toggled',
@@ -904,11 +904,13 @@ record(
   'a failed rail read is an ErrorState with a retry, never an empty household',
 );
 record(
-  RAIL_CODE.includes('if (error !== null && albums.length === 0)') && RAIL_CODE.includes('if (!canOrganize) return null;'),
-  'the zero-Album state only advertises create for an organizing member',
+  RAIL_CODE.includes('if (error !== null && albums.length === 0)')
+  && !RAIL_CODE.includes('if (!canOrganize) return null;')
+  && RAIL_CODE.includes("canOrganize ? <AppButton title=\"Crear álbum\""),
+  'the zero-Album state stays visible to every member and only organizers see create',
 );
 record(
-  RAIL.includes('Nuevo álbum') && RAIL_CODE.includes('{canOrganize ? ('),
+  RAIL.includes('Crear álbum') && RAIL_CODE.includes('{canOrganize ? ('),
   'the create affordance (rail + and empty state) is organize-only',
 );
 record(

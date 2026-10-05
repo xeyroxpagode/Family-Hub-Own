@@ -51,6 +51,7 @@ export interface MemoryTimelineRowProps {
   measureRows: boolean;
   disabled?: boolean;
   onToggle: (contentId: string) => void;
+  onOpen?: (memory: HomeCloudMemoryListItem) => void;
   onLongPress: (contentId: string) => void;
   onDragArm: (contentId: string, isSelected: boolean) => void;
   onDragMove: (pageX: number, pageY: number) => void;
@@ -86,6 +87,7 @@ function MemoryTimelineRowImpl({
   measureRows,
   disabled,
   onToggle,
+  onOpen,
   onLongPress,
   onDragArm,
   onDragMove,
@@ -179,6 +181,7 @@ function MemoryTimelineRowImpl({
             unselectable={cell?.unselectable ?? false}
             disabled={disabled}
             onToggle={onToggle}
+            onOpen={onOpen}
             onLongPress={onLongPress}
             onDragArm={onDragArm}
             onDragMove={onDragMove}
@@ -216,6 +219,7 @@ function areRowPropsEqual(previous: MemoryTimelineRowProps, next: MemoryTimeline
   if (previous.columns !== next.columns) return false;
   if (previous.measureRows !== next.measureRows) return false;
   if (previous.items !== next.items) return false;
+  if (previous.onOpen !== next.onOpen) return false;
   if (previous.cells.length !== next.cells.length) return false;
   for (let index = 0; index < previous.cells.length; index += 1) {
     const before = previous.cells[index];

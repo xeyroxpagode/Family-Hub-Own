@@ -50,7 +50,7 @@ export const ALBUM_EMPTY_TITLE = 'Este álbum todavía no tiene recuerdos';
 export const ALBUMS_EMPTY_TITLE = 'Todavía no hay álbumes';
 /** Frozen copy for the honest zero-Album state of a household. */
 export const ALBUMS_EMPTY_BODY =
-  'Un álbum agrupa recuerdos que quieren conservar juntos. Los recuerdos no cambian de lugar.';
+  'Creá uno para empezar a organizar tus recuerdos.';
 
 function readDomainCode(error: unknown): string | null {
   if (typeof error !== 'object' || error === null) return null;

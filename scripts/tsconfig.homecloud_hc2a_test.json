@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": { "module": "CommonJS", "moduleResolution": "Bundler", "outDir": "./compiled-hc2a" },
+  "include": [
+    "../scripts/homecloud_hc2a_memories_viewer_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryDrag.ts"
+  ],
+  "exclude": ["node_modules"]
+}
