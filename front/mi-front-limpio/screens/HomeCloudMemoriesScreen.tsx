@@ -21,7 +21,7 @@ import { AlbumsRail } from '../components/homecloud/AlbumsRail';
 import { AlbumActionsSheet, AlbumNameSheet, type AlbumEditorMode } from '../components/homecloud/AlbumSheets';
 import { MemoryCollectionAlbumTile, MemoryCollectionTile } from '../components/homecloud/MemoryCollectionTile';
 import { MemorySelectionHeader, type MemorySelectionSourceTab } from '../components/homecloud/MemorySelectionHeader';
-import { MemoryViewer, type MemoryViewerSource } from '../components/homecloud/MemoryViewer';
+import { MemoryViewer } from '../components/homecloud/MemoryViewer';
 import { MemoryTimelineRow, type MemoryTimelineCell, type MemoryTimelineRowEntry } from '../components/homecloud/MemoryTimelineRow';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
@@ -74,6 +74,13 @@ import {
   type MemoryEdgeTicker,
   type MemoryRowRegistry,
 } from '../services/homecloud/homecloudMemoryDrag';
+import {
+  albumViewerSession,
+  collectionViewerSession,
+  libraryViewerSession,
+  memoryViewerDataset,
+  type MemoryViewerSession,
+} from '../services/homecloud/homecloudMemoryViewerSource';
 import {
   createMemoryExitGestureLock,
   scrollMemoryListToOffset,
@@ -223,7 +230,7 @@ export function HomeCloudMemoriesView() {
   const householdId = currentHousehold?.id ?? null;
 
   const [memories, setMemories] = useState<HomeCloudMemoryListItem[]>([]);
-  const [viewer, setViewer] = useState<{ source: MemoryViewerSource; activeContentId: string } | null>(null);
+  const [viewer, setViewer] = useState<MemoryViewerSession | null>(null);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -633,10 +640,10 @@ export function HomeCloudMemoriesView() {
   collectionsMemoriesRef.current = collections.memories;
 
   const selecting = isMemorySelecting(selection);
-  const openViewer = useCallback((memory: HomeCloudMemoryListItem) => {
+  const openLibraryViewer = useCallback((memory: HomeCloudMemoryListItem) => {
     if (isMemorySelecting(selectionRef.current)) return;
-    setViewer({ source: 'library', activeContentId: memory.id });
-  }, []);
+    setViewer(libraryViewerSession(memories, memory.id));
+  }, [memories]);
 
   // =========================================================================
   // MO-A3 — DRAG: refs only, never React state per pointer event
@@ -1097,6 +1104,12 @@ export function HomeCloudMemoriesView() {
    */
   const gridGroupingMode: TimelineGroupingMode = activeCollection?.kind === 'album' ? 'album' : 'timeline';
 
+  const viewerMemories = viewer === null ? [] : memoryViewerDataset(viewer.source, {
+    library: memories,
+    album: { sourceId: openAlbumId, memories: detail.memories },
+    collection: { sourceId: collections.collectionId, memories: collections.memories },
+  });
+
   /**
    * The Timeline grouping, with NO mode argument: the global Timeline keeps the
    * pre-MO-A3 placement exactly, and this memo is what the normal surface renders.
@@ -1475,7 +1488,20 @@ export function HomeCloudMemoriesView() {
           measureRows={selecting}
           disabled={selectionBusy}
           onToggle={handleToggle}
-          onOpen={openViewer}
+          onOpen={activeCollection === null
+            ? openLibraryViewer
+            : (memory) => setViewer(collectionViewerSession(
+                activeCollection,
+                memoryCollectionId(activeCollection),
+                memoryCollectionTitle(
+                  activeCollection,
+                  activeCollection.kind === 'album'
+                    ? rail.albums.find((album) => album.id === activeCollection.albumId)?.name ?? null
+                    : null,
+                ),
+                collections.memories,
+                memory.id,
+              ))}
           onLongPress={handleLongPress}
           onDragArm={handleDragArm}
           onDragMove={handleDragMove}
@@ -1677,20 +1703,29 @@ export function HomeCloudMemoriesView() {
             onLongPressMemory={(contentId) => {
               if (openAlbumId !== null) enterRemoveFromAlbum(openAlbumId, contentId);
             }}
-            onOpenMemory={(memory) => setViewer({ source: 'album', activeContentId: memory.id })}
+            onOpenMemory={(memory) => setViewer(albumViewerSession(
+              openAlbumId,
+              openAlbumRecord?.name ?? null,
+              detail.memories,
+              memory.id,
+            ))}
           />
         </View>
       ) : null}
 
       {viewer ? (
         <MemoryViewer
-          memories={viewer.source === 'album' ? detail.memories : viewer.source === 'collection' ? collections.memories : memories}
+          memories={viewerMemories}
           activeContentId={viewer.activeContentId}
           accessToken={token}
           source={viewer.source}
           onClose={() => setViewer(null)}
           onActiveChange={(activeContentId) => setViewer((current) => current ? { ...current, activeContentId } : current)}
-          onNearEnd={() => void loadMore()}
+          onNearEnd={() => {
+            if (viewer.source.kind === 'library') void loadMore();
+            else if (viewer.source.kind === 'album') loadMoreDetail();
+            else void collectionsControllerRef.current!.loadMore();
+          }}
         />
       ) : null}
 

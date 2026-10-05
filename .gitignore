@@ -22,6 +22,7 @@ supabase/snippets/
 /scripts/compiled-moa3client/
 /scripts/compiled-moa3-device-gesture/
 /scripts/compiled-hc2a/
+/scripts/compiled-hc2b/
 /scripts/scripts/
 /.env
 /.env.local

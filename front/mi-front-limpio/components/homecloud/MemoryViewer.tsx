@@ -7,8 +7,7 @@ import type { HomeCloudMemoryListItem } from '../../services/homecloud/homecloud
 import { memoryPrimaryText, memorySemanticLabel } from '../../services/homecloud/homecloudMemoriesTimeline';
 import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
 import { getMemoryOriginalUrl } from '../../services/homecloud/homecloudMemoryOriginal';
-
-export type MemoryViewerSource = 'library' | 'album' | 'collection';
+import type { MemoryViewerSource } from '../../services/homecloud/homecloudMemoryViewerSource';
 
 export function MemoryViewer({ memories, activeContentId, accessToken, source, onClose, onActiveChange, onNearEnd }: {
   memories: readonly HomeCloudMemoryListItem[]; activeContentId: string; accessToken: string | null; source: MemoryViewerSource;
@@ -27,7 +26,7 @@ export function MemoryViewer({ memories, activeContentId, accessToken, source, o
       onMomentumScrollEnd={(event) => { const index = Math.round(event.nativeEvent.contentOffset.x / width); const item = memories[index]; if (item) { onActiveChange(item.id); if (index >= memories.length - 3) onNearEnd(); } }}
       renderItem={({ item }) => <ViewerPage memory={item} accessToken={accessToken} width={width} onTap={() => setChrome((value) => !value)} />}
     />
-    {chrome ? <View style={styles.bottom}><AppText tone="inverse" variant="caption">{source === 'album' ? 'Álbum' : 'Recuerdos'}</AppText></View> : null}
+    {chrome ? <View style={styles.bottom}><AppText tone="inverse" variant="caption">{source.label}</AppText></View> : null}
   </View>;
 }
 

@@ -376,6 +376,10 @@ const commands = {
     runCommand('HomeCloud HC2-A memory viewer compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2a_test.json']);
     return runCommand('HomeCloud HC2-A memory viewer foundation tests', 'node', ['scripts/compiled-hc2a/scripts/homecloud_hc2a_memories_viewer_tests.js']);
   },
+  'homecloud-hc2b-media-viewer-contract': () => {
+    runCommand('HomeCloud HC2-B Slice 0 compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2b_test.json']);
+    return runCommand('HomeCloud HC2-B Slice 0 tests', 'node', ['scripts/compiled-hc2b/scripts/homecloud_hc2b_media_viewer_tests.js']);
+  },
   'homecloud-1f-dto-leak': () => runCommand(
     'HomeCloud 1F DTO leak regression tests',
     'node',
@@ -956,6 +960,7 @@ const commands = {
 
 const suites = {
   typecheck: ['frontend-typecheck', 'test-typecheck'],
+  'homecloud-hc2b-media-viewer': ['homecloud-hc2b-media-viewer-contract'],
   lint: ['backend-syntax', 'backend-eslint', 'frontend-lint'],
   backend: ['testing-core', 'core-backend'],
   frontend: ['compile-frontend-tests', 'core-frontend', 'g0.3'],
