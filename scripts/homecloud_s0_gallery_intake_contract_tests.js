@@ -163,7 +163,7 @@ record(service.includes("memoryAttemptTrace(attempt, 'job_created'"), 'job_creat
   // source-agnostic (no source/kind/mime branch below proves that) and must
   // still refuse when there is no draft or a submit is already active.
   record(
-    /if \(!binaryDraft \|\| active \|\| !draftKey \|\| acceptedDraftRef\.current === draftKey\) return;/.test(submitBody),
+    /if \(!binaryDraft \|\| active \|\| !draftKey \|\| acceptedDraftRef\.current === draftKey \|\| !acceptanceLifecycleRef\.current\.begin\(draftKey\)\)/.test(submitBody),
     'the submit guard refuses no draft, active submit and an already-accepted draft',
   );
   record(

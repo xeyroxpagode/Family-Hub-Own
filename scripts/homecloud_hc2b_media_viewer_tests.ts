@@ -11,6 +11,7 @@ import {
   memoryViewerDataset,
 } from '../front/mi-front-limpio/services/homecloud/homecloudMemoryViewerSource';
 import type { HomeCloudMemoryKind, HomeCloudMemoryListItem } from '../front/mi-front-limpio/services/homecloud/homecloudTypes';
+import { MemoryAcceptanceLifecycle, MemoryPickerLifecycle } from '../front/mi-front-limpio/services/homecloud/homecloudMemoryIntakeLifecycle';
 
 let failed = 0;
 function check(value: boolean, label: string) {
@@ -62,5 +63,33 @@ const screen = fs.readFileSync(path.join(root, 'front/mi-front-limpio/screens/Ho
 const viewer = fs.readFileSync(path.join(root, 'front/mi-front-limpio/components/homecloud/MemoryViewer.tsx'), 'utf8');
 check(screen.includes('libraryViewerSession') && screen.includes('albumViewerSession') && screen.includes('collectionViewerSession'), 'each caller supplies explicit Viewer source identity');
 check(viewer.includes('{source.label}'), 'Viewer chrome renders the source naming authority label');
+
+const lifecycle = new MemoryPickerLifecycle();
+const oldAttempt = lifecycle.begin('gallery', 100)!;
+check(lifecycle.begin('audio-import', 101) === null, 'D6 rapid double tap opens only one picker');
+lifecycle.invalidate();
+const currentAttempt = lifecycle.begin('audio-import', 110)!;
+check(lifecycle.settle(oldAttempt, 120).kind === 'stale' && lifecycle.active()?.attempt === currentAttempt.attempt, 'D6 old settle cannot corrupt a newer attempt');
+check(lifecycle.settle(currentAttempt, 130).kind === 'current' && !lifecycle.isBusy(), 'D6 success/cancel/error settle returns to idle');
+check(lifecycle.begin('gallery', 140) !== null, 'D6 picker reopens after cancel or error');
+lifecycle.invalidate();
+check(!lifecycle.isBusy() && lifecycle.begin('audio-import', 150) !== null, 'D6 AppState invalidation releases a stale guard');
+
+const acceptance = new MemoryAcceptanceLifecycle();
+check(acceptance.begin('draft-1') && !acceptance.begin('draft-1'), 'D6 binary submit admits one in-flight acceptance');
+acceptance.settle('draft-1', false);
+check(!acceptance.isAccepting() && acceptance.begin('draft-1'), 'D6 thrown/failed submit restores guards and permits retry');
+acceptance.settle('draft-1', true);
+check(acceptance.isAccepted('draft-1') && !acceptance.begin('draft-1'), 'D6 durable acceptance remains idempotent');
+
+const intake = fs.readFileSync(path.join(root, 'front/mi-front-limpio/services/homecloud/MemoryIntake.tsx'), 'utf8');
+const intakeService = fs.readFileSync(path.join(root, 'front/mi-front-limpio/services/homecloud/homecloudMemoryIntakeService.ts'), 'utf8');
+for (const event of ['picker_request', 'picker_guard_reject', 'picker_settled', 'picker_stale_settle', 'picker_appstate_invalidate', 'intake_submit_rejected']) {
+  check(intake.includes(`'${event}'`), `D6 TEMPORARY diagnostics include ${event}`);
+}
+check(intake.includes("nextState !== 'background'") && intake.includes('pickerLifecycleRef.current.invalidate()'), 'D6 AppState recovery invalidates interrupted picker ownership');
+check(/const submitBinary[\s\S]*catch \(error\)[\s\S]*finally/.test(intake), 'D6 submit exceptions always restore acceptance guards');
+check(intakeService.includes('if (pickerGeneration === generation) picking = false;'), 'D6 service-level stale settle cannot clear a newer picker guard');
+check(!/runtimeTrace\([^\n]*(accessToken|signedUrl|localUri|contentId|fileName)/.test(intake), 'D6 diagnostics exclude sensitive identifiers and media paths');
 
 if (failed) process.exitCode = 1;

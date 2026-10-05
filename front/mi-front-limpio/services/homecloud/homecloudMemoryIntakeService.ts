@@ -72,6 +72,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   // elsewhere, and it could never recover without a remount.
   let destinationsInFlight: Promise<void> | null = null;
   let picking = false;
+  let pickerGeneration = 0;
   let stateListeners: Set<(state: MemoryIntakeState) => void> = new Set();
 
   const baseState: MemoryIntakeState = { status: 'idle' };
@@ -212,6 +213,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
     if (picking) return null;
     picking = true;
+    const generation = ++pickerGeneration;
     resetTransientState();
     emitState({ status: 'picking' });
 
@@ -239,7 +241,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
       });
       return null;
     } finally {
-      picking = false;
+      if (pickerGeneration === generation) picking = false;
     }
   }
 
@@ -355,6 +357,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
    * starts from a clean owner.
    */
   function dismiss(): void {
+    pickerGeneration += 1;
     picking = false;
     acceptedJobId = null;
     acceptedDraftKey = null;

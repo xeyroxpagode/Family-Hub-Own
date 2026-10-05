@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, Linking, ScrollView, StyleSheet, View } from 'react-native';
+import { AppState, Keyboard, Linking, ScrollView, StyleSheet, View, type AppStateStatus } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 
 import { ActionSheet, AppButton, AppInput, AppText, FilterChip } from '../../components/ui';
@@ -27,6 +27,7 @@ import { memoryAttemptTrace, memoryDevTrace } from './homecloudMemoryDiagnostics
 import { runtimeTrace } from '../runtimeTrace';
 import { MemoryCameraSurface } from './MemoryCameraSurface';
 import { MemoryAttemptAuthority, type MemoryAttempt } from './homecloudMemoryAttempt';
+import { MemoryAcceptanceLifecycle, MemoryPickerLifecycle } from './homecloudMemoryIntakeLifecycle';
 
 export interface MemoryIntakeProps {
   config: MemoryIntakeConfig;
@@ -131,7 +132,9 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
   const [binaryCaption, setBinaryCaption] = useState('');
   const [binaryAlbumId, setBinaryAlbumId] = useState<string | null>(initialAlbumId ?? null);
   const [picking, setPicking] = useState(false);
+  const [pickerFailure, setPickerFailure] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
+  const [submitFailure, setSubmitFailure] = useState<string | null>(null);
   const [writtenText, setWrittenText] = useState('');
   const [writtenDate, setWrittenDate] = useState<SemanticDateDraft>(emptySemanticDateDraft);
   const [writtenAlbumId, setWrittenAlbumId] = useState<string | null>(initialAlbumId ?? null);
@@ -148,6 +151,10 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
   const acceptingRef = useRef(false);
   // Attempt ownership: only the newest attempt may commit its draft.
   const pickerAttemptRef = useRef(0);
+  const pickerLifecycleRef = useRef(new MemoryPickerLifecycle());
+  const acceptanceLifecycleRef = useRef(new MemoryAcceptanceLifecycle());
+  const activePickerMediaAttemptRef = useRef<MemoryAttempt | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const mountedRef = useRef(true);
   const attemptAuthorityRef = useRef(new MemoryAttemptAuthority());
   const recorderAttemptRef = useRef<MemoryAttempt | null>(null);
@@ -209,6 +216,8 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
       mountedRef.current = false;
       attemptAuthority.dispose();
       // Unmount must never leave a pending guard behind.
+      pickerLifecycleRef.current.invalidate();
+      acceptanceLifecycleRef.current.reset();
       pickingRef.current = false;
       // `hasCurrentJobReference` (not `hasActiveJob`) is the honest field: it
       // asks whether this service still holds a reference to a memory job at
@@ -288,7 +297,9 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
     memoryDevTrace('draft_clear', { reason, source: draft?.source ?? null, mimeType: draft?.artifact.mimeType ?? null });
     setBinaryDraft(null);
     acceptedDraftRef.current = null;
+    acceptanceLifecycleRef.current.reset();
     setReviewAttempt(null);
+    setSubmitFailure(null);
     setBinaryCaption('');
     setBinaryAlbumId(initialAlbumId ?? null);
   }, [initialAlbumId]);
@@ -322,15 +333,24 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
   // Owned by the service, not by local state: `pickMemory` clears the previous
   // error on every new attempt, so a failure is shown exactly where it happened
   // (the create sheet) and can never leak into the next Review.
-  const pickingError = state.status === 'failed' ? state.error ?? 'No pudimos seleccionar la foto o el video.' : null;
+  const pickingError = pickerFailure ?? (state.status === 'failed' ? state.error ?? 'No pudimos seleccionar la foto o el video.' : null);
 
   const runPicker = useCallback(async (source: 'gallery' | 'audio-import', pick: (attempt: MemoryAttempt) => Promise<BinaryMemoryDraft | null>) => {
-    if (pickingRef.current) return;
+    // TEMPORARY D6: a ref without lifecycle ownership is stale by definition.
+    if (pickingRef.current && !pickerLifecycleRef.current.isBusy()) pickingRef.current = false;
+    const ticket = pickerLifecycleRef.current.begin(source);
+    if (ticket === null) {
+      runtimeTrace('picker_guard_reject', { entryPath: source, phase: 'begin', pickingRef: pickingRef.current, picking, attemptStillCurrent: true });
+      return;
+    }
     pickingRef.current = true;
-    const attempt = pickerAttemptRef.current + 1;
-    pickerAttemptRef.current = attempt;
+    const attempt = ticket.attempt;
+    pickerAttemptRef.current = ticket.attempt;
     const mediaAttempt = attemptAuthorityRef.current.begin(source, source === 'gallery' ? 'image' : 'audio');
+    activePickerMediaAttemptRef.current = mediaAttempt;
+    setPickerFailure(null);
     setPicking(true);
+    runtimeTrace('picker_request', { requestId: ticket.requestId, attempt, entryPath: source, phase: 'launch', pickingRef: true, picking: true, appState: AppState.currentState ?? null });
     Keyboard.dismiss();
     // The create sheet deliberately STAYS presented while the native picker is
     // up: dismissing it first is what made the presentation illegal on iOS.
@@ -344,11 +364,31 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
       setBinaryCaption('');
       setBinaryAlbumId(initialAlbumId ?? null);
       setSheet('binary');
+    } catch (error) {
+      if (pickerAttemptRef.current === attempt && attemptAuthorityRef.current.owns(mediaAttempt)) {
+        setPickerFailure('No pudimos abrir el selector. Podés volver a intentarlo o cerrar esta ventana.');
+      }
+      runtimeTrace('picker_settled', {
+        requestId: ticket.requestId, attempt, entryPath: source, phase: 'error', pickingRef: pickingRef.current,
+        picking, attemptStillCurrent: pickerAttemptRef.current === attempt, outcomeKind: 'error',
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: (error instanceof Error ? error.message : String(error)).slice(0, 160),
+      });
     } finally {
-      if (pickerAttemptRef.current === attempt) pickingRef.current = false;
-      if (mountedRef.current) setPicking(false);
+      const settled = pickerLifecycleRef.current.settle(ticket);
+      const attemptStillCurrent = settled.kind === 'current' && pickerAttemptRef.current === attempt;
+      runtimeTrace(settled.kind === 'current' ? 'picker_settled' : 'picker_stale_settle', {
+        requestId: ticket.requestId, attempt, entryPath: source, phase: 'finally', pickingRef: pickingRef.current,
+        picking, attemptStillCurrent, appState: AppState.currentState ?? null, durationMs: settled.durationMs,
+        outcomeKind: settled.kind,
+      });
+      if (attemptStillCurrent) {
+        pickingRef.current = false;
+        if (activePickerMediaAttemptRef.current?.id === mediaAttempt.id) activePickerMediaAttemptRef.current = null;
+        if (mountedRef.current) setPicking(false);
+      }
     }
-  }, [initialAlbumId]);
+  }, [initialAlbumId, picking]);
 
   const chooseMedia = useCallback(() => runPicker('gallery', (attempt) => service.pickMemory(attempt, (candidate) => attemptAuthorityRef.current.owns(candidate))), [runPicker, service]);
   const chooseAudio = useCallback(() => runPicker('audio-import', (attempt) => service.pickAudio(attempt, (candidate) => attemptAuthorityRef.current.owns(candidate))), [runPicker, service]);
@@ -374,11 +414,38 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
   const closeCreate = useCallback(() => {
     memoryDevTrace('review_close_requested', { reason: 'create_sheet_close', sheet: 'create' });
     pickerAttemptRef.current += 1;
+    pickerLifecycleRef.current.invalidate();
     attemptAuthorityRef.current.invalidate();
+    activePickerMediaAttemptRef.current = null;
     pickingRef.current = false;
     setPicking(false);
+    setPickerFailure(null);
     service.dismiss();
     setSheet(null);
+  }, [service]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const previousState = appStateRef.current;
+      appStateRef.current = nextState;
+      if (nextState !== 'background') return;
+      const invalidated = pickerLifecycleRef.current.invalidate();
+      if (!invalidated) return;
+      pickerAttemptRef.current += 1;
+      const mediaAttempt = activePickerMediaAttemptRef.current;
+      if (mediaAttempt) attemptAuthorityRef.current.invalidate(mediaAttempt);
+      activePickerMediaAttemptRef.current = null;
+      pickingRef.current = false;
+      setPicking(false);
+      service.dismiss();
+      setPickerFailure('El selector se interrumpió. Podés volver a intentarlo o cerrar esta ventana.');
+      runtimeTrace('picker_appstate_invalidate', {
+        requestId: invalidated.requestId, attempt: invalidated.attempt, entryPath: invalidated.entryPath,
+        phase: `${previousState}->${nextState}`, pickingRef: false, picking: false,
+        attemptStillCurrent: false, appState: nextState,
+      });
+    });
+    return () => subscription.remove();
   }, [service]);
 
   const closeReview = useCallback(() => {
@@ -458,7 +525,8 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
       source: binaryDraft?.source ?? null,
       status: stateRef.current.status,
     });
-    pickerAttemptRef.current += 1; pickingRef.current = false; attemptAuthorityRef.current.invalidate();
+    pickerAttemptRef.current += 1; pickerLifecycleRef.current.invalidate(); pickingRef.current = false; attemptAuthorityRef.current.invalidate();
+    activePickerMediaAttemptRef.current = null;
     setPicking(false); setPendingAudioDraft(null);
     if (!service.hasActiveJob() && !acceptingRef.current) discardDraftArtifact(binaryDraft);
     clearBinaryDraft('focus_lost'); service.dismiss(); setSheet(null);
@@ -475,32 +543,49 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
 
   const submitBinary = useCallback(async () => {
     const draftKey = reviewAttempt?.id ?? binaryDraft?.artifact.localUri;
-    if (!binaryDraft || active || !draftKey || acceptedDraftRef.current === draftKey) return;
+    if (!binaryDraft || active || !draftKey || acceptedDraftRef.current === draftKey || !acceptanceLifecycleRef.current.begin(draftKey)) {
+      runtimeTrace('intake_submit_rejected', { phase: 'guard', outcomeKind: 'busy_or_invalid', pickingRef: pickingRef.current, picking });
+      return;
+    }
     acceptedDraftRef.current = draftKey;
     acceptingRef.current = true;
     setAccepting(true);
+    setSubmitFailure(null);
     const capture = binaryDraft.capture;
     if (reviewAttempt) memoryAttemptTrace(reviewAttempt, 'submit', { mimeType: binaryDraft.artifact.mimeType });
     else memoryDevTrace('submit_press', { source: binaryDraft.source, mimeType: binaryDraft.artifact.mimeType });
-    const acceptedJobId = await service.createBinaryMemory(binaryDraft, {
-      caption: binaryCaption.trim() || null,
-      initialAlbumId: binaryAlbumId,
-      ...memoryRegisterCaptureFields(capture),
-    }, reviewAttempt ?? undefined);
-    if (!acceptedJobId) {
-      acceptedDraftRef.current = null;
+    let accepted = false;
+    try {
+      const acceptedJobId = await service.createBinaryMemory(binaryDraft, {
+        caption: binaryCaption.trim() || null,
+        initialAlbumId: binaryAlbumId,
+        ...memoryRegisterCaptureFields(capture),
+      }, reviewAttempt ?? undefined);
+      if (!acceptedJobId) {
+        runtimeTrace('intake_submit_rejected', { phase: 'service', outcomeKind: 'not_accepted', pickingRef: pickingRef.current, picking });
+        return;
+      }
+      accepted = true;
+      memoryDevTrace('review_close_requested', { reason: 'durable_acceptance', jobId: acceptedJobId, source: binaryDraft.source });
+      // Ownership transferred to the durable job. Clear UI-only references only:
+      // never discard the artifact and never cancel/dismiss the accepted job.
+      clearBinaryDraft('accepted');
+      attemptAuthorityRef.current.invalidate(reviewAttempt ?? undefined);
+      if (mountedRef.current) setSheet(null);
+    } catch (error) {
+      setSubmitFailure('No pudimos guardar este recuerdo. Podés volver a intentarlo o cerrar esta ventana.');
+      runtimeTrace('intake_submit_rejected', {
+        phase: 'exception', outcomeKind: 'error', pickingRef: pickingRef.current, picking,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: (error instanceof Error ? error.message : String(error)).slice(0, 160),
+      });
+    } finally {
+      acceptanceLifecycleRef.current.settle(draftKey, accepted);
       acceptingRef.current = false;
+      if (!accepted) acceptedDraftRef.current = null;
       if (mountedRef.current) setAccepting(false);
-      return;
     }
-    memoryDevTrace('review_close_requested', { reason: 'durable_acceptance', jobId: acceptedJobId, source: binaryDraft.source });
-    // Ownership transferred to the durable job. Clear UI-only references only:
-    // never discard the artifact and never cancel/dismiss the accepted job.
-    clearBinaryDraft('accepted');
-    acceptingRef.current = false;
-    attemptAuthorityRef.current.invalidate(reviewAttempt ?? undefined);
-    if (mountedRef.current) { setAccepting(false); setSheet(null); }
-  }, [active, binaryAlbumId, binaryCaption, binaryDraft, clearBinaryDraft, reviewAttempt, service]);
+  }, [active, binaryAlbumId, binaryCaption, binaryDraft, clearBinaryDraft, picking, reviewAttempt, service]);
 
   const submitWritten = useCallback(async () => {
     if (writtenSubmitting || !writtenText.trim() || semanticDateDraftError(writtenDate)) return;
@@ -543,6 +628,7 @@ const openWritten = () => {
     // Starting a new draft detaches presentation from any previous accepted
     // job. Execution remains owned by the household coordinator.
     service.dismiss();
+    setPickerFailure(null);
     reloadDestinations();
     setSheet('create');
   }, [reloadDestinations, service]);
@@ -621,9 +707,9 @@ const openWritten = () => {
               blurOnSubmit
             />
             <MemoryAlbumSelector albums={albums} value={binaryAlbumId} onChange={setBinaryAlbumId} disabled={active} invalidAlbum={state.invalidAlbum === true} />
-            {state.status === 'failed' ? (
+            {state.status === 'failed' || submitFailure ? (
               <View style={styles.error}>
-                <AppText variant="bodySmall" tone="danger">{state.error ?? 'No pudimos guardar este recuerdo.'}</AppText>
+                <AppText variant="bodySmall" tone="danger">{submitFailure ?? state.error ?? 'No pudimos guardar este recuerdo.'}</AppText>
               </View>
             ) : null}
           </ScrollView>

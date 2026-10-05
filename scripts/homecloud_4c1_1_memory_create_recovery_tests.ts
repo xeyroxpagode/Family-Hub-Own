@@ -163,7 +163,7 @@ test('7. pending guard is released in a finally on reject', () => {
   assert.ok(tryIndex >= 0 && finallyIndex > tryIndex, 'chooseMedia has try/finally');
   // The service also owns a guard released in its own finally.
   const pickMemory = service.slice(service.indexOf('async function runSourcePicker'), service.indexOf('async function createBinaryMemory'));
-  assert.match(pickMemory, /\} finally \{\s*picking = false;/);
+  assert.match(pickMemory, /\} finally \{\s*if \(pickerGeneration === generation\) picking = false;/);
   // And it reports a real failure instead of throwing out of the guard.
   assert.match(pickMemory, /catch \(error\) \{[\s\S]*status: 'failed'/);
 });
@@ -181,7 +181,8 @@ test('8. closing the sheet releases the picker guard (CLOSE reset contract)', ()
 
 test('9. a double tap cannot open two native pickers', () => {
   assert.match(component, /const pickingRef = useRef\(false\);/);
-  assert.match(component, /if \(pickingRef\.current\) return;/);
+  assert.match(component, /const ticket = pickerLifecycleRef\.current\.begin\(source\);/);
+  assert.match(component, /if \(ticket === null\)/);
   // Second, independent line of defence at the service boundary.
   assert.match(service, /if \(picking\) return null;/);
 });
@@ -189,7 +190,7 @@ test('9. a double tap cannot open two native pickers', () => {
 test('10. a third attempt works: every attempt gets ownership, latest wins', () => {
   assert.match(component, /const pickerAttemptRef = useRef\(0\);/);
   const chooseMedia = component.slice(component.indexOf('const runPicker'), component.indexOf('const chooseMedia'));
-  assert.match(chooseMedia, /const attempt = pickerAttemptRef\.current \+ 1;\s*pickerAttemptRef\.current = attempt;/);
+  assert.match(chooseMedia, /const attempt = ticket\.attempt;\s*pickerAttemptRef\.current = ticket\.attempt;/);
   // A late resolve from a superseded attempt can never commit its draft.
   assert.match(chooseMedia, /if \(!mountedRef\.current \|\| pickerAttemptRef\.current !== attempt \|\| !attemptAuthorityRef\.current\.owns\(mediaAttempt\)\) return;/);
   // Nothing blocks a new attempt once the previous one settled.
@@ -474,13 +475,9 @@ test('ALBUM: the intake owns no Album UI, an empty album list never blocks Creat
   assert.doesNotMatch(readService, /AlbumTile|AlbumScreen/);
 });
 
-test('VIEWER stays deferred: a card is never a destination, and the only new affordance is an Album-scope removal', () => {
-  // MO-A2 retarget. The guard used to be "no onPress anywhere in MemoryCards",
-  // which froze a superseded implementation detail: the Album detail needs ONE
-  // contextual affordance. The real invariants are now asserted directly, so the
-  // guard keeps protecting the Viewer boundary instead of the absence of a prop.
+test('VIEWER is a local overlay while MemoryCard stays non-navigational', () => {
   const cardsCode = stripComments(cardsSource);
-  // NO navigation, NO router, NO Viewer destination, at any point.
+  // MemoryCard owns no navigation or viewer destination; the wrapper/screen do.
   assert.doesNotMatch(cardsCode, /navigation\.|router\.|useNavigate|navigate\(|push\(/);
   assert.doesNotMatch(cardsCode, /Viewer|MediaViewer|fullscreen/i);
   // The one seam is OPTIONAL and structural: absent action renders nothing.
@@ -490,15 +487,11 @@ test('VIEWER stays deferred: a card is never a destination, and the only new aff
   // Memory mutation and the card stays non-navigational.
   assert.match(cardsSource, /onPress=\{action\.onRemoveFromAlbum\}/);
   assert.doesNotMatch(cardsCode, /deleteMemory|removeMemory|trashMemory/);
-  // The Timeline call site NEVER supplies it, so Timeline rendering and
-  // behavior are unchanged when the prop is absent.
+  // The Timeline supplies the local overlay opener through the selectable wrapper.
   const memoriesScreen = read('front/mi-front-limpio/screens/HomeCloudMemoriesScreen.tsx');
-  const timelineList = stripComments(memoriesScreen.slice(
-    memoriesScreen.indexOf('<SectionList'),
-    memoriesScreen.indexOf('ListFooterComponent', memoriesScreen.indexOf('<SectionList')),
-  ));
-  assert.match(timelineList, /<MemoryCard key=\{memory\.id\} memory=\{memory\} accessToken=\{token\} \/>/);
-  assert.doesNotMatch(timelineList, /albumScopeAction/);
+  assert.match(memoriesScreen, /<MemoryViewer/);
+  assert.match(memoriesScreen, /onOpen=\{activeCollection/);
+  assert.doesNotMatch(memoriesScreen, /navigation\.navigate\([^)]*Viewer/);
   assert.doesNotMatch(component, /zoom|Viewer|viewer/);
 });
 

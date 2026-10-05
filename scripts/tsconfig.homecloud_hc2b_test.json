@@ -4,6 +4,7 @@
   "include": [
     "../scripts/homecloud_hc2b_media_viewer_tests.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudMemoryDrag.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryIntakeLifecycle.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudMemoryViewerSource.ts"
   ],
   "exclude": ["node_modules"]
