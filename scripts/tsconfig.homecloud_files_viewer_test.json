@@ -7,6 +7,7 @@
   },
   "include": [
     "../scripts/homecloud_files_viewer_tests.ts",
+    "../scripts/homecloud_files_viewer_branch_tests.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudViewerKind.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudTypes.ts",
     "../front/mi-front-limpio/screens/HomeCloudFileViewerScreen.tsx",

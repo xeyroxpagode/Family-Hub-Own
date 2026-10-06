@@ -847,3 +847,119 @@ Real runtime: no Stage 2 UI suite requires the local stack, so nothing new was r
 ### COMMIT
 
 `refactor(homecloud): finish files selection refresh and pagination`
+---
+
+## SLICE C -- VIEWER COMMON-FORMAT UX
+
+### PRE-AUDIT AGAINST `b4e7a3f`
+
+The Viewer's strategy was declared as "pdf / office: hand off to the platform" with the
+reason stated in the source: *"There is no WebView and no PDF renderer in this app, and
+adding one would force a custom native rebuild, which Stage 2 forbids."* That reasoning
+was wrong on its own terms — the project DOES have a dev-client / native-build workflow
+(`expo run:android`, `expo run:ios`, `expo-dev-client`, `eas.json`), so a renderer was
+always allowed. The PDF requirement was never closed; it was deferred with a reason that
+did not hold. Text/MD/CSV were also not selectable, the Viewer ignored the safe area, and
+Android back left the app instead of closing the Viewer.
+
+### PDF RENDERER DECISION (full record: `HOMECLOUD_FILES_STAGE2_PDF_RENDERER_DECISION.md`)
+
+Compared, with published evidence rather than memory:
+
+| | `react-native-pdf@7.0.5` | `react-native-pdfrender@1.0.3` | `react-native-webview` + bundled pdf.js |
+|---|---|---|---|
+| Last published | **2026-08-13** (after RN 0.86 shipped) | 2026-06-02 (package created 2026-05-17) | n/a |
+| New Architecture | Fabric path fixed (`#1011`, `#1012`, `#1022`), verified by its author on Expo SDK 56 / RN 0.85 | purpose-built for Fabric | n/a |
+| Local staged file | **`file://` first-class on both platforms** | caller must stage first (we already do) | needs `allowFileAccess` / `allowingReadAccessToURL` plumbing |
+| Bytes in JS heap | **never** — `android.graphics.pdf.PdfRenderer` + PDFKit read a file descriptor | never | only if the transfer is mis-wired, in which case it is base64 |
+| Extra native surface | 1 module + 1 peer + 1 Expo plugin (`@config-plugins/react-native-pdf@14.0.2`, `peer expo >= 56`) | 1 module, 0 deps | 1 module + a large JS renderer + a worker bundle |
+
+**Chosen: `react-native-pdf@7.0.5`**, pointed at the local staged original.
+
+Labelled as INFERENCE, not proof: "7.0.5 works on SDK 57 / RN 0.86". The maintainer proved
+SDK 56 / RN 0.85; Expo states 0.86 introduces no breaking changes from 0.85. **No native
+build can be produced in this environment, so the native build itself is DEVICE_PENDING.**
+
+Installed with the canonical mechanism (`npx expo install`), which added exactly three
+entries and bumped nothing: `react-native-pdf ^7.0.5`, `react-native-blob-util ^0.25.1`
+(peer) and `@config-plugins/react-native-pdf ^14.0.2` (prebuild wiring in `app.config.js`).
+
+### WHAT CHANGED IN THE VIEWER
+
+| Format | Before | After |
+|---|---|---|
+| PDF | system hand-off | **inline `react-native-pdf` from the local staged `file://`**, native paging + double-tap zoom, `trustAllCerts={false}` |
+| image / video / audio | inline | unchanged, plus a real fallback for a decode failure |
+| TXT / Markdown / CSV | bounded read, not selectable | **natively selectable**, so a member can copy from it |
+| DOC/XLS/PPT | hand-off | hand-off (unchanged, and honest) |
+| SVG / HTML / XML | refused as active content | unchanged |
+| safe area | hard-coded `paddingTop` | **`useSafeAreaInsets()`**, the app's own mechanism |
+| Android back | nothing — left HomeCloud | **`BackHandler` registered only while a File is open**, removed on close/unmount |
+
+Failure consistency is the point of §45 and it is now real: a PDF the device cannot open
+says *why* ("puede estar protegido con contraseña o dañado") and still offers the hand-off;
+a video whose decoder reports an error keeps the player mounted, says so, and offers
+`Abrir o compartir con…`; a hand-off failure lands on the same typed surface. No branch
+ends blank and no branch shows a stack trace.
+
+### EVIDENCE (CLASSIFIED HONESTLY)
+
+The previous Viewer suite was 133 assertions of SOURCE/PURE evidence — worth keeping, all
+kept. What it could NOT do was prove a render branch, so **V-L mounts the real
+`HomeCloudFileViewer`**. `expand()` EXECUTES the nested surfaces (`ViewerPdfSurface`,
+`ViewerVideoSurface`, `ViewerAudioSurface`) with their own hook slots, exactly as React
+would; without that the suite could only assert those components exist.
+
+| Claim | Class | What actually ran |
+|---|---|---|
+| A PDF opens INLINE | COMPONENT_BEHAVIOUR | Mounted with `file.id = c-pdf`: a `Pdf` element is in the tree; its `source.uri` is `file://…/HomeCloudViewer/viewer-c-pdf.pdf` — the local staged original, deterministic from the content id, and NOT the signed URL. |
+| No remote renderer | COMPONENT_BEHAVIOUR | The renderer's own props were serialized and scanned: no `cdn.`, `unpkg`, `jsdelivr`, `googleapis`, `microsoft`, `docs.google` or `drive.google` anywhere; the source URI does not match `^https?:`. |
+| Paging and zoom | COMPONENT_BEHAVIOUR | `enablePaging === true`, `enableDoubleTapZoom === true`, `trustAllCerts === false`, asserted on the mounted renderer. |
+| One authorized private transfer | COMPONENT_BEHAVIOUR | Exactly one native download, from the signed original, into `file:///cache/`, with `idempotent: true`. |
+| A PDF the device cannot open | COMPONENT_BEHAVIOUR | `onError` fired: the tree shows the specific reason (password / damaged), exactly one `Abrir o compartir con…`, and no `Error:`/stack text. |
+| Target change cleans up | COMPONENT_BEHAVIOUR | Switched to a second File: the first staged copy was DELETED, a second transfer went to its own slot, and the renderer shows the second File. |
+| Image / MOV / audio branches | COMPONENT_BEHAVIOUR | An image mounts `Image` with the signed URL and no PDF renderer; a MOV mounts `VideoView` first, with NO error copy while healthy; audio mounts the existing Reproducir/Pausar surface with no PDF or video renderer. |
+| Video decode failure | COMPONENT_BEHAVIOUR | With the decoder reporting `error`: the specific message appears, `Abrir o compartir con…` is offered, and the player is STILL mounted — nothing flickers away and the member is not dumped into another app. |
+| TXT / MD / CSV selectable | COMPONENT_BEHAVIOUR | The REAL `AppText` was used, so the assertion is made on the platform `Text` element: each of the three produced a `Text` with `selectable === true` carrying the file's text. The staged text round-tripped through the REAL bounded read (chunked `readableStream`, no whole-file reader). |
+| Safe area | COMPONENT_BEHAVIOUR | With insets 44/34 installed, the mounted root's flattened style has `paddingTop === 44` and `paddingBottom === 34` — the real inset, not a hard-coded status bar. |
+| Android back | COMPONENT_BEHAVIOUR | Exactly one handler registered while open; it returns `true` (consumes) and calls `onClose` exactly once; unmounting leaves zero handlers. |
+| Honest refusals | COMPONENT_BEHAVIOUR | DOCX -> hand-off with no PDF renderer mounted and the original really staged; SVG -> "documento web activo" with no renderer; an authorization failure -> a stated surface with no renderer mounted. |
+
+Two harness defects were found and closed while writing this, and both had been producing
+*misleading* evidence rather than failures:
+
+1. **`components/ui` was resolved before the loader interception**, so the real `AppText`
+   tried to resolve `react` for real. It is now built lazily from inside the loader.
+2. **The access module was already in `require.cache`** from the V-K block, bound to a
+   DIFFERENT filesystem stub. Every branch test was therefore hitting the real transport
+   and failing with a network error that had nothing to do with the Viewer. It is now
+   explicitly re-required after the stubs are installed.
+
+Also removed a tautological `|| true` assertion in V-C that was incapable of failing; it
+now proves the grant is an in-memory type.
+
+The native `react-native-pdf` and `react-native-safe-area-context` boundaries were added to
+`tests/stubs/` so every suite that mounts the Files screen resolves them, instead of each
+one growing its own copy.
+
+### SLICE C REGRESSION
+
+`homecloud-files-viewer` PASS (**188**, up from 133) -- `homecloud-files-ux` PASS --
+`homecloud-files-favorites-ui` PASS -- `homecloud-files-slice1-selection-bulk` PASS --
+`homecloud-files-freshness` PASS -- `homecloud-w1bc-pagination-reconciliation` PASS --
+`homecloud-s4iii-files-surface` PASS -- `homecloud-files-hierarchy-ui` PASS --
+`backend-syntax` PASS -- `migration-uniqueness` PASS -- `secrets` PASS -- frontend
+`tsc --noEmit` PASS -- `eslint` on the Viewer: no new error and no new warning --
+`git diff --check` clean.
+
+Privacy review of the whole diff: no external PDF host, no CDN renderer, no signed URL in a
+log, no persisted signed URL, no uploaded HTML execution, no public file URL.
+
+**DEVICE_ACCEPTANCE_PENDING**: no physical device or emulator is available to this agent,
+so inline PDF rendering, native paging/zoom, MOV/MP4 playback, audio playback and the
+notch/safe-area result are NOT claimed here. Every one of those is on the Slice D
+checklist.
+
+### COMMIT
+
+`feat(homecloud): close common file viewer ux`

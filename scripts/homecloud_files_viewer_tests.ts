@@ -130,7 +130,11 @@ console.log('--- V-C: the exact original is the only source ---');
   record(!/variant=preview/.test(accessSource), 'the Viewer NEVER asks for a preview variant');
   record(!accessSource.includes('variant=thumbnail'), 'and never for a thumbnail');
   record(/does NOT request a `preview`|never requests a `preview`/.test(accessSource) || accessSource.includes('original bytes'), 'the reason is documented in the source');
-  record(!/signedUrl\s*:\s*string;\s*\n\s*\}\s*\n\s*\n\s*export const VIEWER_FAILURE/.test(accessSource) || true, 'the grant is an in-memory value, not a persisted store');
+  // STAGE 2 REOPEN: this used to end in `|| true`, which made it incapable of failing.
+  // The grant is an in-memory value: it is created by `requestViewerAccess` and handed
+  // straight to the caller. The assertion now proves that structurally.
+  record(/export interface ViewerAccessGrant \{\s*readonly signedUrl: string;\s*readonly variant: 'original';\s*\}/.test(accessSource),
+    'the grant is an in-memory value, never a persisted store');
   record(!/AsyncStorage|SecureStore|persist/i.test(accessCode), 'a signed URL is never persisted: no AsyncStorage, no SecureStore, no persistence call');
   // The single controlled retry.
   record(accessSource.includes('alreadyRetried'), 'the authorization retry is explicitly bounded by an already-retried flag');
@@ -445,6 +449,27 @@ void (async () => {
 
     globalThis.fetch = originalFetch;
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // V-L — THE VIEWER, MOUNTED AND EXECUTED
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Everything above this line is SOURCE or PURE evidence, and that is the honest
+  // label for it. The reopen brief is explicit that a regex cannot prove a render
+  // branch, so the branches themselves are executed here: the REAL
+  // `HomeCloudFileViewer`, the REAL classification layer, the REAL access + staging
+  // module, over a hook host and a stubbed transport.
+  //
+  // Only the device's own boundaries are stubbed: React hooks, the presentational
+  // primitives, navigation insets, the native decoders (`expo-video`, `expo-audio`),
+  // the native filesystem and the native share sheet.
+  const branches = require('./homecloud_files_viewer_branch_tests') as {
+    runViewerBranchTests: (options: { compiledRoot: string; record: (ok: boolean, message: string) => void }) => Promise<void>;
+  };
+  await branches.runViewerBranchTests({
+    compiledRoot: path.join(__dirname, '..', 'front', 'mi-front-limpio'),
+    record,
+  });
 
   testOnly.reset();
   console.log(`\nFILES_VIEWER_RESULT pass=${passCount} fail=${failCount}`);
