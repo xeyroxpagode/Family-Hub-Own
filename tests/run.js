@@ -52,10 +52,24 @@ const RUNTIME_ENVIRONMENT = {
   'homecloud-files-hierarchy-migration': [
     'LOCAL_DATABASE_URL',
   ],
+  // STAGE 2 REOPEN — the integrated suite is now part of a canonical gate, so it must
+  // degrade the same way every other LOCAL_RUNTIME_REQUIRED step does: reported as
+  // SKIPPED when the stack is absent, and actually RUN when it is present. Without this
+  // entry it would hard-fail on a developer machine with no Supabase, which is how an
+  // executable integration gate quietly becomes an optional one.
+  'homecloud-stage2-integrated': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+  ],
 };
 
 const suiteClass = {
   'homecloud-files': 'DETERMINISTIC (+ LOCAL_RUNTIME_REQUIRED step, skipped when absent)',
+  'homecloud-files-stage2': 'DETERMINISTIC (+ LOCAL_RUNTIME_REQUIRED steps, skipped when absent)',
+  'homecloud-files-stage2-surface': 'DETERMINISTIC',
+  'homecloud-files-viewer': 'DETERMINISTIC',
+  'homecloud-files-ux': 'DETERMINISTIC',
   'homecloud-3a-3d': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-3a-3d-acceptance': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-4a2': 'LOCAL_RUNTIME_REQUIRED',
@@ -1229,6 +1243,16 @@ const suites = {
     'homecloud-files-freshness',
     'homecloud-files-favorites',
     'homecloud-files-favorites-ui',
+    // STAGE 2 REOPEN — THE ORPHANS ARE REGISTERED.
+    //
+    // `homecloud-files-viewer` and `homecloud-files-ux` were DEFINED and passing for
+    // three commits while no gate ever invoked them: a suite nobody runs is not
+    // evidence. They are now part of this aggregate, so `npm run quality` and CI
+    // execute them. `homecloud-stage2-integrated` joins them below, which is what makes
+    // the cross-flows, the large-data boundaries, the isolation matrix and the privacy
+    // review run in CI instead of merely existing.
+    'homecloud-files-viewer',
+    'homecloud-files-ux',
     // Stage 2 Phase 1: the nested hierarchy seams, deterministic and runtime.
     'homecloud-files-hierarchy-ui',
     'homecloud-files-favorites-runtime',
@@ -1238,6 +1262,35 @@ const suites = {
     'homecloud-files-hierarchy-migration',
     'selection-system',
     'homecloud-3a-3d-acceptance',
+  ],
+  /**
+   * THE CANONICAL FILES STAGE 2 GATE.
+   *
+   * Everything Stage 2 claims, in one command: the Stage 1 Files gates, favorites,
+   * selection and bulk move, freshness, pagination, the nested hierarchy, the UX and
+   * interaction grammar, the Viewer, the Stage 2 integrated cross-flows, the runtime
+   * seams, typecheck, backend syntax, migration uniqueness and the secret scan.
+   *
+   * It composes `homecloud-files` rather than repeating its steps, so a step can never
+   * be added to one list and forgotten in the other.
+   */
+  'homecloud-files-stage2': [
+    'homecloud-files',
+    'frontend-typecheck',
+    'backend-syntax',
+    'migration-uniqueness',
+    'secrets',
+  ],
+  /** Just the Stage 2 seams, for a quick local loop. */
+  'homecloud-files-stage2-surface': [
+    'homecloud-files-favorites',
+    'homecloud-files-favorites-ui',
+    'homecloud-files-slice1-selection-bulk',
+    'homecloud-files-freshness',
+    'homecloud-files-viewer',
+    'homecloud-files-ux',
+    'homecloud-files-hierarchy-ui',
+    'homecloud-w1bc-pagination-reconciliation',
   ],
   'homecloud-files-hierarchy': ['homecloud-files-hierarchy-ui', 'homecloud-files-hierarchy-runtime', 'homecloud-files-hierarchy-migration'],
   'homecloud-s4ii': ['homecloud-s4ii-search-contract', 'homecloud-s4ii-document-date'],
@@ -1367,10 +1420,41 @@ async function main() {
     usage();
     return;
   }
-  const steps = suite || [singleStep];
+  const steps = resolveSteps(suite || [singleStep]);
   const startedAt = Date.now();
   for (const commandName of steps) runClassifiedCommand(commandName);
   console.log(`\nHOMEPLUS TEST SUITE: ${suiteName} PASSED (${steps.length} commands, ${Date.now() - startedAt} ms)`);
+}
+
+/**
+ * A gate may name another GATE, not only single steps.
+ *
+ * STAGE 2 REOPEN. The canonical Stage 2 gate wants to say "everything `homecloud-files`
+ * covers, plus typecheck and the static guards". Copying that list would create two
+ * places to update, and the failure mode of forgetting one is silent: the gate would
+ * still pass while quietly covering less than it claims. Composing instead makes the
+ * stronger gate impossible to let drift.
+ *
+ * An unknown name is a HARD error naming itself. Previously a typo in a suite list
+ * surfaced as `Cannot read properties of undefined (reading 'label')`, which is a
+ * harness bug wearing the costume of a product failure.
+ */
+function resolveSteps(names, seen = new Set()) {
+  const out = [];
+  for (const name of names) {
+    if (Object.prototype.hasOwnProperty.call(suites, name)) {
+      if (seen.has(name)) throw new Error(`Suite cycle detected at "${name}"`);
+      seen.add(name);
+      out.push(...resolveSteps(suites[name], seen));
+      seen.delete(name);
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(commands, name)) {
+      throw new Error(`Unknown step "${name}": it is neither a suite nor a command`);
+    }
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
 }
 
 main().catch((error) => {

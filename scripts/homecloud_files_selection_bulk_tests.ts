@@ -306,6 +306,9 @@ const uiStub = {
   DatePickerSheet: 'DatePickerSheet',
   ErrorState: 'ErrorState',
   FormActionRow: 'FormActionRow',
+  // The header controls are InteractivePressables; leaving this out of the stub made the
+  // component resolve to undefined and every header control mount with no type.
+  InteractivePressable: 'InteractivePressable',
 };
 const iconsStub = { HomePlusIcon: 'HomePlusIcon' };
 const fileIntakeStub = { FileIntake: 'FileIntake' };

@@ -42,6 +42,22 @@ jobs:
         run: npm run quality
         env:
           HOMEPLUS_TEST_REQUIRE_LOCAL_DB: '1'
+      # STAGE 2 REOPEN -- the Stage 2 integration gate, named EXPLICITLY.
+      #
+      # `npm run quality` already reaches it through `homecloud-files`, but an
+      # integration gate that only exists transitively inside another gate is invisible:
+      # nobody can tell from the CI file whether the cross-flows, the large-data
+      # boundaries, the household-isolation matrix and the privacy review actually
+      # executed, and a future edit to that aggregate could quietly drop them.
+      #
+      # This job provisions the canonical local Supabase above, so the suite RUNS here.
+      # It is deliberately NOT a job that skips itself when the stack is missing: the
+      # stack is started three steps earlier in the same job, so a skip here would mean
+      # the environment is broken, not that the check is optional.
+      - name: Run HomeCloud Files Stage 2 integration QA
+        run: node tests/run.js homecloud-stage2-integrated
+      - name: Run the canonical HomeCloud Files Stage 2 gate
+        run: node tests/run.js homecloud-files-stage2
 
   integration:
     name: Local runtime integration

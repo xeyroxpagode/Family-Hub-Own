@@ -250,3 +250,114 @@ Memories behavior. Memories does not consume it.
 Still **not** part of Files: the full Viewer (a file tap stays reserved for it),
 Lifecycle and Trash, multi-file intake, and copy/duplicate, tags, offline library
 or version history.
+
+---
+
+## STAGE 2 REOPEN AMENDMENT (2026-10-06)
+
+Device QA and a read-only reopen audit proved the previous Stage 2 closure incomplete.
+This amendment records ONLY the places where the final product truth changed. Nothing
+above is rewritten, and no unrelated history is touched; the execution log
+(`HOMECLOUD_FILES_STAGE2_EXECUTION_LOG.md`) carries the evidence and the reasoning.
+
+> **This document is the product authority.** Where it and the Stage 2 documentation
+> disagree, the disagreement is itself a defect to be reported, not something to resolve
+> in favour of whichever file was read last.
+
+### A1. ACTION SURFACES (replaces the Stage 1 assumption that a bounded sheet is fine)
+
+Every File action must be **reachable** on a 360 x 640 dp phone at font scale 1.0 and
+1.3, and on a notched device. The File action sheet therefore **scrolls**: it may not be a
+bounded, non-scrollable box that silently clips its last rows. "Present in the tree" is
+not "reachable".
+
+A **Favorite** mutation owns its own busy state. It does NOT disable or dim the rest of
+the action surface for the duration of the mutation plus its reconciliation. A **refused**
+Favorite is stated **inside the File action sheet**, with the action offered again. It
+never replaces the Files list, never resets pagination, and never re-reads page one.
+
+### A2. SELECTION (supersedes "a long press inside selection opens NOTHING")
+
+Selection mode is entered from the header overflow `...` -> `Seleccionar`.
+
+| Gesture | Outside selection | Inside selection |
+|---|---|---|
+| tap | Viewer | toggle that File |
+| long press | contextual File actions | **arm a drag-selection sweep** |
+| long press + drag | n/a | **continuous selection** |
+
+The sweep mode is decided ONCE, from the File the finger went down on:
+
+- held File was **not selected** -> **ADD**: it and every crossed File become selected;
+- held File **was selected** -> **REMOVE**: it and every crossed File become deselected.
+
+Each File is processed **at most once per gesture**: re-crossing it is a no-op. The mode
+is never re-derived mid-gesture. **Folders are ignored** by the sweep, by intent.
+
+An ordinary swipe, without a hold, is **still an ordinary scroll**. Drag is an
+enhancement and is never the only way to select: tap toggling, checkbox semantics,
+announced selected state and explicit select/deselect accessibility actions all remain.
+
+The sweep auto-scrolls in small bounded steps while the finger rests near a viewport edge,
+and stops the instant the gesture ends — on release, on cancellation, on leaving selection
+mode, on a context change and on unmount.
+
+### A3. REFRESH (replaces "the header overflow carries Actualizar")
+
+There are **ZERO visible Refresh controls** in Files. Pull-to-refresh is the primary
+manual path. An **accessibility-only** refresh action (`refresh-files` / "Actualizar
+archivos") is offered on the list for anyone who cannot pull, and it reaches the SAME
+window-preserving refresh as the gesture; there is one refresh implementation.
+
+Automatic freshness is unchanged: focus, foreground, tab return, upload reconciliation and
+household/context changes.
+
+The empty state — empty root, empty folder, empty Favoritos result, empty search — is part
+of the scroll surface, so it **can** be refreshed. An empty state that cannot be refreshed
+is a dead surface.
+
+### A4. PAGINATION (replaces "Mostrar más archivos")
+
+Normal pagination is **automatic**. There is no manual load-more control of any kind. The
+list starts the next page before the member reaches the bottom; a small footer indicator is
+acceptable only while scrolling outruns the network.
+
+A failed next-page request **latches**: automatic paging stops until the member asks
+explicitly through a compact `Reintentar`, which re-arms exactly one attempt. There is no
+automatic retry storm. Loaded pages, the window and the server's own has-more evidence are
+never destroyed by a page failure.
+
+### A5. VIEWER — COMMON-FORMAT UX (supersedes the Stage 2 "PDF hand-off" decision)
+
+The Viewer is a HomePlus layer over the browser, so returning from it restores the exact
+folder, query, order and scroll position.
+
+| Family | Contract |
+|---|---|
+| image, video, audio | HomePlus inline surface |
+| PDF | **HomePlus inline**, rendered from the **local staged original**, private, with multi-page navigation and zoom |
+| TXT, Markdown, CSV | HomePlus inline, natively **selectable and copyable** |
+| DOC/DOCX, XLS/XLSX, PPT/PPTX | privacy-safe external/system hand-off is acceptable and is the honest answer |
+| SVG / HTML / XML | refused inline as active web content, with the reason stated |
+| unsupported | honest HomePlus fallback |
+
+The PDF renderer is a **native** renderer reading the staged `file://` copy: the bytes never
+enter JS memory, no remote host is contacted, no CDN script is loaded, and no uploaded HTML
+is ever executed. Its selection, evidence and honest limits are recorded in
+`HOMECLOUD_FILES_STAGE2_PDF_RENDERER_DECISION.md`.
+
+Every failure branch is specific and **never blank**: a document the device cannot open says
+whether it may be password-protected or damaged, a video that cannot decode keeps the
+player visible and offers `Abrir o compartir con…`, and the system hand-off is offered
+whenever one exists. A stack trace is never shown.
+
+The Viewer respects the system safe-area insets rather than a hard-coded status bar, and
+**Android hardware back closes the Viewer**, not HomeCloud.
+
+### A6. EVIDENCE
+
+A suite nobody runs is not evidence. The Viewer, UX/interaction and Stage 2 integrated
+suites are part of the canonical Files gate and run in CI. A source regex may support a
+claim about source and may never be reported as proof of runtime interaction, layout
+reachability, gesture arbitration, native media playback, PDF rendering, safe-area
+behaviour or scroll wiring.

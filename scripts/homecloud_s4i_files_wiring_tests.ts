@@ -229,7 +229,34 @@ const reactStub: Record<string, unknown> = {
 reactStub.default = reactStub;
 reactStub.Fragment = Symbol.for('react.fragment');
 
+/**
+ * `PanResponder` — the drag-selection seam, made DRIVABLE.
+ *
+ * `create` records the production config and returns handlers that delegate straight
+ * to it, so a test can invoke the REAL callbacks — including the ones that decide
+ * whether the responder claims a move stream — instead of only inspecting them.
+ *
+ * It was missing here and the Files screen CRASHED on mount once a pan responder
+ * existed, which is why it is stated rather than assumed: a device boundary that is
+ * absent from a harness is a harness gap, not a product result.
+ */
+type PanResponderConfig = Record<string, (...args: never[]) => unknown>;
+const panResponderConfigs: PanResponderConfig[] = [];
+const panResponderHandlerSets: Record<string, unknown>[] = [];
+const panResponderStub = {
+  create: (config: PanResponderConfig) => {
+    const handlers: Record<string, unknown> = {};
+    for (const [key, handler] of Object.entries(config)) {
+      handlers[key] = (...args: never[]) => (handler as (...a: never[]) => unknown)(...args);
+    }
+    panResponderConfigs.push(config);
+    panResponderHandlerSets.push(handlers);
+    return { panHandlers: handlers };
+  },
+};
+
 const reactNativeStub = {
+  PanResponder: panResponderStub,
   Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web ?? values.default },
   View: 'View',
   Text: 'Text',
@@ -510,14 +537,27 @@ function listedFileIds(tree: unknown): string[] {
   return listedIds(tree).filter((id) => id.startsWith('file:')).map((id) => id.slice('file:'.length));
 }
 
-/** The load-more control is whatever the footer leaves enabled. */
+/**
+ * STAGE 2 REOPEN — the load-more affordance is GONE.
+ *
+ * Pagination became automatic, so a normal scroll must never stop on a button. The list
+ * pages itself through `onEndReached`, which is exactly what a scroll reaches, so this
+ * drives that instead. The 100/101 boundary assertions below are unchanged: what is
+ * being proven is that reaching the 101st file costs a second read at the right offset,
+ * not that a button exists.
+ */
 function pressLoadMore(tree: unknown): boolean {
-  const footer = listOf(tree).props.ListFooterComponent;
-  const enabled = findAll(footer, (element) => typeof element.props?.onPress === 'function' && element.props?.disabled !== true
-    && typeof element.props?.title === 'string' && element.props.title.length > 0);
-  if (enabled.length !== 1) return false;
-  enabled[0].props.onPress();
+  const trigger = listOf(tree)?.props?.onEndReached;
+  if (typeof trigger !== 'function') return false;
+  (trigger as () => void)();
   return true;
+}
+
+/** The paging affordance the member used to have to press. It must not exist. */
+function hasLoadMoreCta(tree: unknown): boolean {
+  const footer = listOf(tree)?.props?.ListFooterComponent;
+  if (!footer) return false;
+  return findAll(footer, (element) => element.props?.title === 'Mostrar más archivos').length > 0;
 }
 
 function typeSearch(tree: unknown, text: string): boolean {
@@ -627,7 +667,9 @@ async function testOverOneHundredFiles(): Promise<void> {
   record(listedFileIds(surface.tree).length === MAX_LIMIT, 'A5. the first page holds 100 items with nothing truncated');
 
   const readsBeforeMore = transport.fileReads().length;
-  record(pressLoadMore(surface.tree), 'A6. a full page renders a load-more affordance');
+  record(hasLoadMoreCta(surface.tree) === false,
+    'A6. a full page renders NO load-more affordance — the list pages itself');
+  record(pressLoadMore(surface.tree), 'A6a. and the pagination trigger is wired and reachable');
   await surface.settle();
 
   const secondPage = transport.fileReads().filter((read) => read.params.get('offset') === String(MAX_LIMIT));

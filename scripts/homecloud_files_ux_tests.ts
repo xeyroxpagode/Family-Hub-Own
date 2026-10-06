@@ -459,6 +459,15 @@ const uiStub: Record<string, unknown> = {
   DatePickerSheet: 'DatePickerSheet',
   ErrorState: 'ErrorState',
   FormActionRow: 'FormActionRow',
+  /**
+   * The header controls are `InteractivePressable`s, so the boundary has to EXIST.
+   *
+   * It used to be missing from this stub, which made `components/ui.InteractivePressable`
+   * resolve to `undefined` and every header control mount as an element with no type at
+   * all. Nothing crashed, which is worse: the harness silently stopped covering the one
+   * gesture a member uses to reach the Files overflow.
+   */
+  InteractivePressable: 'InteractivePressable',
 };
 const iconsStub = { HomePlusIcon: 'HomePlusIcon' };
 const fileIntakeStub = { FileIntake: 'FileIntake' };
@@ -958,6 +967,32 @@ async function main(): Promise<void> {
     const hint = findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Más opciones de Archivos');
     record(typeof hint?.props?.accessibilityHint === 'string' && !/actualizar/i.test(hint.props.accessibilityHint),
       'X-B6. and the overflow hint no longer advertises an update action');
+    // The overflow control is an `InteractivePressable`, and this asserts the BOUNDARY
+    // really resolved rather than the callback merely existing. `InteractivePressable`
+    // was absent from the `components/ui` stub, so it resolved to `undefined` and every
+    // header control mounted with no type; nothing crashed, the harness just stopped
+    // covering the gesture a member actually uses.
+    record(hint?.type === 'InteractivePressable',
+      'X-B6a. the overflow control mounts as a REAL InteractivePressable, not an undefined component');
+    const headerControls = findAll(surface.tree, (element) => element.type === 'InteractivePressable');
+    record(headerControls.length === 3,
+      `X-B6b. all three header controls are present and typed (${headerControls.length})`);
+    record(headerControls.every((element) => element.props?.accessibilityRole === 'button'
+      && typeof element.props?.accessibilityLabel === 'string'
+      && element.props.accessibilityLabel.length > 0),
+      'X-B6c. and each one declares itself a button with a meaningful label for assistive technology');
+    // The gesture is exercised THROUGH the mounted control, not by calling a handler
+    // out of band.
+    (hint?.props?.onPress as (() => void) | undefined)?.();
+    surface.render();
+    record(findAll(surface.tree, (element) => element.type === 'ActionSheet'
+      && findAll(element, (inner) => inner.props?.accessibilityLabel === 'Seleccionar archivos').length > 0).length === 1,
+      'X-B6d. pressing the mounted control really opens the overflow sheet');
+    record(findAll(surface.tree, (element) => element.props?.title === 'Seleccionar').length === 1,
+      'X-B6e. whose only item is `Seleccionar`');
+    (findOne(surface.tree, (element) => element.type === 'ActionSheet'
+      && findAll(element, (inner) => inner.props?.title === 'Seleccionar').length > 0)?.props?.onRequestClose as (() => void) | undefined)?.();
+    surface.render();
     record(findAll(surface.tree, (element) => /Actualizar archivos/.test(JSON.stringify(element.props?.accessibilityActions ?? []))).length === 1,
       'X-B7. exactly ONE accessibility-only refresh action exists, and it is not a visible control');
     surface.unmount();

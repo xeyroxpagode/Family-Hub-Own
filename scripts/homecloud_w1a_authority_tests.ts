@@ -297,8 +297,23 @@ function testPermissionMapping(): void {
     'E10. a typed domain code alone is enough, with no status at all');
 
   const screen = readFront('screens/HomeCloudFilesScreen.tsx');
-  record(screen.includes('readFailure ?') && screen.includes('items.length === 0'),
-    'E11. the empty state is reachable only after a read that neither failed nor refused');
+  // STAGE 2 REOPEN. This asserted `screen.includes('items.length === 0')`, i.e. that the
+  // empty state was a sibling branch that REPLACED the list — which is precisely the
+  // defect: replacing the list unmounted the FlatList and with it the RefreshControl, so
+  // an empty folder or an empty Favoritos result could not be refreshed at all.
+  //
+  // The truth is now the opposite and the assertion follows it: the empty state lives
+  // INSIDE the list, the list is mounted for every non-fatal outcome, and only a real
+  // read refusal or failure still replaces the browser.
+  record(screen.includes('ListEmptyComponent=')
+    && screen.includes('<FlatList'),
+    'E11. the empty state lives INSIDE the list, so the scroll surface always exists');
+  record(!/:\s*items\.length === 0 \?/.test(screen),
+    'E11a. and there is no branch any more that swaps the list out for an empty view');
+  record(screen.includes('readFailure ?') && screen.includes('error ?'),
+    'E11b. while a read refusal or a read failure still replaces the browser, as it must');
+  record(screen.includes('refreshControl={<RefreshControl') && screen.includes('ListEmptyComponent'),
+    'E11c. and the RefreshControl therefore exists on an empty result too');
 }
 
 // ── C. stable identity ──────────────────────────────────────────────────────

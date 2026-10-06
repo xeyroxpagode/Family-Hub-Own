@@ -88,9 +88,21 @@ try {
   // STAGE 2 (Phase 3): the tap is no longer a reserved no-op seam - it OPENS the
   // Viewer. The guarantee Stage 1 protected is unchanged and still asserted: a tap
   // OUTSIDE selection never selects anything, and inside selection it only toggles.
+  // STAGE 2 REOPEN: a long press inside selection no longer RETURNS EARLY — it arms the
+  // drag-selection sweep. The guarantee this assertion existed for is unchanged and is
+  // now asserted as what it actually is: it opens NOTHING (no File menu, no navigation,
+  // no Viewer) and hands the gesture to the sweep instead.
   assert.doesNotMatch(files, /beginSelectionAt/);
   assert.doesNotMatch(files, /beginFileSelectionAt/);
-  assert.match(files, /const handleFileLongPress = useCallback[\s\S]*?if \(selection\.mode\) return;/);
+  assert.match(
+    files,
+    /const handleFileLongPress = useCallback[\s\S]*?if \(selection\.mode\) \{[\s\S]*?armDragSelection\(fileId\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?setActionTargetId\(fileId\);/,
+  );
+  assert.doesNotMatch(
+    files,
+    /const handleFileLongPress[\s\S]{0,400}?setViewerTargetId/,
+    'a long press must never open the Viewer',
+  );
   assert.match(files, /const handleFileTap = useCallback[\s\S]*?if \(selection\.mode\) \{[\s\S]*?toggleFileSelection[\s\S]*?return;[\s\S]*?setViewerTargetId\(fileId\);/);
   assert.doesNotMatch(files, /if \(!selection\.mode\) return;\s*\n\s*\/\/ Outside selection the tap is the Viewer/);
   assert.match(files, /accessibilityLabel="Seleccionar archivos"/);

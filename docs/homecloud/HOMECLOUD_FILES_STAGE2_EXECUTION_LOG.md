@@ -963,3 +963,109 @@ checklist.
 ### COMMIT
 
 `feat(homecloud): close common file viewer ux`
+---
+
+## SLICE D -- EXECUTABLE EVIDENCE, REAL GATES, CI
+
+### THE ORPHANS ARE GONE (`tests/run.js`)
+
+`homecloud-files-viewer`, `homecloud-files-ux` and `homecloud-stage2-integrated` were
+DEFINED and PASSING while **no gate ever invoked them**. They were reachable only by typing
+their names by hand. That is the exact shape of the failure this reopen exists to correct,
+so they are now steps of `homecloud-files`, which `npm run quality` and CI both run.
+
+### THE CANONICAL STAGE 2 GATE
+
+```
+node tests/run.js homecloud-files-stage2
+```
+
+It composes `homecloud-files` and adds `frontend-typecheck`, `backend-syntax`,
+`migration-uniqueness` and `secrets` -> **27 commands**. `homecloud-files-stage2-surface` is
+the fast deterministic subset for a local loop.
+
+To compose rather than duplicate, `tests/run.js` had to stop assuming a suite is a flat
+list of commands: `resolveSteps()` now expands a step that names another GATE, de-duplicates
+and detects cycles, and an unknown name fails loudly naming itself. Previously a suite
+naming a gate crashed with `Cannot read properties of undefined (reading 'label')` -- a
+harness bug wearing the costume of a product failure. Composing is what makes the stronger
+gate impossible to let drift: there is no second list to forget.
+
+### CI: EXECUTED, NOT SKIPPED
+
+`.github/workflows/homeplus-quality.yml`, job `quality`, already runs `supabase start` three
+steps earlier. The Stage 2 integration gate is now invoked there **by name**, in addition
+to being inside `homecloud-files`:
+
+- `Run HomeCloud Files Stage 2 integration QA` -> `node tests/run.js homecloud-stage2-integrated`
+- `Run the canonical HomeCloud Files Stage 2 gate` -> `node tests/run.js homecloud-files-stage2`
+
+Why explicitly, when `npm run quality` already reaches it transitively: an integration gate
+that exists only inside another gate is invisible. Nobody can tell from the CI file whether
+the cross-flows, the large-data boundaries, the isolation matrix and the privacy review
+actually ran, and a future edit to that aggregate could drop them with nothing failing.
+
+It is deliberately **not** a job that skips itself when the stack is missing: the stack is
+provisioned in the same job, so a skip would mean the environment is broken rather than that
+the check is optional. The `integration` job (dispatch-only) is untouched.
+
+Locally, `homecloud-stage2-integrated` was given a `RUNTIME_ENVIRONMENT` entry so it degrades
+to the repo's standard `SKIPPED (LOCAL_RUNTIME_REQUIRED)` when no stack is present, instead
+of hard-failing on a developer machine. No new infrastructure platform was introduced.
+
+### LOCAL RUNTIME, ACTUALLY RUN
+
+The Docker daemon had stopped between slices; it was restarted with its normal
+non-destructive start and the existing containers came back on the SAME ports (Kong 56221,
+Postgres 56222). No `supabase db reset`, no volume deleted, no remote Supabase.
+
+| Suite | Result |
+|---|---|
+| `homecloud-files-favorites-runtime` (real PostgREST) | **39/39** |
+| `homecloud-files-hierarchy-runtime` (real PostgREST) | **87/87** |
+| `homecloud-files-hierarchy-migration` (isolated local DBs) | **41/41** |
+| `homecloud-stage2-integrated` (cross-flows, isolation, privacy) | **119/119** |
+| `homecloud-files` (23 commands, runtime steps RUN, none skipped) | PASSED |
+| `homecloud-files-stage2` (27 commands) | PASSED, 196 s |
+
+### HARNESS BOUNDARIES CLOSED
+
+Three of them were producing **misleading evidence**, not failures:
+
+1. **`InteractivePressable` resolved to `undefined`** in four suites that mount the Files
+   screen. Nothing crashed -- the header controls simply mounted with no type, so the harness
+   had silently stopped covering the one gesture a member uses to reach the Files overflow.
+   It is now a real boundary in every such suite, and the UX suite asserts the overflow
+   control is a typed `InteractivePressable` with a role, a label, and a press that really
+   opens the sheet.
+2. **`PanResponder` was missing** from the S4-i wiring stub, so that suite CRASHED on mount
+   once a pan responder existed. Every mounting suite now has the drivable stub.
+3. The **shared device stubs** gained `react-native-pdf` and `react-native-safe-area-context`
+   so each suite does not grow its own copy of the native boundary.
+
+### THREE EXISTING ASSERTIONS CORRECTED RATHER THAN RELAXED
+
+Each encoded the OLD product truth and each now asserts the NEW one, more strongly:
+
+| Suite | Was | Now |
+|---|---|---|
+| `homecloud_w1a_authority` E11 | the empty state is a sibling branch that replaces the list (`items.length === 0`) | the empty state lives INSIDE the list, there is no branch that swaps the list out, and the `RefreshControl` therefore exists on an empty result |
+| `homecloud_s4i_files_wiring` A6 | "a full page renders a load-more affordance" | a full page renders NO affordance and the pagination trigger is wired; the 100/101 boundary assertions are unchanged |
+| `selection_system_tests` | `if (selection.mode) return;` in the long press | the long press arms the sweep, opens nothing, and never opens the Viewer |
+
+### CI SYNTAX
+
+`ci-syntax` PASS on the modified workflow.
+
+### DEVICE CHECKLIST
+
+`docs/homecloud/HOMECLOUD_FILES_STAGE2_DEVICE_QA.md`. **Nothing on it has been executed.**
+Every row is `UNPROVEN_DEVICE`, and the document says so in its first line. It covers the
+favorites, selection, refresh, pagination and viewer matrices plus household isolation, and
+it names the four things the automated suites structurally cannot prove: native rendering,
+native playback, a real notch, and a native scroll recognizer yielding to an armed
+gesture.
+
+### COMMIT
+
+`test(homecloud): make files stage 2 evidence executable`
