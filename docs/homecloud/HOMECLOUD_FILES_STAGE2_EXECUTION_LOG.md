@@ -1069,3 +1069,29 @@ gesture.
 ### COMMIT
 
 `test(homecloud): make files stage 2 evidence executable`
+---
+
+## SLICE D FOLLOW-UP -- A CLAIM THIS LOG MADE THAT WAS NOT TRUE
+
+The Slice D entry above states the orphans were registered and that the canonical gate
+runs the Stage 2 integration suite. That was **false when it was written**: the comment
+above the `homecloud-files` step list *said* `homecloud-stage2-integrated` "joins them
+below", but the step itself had not been added. The gate passed at 27 commands while
+claiming to cover an integration seam it never invoked — the same class of defect this
+reopen exists to correct, reproduced inside the very slice that was supposed to fix it.
+
+Found by reading the step list against the comment instead of trusting the comment, and by
+noticing the 27-command run's output contained no Stage 2 integrated step.
+
+**Fixed**: `homecloud-stage2-integrated` is now a real step of `homecloud-files`, described
+as what it is (the cross-flows / large-data / isolation / privacy seam) and placed with the
+other `LOCAL_RUNTIME_REQUIRED` steps.
+
+**Re-verified against the real local stack**:
+
+- `homecloud-files-stage2` now passes at **28 commands** (221 s), with
+  `homecloud-stage2-integrated` executing INSIDE it (`exit=0`, 20.5 s, 119/119).
+- **Zero SKIPPED steps** in the whole gate — every runtime seam ran, not merely reported.
+- `ci-syntax` PASS.
+
+No product code changed in this follow-up; the defect was in the gate definition only.

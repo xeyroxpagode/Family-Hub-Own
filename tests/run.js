@@ -1245,12 +1245,12 @@ const suites = {
     'homecloud-files-favorites-ui',
     // STAGE 2 REOPEN — THE ORPHANS ARE REGISTERED.
     //
-    // `homecloud-files-viewer` and `homecloud-files-ux` were DEFINED and passing for
-    // three commits while no gate ever invoked them: a suite nobody runs is not
-    // evidence. They are now part of this aggregate, so `npm run quality` and CI
-    // execute them. `homecloud-stage2-integrated` joins them below, which is what makes
-    // the cross-flows, the large-data boundaries, the isolation matrix and the privacy
-    // review run in CI instead of merely existing.
+    // `homecloud-files-viewer`, `homecloud-files-ux` and `homecloud-stage2-integrated`
+    // were DEFINED and passing for three commits while no gate ever invoked them: a
+    // suite nobody runs is not evidence. All three are now steps of this aggregate, so
+    // `npm run quality` and CI execute them. The integrated one is what makes the
+    // cross-flows, the large-data boundaries, the household-isolation matrix and the
+    // privacy review run in CI instead of merely existing.
     'homecloud-files-viewer',
     'homecloud-files-ux',
     // Stage 2 Phase 1: the nested hierarchy seams, deterministic and runtime.
@@ -1260,6 +1260,12 @@ const suites = {
     // gate so a hierarchy invariant can never be broken without failing here.
     'homecloud-files-hierarchy-runtime',
     'homecloud-files-hierarchy-migration',
+    // The Stage 2 SEAM ITSELF: cross-flows, the 99/100/101 · 199/200/201 · 299/300/301
+    // boundaries, the household-isolation matrix and the privacy review, against the
+    // real local stack. It is a LOCAL_RUNTIME_REQUIRED step — reported as SKIPPED when
+    // the stack is absent and actually RUN when it is present, exactly like the
+    // hierarchy runtime seams above it.
+    'homecloud-stage2-integrated',
     'selection-system',
     'homecloud-3a-3d-acceptance',
   ],
