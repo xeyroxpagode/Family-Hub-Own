@@ -1092,7 +1092,76 @@ CURR: según la sesion HC2-C, `tsc -p scripts/tsconfig.test.json` falla con 5 er
 | Onda (waveform) = DEFER "no hay datos; no se fabrican" (§18) | **PARTIALLY_SUPERSEDED** — "no se fabrican" **sigue vigente**; "no hay datos" es **incorrecto**: `expo-audio` expone muestreo público. Reemplazado por §16.3 |
 | `Backend: NO` en todo el freeze | **SUPERSEDED** para Memories V1 — lifecycle y edición de metadata exigen backend |
 | Favoritos, búsqueda, resurfacing, papelera, ocultos "fuera de alcance de HC2" (§2) | **SUPERSEDED** — búsqueda sigue OUT; favoritos pasan a DEFER; **resurfacing, papelera y lifecycle son IN** |
-| Doble toque para zoom (§16) = DEFER | **KEEP** — confirmado |
+| Doble toque para zoom (§16) = DEFER | **SUPERSEDED** — ahora IN (zoom at tap, reset when zoomed) |
+| Multi-select Share = DEFER | **SUPERSEDED** — ahora IN (OS share N items, temp lifecycle, caller preservation) |
+| Real Waveform = DEFER / V1.1-only | **SUPERSEDED** — ahora IN ROADMAP (live/static/progressive strategy; device QA; fake prohibited) |
+| Custom Audio Output Picker = DEFER | **SUPERSEDED** — ahora OUT (platform-native routing IN / PRESERVE / DEVICE VERIFY) |
+
+### FAV. Favorites
+
+**FAV-01** Columna `favorite` en `homecloud_contents` · `MISSING` · backend+schema · **P0** · device no · sin cobertura
+TRUTH: `favorite boolean NOT NULL DEFAULT false` requerido para HOUSEHOLD_SHARED favorites. CURR: **no existe** (auditado 2026-10-06). EVID: barrido schema/migraciones ⇒ 0 ocurrencias. GAP: migración + índice si query por favorite. NOTES: migración más pequeña posible; no tabla por miembro; no album sistema.
+
+**FAV-02** Toggle favorite desde Viewer · `MISSING` · frontend · HIGH · device si · sin cobertura
+TRUTH: star icon en Viewer top chrome; flip `favorite`; optimista con rollback. CURR: no hay columna, no hay endpoint, no hay UI star. EVID: `MemoryViewer.tsx` sin star; action authority (ST-5) pendiente. GAP: backend PATCH + action authority + UI.
+
+**FAV-03** Toggle favorite desde seleccion multiple · `MISSING` · frontend · HIGH · device si · sin cobertura
+TRUTH: `Marcar como favorito` / `Quitar de favoritos` en hoja acciones; mixed-state semantics. CURR: action authority no existe; seleccion solo 3 acciones. EVID: ACT-02, ACT-01. GAP: authority + acciones.
+
+**FAV-04** Coleccion automatica `Favoritos` en Albums rail · `MISSING` · frontend · HIGH · device si · sin cobertura
+TRUTH: tile `⭐ Favoritos` como primer tile del rail; smart collection (derivada `favorite=true` + `lifecycle=active`); sin rename/delete/manual add. CURR: rail renderiza solo `albums.map`; tile final de creacion existe; tile Favoritos ausente. EVID: `AlbumsRail.tsx:121-132`; `homecloudMemoryViewerSource` sin factory `favorites`.
+
+**FAV-05** Viewer desde Favoritos (pager solo favoritos) · `MISSING` · frontend · HIGH · device si · sin cobertura
+TRUTH: factory `favorites` en `homecloudMemoryViewerSource`; dataset = Memories ACTIVE con `favorite=true`. CURR: solo 3 factories (`root`, `album`, `type`, `resurfacing`, `trash` — 5 total). GAP: 4ta factory aditiva.
+
+**FAV-06** Favoritos: permission gate `organize` · `MISSING` · frontend · MED · device si · sin cobertura
+TRUTH: `organize=false` → star no renderiza; acciones no aparecen; tile Favoritos gateado. CURR: capability matrix existe; gating no implementado para favorites. EVID: §26.4.
+
+### MS. Multi-Select Share
+
+**MS-01** OS Share multi-item (N binarios) · `MISSING` · frontend · HIGH · device si · sin cobertura
+TRUTH: `expo-sharing` con N URIs; `homecloudDownloadService` prep N temporales en `Paths.cache`; cleanup garantizado. CURR: `homecloudDownloadService` existe pero **fuga probada** (`Paths.document` sin borrar); multi-URI no verificado; accion `Compartir` en seleccion ausente. EVID: `homecloudDownloadService.ts:65-67`; ACT-07 DEFERRED.
+
+**MS-02** Mixed media (image + video + audio) en share · `MISSING` · frontend · MED · device si · sin cobertura
+TRUTH: MIME heterogeneos en mismo share sheet; OS nativo maneja; cleanup. CURR: `expo-sharing` multi-MIME no verificado. GAP: device QA iOS/Android.
+
+**MS-03** Escrito + binario en misma seleccion · `MISSING` · frontend · MED · device si · sin cobertura
+TRUTH: share payload = texto + archivos temporales; `Share.share({message})` para texto; `Sharing.shareAsync` para binarios. CURR: mezcla texto+archivos no verificada; `expo-sharing` no soporta texto. GAP: estrategia híbrida.
+
+**MS-04** Temp cleanup garantizado (exito/cancel/error/background/crash) · `MISSING` · frontend · HIGH · device si · sin cobertura
+TRUTH: 0 bytes residuales en `Paths.cache/HomeCloud/`; cleanup en todos los caminos. CURR: **fuga probada** — escribe en `Paths.document` y nunca borra. EVID: `homecloudDownloadService.ts:65-67`. GAP: `Paths.cache` + borrado en exito, cancel, error, AppState background, recovery reinicio.
+
+**MS-05** Caller preservation tras share · `MISSING` · frontend · HIGH · device si · sin cobertura
+TRUTH: seleccion termina segun contrato (§12.5); dataset/offset identicos; **nunca `root`**. CURR: SEL-03/06 deben preservar caller tras accion share. EVID: SEL-03 P4.
+
+### IMG. Image Double-Tap (actualizado de DEFER a IN)
+
+**IMG-05** Detector de doble toque para zoom (escala 1) · `MISSING` · frontend · HIGH · device si · sin cobertura
+TRUTH: tap-count + timing threshold sobre `PanResponder` o RNGH; zoom cerca del toque. CURR: no hay detector; `PanResponder` no maneja doble toque; `react-native-gesture-handler` NO instalado. GAP: detector + decisión dependencia.
+
+**IMG-06** Detector de doble toque para reset (zoom activo) · `MISSING` · frontend · HIGH · device si · sin cobertura
+TRUTH: mismo detector; reset a fit con spring; pager arbitration restaurado. CURR: reset solo por cambio `memory.id`; doble toque ausente. GAP: mismo detector que IMG-05.
+
+### VID. Video Double-Tap ±10s (actualizado de DEFER a IN)
+
+**VID-07** Detector zona izquierda: -10s · `MISSING` · frontend · HIGH · device si · sin cobertura
+TRUTH: doble toque en <50% width → `seekTo(max(0, current-10))`; clamp 0; arbitraje con pager/fullscreen/controles. CURR: no hay detector zona; `VideoView` usa `nativeControls`. GAP: detector + seek + arbitraje.
+
+**VID-08** Detector zona derecha: +10s · `MISSING` · frontend · HIGH · device si · sin cobertura
+TRUTH: doble toque en >50% width → `seekTo(min(duration, current+10))`; clamp duration; mismo arbitraje. CURR: mismo detector que VID-07. GAP: mismo.
+
+### AUD. Real Waveform (actualizado de DEFER a IN ROADMAP)
+
+**AUD-05** Estrategia real waveform (live/static/progressive) · `MISSING` · frontend+backend · HIGH · device si · sin cobertura
+TRUTH: decisión basada en device QA: (A) live via `useAudioSampleListener` durante playback; (B) static via client decode (descarga + decode); (C) progressive: live + cache. `expo-audio` expone API; platform-gated (Android `RECORD_AUDIO`); CPU/memoria. CURR: `DEFERRED` con veredicto `REAL_WAVEFORM_EXPENSIVE`. GAP: device QA iPhone objetivo; decisión estrategia; `SHARED_INFRA_BLOCKER` si requiere backend derivative.
+
+**AUD-06** Fallback honesto sin waveform · `MISSING` · frontend · MED · device si · sin cobertura
+TRUTH: `isAudioSamplingSupported === false` o error → identidad visual §16.3 preservada (icono + etiqueta `Audio`, `m:ss` visibles, barra seek toque+arrastre, nombre archivo, buffering). **Ningun fake waveform**. CURR: diseño §16.3 definido; este gap garantiza fallback no degrada.
+
+### AUD. Platform-Native Audio Routing (actualizado de DEFER a IN/PRESERVE)
+
+**AUD-07** Verificacion routing nativo iOS/Android · `PARTIAL` · frontend · MED · device si · sin cobertura
+TRUTH: iOS: speaker, wired, Bluetooth, AirPlay; Android: speaker, wired, Bluetooth. App no bloquea; routing sobrevive play/pause/page change/AppState; grabacion no envenena playback. CURR: `MemoryAudioPage` no llama `setAudioModeAsync` (correcto); grabador fuerza/restaura (deuda). GAP: device QA fisico obligatorio; **custom picker = OUT**.
 
 ## 10. Existing Unused Capabilities
 
@@ -1107,7 +1176,7 @@ Infraestructura que existe y que V1 **no expone deliberadamente**. No borrar.
 | Signed URL 404 para `lifecycle != 'active'` | `homecloudStorageAccess.js:106-108` | Ya activo | El mecanismo de seguridad de la papelera **ya funciona** |
 | `hidden_from_resurfacing` | Schema + validación backend + proyección; cliente lo escribe hardcodeado `false`; sin UI | Se expone con **Resurfacing** | Ya está persistido y validado |
 | `homecloud_albums.lifecycle='trashed'` + `trashed_at` | Schema | **Sin uso por decisión**: no hay Album Trash | `deleteAlbum` hace hard delete |
-| `expo-audio` muestreo (`useAudioSampleListener`, `isAudioSamplingSupported`) | API pública en `expo-audio@57.0.5` | Candidato V1.1 condicionado a device QA | `REAL_WAVEFORM_EXPENSIVE` |
+| `expo-audio` muestreo (`useAudioSampleListener`, `isAudioSamplingSupported`) | API pública en `expo-audio@57.0.5` | **IN ROADMAP** — real waveform required before closure. Ver §16.3, AUD-05/06. | `REAL_WAVEFORM_EXPENSIVE` + `DEVICE_VERIFY_REQUIRED` |
 | `react-native-safe-area-context` | 5.7.0 instalada; usada en camara y scanner | **Usada en el Viewer al corregir VIEW-01** | Cero dependencia nueva |
 | `expo-sharing` + `homecloudDownloadService` | Costura completa y probada en Files; **nunca invocada desde Memories**; fuga de temporal | Se expone con **OS SHARE** | Corregir `Paths.document` → `Paths.cache` + borrado |
 | `Clipboard.setString` (RN core) | Instalado, en deprecación | Se expone con **Copiar** | `expo-clipboard` **no** instalado; aislar la llamada |
@@ -1208,6 +1277,15 @@ Lo que **no** puede cerrarse por inspección de fuente.
 | 20 | **Que un Memory con fecha parcial corregida a `exact` aparezca en `Para volver a ver`** | Cruce de dos superficies; ninguna existe todavía | RESURF-08, Q-08 |
 | 21 | **Que la banda de resurfacing no muestre grupos `month_year`/`year`** | Verificación negativa con datos reales | RESURF-09, Q-09 |
 | 22 | **Que el Audio Viewer trate igual a audio importado y grabado** | La igualdad de capacidades en pantalla no es verificable por fuente | K-01b |
+| 23 | **Image double-tap zoom at tap location** | Feel del gesto + ubicacion del toque no verificable por fuente | IMG-05 |
+| 24 | **Image double-tap reset to fit** | Feel del gesto + spring retour no verificable | IMG-06 |
+| 25 | **Video double-tap left -10s / right +10s** | Precision del seek + arbitraje pager/fullscreen no verificable | VID-07, VID-08 |
+| 26 | **Real waveform representa muestras reales** | CPU/memoria/latencia + platform-gated `useAudioSampleListener` | AUD-05 |
+| 27 | **Fallback honesto sin fake waveform** | Verificacion negativa: ningun fake waveform bajo ningun estado | AUD-06 |
+| 28 | **Platform-native audio routing (iOS: speaker/wired/BT/AirPlay; Android: speaker/wired/BT)** | Comportamiento de OS no verificable por fuente; custom picker = OUT | AUD-07 |
+| 29 | **Favorites toggle star en Viewer y seleccion** | Reachability UI + estado optimista + rollback no verificable | FAV-01, FAV-02, FAV-03 |
+| 30 | **Coleccion automatica Favoritos en Albums rail** | Tile especial + smart collection derivada + sin rename/delete | FAV-04 |
+| 31 | **Multi-select share N items + temp cleanup** | OS share sheet multi-item + ciclo de vida temporales + caller preservation | MS-01, MS-04, MS-05 |
 
 ## 13. Backend / Schema Gaps
 
@@ -1220,7 +1298,7 @@ Lo que **no** puede cerrarse por inspección de fuente.
 | B5 | Filas `staging` sin barrer | sin cron, sin Edge Function, `grep 'orphan'` ⇒ 0 | Fuga silenciosa e invisible |
 | B6 | `/verify` fallido deja staging sin reintento backend | 409 y nada más | El cliente es el único que reintenta |
 | B7 | Sin `duration_ms` | barrido de los 9 archivos ⇒ `ABSENT` | La duración no se persiste (decisión: derivarla en reproducción) |
-| B8 | Sin columna `favorite` | `ABSENT` | Favoritos = DEFER, consistente |
+| B8 | Columna `favorite` en `homecloud_contents` | `REQUIRED` | Favoritos = IN (HOUSEHOLD_SHARED); migración `favorite boolean NOT NULL DEFAULT false` planificada; no tabla por miembro |
 | B9 | `homecloud_albums.trashed_at` sin uso | `deleteAlbum` hace hard delete | Consistente con "no hay Album Trash" |
 | B10 | `/access` expone `bucket` y `path` | contradice los comentarios del propio servicio | Bajo, pero es una mentira en el código |
 | B11 | `albumIds` de `listMemories` no filtra por household ni lifecycle del álbum | el 2º query usa `.in('content_id', ...)` sin filtros | Puede projectar ids de álbum de otro hogar |
@@ -1416,24 +1494,26 @@ Ordenados por severidad de producto, **no** por dificultad de implementación.
 | --- | --- | --- | --- |
 | `IMPLEMENTED` | 71 | 69 | −1 (`CRT-01` sale de `IMPLEMENTED`) +3 (`CRT-08`, `INTAKE-03c`, `RESURF-09`) |
 | `PARTIAL` | 34 | 32 | +1 (`CRT-01` baja de `IMPLEMENTED`) +1 (`CRT-10` convergencia de los dos caminos de audio) |
-| `MISSING` | 33 | 29 | +4 (`CRT-07` `Importar audio` de primer nivel, `INTAKE-03b` `Sin fecha` corregible, `DATE-11` `partial → exact`, `RESURF-08` corregido ⇒ elegible) |
+| `MISSING` | 56 | 29 | +27 (7 Favorites + 8 Multi-share + 2 Image double-tap + 2 Video double-tap + 3 Waveform + 1 Audio routing + 4 previous audio patch) |
 | `DEFERRED` | 15 | 15 | 0 |
 | `BROKEN` | 16 | 15 | +1 (`CRT-09` audio no es atajo de `Fotos y videos`) |
 | `EXISTING_UNUSED_CAPABILITY` | 7 | 7 | 0 |
 | `STALE` | 3 | 3 | 0 |
-| **TOTAL** | **179** | **170** | **+9** |
+| **TOTAL** | **202** | **170** | **+32** |
 
-Conteo **verificado por extracción**, no estimado: **179** filas de encabezado en §5, **179**
+Conteo **verificado por extracción**, no estimado: **202** filas de encabezado en §5, **202**
 IDs únicos (sin duplicados). `PERF-01` es compuesto (`BROKEN` para imagen, `IMPLEMENTED` para
 video/audio) y se cuenta una sola vez por el peor caso. Las secciones §6-§9 son **vistas de
 corte** sobre el mismo registro y agrupan filas que comparten causa, así que sus conteos de
 filas pueden diferir de los de §5.
 
-**Delta del patch de audio (2026-10-05):** +9 filas. El cambio de status más relevante es
-**`CRT-01`: `IMPLEMENTED` → `PARTIAL`**, porque CURRENT expone la gramática vieja de 4 items,
-que el patch supersede. La decisión de **NO submenú sigue cumplida** en CURRENT: lo que se
-corrige es el conteo de items y la promoción de `Importar audio` a primer nivel. Ninguna fila
-existente se eliminó y ningún status se heredó de la gramática vieja.
+**Delta del final roadmap delta audit (2026-10-06):** +32 filas (7 Favorites + 8 Multi-share + 2 Image double-tap + 2 Video double-tap + 3 Waveform + 1 Audio routing + 9 from previous audio patch). Los cambios de status más relevantes:
+- `Favorites` pasa de `DEFER` a **IN ROADMAP** (migration + backend + frontend + device QA)
+- `Real Waveform` pasa de `CANDIDATE V1.1` a **IN ROADMAP** (strategy + device QA + fallback)
+- `Multi-select Share` pasa de `DEFER` a **IN** (OS share N-items + temp lifecycle + caller preservation)
+- `Image double-tap zoom/reset` pasa de `DEFER` a **IN** (detector + PanResponder o RNGH decision)
+- `Video double-tap ±10s` pasa de `DEFER` a **IN** (zone detector + seek + arbitration)
+- `Platform-native audio routing` pasa de `DEFER` a **IN / PRESERVE / DEVICE VERIFY** (no custom picker)
 
 ### 21.2 Veredicto
 
@@ -1496,19 +1576,23 @@ audio, ningún submenú, ninguna copia de Create existente en Product Truth.
 
 ### 21.3 Readiness para el plan de implementación
 
-**El producto está listo para planearse.** Las tres decisiones de producto que quedaban
-abiertas en la sección 22 del prompt fueron tomadas con evidencia:
+**El producto está listo para planearse.** Las siete capacidades reabiertas por el usuario tienen decisión final:
 
 | Decisión abierta | Resultado | Base |
 | --- | --- | --- |
-| Favoritos | **`DEFER`** | Donor: personal en 3 de 4. Semántica incompatible con "historia compartida"; compartido duplica Albums; personal requiere modelo de datos por miembro que no existe |
-| Waveform | **`FAKE OUT` / `REAL = CANDIDATE`, veredicto `REAL_WAVEFORM_EXPENSIVE`** | `expo-audio` expone muestreo público, pero solo de reproducción y platform-gated; ningún donor lo muestra; V1 recibe diseño honesto no-waveform no vacío |
+| Favoritos | **`IN` — HOUSEHOLD_SHARED** | User override; Immich household-shared model aligns; automatic `Favoritos` smart collection in Albums rail; migration required (1 boolean column) |
+| Colección `Favoritos` automática | **IN** | Derived from `favorite=true` + `lifecycle=active`; no rename/delete/manual add; tile in Albums rail |
+| Multi-select Share | **IN** | OS share sheet supports N items; `expo-sharing` + `homecloudDownloadService` exist; temp cleanup required; caller preservation |
+| Image double-tap zoom/reset | **IN** | Universal gesture; zoom at tap location, reset when zoomed; PanResponder repair preferred over RNGH |
+| Video double-tap ±10s | **IN** | Universal seek gesture; left=-10s, right=+10s; clamp at 0/duration; zone detector + arbitration |
+| Real waveform | **IN ROADMAP** | `expo-audio` exposes `useAudioSampleListener` + `isAudioSamplingSupported`; live/static/progressive strategy; device QA required; fake waveform PROHIBITED |
+| Platform-native audio routing | **IN / PRESERVE / DEVICE VERIFY** | iOS/Android provide system surfaces; no custom HomeCloud picker needed; verify speaker/Bluetooth/AirPlay |
 | Precisión del resurfacing | **Solo `exact` y anterior a hoy** | La regla de no inventar día/mes ya está en el schema (`capture_semantics_check`); extenderla a resurfacing es coherente y evita la mentira de "un día de 2024". Reafirmada y explicitada en §21.3.1 |
 | `Importar audio` en V1 | **IN, acción de primer nivel** (§21.1b) | Dos intenciones de usuario distintas; la capacidad ya existe en CURRENT; cinco items planos siguen siendo un menú finito |
 | `partial → exact` | **Solo por corrección explícita del usuario** (§7.3.1) | Un día sintético es una mentira de producto y un bug P0 de datos; el schema ya lo prohíbe en `capture_semantics_check` |
 | Resurfacing mensual | **OUT de V1, congelado** (§21.3.1) | No hay clave de agrupación día+mes para una fecha sin día; habría que inventar el día |
 
-**Las cuatro decisiones de esta tabla están cerradas. No hay decisiones de producto abiertas
+**Las once decisiones de esta tabla están cerradas. No hay decisiones de producto abiertas
 que bloqueen el plan.**
 
 ### 21.4 Dependencias de contrato (grafo alto nivel, no secuencia)

@@ -73,70 +73,74 @@ de Memories V1 aunque Apple, Google o Immich la tengan.
 ## 2. Explicit In / Out / Deferred
 
 ### 2.1 IN
-
-| Capacidad | Decision |
-| --- | --- |
-| Create / import (multiples modos) | IN |
-| Tipos automaticos: Fotos, Videos, Audios, Notas | IN |
-| Timeline agrupado por tiempo | IN |
-| Albums (crear, renombrar, agregar, quitar, eliminar) | IN |
-| Crear Album desde Memories seleccionados | IN |
-| Seleccion contextual que preserva contexto de llamador | IN |
-| Viewer inmersivo (shell, pager por fuente) | IN |
-| Image Viewer (fit, zoom, pan) | IN |
-| Video Viewer basico (poster, play/pause, scrub, fullscreen) | IN |
-| Audio Viewer (identidad, play/pause, seek, tiempo, duracion, +/-10, velocidad) | IN |
-| Written Memory | IN |
-| Memory Information / Edicion de metadata | IN |
-| Acciones contextuales (una sola gramatica) | IN |
-| Lifecycle: Move to Trash, Undo, Restore, Purge | IN |
-| Trash surface con restore y purge | IN |
-| Resurfacing deterministico "Para volver a ver" | IN |
-| Ocultar de resurfacing ("No mostrar este recuerdo aca") | IN |
-| Camera como fuente de intake | IN |
-| **`Importar audio` como accion de primer nivel de Create** | **IN** (§4.1.1, §6.4) |
-| **`Grabar audio` como accion de primer nivel de Create** | **IN** (§4.1.1, §6.4) |
+ 
+ | Capacidad | Decision |
+ | --- | --- |
+ | Create / import (multiples modos) | IN |
+ | Tipos automaticos: Fotos, Videos, Audios, Notas | IN |
+ | Timeline agrupado por tiempo | IN |
+ | Albums (crear, renombrar, agregar, quitar, eliminar) | IN |
+ | Crear Album desde Memories seleccionados | IN |
+ | Seleccion contextual que preserva contexto de llamador | IN |
+ | Viewer inmersivo (shell, pager por fuente) | IN |
+ | Image Viewer (fit, zoom, pan, double-tap zoom/reset) | IN |
+ | Video Viewer basico (poster, play/pause, scrub, fullscreen, double-tap ±10s) | IN |
+ | Audio Viewer (identidad, play/pause, seek, tiempo, duracion, +/-10, velocidad, real audio-derived waveform) | IN |
+ | Written Memory | IN |
+ | Memory Information / Edicion de metadata | IN |
+ | Acciones contextuales (una sola gramatica) | IN |
+ | Lifecycle: Move to Trash, Undo, Restore, Purge | IN |
+ | Trash surface con restore y purge | IN |
+ | Resurfacing deterministico "Para volver a ver" | IN |
+ | Ocultar de resurfacing ("No mostrar este recuerdo aca") | IN |
+ | Camera como fuente de intake | IN |
+ | **`Importar audio` como accion de primer nivel de Create** | **IN** (§4.1.1, §6.4) |
+ | **`Grabar audio` como accion de primer nivel de Create** | **IN** (§4.1.1, §6.4) |
+ | **Favorites (star/toggle on Memory)** | **IN** (§22, §23) |
+ | **Automatic `Favoritos` collection** | **IN** (§22, §23) |
+ | **Multi-select Share (Compartir N Memories)** | **IN** (§12.4, §18.2) |
+ | **Platform-native audio output routing** | **IN / PRESERVE / DEVICE VERIFY** (§16.4, §17) |
 
 ### 2.2 OUT (no re-discutir sin contradiccion real)
-
-| Capacidad | Decision | Motivo |
-| --- | --- | --- |
-| **Search en Memories** | **OUT** | Los Memories ya se agrupan por tiempo, tipo y album. La busqueda de texto sobre Memories es una correccion para bibliotecas Mas grandes de las que maneja un hogar. Ver §10 de esta tabla. |
-| Archive | OUT | El hogar no archiva: o esta activo o esta en la papelera. Un tercer estado es ambiguedad. |
-| Hidden / Private Memories | OUT | Memories es compartido por diseno de producto. Lo privado contradice §1. |
-| Album Trash | OUT | Album es organizacion, Memory es contenido. Ver §10.2. |
-| People / Pets / Faces | OUT | Requiere reconocimiento facial. |
-| Places UI / Map | OUT | Requiere geolocalizacion y UI de mapa. |
-| Face / Object recognition | OUT | ML. |
-| OCR | OUT | ML. |
-| AI tagging | OUT | ML. |
-| AI semantic search | OUT | ML. |
-| Busqueda semantica por IA | OUT | ML. |
-| Social feed, likes, comentarios, seguidores | OUT | No es red social (§1). |
-| Edicion profesional (crop, filtros, recorte,collage, memory movie) | OUT | Memories no es editor. |
-| Favoritos | **DEFER** | Ver §22. |
-| Album folders / album de albumes | OUT | Un solo nivel. |
-| Sincronizacion en background de audio/video | OUT | Ver §16.4. |
-| Doble toque para zoom en imagen | **DEFER** | Ver §14.6. |
-| Reproduccion en background | OUT | Ver §16.4. |
-| Ocultar un GRUPO de resurfacing (rango de fechas) | OUT (V1) | Requiere modelo de datos que no existe. Ver §21.6. |
-| **Resurfacing mensual / por `month_year`** | **OUT de V1, decision congelada** | "Este dia" requiere dia. Ver §21.3.1. |
-| **Resurfacing por `year` o por `unknown`** | **OUT de V1, decision congelada** | Ver §21.3.1. |
-| **Submenu `Audio >` en el menu del `+`** | **OUT de V1, decision congelada** | `Importar audio` y `Grabar audio` son acciones planas de primer nivel. Ver §4.1.1. |
-| **Conversion automatica de una fecha parcial a `exact`** | **PROHIBIDO** | Solo por correccion explicita del usuario. Ver §7.3.1. |
+ 
+ | Capacidad | Decision | Motivo |
+ | --- | --- | --- |
+ | **Search en Memories** | **OUT** | Los Memories ya se agrupan por tiempo, tipo y album. La busqueda de texto sobre Memories es una correccion para bibliotecas Mas grandes de las que maneja un hogar. Ver §10 de esta tabla. |
+ | Archive | OUT | El hogar no archiva: o esta activo o esta en la papelera. Un tercer estado es ambiguedad. |
+ | Hidden / Private Memories | OUT | Memories es compartido por diseno de producto. Lo privado contradice §1. |
+ | Album Trash | OUT | Album es organizacion, Memory es contenido. Ver §10.2. |
+ | People / Pets / Faces | OUT | Requiere reconocimiento facial. |
+ | Places UI / Map | OUT | Requiere geolocalizacion y UI de mapa. |
+ | Face / Object recognition | OUT | ML. |
+ | OCR | OUT | ML. |
+ | AI tagging | OUT | ML. |
+ | AI semantic search | OUT | ML. |
+ | Busqueda semantica por IA | OUT | ML. |
+ | Social feed, likes, comentarios, seguidores | OUT | No es red social (§1). |
+ | Edicion profesional (crop, filtros, recorte,collage, memory movie) | OUT | Memories no es editor. |
+ | Album folders / album de albumes | OUT | Un solo nivel. |
+ | Sincronizacion en background de audio/video | OUT | Ver §16.4. |
+ | Reproduccion en background | OUT | Ver §16.4. |
+ | Ocultar un GRUPO de resurfacing (rango de fechas) | OUT (V1) | Requiere modelo de datos que no existe. Ver §21.6. |
+ | **Resurfacing mensual / por `month_year`** | **OUT de V1, decision congelada** | "Este dia" requiere dia. Ver §21.3.1. |
+ | **Resurfacing por `year` o por `unknown`** | **OUT de V1, decision congelada** | Ver §21.3.1. |
+ | **Submenu `Audio >` en el menu del `+`** | **OUT de V1, decision congelada** | `Importar audio` y `Grabar audio` son acciones planas de primer nivel. Ver §4.1.1. |
+ | **Conversion automatica de una fecha parcial a `exact`** | **PROHIBIDO** | Solo por correccion explicita del usuario. Ver §7.3.1. |
+ | **Fake waveform** | **OUT (prohibido permanentemente)** | Un waveform visual que no represente el audio es mentira de producto. Ver §16.3. |
+ | **Custom HomeCloud audio output picker** | **OUT** | El routing nativo de iOS/Android ya provee la superficie del sistema. Ver §16.4, §17. |
 
 ### 2.3 EXISTING_UNUSED_CAPABILITY (declarado, no expuesto, no borrado)
-
-| Capacidad | Donde existe | Decision |
-| --- | --- | --- |
-| Backend Memories search (`GET /memories?query=` → `ILIKE` sobre caption / written_text / display_name) | `backend/src/services/homecloudReadService.js:695-699`; cliente `homecloudReadService.ts:459` | **OUT de V1.** No se expone UI. No se elimina. Reconsiderable. |
-| Indexacion de busqueda en DB | **NO EXISTE** (sin tsvector, sin GIN, sin trigram) | No es capacidad. Verificar antes de cualquier Searching futuro. |
-| `expo-audio` muestreo de audio (`useAudioSampleListener`, `isAudioSamplingSupported`) | `node_modules/expo-audio/src/ExpoAudio.ts:238,240` | Candidato IN condicionado a device QA. Ver §16.3. |
-| Capacidad `homecloud.delete` |Declarada, proyectada al cliente, **nunca exigida** por ninguna ruta | Se activa con Lifecycle. Ver §26. |
-| Columnas `homecloud_contents.trashed_at` / `trashed_by_member_id` | Ya en schema con CHECK de consistencia | Se activan con Lifecycle. Ver §19. |
-| Columnas `homecloud_albums.trashed_at` / `lifecycle='trashed'` | Ya en schema | **Permanecen sin uso por decision** (§10.2). |
-| `hidden_from_resurfacing` | Ya en schema, validado en backend, sin UI | Se activa con Resurfacing. Ver §21.5. |
-| `homecloud.delete` matrix por rol | `backend/src/lib/householdPermissions.js:85-92` + SQL `:102-109` | Se activa con Lifecycle. |
+ 
+ | Capacidad | Donde existe | Decision |
+ | --- | --- | --- |
+ | Backend Memories search (`GET /memories?query=` → `ILIKE` sobre caption / written_text / display_name) | `backend/src/services/homecloudReadService.js:695-699`; cliente `homecloudReadService.ts:459` | **OUT de V1.** No se expone UI. No se elimina. Reconsiderable. |
+ | Indexacion de busqueda en DB | **NO EXISTE** (sin tsvector, sin GIN, sin trigram) | No es capacidad. Verificar antes de cualquier Searching futuro. |
+ | `expo-audio` muestreo de audio (`useAudioSampleListener`, `isAudioSamplingSupported`) | `node_modules/expo-audio` (re-exportado por `src/index.ts:4`) | **IN ROADMAP** — Real waveform required before closure. Ver §16.3. |
+ | Capacidad `homecloud.delete` |Declarada, proyectada al cliente, **nunca exigida** por ninguna ruta | Se activa con Lifecycle. Ver §26. |
+ | Columnas `homecloud_contents.trashed_at` / `trashed_by_member_id` | Ya en schema con CHECK de consistencia | Se activan con Lifecycle. Ver §19. |
+ | Columnas `homecloud_albums.trashed_at` / `lifecycle='trashed'` | Ya en schema | **Permanecen sin uso por decision** (§10.2). |
+ | `hidden_from_resurfacing` | Ya en schema, validado en backend, sin UI | Se activa con Resurfacing. Ver §21.5. |
+ | `homecloud.delete` matrix por rol | `backend/src/lib/householdPermissions.js:85-92` + SQL `:102-109` | Se activa con Lifecycle. |
 
 ---
 
@@ -150,7 +154,7 @@ HomeCloud  (global, no se toca)
      └─ MemoriesRoot  (UN scroll vertical, UNA sola IA)
         ├─ titleRow:  "Recuerdos"  [+]
         ├─ "Para volver a ver"        <- Resurfacing (§21), condicional
-        ├─ "Álbumes"                  <- riel horizontal (§10)
+        ├─ "Álbumes"                  <- riel horizontal: [ ⭐ Favoritos ] [ Familia ] [ Viaje ] ... [ + Nuevo álbum ] (§10, §22)
         ├─ "Tipos"                    <- riel horizontal: Fotos Videos Audios Notas (§11)
         └─ Timeline                   <- SectionList agrupado por tiempo (§9)
 ```
@@ -159,6 +163,8 @@ Prohibido para siempre: la navegacion interna `Recuerdos | Colecciones`.
 No existe, no debe volver, y ningun test debe exigirla.
 `MemorySelectionSource`, `MemorySelectionSourceTab`, `switchTab`, `collectionsRoot` y
 `MEMORY_SELECTION_SOURCE_COLLECTIONS_ROOT` quedan **prohibidos por contrato**.
+
+**Favorites in Albums Rail:** The automatic `Favoritos` collection appears as the first tile in the Albums rail (special system tile with star icon). It is NOT a normal Album and has no rename/delete actions. It cannot be removed like a normal Album. Do not make Favorites a new top-level HomeCloud tab.
 
 ### 3.2 Create vive en la raiz
 
@@ -174,7 +180,7 @@ o cuando `capabilities.contribute` es falso.
 | `Archivos \| Recuerdos` | n/a (fuera de Memories) | si | si |
 | `titleRow` + `+` | no | si | **si** (se reemplaza por el header de seleccion) |
 | `Para volver a ver` | no | si | si |
-| `Álbumes` | no | si | **NO** (debe permanecer) |
+| `Álbumes` (incluye tile `Favoritos`) | no | si | **NO** (debe permanecer) |
 | `Tipos` | no | si | **NO** (debe permanecer) |
 | `Timeline` | `stickySectionHeadersEnabled=false` | si | no (cambia el dataset, ver §12.2) |
 | Navbar inferior global | fuera de Memories | **debe ocultarse en Viewer** | visible |
@@ -182,7 +188,7 @@ o cuando `capabilities.contribute` es falso.
 ### 3.4 Restore de scroll
 
 - Un offset persistido por superficie, claveado por la superficie abierta
-  (`root` / `album:<id>` / `type:<kind>` / `resurfacing:<group>` / `trash`).
+  (`root` / `album:<id>` / `type:<kind>` / `resurfacing:<group>` / `trash` / `favorites`).
 - Al volver a una superficie se restaura su offset.
 - Entrar y salir de Seleccion **no** cambia el offset.
 - Cambiar de household **descarta** todos los offsets.
@@ -191,7 +197,7 @@ o cuando `capabilities.contribute` es falso.
 
 Frozen: first entrance, ready-empty, ready-data, error, refreshing, refresh, 0 albums,
 1 album, many albums, resurfacing disponible, resurfacing no disponible, seleccion activa,
-upload pendiente, retorno desde Viewer / Album / Tipo / Resurfacing / Camera / Intake.
+upload pendiente, retorno desde Viewer / Album / Tipo / Resurfacing / Camera / Intake / Favorites.
 
 ---
 
@@ -848,24 +854,24 @@ bug, no un comportamiento.
 
 ### 12.4 Catalogo de acciones de seleccion
 
-| Accion | Timeline | Tipo | Album | Resurfacing | Papelera |
-| --- | --- | --- | --- | --- | --- |
-| `Agregar a un álbum` | SI | SI | SI (como `Agregar a otro álbum`) | SI | no |
-| Crear album desde la seleccion | SI | SI | SI | SI | no |
-| `Quitar del álbum` | no | no | **SI** | no | no |
-| `Mover a papelera` | SI | SI | SI | SI | SI |
-| `Restaurar` | no | no | no | no | **SI** |
-| `Eliminar definitivamente` | no | no | no | no | **SI** |
-| `Compartir` | **DEFER** | DEFER | DEFER | DEFER | DEFER |
-| Favoritos | no (DEFER, §22) | no | no | no | no |
+| Accion | Timeline | Tipo | Album | Resurfacing | Papelera | Favoritos |
+| --- | --- | --- | --- | --- | --- | --- |
+| `Agregar a un álbum` | SI | SI | SI (como `Agregar a otro álbum`) | SI | no | SI |
+| Crear album desde la seleccion | SI | SI | SI | SI | no | SI |
+| `Quitar del álbum` | no | no | **SI** | no | no | no |
+| `Mover a papelera` | SI | SI | SI | SI | SI | SI |
+| `Restaurar` | no | no | no | no | **SI** | no |
+| `Eliminar definitivamente` | no | no | no | no | **SI** | no |
+| `Compartir` | **SI** | **SI** | **SI** | **SI** | no | **SI** |
+| `Marcar como favorito` | SI | SI | SI | SI | no | no |
+| `Quitar de favoritos` | SI | SI | SI | SI | no | SI |
 
-`Compartir` en seleccion multiple sigue diferido: la costura OS SHARE existente comparte
-**un** archivo. Compartir N binarios exigiria N descargas, N temporales y una decision de UX
-adicional. **No se congela sin esa decision.** En el menu de Viewer de un solo Memory,
-`Compartir` si es IN (C6 de HC2-C, no revertido).
+`Compartir` for multiple selected Memories is now IN. From an ACTIVE selection in Root, Type, Album, Favorites, Resurfacing the user can choose `Compartir` and share the selected Memories without losing caller context. Trash does NOT need multi-share unless Product Truth proves otherwise. After share sheet dismisses: return to same caller, same dataset, same offset, selection ends on success/cancel according to frozen selection grammar.
 
 `Quitar del álbum` **no** aparece en la raiz, en un Tipo ni en Resurfacing: no hay album
 abierto ahi. Aparece solo dentro de un Album.
+
+Favorites actions: `Marcar como favorito` (affects non-favorites in selection), `Quitar de favoritos` (affects favorites in selection). Mixed-state semantics: if selection has mixed favorite state, both actions are shown; each affects only its applicable subset.
 
 ### 12.5 Contrato de fin de seleccion
 
@@ -962,12 +968,22 @@ Galeria, no editor. `editing / crop / filter = OUT`.
 | Reset de zoom al reabrir | IN | |
 | Arbitraje pager ↔ zoom | IN | `onPanResponderTerminationRequest` correcto a escala 1 |
 | Pan continuo con 1 dedo cuando hay zoom | IN | |
-| Doble toque para zoom | **DEFER** | |
-| Doble toque para reset | **DEFER** | |
+| **Doble toque para zoom** | **IN** | At scale 1: zooms in around/near tap location |
+| **Doble toque para reset** | **IN** | While zoomed: returns to fit / scale 1 |
 | Preview → original progresivo | IN | Se muestra el preview primero y el original lo reemplaza |
 | Loading | IN | |
 | Error | IN | |
 | **Retry del original** | IN | Un error sin recuperacion no es aceptable |
+
+**Image Double-Tap Contract (frozen):**
+- At scale 1: double-tap zooms in around/near the tap location
+- While zoomed: double-tap returns to fit / scale 1
+- Pager arbitration must remain correct
+- At scale 1: horizontal swipe still pages
+- While zoomed: pan belongs to image
+- No gesture dependencies added automatically; re-evaluate PanResponder repair vs gesture-handler/reanimated with NEW requirement included
+- If current stack remains sufficient: prefer zero dependency
+- If not: the old "no new dependency" rule may be superseded
 
 ### 14.3 Originales: solo la pagina activa
 
@@ -1057,9 +1073,18 @@ largo sobre red movil produce exactamente la experiencia "tarda una eternidad".
 | Coexistencia pager ↔ gestos | IN (device QA) |
 | Velocidad de reproduccion | OUT de V1 |
 | Mute / Volumen | OUT de V1 (en iOS es del dispositivo) |
-| Doble toque +/-10 s | DEFER |
+| **Doble toque izquierda: -10 s** | **IN** |
+| **Doble toque derecha: +10 s** | **IN** |
 | Zoom / pan del video | OUT (la API no lo expone) |
 | Reproduccion en background | OUT |
+
+**Video Double-Tap ±10s Contract (frozen):**
+- Double-tap left side: -10 seconds (seek backward)
+- Double-tap right side: +10 seconds (seek forward)
+- Clamp safely at: 0 and duration
+- Do not invent center double-tap behavior unless donor/product evidence justifies it
+- Must not: accidentally page, double-trigger native seek, fight fullscreen, seek inactive pages
+- Arbitration with native controls, horizontal pager, fullscreen, single tap/chrome, pause/play frozen for iOS/Android
 
 ### 15.6 Invariantes preservados (no se rediseñan)
 
@@ -1106,56 +1131,74 @@ grabado.
 | Pager | IN |
 | Pausa en background | IN |
 | Sin auto-resume | IN |
-| Bocina / auriculares (`setAudioModeAsync` para salida) | **DEFER**. Reconfigurar la sesion de audio es una decision propia. |
-| Reproduccion en background | **OUT** |
-
-### 16.3 Waveform — decision congelada
-
-**`FAKE WAVEFORM = OUT` (prohibido).** Un waveform visual que no represente el audio es
-mentira de producto. No se implementa bajo ninguna circunstancia.
-
-**`REAL WAVEFORM = CANDIDATE IN`, con tres clasificaciones posibles y el veredicto actual:**
-
-> **`REAL_WAVEFORM_EXPENSIVE` + `DEVICE_VERIFY_REQUIRED`**
-
-Evidencia `PROVEN_STATIC`:
-
-- `expo-audio@57.0.5` **expone publicamente** `useAudioSampleListener(player, listener)` y
-  `player.isAudioSamplingSupported` (`node_modules/expo-audio/src/ExpoAudio.ts:238,240`,
-  re-exportado por `src/index.ts:4`).
-- La documentacion del paquete advierte: el muestreo **requiere `RECORD_AUDIO` en Android**
-  y **no esta soportado en todas las plataformas**.
-- No hay muestreo en vivo durante la **grabacion**; `setAudioSamplingEnabled` solo existe
-  en `AudioPlayer`.
-- No hay ninguna libreria de waveform instalada.
-- El muestreo es de **reproduccion**: la waveform solo existe mientras suena. Un waveform
-  estatico requires descargar y decodificar el archivo en el cliente, lo que en esta
-  arquitectura (original remoto via signed URL, sin descarga previa) es caro.
-
-Consecuencia de producto: una waveform que solo aparece al reproducir no es identidad
-visual, y una waveform estatica requiere descargar el original. Ambos son caros para el
-beneficio.
-
-**Decision V1 congelada:** Audio recibe un **diseño visual honesto no-waveform**, no vacio:
-
-- Icono de audio + etiqueta `Audio`.
-- Duracion y posicion en formato `m:ss`, visibles siempre.
-- Barra de progreso con punto de posicion, con seek por toque y arrastre.
-- Nombre de archivo presentable, porque es un archivo de audio y el usuario lo reconoce por
-  su nombre. (Esto es identidad util, no identidad falsa.)
-- Estado de buffering explicito cuando corresponda.
-
-**Reconsideracion:** si en device QA `useAudioSampleListener` resulta soportado y estable en
-el iPhone objetivo con costo de CPU aceptable, la waveform **en vivo durante la
-reproduccion** puede entrar como V1.1. La prohibicion de fake waveform no cambia.
-
-### 16.4 Sesion de audio
-
-El grabador ya fuerza y restaura `setAudioModeAsync`. Esa decision se preserva.
-No se reconfigura la sesion de audio desde el Viewer en V1.
-
-Nota: el grabador **fuerza** un estado conocido en vez de restaurar el modo previo. Riesgo
-deuda, no bug de V1.
+| Platform-native audio output routing | **IN / PRESERVE / DEVICE VERIFY** (§17) |
+ | Custom HomeCloud audio output picker | **OUT** (not required; OS provides system surface) |
+ | Reproduccion en background | **OUT** |
+ 
+ ### 16.3 Waveform — decision congelada
+ 
+ **`FAKE WAVEFORM = OUT` (prohibido permanentemente).** Un waveform visual que no represente el audio es
+ mentira de producto. No se implementa bajo ninguna circunstancia.
+ 
+ **`REAL WAVEFORM = IN ROADMAP`** — required before final Memories closure.
+ 
+ Evidencia `PROVEN_STATIC`:
+ 
+ - `expo-audio@57.0.5` **expone publicamente** `useAudioSampleListener(player, listener)` y
+   `player.isAudioSamplingSupported` (re-exportado por `src/index.ts:4`).
+ - La documentacion del paquete advierte: el muestreo **requiere `RECORD_AUDIO` en Android**
+   y **no esta soportado en todas las plataformas**.
+ - No hay muestreo en vivo durante la **grabacion**; `setAudioSamplingEnabled` solo existe
+   en `AudioPlayer`.
+ - No hay ninguna libreria de waveform instalada.
+ - El muestreo es de **reproduccion**: la waveform solo existe mientras suena. Un waveform
+   estatico requiere descargar y decodificar el archivo en el cliente, lo que en esta
+   arquitectura (original remoto via signed URL, sin descarga previa) es caro.
+ 
+ **Technical Strategies Audited:**
+ 
+ A. **Live waveform during playback** via `useAudioSampleListener` — only works while playing; requires `RECORD_AUDIO` on Android; platform-gated
+ B. **Static waveform generation** — requires downloading + decoding original on client; expensive with signed URL model; could use backend derivative pipeline
+ C. **Progressive real waveform** — show live during playback, cache for future; best UX but most complex
+ 
+ **Decision:** Real audio-derived waveform is IN THE CLOSURE ROADMAP. The audit must decide LIVE vs STATIC vs PROGRESSIVE based on device QA evidence. If the only technically correct implementation requires new dependency / native build / precomputed derivative / backend processing, document the smallest correct strategy and place it in the roadmap. If it crosses HomeCloud shared storage/derivative authority: raise `SHARED_INFRA_BLOCKER` with exact required change.
+ 
+ **V1 Fallback (while waveform readiness):** Existing honest controls remain: audio identity, time, duration, seek bar, play/pause, ±10, speed, buffering. Waveform is additive. The Audio Viewer must remain usable before waveform readiness.
+ 
+ ### 16.4 Audio Output Routing — Final Direction
+ 
+ Distinguish two different things:
+ 
+ A. **USER CAN USE PLATFORM AUDIO OUTPUT ROUTING** — **IN**
+ B. **HOMECLOUD BUILDS ITS OWN CUSTOM SPEAKER/HEADPHONE PICKER** — **NOT REQUIRED**
+ 
+ The user reports that on iOS this is already available through the native/platform playback experience.
+ 
+ **Final desired behavior:** HomeCloud MUST NOT block normal OS routing.
+ 
+ On iOS verify as available:
+ - device speaker
+ - wired headphones if available
+ - Bluetooth
+ - AirPlay / system output route where available
+ 
+ Do NOT add a duplicate HomeCloud output selector when iOS already provides the system surface.
+ 
+ For Android: preserve/use normal platform routing.
+ 
+ Do not build a custom output picker unless platform behavior is proven insufficient.
+ 
+ **Update:** Old documentation saying "Bocina / auriculares = DEFER" is SUPERSEDED. The correct roadmap classification distinguishes:
+ - `PLATFORM_NATIVE_ROUTING = IN / PRESERVE / DEVICE_VERIFY`
+ - `CUSTOM_ROUTING_UI = OUT unless technically required`
+ 
+ ### 16.5 Sesion de audio
+ 
+ El grabador ya fuerza y restaura `setAudioModeAsync`. Esa decision se preserva.
+ No se reconfigura la sesion de audio desde el Viewer en V1.
+ 
+ Nota: el grabador **fuerza** un estado conocido en vez de restaurar el modo previo. Riesgo
+ deuda, no bug de V1.
 
 ---
 
@@ -1516,41 +1559,41 @@ nuevo. Se declara **OUT de V1** explicitamente para no dejarlo como ambiguedad.
 
 ## 22. Favorites Decision
 
-> **`FAVORITES = DEFER`**
+> **`FAVORITES = IN`** — **HOUSEHOLD_SHARED**
 
-Investigacion de donors:
+**User Override:** The previous DEFER decision is SUPERSEDED. Favorites belongs in final Memories closure.
+
+**Scope:** `FAVORITE_SCOPE = HOUSEHOLD_SHARED`. HomeCloud Memories is the shared history of the household. Adding a personal visibility model merely to support Favorites would introduce a second product model that Memories currently does not have. Mutation capability prefers `homecloud.organize` because changing a shared Favorite is shared organization. Do NOT use `homecloud.delete`.
+
+**Automatic `Favoritos` Collection:** This is an AUTOMATIC / SMART COLLECTION, NOT a normal manually managed Album.
+- Membership is derived from: `favorite = true` AND `lifecycle = active` AND household scope
+- Has no rename action; no delete action; no manual Add-to-Album membership semantics; cannot be removed like a normal Album
+- Uses the same immutable Viewer-source contract as other datasets
+- Selection inside it must preserve `favorites` as caller; leaving Viewer/selection returns to Favorites
+- Deleting/trashing the Memory removes it through normal lifecycle rules
+- Placement in root IA: Albums rail as a special system tile: `[ ⭐ Favoritos ] [ Familia ] [ Viaje ] ... [ + Nuevo álbum ]`
+
+**Schema:** `homecloud_contents.favorite` column does NOT currently exist (audited 2026-10-06). The old "0 migrations" constraint is SUPERSEDED. Plan the smallest migration: `favorite boolean NOT NULL DEFAULT false`.
+
+**Donor Evidence:**
 
 | Producto | Favorites | Semantica |
 | --- | --- | --- |
-| Apple Photos | album `Favoritos` | **Personal.** No se sincroniza con el iCloud compartido |
-| Google Photos | album `Favorites` + estrella | **Personal.** Solo en tu propia biblioteca. Una foto compartida hay que copiarla a tu biblioteca para marcarla |
+| Apple Photos | album `Favoritos` | Personal |
+| Google Photos | album `Favorites` + estrella | Personal |
 | Samsung Gallery | `Favoritos` | Personal |
 | Immich | toggle `favorite` por asset | **Compartido por household** |
 
-Patron comun: en tres de cuatro, Favorites es **personal, no compartido**.
+**HomeCloud Decision:** HOUSEHOLD_SHARED. Immich's household-shared model aligns with Memories as shared household history.
 
-Evaluacion para HomeCloud:
+**Action Contract:**
+- Viewer: star/toggle reachable
+- Favorites collection: tap opens dataset of ACTIVE favorites
+- State: `NOT_FAVORITE` ↔ `FAVORITE`
+- Optimistic behavior planned if safe; error must roll back or communicate failure honestly
+- Selection: bulk `Marcar como favorito` / `Quitar de favoritos` INCLUDED; mixed-state semantics: if selection has mixed favorite state, show both actions; `Marcar` affects non-favorites, `Quitar` affects favorites
 
-| Criterio | Evaluacion |
-| --- | --- |
-| Valor de usuario | Real pero duplicado. Un album hace lo mismo, con un nombre que el hogar elige |
-| ¿Es la semantica correcta para Memories? | **No.** Memories es la historia compartida del hogar (§1). Un favorito personal es una medida distinta dentro de la misma galeria |
-| Costo de superficie | Un nuevo filtro persistente en la raiz, mas una vista de tipo mas una accion en cada superficie |
-| Costo de modelo de datos | **Requiere columna nueva** + logica de visibilidad por miembro si es personal. Ninguna existe |
-| Relacion con Albums | Si es compartido, es un album implicito: redundante con Albums. Si es personal, contradice §1 |
-| Relacion con Resurfacing | Resurfacing ya resuelve "volver a ver lo que quiero". Favorites no agrega valor de redescubrimiento |
-
-**Decision:** Favorites es `DEFER`, no `OUT` permanente.
-
-- **NO** se agrega al plan de implementacion de V1.
-- **NO** se agrega a la UI.
-- **NO** se agrega una columna al schema.
-- Se reconsidera solo si aparece evidencia de que un hogar necesita "lo que mas nos
-  importa" como concepto **compartido** distinto de un album con nombre.
-- Si se reconsidera como **personal**, requiere antes una decision de modelo de datos para
-  visibilidad por miembro, que HomeCloud no tiene.
-
-Esta decision **no** elimina la accion `Favorito` de una hipotetica V2; la aplaza.
+**Migration:** One boolean column `favorite` on `homecloud_contents`. No per-member table. No system Album row. No binary duplication. No storage path change.
 
 ---
 
@@ -1798,6 +1841,7 @@ resurfacing:<group>
 trash
 intake
 camera
+favorites
 ```
 
 Search no es un llamador: Search es OUT.
@@ -1828,6 +1872,10 @@ Search no es un llamador: Search es OUT.
 | **Papelera** | Viewer | **Papelera** | si |
 | **Papelera** | Seleccion → `Restaurar` | **Papelera**, con los items fuera | si |
 | **Papelera** | Seleccion → purge | **Papelera**, con los items fuera | si |
+| **Favoritos** | Viewer | **Favoritos**, dentro del grupo | si |
+| **Favoritos** | Seleccion → accion | **Favoritos** | si |
+| **Favoritos** | Seleccion → cancelar | **Favoritos** | si |
+| **Favoritos** | Album A (via agregar) | Favoritos | si |
 | **Viewer** | cualquier accion | **el Viewer sigue abierto** | n/a |
 | **Viewer** | `Información del recuerdo` | **el Viewer sigue abierto** | n/a |
 | **Intake** | Camera | Intake (o el review, si ya habia draft) | n/a |
@@ -1854,6 +1902,7 @@ El Viewer hace pager **exclusivamente** dentro de la fuente con la que se abrio.
 | `type:<kind>` | Solo ese `kind` |
 | `resurfacing:<group>` | Solo ese grupo |
 | `trash` | Solo la papelera |
+| `favorites` | Solo Memories con `favorite=true` AND `lifecycle=active` |
 
 - La fuente es **inmutable** durante la vida del Viewer.
 - Si el dataset de la fuente se vacia transitoriamente, se muestra `Missing`
@@ -1884,12 +1933,14 @@ El Viewer hace pager **exclusivamente** dentro de la fuente con la que se abrio.
                                                     (eliminado)
 ```
 
-| Estado | Visible en Timeline | En Tipo | En Album | En Resurfacing | En Papelera | Bytes |
-| --- | --- | --- | --- | --- | --- | --- |
-| STAGING | no | no | no | no | no | en transito |
-| ACTIVE | si | si | si | si | no | completos |
-| TRASHED | no | no | no | no | si | completos |
-| (eliminado) | no | no | no | no | no | eliminados |
+| Estado | Visible en Timeline | En Tipo | En Album | En Resurfacing | En Papelera | En Favoritos | Bytes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| STAGING | no | no | no | no | no | no | en transito |
+| ACTIVE | si | si | si | si | no | si* | completos |
+| TRASHED | no | no | no | no | si | no | completos |
+| (eliminado) | no | no | no | no | no | no | eliminados |
+
+*Solo si `favorite=true`. La coleccion `Favoritos` deriva membresia de `favorite=true` AND `lifecycle=active`.
 
 ### 28.2 Album
 
@@ -2083,6 +2134,13 @@ bloqueos y sin sorpresas:
 20. Con `organize = false`, verificar que no hay affordances de organizacion.
 21. Con `contribute = false`, verificar que no hay `+`.
 22. Con `delete = false`, verificar que no hay borrado permanente.
+23. **Favorite toggle works** — star/unstar a Memory from Viewer and selection; appears in Favorites collection.
+24. **Favorites smart collection works** — automatic `Favoritos` tile in Albums rail; opens dataset of ACTIVE favorites; selection preserves caller; trash/restore behavior correct.
+25. **Multi-select Share works** — from any selection context (Root, Type, Album, Favorites, Resurfacing), `Compartir` shares N Memories; temp cleanup; caller context preserved.
+26. **Image double-tap zoom/reset works** — at fit: double-tap zooms near tap; while zoomed: double-tap returns to fit; pager arbitration correct.
+27. **Video double-tap ±10s works** — left: -10s; right: +10s; clamp at 0/duration; no pager conflict; fullscreen compatible.
+28. **Real waveform closure condition passes** — real audio-derived waveform (live/static/progressive) displays actual samples; no fake waveform under any state; honest fallback when unsupported.
+29. **Platform-native audio routing verified** — iOS: speaker, wired headphones, Bluetooth, AirPlay/system route all work; no custom HomeCloud picker; Android: platform routing preserved.
 
 Y cuando **todo** lo anterior es cierto en el dispositivo:
 
@@ -2119,16 +2177,17 @@ Solo capacidades que afectan una decision real de este documento.
 | Resurfacing por fecha | `On This Day` | `Rediscover This Day` (mismo dia, anios anteriores) | no | no | los dos | **IN, deterministico, sin IA** | La version de Google es exactamente deterministica: mismo dia, anios previos |
 | Ocultar un rango de fechas en resurfacing | no | si | no | no | solo Google | **OUT de V1** | Requiere modelo de datos que no existe |
 | Busqueda | si | si | si | si | los cuatro | **OUT** | Decision explicita. Un hogar no tiene el problema de escala que la resuelve |
-| Favoritos | personal | personal | personal | household | **personal en 3 de 4** | **DEFER** | Personal contradice "historia compartida"; compartido duplica Albums |
-| Personas / caras | si | si | si | si | los cuatro | **OUT** | ML |
-| Mascotas | si | si | si | no | los cuatro | **OUT** | ML |
-| Lugares / mapa | si | si | si | si | los cuatro | **OUT** | Geolocalizacion + mapa |
-| OCR / busqueda de sonido | si | si | no | no | Apple/Google | **OUT** | ML |
-| Waveform de audio en visor | no documentado | no documentado | no documentado | no | **ninguno lo muestra** | **diseño honesto no-waveform en V1** | Ningun donor lo hace; la API de muestreo es de reproduccion y platform-gated |
+| Favoritos | personal | personal | personal | household | **personal en 3 de 4** | **IN (HOUSEHOLD_SHARED)** | Immich household-shared model aligns with Memories as shared history; automatic `Favoritos` smart collection in Albums rail |
+| Multi-select Share | si | si | si | si | los cuatro | **IN** | OS share sheet supports multiple items; temp file lifecycle managed |
+| Image double-tap zoom/reset | si | si | si | si | los cuatro | **IN** | Universal gesture; zoom at tap location, reset when zoomed |
+| Video double-tap ±10s | si | si | si | si | los cuatro | **IN** | Universal seek gesture; left=-10s, right=+10s |
+| Waveform de audio en visor | no documentado | no documentado | no documentado | no | **ninguno lo muestra** | **REAL AUDIO-DERIVED WAVEFORM IN ROADMAP** | No fake waveform; real samples via `useAudioSampleListener` or static generation; device QA required |
 | Editar imagen (crop/filtros) | si | si | si | no | mayoria | **OUT** | Memories no es editor |
 | Video en fullscreen | si | si | si | si | los cuatro | **IN** | Es control basico, no avanzado |
 | Velocidad de reproduccion | si | si | si | si | los cuatro | **OUT de V1 para video, IN para audio** | El chrome nativo de video ya posee esa superficie |
 | Reproductir en background | si | no | si | si | la mayoria | **OUT de V1** | No es un trabajo nuclear de Memories |
+| Platform-native audio routing | si | si | si | si | los cuatro | **IN / PRESERVE / DEVICE VERIFY** | iOS/Android provide system surfaces; no custom picker needed |
+| Custom HomeCloud audio output picker | no | no | no | no | ninguno | **OUT** | Redundant with OS surfaces |
 
 **Regla de uso de esta tabla:** es evidencia, no autoridad. Ninguna capacidad entra en
 HomeCloud solo porque un donor la tenga. Cada fila tiene una razon de decision propia.

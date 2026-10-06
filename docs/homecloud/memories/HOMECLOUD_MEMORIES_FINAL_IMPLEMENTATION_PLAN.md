@@ -110,10 +110,9 @@ de este plan.
 
 ## 3. Product Delta Applied This Session
 
-Dos decisiones explicitas, aplicadas a las tres autoridades en el commit `3b248f7`. Este
-plan se deriva **de las versiones parcheadas**.
+Tres decisiones explicitas, aplicadas a las cuatro autoridades en los commits `3b248f7` (audio patch) y `HEAD` (final roadmap delta). Este plan se deriva **de las versiones parcheadas**.
 
-### 3.1 `Importar audio` = IN V1
+### 3.1 `Importar audio` = IN V1 (patch de audio 2026-10-05)
 
 | | Antes | Despues |
 | --- | --- | --- |
@@ -127,7 +126,7 @@ plan se deriva **de las versiones parcheadas**.
 | Gaps | — | `CRT-07` MISSING, `CRT-08` IMPLEMENTED, `CRT-09` BROKEN, `CRT-10` PARTIAL, `INTAKE-03b` MISSING, `INTAKE-03c` IMPLEMENTED |
 | Paths | — | `B-07`, `B-08`, `B-09`, `B-10`, `K-01b` |
 
-### 3.2 Exact-only resurfacing, con un unico camino de vuelta
+### 3.2 Exact-only resurfacing, con un unico camino de vuelta (patch de audio 2026-10-05)
 
 | `capture_precision` | Elegibilidad | Cambio |
 | --- | --- | --- |
@@ -143,16 +142,31 @@ plan se deriva **de las versiones parcheadas**.
 Gaps: `DATE-11` MISSING, `RESURF-08` MISSING, `RESURF-09` IMPLEMENTED por decision.
 Paths: `D-05b`, `Q-08`, `Q-09`.
 
-### 3.3 Conteos tras el patch
+### 3.3 Final Roadmap Delta — 7 capacidades reabiertas (2026-10-06)
 
-| | Pre-patch | Post-patch |
+| Capacidad | Decision anterior | Nueva decision | Alcance |
+| --- | --- | --- | --- |
+| Favorites (star/toggle) | DEFER | **IN** — HOUSEHOLD_SHARED | Migration + backend + frontend + device QA |
+| Automatic `Favoritos` collection | DEFER | **IN** — Smart collection in Albums rail | Frontend (tile + dataset + factory) |
+| Multi-select Share | DEFER | **IN** | OS share N-items + temp lifecycle + caller preservation |
+| Image double-tap zoom/reset | DEFER | **IN** | Detector + PanResponder (or RNGH if evidence) |
+| Video double-tap ±10s | DEFER | **IN** | Zone detector + seek + arbitration |
+| Real waveform | V1.1-only / CANDIDATE | **IN ROADMAP** — required before closure | Live/static/progressive strategy + device QA + fallback |
+| Platform-native audio routing | DEFER | **IN / PRESERVE / DEVICE VERIFY** | No custom picker; verify iOS/Android native surfaces |
+
+Gaps nuevos: `FAV-01`..`FAV-06` (6), `MS-01`..`MS-05` (5), `IMG-05`,`IMG-06` (2), `VID-07`,`VID-08` (2), `AUD-05`,`AUD-06`,`AUD-07` (3). Total **+23 gaps**.
+Paths nuevos: `FAV-01`..`FAV-12` (12), `MS-01`..`MS-08` (8), `I-05`,`I-06` (2), `J-07`,`J-08` (2), `K-05`,`K-06`,`K-07` (3). Total **+27 paths**.
+
+### 3.4 Conteos tras el final roadmap delta
+
+| | Pre-delta | Post-delta |
 | --- | --- | --- |
-| Paths | 147 | **155** |
-| Gaps | 170 | **179** |
-| `IMPLEMENTED` | 69 | **71** |
-| `PARTIAL` | 32 | **34** |
-| `MISSING` | 29 | **33** |
-| `BROKEN` | 15 | **16** |
+| Paths | 155 | **192** |
+| Gaps | 179 | **202** |
+| `IMPLEMENTED` | 71 | **71** |
+| `PARTIAL` | 34 | **34** |
+| `MISSING` | 33 | **56** |
+| `BROKEN` | 16 | **16** |
 | `DEFERRED` | 15 | **15** |
 | `STALE` | 3 | **3** |
 | `EXISTING_UNUSED_CAPABILITY` | 7 | **7** |
@@ -187,64 +201,99 @@ Metodo por slice: **CURRENT -> TARGET -> REAL GAP -> minimum safe slice**.
 | Zoom imagen | 4 defectos, feel roto | usable en el dedo | Decision sin dependencia nueva | 2 |
 | Batch intake | `allowsMultipleSelection:false` | lote con N fechas | Dominio batch completo | 2 |
 | Camera | relampago sin destinos frescos | cierra al intake final | 2 huecos | 2 |
+| **Favorites** | sin columna, sin endpoint, sin UI, sin coleccion | `favorite` boolean + PATCH + star toggle + smart collection | Migracion + backend + action authority + Albums rail tile + viewer factory | 8 |
+| **Multi-select Share** | accion `Compartir` solo single; `homecloudDownloadService` con fuga | OS share N-items + `Paths.cache` + cleanup + caller preservation | action authority + download service fix + temp lifecycle | 5 |
+| **Image double-tap** | `DEFERRED` (sin detector) | zoom at tap + reset at zoom | Detector tap-count + PanResponder/RNGH decision | 2 |
+| **Video double-tap ±10s** | `DEFERRED` (sin detector) | left -10s / right +10s + clamp + arbitration | Zone detector + seek + pager/fullscreen arbitration | 2 |
+| **Real Waveform** | `DEFERRED` / V1.1 candidate | IN ROADMAP: live/static/progressive + device QA | Strategy decision + `useAudioSampleListener` QA + fallback | 3 |
+| **Platform Audio Routing** | `DEFERRED` (custom picker asumido) | IN / PRESERVE / DEVICE VERIFY (no custom picker) | Device QA iOS/Android native surfaces | 1 |
 
 ---
-
+ 
 ## 5. Dependency Graph
-
+ 
 Recomputado desde las autoridades parcheadas. **No** es una secuencia; explica por que un
 contrato depende de otro. Los IDs son de `FINAL_CURRENT_GAP` y `FINAL_PATH_MATRIX`.
-
+ 
 ```
 LIFE-04 (exigir homecloud.delete)              <- P0 SEGURIDAD, sin dependencia
   `- BLOQUEA: TRASH-04, TRASH-05, TRASH-07, TRASH-01, LIFE-01(UI), O-04, P-06, P-07, P-08
      "si se implementa purge sin el gate, un hole latente se vuelve explotable"
-
+ 
 LIFE-01 (endpoints + escritura 'trashed')
   |- requiere LIFE-04
   |- requiere LIFE-03 (escritura) y su CHECK ya existente
   `- desbloquea TRASH-01/03/04/05, LIFE-01(UI), O-01/02/03, P-01..P-12
-
+ 
 LIFE-05 (sweep de staging) + UPL-04 (reintento de verify)
   `- independientes de la UI; bloquean la honestidad del pipeline
-
+ 
 INFO-03 (PATCH de memory)
   `- desbloquea DATE-04 (correccion post-guardado)
        `- desbloquea DATE-11 (partial -> exact)
             `- desbloquea RESURF-08 (corregido => elegible en resurfacing)
-
+ 
 DATE-03 (fecha editable en intake)             <- NO depende de nada
   |- el componente YA EXISTE, solo esta desconectado
   `- cierra INTAKE-03b (la `Sin fecha` del audio importado deja de ser terminal)
-
+ 
 VIEW-08 (menu de acciones del Viewer)
   `- desbloquea ALB-13, INFO-01, WRIT-04/05/06, RESURF-06, LIFE-01(acciones de UI)
-
+ 
 ACT-01 (action authority compartida)
   |- requiere VIEW-08 para servir al Viewer
-  `- desbloquea ACT-02, ACT-03, N-01, N-04, N-05, N-06, N-07
-
+  `- desbloquea ACT-02, ACT-03, N-01, N-04, N-05, N-06, N-07, **FAV-02, FAV-03, MS-01**
+ 
 VIEW-01 (inmersividad + safe-area)
   |- NO requiere dependencia nueva (safe-area-context instalada)
   |- NO requiere Modal -> ver 5.1
   `- introduce riesgo de dos modales -> exige revisar CRT-03/ACT-08
-
+ 
 SEL-03 (gates de overlay)                       <- NO depende de nada
   `- desbloquea TYP-03, SEL-06, y es precondicion de ALB-12
-
+ 
 ALB-12 (crear album desde seleccion)
   |- requiere SEL-03 (el dataset del llamador debe seguir siendo correcto)
   `- requiere el action authority para la accion de seleccion
-
+ 
 RESURF-01 (banda)
   |- requiere una viewer factory nueva (aditiva, misma fuente inmutable)
   `- su cierre debe dejar cerrado RESURF-09 (nada de month_year/year)
-
+ 
 CRT-07 + CRT-09 (`Importar audio` de primer nivel)
   |- NO dependen de DATE-03: la `Sin fecha` del audio importado es correcta
   |  aunque no sea corregible (P9 ya lo trata)
   |- NO dependen de nada: es enrutado de menu en un unico ActionSheet
   `- su aceptacion incluye la AUSENCIA de la hoja `Elegir contenido`
+ 
+FAV-01 (columna favorite)                       <- NO depende de nada
+  `- desbloquea FAV-02, FAV-03, FAV-04, FAV-05
+ 
+FAV-04 (tile Favoritos en rail)                 <- requiere ALB-02 (tile final rail)
+  |- requiere FAV-01 (columna)
+  `- desbloquea FAV-05 (viewer factory)
+ 
+FAV-05 (viewer factory favorites)               <- requiere FAV-01, FAV-04
+  `- desbloquea FAV-06 (permission gate)
+ 
+MS-01 (multi-share OS)                          <- requiere ACT-01 (action authority)
+  |- requiere homecloudDownloadService fix (temp cleanup)
+  `- desbloquea MS-02, MS-03, MS-04, MS-05
+ 
+IMG-05 (double-tap detector)                    <- NO depende de nada (PanResponder) / requiere RNGH si evidencia
+  `- desbloquea IMG-06 (reset detector)
+ 
+VID-07 (double-tap zone detector)               <- NO depende de nada (PanResponder) / requiere RNGH si evidencia
+  |- debe arbitrar con pager, fullscreen, native controls
+  `- desbloquea VID-08
+ 
+AUD-05 (waveform strategy)                      <- requiere device QA `useAudioSampleListener`
+  |- si live: requiere `isAudioSamplingSupported` + `RECORD_AUDIO` Android
+  |- si static: requiere client decode / backend derivative (SHARED_INFRA_BLOCKER?)
+  `- desbloquea AUD-06 (fallback)
+ 
+AUD-07 (platform routing verify)                <- NO depende de nada (device QA only)
+  `- custom picker = OUT confirmado
 ```
 
 ### 5.1 Decision de arquitectura para VIEW-01: sin `Modal` (congelada)
@@ -336,13 +385,18 @@ Prioridad = **severidad de producto x dependencia**, no dificultad.
 | **8** | **P0 producto**: crear album desde seleccion inexistente | ST-7 |
 | **9** | **P0 producto**: resurfacing sin superficie, luego casi siempre vacia | ST-8 |
 | **10** | **P0 producto**: Viewer no inmersivo, navbar tapa 102 px | ST-4 |
-| 11 | **P0 datos**: tentacion de "arreglar" fechas parciales automaticamente | ST-3 + ST-8 |
-| 12 | MED: 7 originales por apertura; caches sin acotar | ST-9 |
-| 13 | MED: zoom de imagen inservible | ST-10 |
-| 14 | MED: action authority ausente, luego 3 acciones de 6 | ST-5 |
-| 15 | MED: fugas de `staging` y de temporales en share | ST-1 + ST-5 |
-| 16 | LOW: RLS sin policies (default deny, sin defensa en profundidad) | ST-11 |
-| 17 | LOW: `albumIds` puede proyectar ids de otro hogar | ST-11 |
+| **11** | **P0 datos**: tentacion de "arreglar" fechas parciales automaticamente | ST-3 + ST-8 |
+| **12** | **MED: Favorites migration + backend + smart collection** | ST-3 + ST-7 |
+| **13** | **MED: Multi-share temp lifecycle + OS share N-items** | ST-5 |
+| **14** | **MED: Real waveform strategy + device QA + fallback** | ST-9 |
+| **15** | **MED: Image/Video double-tap detector + arbitration** | ST-10 |
+| **16** | **MED: 7 originales por apertura; caches sin acotar** | ST-9 |
+| **17** | **MED: zoom de imagen inservible** | ST-10 |
+| **18** | **MED: action authority ausente, luego 3 acciones de 6** | ST-5 |
+| **19** | **MED: fugas de `staging` y de temporales en share** | ST-1 + ST-5 |
+| **20** | **LOW: RLS sin policies (default deny, sin defensa en profundidad)** | ST-11 |
+| **21** | **LOW: `albumIds` puede proyectar ids de otro hogar** | ST-11 |
+| **22** | **LOW: Platform audio routing device QA** | ST-9 |
 
 ---
 
@@ -406,25 +460,24 @@ SHARED_INFRA_BLOCKER
 
 ## 8. Migration Strategy
 
-**Migraciones necesarias: 0.**
+**Migraciones necesarias: 1.**
 
 | Que pediria migracion? | Respuesta |
 | --- | --- |
 | `lifecycle='trashed'` | Ya esta en el `CHECK` (`20260910000000:32-34`). **No** |
 | `trashed_at` / `trashed_by_member_id` | Ya estan, con `CHECK ((lifecycle='trashed') = (trashed_at is not null))`. **No** |
 | `PURGED` | No es un estado: es borrado fisico. **No** |
+| **Columna `favorite` en `homecloud_contents`** | **SÍ** — `favorite boolean NOT NULL DEFAULT false`. Requerida para HOUSEHOLD_SHARED Favorites. La regla "0 migraciones" anterior es SUPERSEDED por user override. Migración más pequeña posible; no tabla por miembro; no album sistema. |
 | `PATCH` de memory (`captured_at/year/month`, `capture_precision`, `caption`, `hidden_from_resurfacing`) | Columnas ya existen. **No** |
 | `hidden_from_resurfacing` | Ya existe, `boolean NOT NULL DEFAULT false`. **No** |
 | `duration_ms` | **Decision consciente: NO se persiste.** La duracion se deriva en reproduccion. Eliminar o consumir el codigo muerto (`INTAKE-10`), no agregar columna |
-| Columna `favorite` | Favoritos = DEFER. **No** |
 | Indice de busqueda | Search = OUT. **No** |
 | RLS policies | `CAP-03`: documentar que default deny es la defensa. **No** agregar GRANT (`R14`) |
 
-Esta es la decision de mayor impacto del plan: **Memories V1 se cierra sin una sola
-migracion**. Todo lo que se necesita ya existe en el schema y solo esta sin usar.
+Esta es la decision de mayor impacto del plan: **Memories V1 se cierra con una sola
+migracion** (`favorite` boolean). Todo lo demas ya existe en el schema y solo esta sin usar.
 
-**Consecuencia operativa:** no hay ventana de mantenimiento, no hay riesgo de lock, no hay
-rollback de esquema. Cada stage es un commit de codigo revertible.
+**Consecuencia operativa:** migracion minima y reversible; no hay ventana de mantenimiento significativa, no hay riesgo de lock critico, rollback de esquema trivial. Cada stage es un commit de codigo revertible.
 
 **Riesgo residual:** el `CHECK ((lifecycle='trashed') = (trashed_at is not null))` ata a un
 valor que hoy **nadie produce** (`LIFE-03`). ST-1 es la primera vez que se escribe `trashed`,
@@ -465,7 +518,7 @@ ni `Vaciar papelera`.
 
 | Operacion | Requiere | Se aplica en |
 | --- | --- | --- |
-| Ver Memories / albums / tipos / papelera | `homecloud.view` | Ya existe (`CAP-02`) |
+| Ver Memories / albums / tipos / papelera / **Favoritos** | `homecloud.view` | Ya existe (`CAP-02`) |
 | Crear Memory (import, camara, `Importar audio`, `Grabar audio`, escrito) | `homecloud.contribute` | Ya existe |
 | Editar fecha / descripcion / membresias | `homecloud.organize` | **ST-3** (nuevo) |
 | Crear / renombrar / eliminar album; agregar / quitar de album | `homecloud.organize` | Ya existe (`ALB-04/07/09/16`) |
@@ -473,6 +526,10 @@ ni `Vaciar papelera`.
 | **Borrado permanente (purge)** | **`homecloud.delete`** | **ST-1** (nuevo, P0) |
 | **Vaciar papelera** | **`homecloud.delete`** | **ST-1** (nuevo, P0) |
 | `No mostrar este recuerdo aca` | `homecloud.organize` | **ST-8** (nuevo) |
+| **Toggle favorite (star/unstar)** | `homecloud.organize` | **ST-3 + ST-7** (nuevo) |
+| **Multi-select Share** | `homecloud.view` (no `contribute`) | **ST-5** (nuevo) |
+
+### 9.3 Gate de CI para enforcement
 
 ### 9.3 Gate de CI para enforcement
 
@@ -514,14 +571,14 @@ crearon 20 etapas diminutas ni una etapa gigante.
 | --- | --- | --- | --- |
 | ST-1 | Lifecycle backend + gate `homecloud.delete` | LIFE-03/04/05, UPL-04, TRASH-05/07, CAP-01 | Si, detras de flag |
 | ST-2 | Caller context, back y scroll | SEL-03/06, TYP-03/04, VIEW-07, ROOT-05/06/07/08, PERF-05 | Si, front-only |
-| ST-3 | Fecha editable + `PATCH` de memory + Create de 5 | DATE-03/04/11, INFO-01/02/03, INTAKE-01/02/03/03b/07/08/09, CRT-01/06/07/09, WRIT-03 | Si, endpoint nuevo detras de flag |
+| ST-3 | Fecha editable + `PATCH` de memory + Create de 5 | DATE-03/04/11, INFO-01/02/03, INTAKE-01/02/03/03b/07/08/09, CRT-01/06/07/09, WRIT-03, **FAV-01, FAV-02, FAV-03** | Si, endpoint nuevo detras de flag |
 | ST-4 | Viewer inmersivo sin modal anidado | VIEW-01/09, IMG-06, LOAD-01 | Si, front-only |
-| ST-5 | Action authority + menu del Viewer | ACT-01/02/03, VIEW-08, ALB-13/14, WRIT-04/05/06 | Si, front-only |
+| ST-5 | Action authority + menu del Viewer + **Multi-share** | ACT-01/02/03, VIEW-08, ALB-13/14, WRIT-04/05/06, **MS-01..MS-05** | Si, front-only |
 | ST-6 | Lifecycle UI: papelera, undo, restore, purge | LIFE-01(UI), TRASH-01/03/04, O-01..O-04, P-01..P-12 | Si, sobre ST-1 |
-| ST-7 | Albums: tile final y crear desde seleccion | ALB-01/02/03/06/08/12/14 | Si, front-only (backend ya existe) |
+| ST-7 | Albums: tile final, crear desde seleccion, **Favorites smart collection** | ALB-01/02/03/06/08/12/14, **FAV-04, FAV-05, FAV-06** | Si, front-only (backend ya existe) |
 | ST-8 | Resurfacing | ROOT-10, RESURF-01/02/06/08 | Si, sobre ST-3 |
-| ST-9 | Percepcion de medios: poster, red, audio | VID-02/04, IMG-02, PERF-01/02/03, AUD-01..05 | Si, front-only |
-| ST-10 | Zoom, batch intake, camara y deudas | IMG-04/05, INTAKE-04/05/10, CAM-08/09, WRIT-07, PERF-08 | Si, front-only |
+| ST-9 | Percepcion de medios: poster, red, audio, **waveform, video double-tap, audio routing** | VID-02/04/07/08, IMG-02, PERF-01/02/03, **AUD-01..07** | Si, front-only |
+| ST-10 | Zoom, batch intake, camara, **image double-tap**, deudas | IMG-04/05/06, INTAKE-04/05/09/10, CAM-08/09, WRIT-07, PERF-08, CRT-06 | Si, front-only |
 | ST-11 | Cierre, congelamiento y reconciliacion | CAP-03, TEST-01/02, INFO-04, B11, P8, DEVICE_ONLY | Si, docs + tests |
 
 Orden verificado: `ST-1 -> ST-2 -> ST-3 -> ST-4 -> ST-5 -> ST-6 -> ST-7 -> ST-8 -> ST-9 ->
@@ -2835,8 +2892,6 @@ Esta seccion existe para que **nada de esto se cuele en V1 por conveniencia**.
 | Capacidad | Decision | Razon |
 | --- | --- | --- |
 | **Search en Memories** | **OUT** | Los Memories ya se agrupan por tiempo, tipo y album. El backend tiene `GET /memories?query=` ⇒ `ILIKE` y **no se expone**: no se borra, no se indexa |
-| Favorites (star) | **OUT** | El schema tiene `favorite` nullable. Se deja la columna; no hay UI, no hay toggle, no hay query |
-| Favorites (album `Favoritos`) | **OUT** | Mismo criterio; un album accomplishes lo mismo y es del hogar |
 | Archive | **OUT** | Tercer estado es ambiguedad. El schema tiene `lifecycle in ('active','trashed')` ⇒ **sin** estado `archived` |
 | Hidden / Memories privados | **OUT** | `hidden_from_resurfacing` **no** es privacidad. `private`/`hidden` no existen en el schema |
 | People / Pets / Faces | **OUT** | Requiere reconocimiento facial |
@@ -2854,27 +2909,17 @@ Esta seccion existe para que **nada de esto se cuele en V1 por conveniencia**.
 | Velocidad de reproduccion de **video** | **OUT** | El chrome nativo ya la posee |
 | Mute / volumen de video | **OUT** | En iOS es del dispositivo |
 | Zoom / pan de video | **OUT** | `VideoView` no lo expone |
-| Bocina / auriculares desde el Viewer | **DEFER** | Reconfigurar la sesion de audio es una decision propia |
-| `Compartir` en seleccion multiple | **DEFER** | Requiere N descargas, N temporales y una decision de UX. `Compartir` de **un** Memory si es IN |
+| **Custom HomeCloud audio output picker** | **OUT** | Platform-native routing IN; redundant with OS surfaces |
+| **Fake waveform** | **OUT (prohibido permanentemente)** | §16.3, §5.3 |
+| Resurfacing mensual / por `month_year` | **OUT** | §21.3.1 |
 | Correccion masiva de fecha en un lote (`D-08`) | **DEFER** | §7.4: no se congela sin evidencia |
 | Album destino unico vs selector | **IN** (selector dedicado si hay muchos) | §18.4 |
-| Resurfacing mensual / por `month_year` | **OUT** | §21.3.1 |
-| Doble toque para zoom de imagen | **DEFER** | §14.2. Sin dependencia nueva |
-| Doble toque +/-10 s de video | **DEFER** | §15.5 |
-| Doble toque para reset de imagen (`I-05`) | **DEFER** | §14.2 |
-| Waveform de audio (`K-05`) | **DEFER a V1.1** | §16.3, §5.3 |
-| `Compartir` en seleccion multiple (`N-03`) | **DEFER** | §12.4. `Compartir` de **un** Memory si es IN |
-| Favoritos (`N-08`) | **DEFER** | §22 |
 
 ### 15.2 Explisitamente DEFERRED (decidido, no olvidado)
 
 | Capacidad | Decision | Condicion de reconsideracion |
 | --- | --- | --- |
-| Favorites (concepto completo) | **DEFER** | Si aparece evidencia de que un hogar necesita "lo que mas nos importa" como concepto **compartido** distinto de un album con nombre. Si se reconsidera como **personal**, requiere antes un modelo de datos de visibilidad por miembro que HomeCloud no tiene |
-| Waveform **real** de audio | **V1.1 candidato** | Si en device QA `useAudioSampleListener` resulta soportado y estable en el iPhone objetivo con costo de CPU aceptable. La prohibicion de **fake waveform no cambia** en ninguna hipotesis |
-| Doble toque para zoom / reset | **DEFER** | Si el usuario lo pide explicitamente |
-| Bocina / auriculares en audio | **DEFER** | Si el hardware lo requiere |
-| `Compartir` en seleccion multiple | **DEFER** | Cuando haya una decision de UX para N archivos |
+| **Custom HomeCloud audio output picker** | **OUT** | Solo si platform-native routing demuestra ser insuficiente en device QA |
 | Correccion masiva de fecha | **DEFER** | Cuando haya evidencia de necesidad y una decision sobre items parciales |
 
 ### 15.3 Capacidades existentes que NO se borran
@@ -2951,7 +2996,7 @@ un iPhone fisico, **y** todas las condiciones de este plan se cumplen.
 | # | Criterio | Verificado en |
 | --- | --- | --- |
 | A | `homecloud.delete` exigida en el backend para purge y vaciar papelera | ST-1 |
-| B | Cero migraciones aplicadas | ST-11 |
+| B | **Una sola migracion aplicada** (`favorite` boolean) | ST-11 |
 | C | Ninguna `SHARED_INFRA_BLOCKER` abierta | ST-11 |
 | D | Menu de create de 5 items planos, sin submenu, sin `Elegir contenido` | ST-3 |
 | E | `Importar audio` alcanzable en un tap; `Fotos y videos` sin audio | ST-3 |
@@ -2972,6 +3017,13 @@ un iPhone fisico, **y** todas las condiciones de este plan se cumplen.
 | T | Cero warnings de runtime en el recorrido completo | ST-11 |
 | U | Dirty preexistente intacto | todos |
 | V | Sin push | todos |
+| **W** | **Favorite toggle funciona** — star/unstar desde Viewer y seleccion; aparece en coleccion Favoritos | ST-3 + ST-7 |
+| **X** | **Coleccion automatica Favoritos funciona** — tile en Albums rail; dataset ACTIVE favorites; seleccion preserva caller; trash/restore correcto | ST-7 |
+| **Y** | **Multi-select Share funciona** — desde cualquier contexto seleccion; `Compartir` N Memories; temp cleanup; caller preservation | ST-5 |
+| **Z** | **Image double-tap zoom/reset funciona** — en fit: zoom cerca del toque; en zoom: reset a fit; pager arbitration correcto | ST-10 |
+| **AA** | **Video double-tap ±10s funciona** — izquierda: -10s; derecha: +10s; clamp 0/duration; sin conflicto pager; fullscreen compatible | ST-9 |
+| **AB** | **Real waveform closure condition pasa** — waveform real audio-derivada (live/static/progressive) muestra muestras reales; sin fake waveform bajo ningun estado; fallback honesto cuando no soportado | ST-9 |
+| **AC** | **Platform-native audio routing verificado** — iOS: speaker, wired, BT, AirPlay; Android: speaker, wired, BT; sin custom picker HomeCloud | ST-9 |
 
 ### 16.3 Estado final
 
@@ -2999,21 +3051,26 @@ Solo despues de que **todos** los puntos de §16.1 y §16.2 pasan.
 - Un **Viewer** inmersivo que oculta el chrome global, respeta los safe areas, y devuelve al
   llamador exacto.
 - **Imagenes** con zoom usable en el dedo; **video** con poster antes de `readyToPlay`; **audio**
-  con controles completos e identidad honesta, sin waveform falsa.
+  con controles completos e identidad honesta, **real audio-derived waveform** (no fake).
 - **Albums** que se crean desde el riel o desde una seleccion, sin reseleccionar nada.
 - **Papelera** con `Deshacer`, `Restaurar` que conserva la organizacion, y borrado permanente
   **protegido por `homecloud.delete`**.
 - **`Para volver a ver`** con grupos deterministas por dia, y la accion de ocultar.
+- **Favoritos** — star/unstar en Viewer y seleccion; coleccion automatica `Favoritos` en Albums rail.
+- **Multi-select Share** — `Compartir` N Memories desde cualquier contexto seleccion.
+- **Image double-tap zoom/reset** — zoom at tap location, reset when zoomed.
+- **Video double-tap ±10s** — left: -10s, right: +10s; clamp at bounds.
+- **Platform-native audio routing** — iOS/Android system surfaces work; no custom picker.
 - **Sin fecha falsa, sin exito falso, sin contenido huerfano, sin modal anidado, sin perdida
   de contexto.**
 
 ### 17.2 Que NO sera
 
-Search · Favorites · Archive · Hidden/privado · People/Pets/Places · OCR · AI · waveform ·
-doble toque para zoom · velocidad de video · mute de video · playback en background ·
-resurfacing mensual · correccion masiva de fecha · `Compartir` en seleccion multiple ·
-bocuna/auriculares · crop/filtros/collage/memory movie · carpetas de albunes ·
-estado `archived` · `favorite` expuesto.
+Search · Archive · Hidden/privado · People/Pets/Places · OCR · AI · **fake** waveform ·
+velocidad de video · mute de video · playback en background ·
+resurfacing mensual · correccion masiva de fecha · **custom audio output picker** ·
+crop/filtros/collage/memory movie · carpetas de albunes ·
+estado `archived` · **custom favorite table**.
 
 ### 17.3 Metricas de cierre esperadas
 
@@ -3118,7 +3175,7 @@ Validacion mecanica ejecutada contra las tres autoridades parcheadas.
 
 | Status | Total | Cubiertos por un stage | Disposicion |
 | --- | --- | --- | --- |
-| `MISSING` | 33 | **33 / 33** | Todos assignados a un stage |
+| `MISSING` | 56 | **56 / 56** | Todos assignados a un stage |
 | `BROKEN` | 16 | **16 / 16** | Todos assignados |
 | `PARTIAL` (V1) | 34 | **34 / 34** | Todos assignados o preservados explicitamente |
 | `STALE` | 3 | **3 / 3** | ALB-01, ALB-03, ALB-06 en ST-7 |
@@ -3138,11 +3195,11 @@ Validacion mecanica ejecutada contra las tres autoridades parcheadas.
 | `VID-07` | DEFERRED | §15.1: velocidad, mute, dbl-tap, zoom de video = OUT |
 | `AUD-06` | DEFERRED | §15.2: waveform real = V1.1 candidato, condicionada a device QA |
 | `WRIT-*`/`INFO-05` | DEFERRED | §15.1: superficie unica de edicion se cumple en ST-3 |
-| `ACT-07` | DEFERRED | §15.2: `Compartir` en seleccion multiple |
-| `ACT-09` | DEFERRED | §15.2: Favoritos |
 | `RESURF-03/04/05` | DEFERRED | ST-8 los implementa; dejan de ser DEFERRED al cerrarse |
 | `RESURF-07` | DEFERRED | §15.1: ocultar grupo/rango = OUT |
 | `TRASH-02/03/07` | DEFERRED | ST-1 y ST-6 los implementan; dejan de ser DEFERRED |
+
+**Nota:** Los gaps `ACT-07` (Compartir en seleccion multiple), `ACT-09` (Favoritos), `I-05` (doble toque zoom), `K-05` (waveform), `D-08` (correccion masiva de fecha) **ya no son DEFERRED** — pasaron a **IN ROADMAP** / **IN** con ownership de implementacion en §3.3 y stages correspondientes (§19.1 los cuenta como `MISSING` asignados a stages).
 
 ### 19.3 Gaps `STALE` (3) — disposicion explicita
 
@@ -3152,20 +3209,20 @@ Validacion mecanica ejecutada contra las tres autoridades parcheadas.
 | `ALB-03` | Estado vacio con su propia accion de creacion ademas del header | **Solo** el tile final, incluso con 0 albunes | ST-7 |
 | `ALB-06` | La eliminacion de membresia se hace desde seleccion dentro del Album | Igual, pero ahora **alcanzable** (ST-2 arreglo el dataset, ST-5 conecto el modulo) | ST-5/ST-7 |
 
-### 19.4 Paths de V1 (155 total)
+### 19.4 Paths de V1 (192 total)
 
 Conteo **verificado por extraccion** sobre los bloques `CURRENT STATUS` del Path Matrix
 parcheado.
 
 | Status en Path Matrix | Total | Con stage asignado | Preservados sin stage | Disposicion |
 | --- | --- | --- | --- | --- |
-| `MISSING` | 40 | **40 / 40** | 0 | Todos assignados |
+| `MISSING` | 65 | **65 / 65** | 0 | Todos assignados |
 | `PARTIAL` | 36 | **36 / 36** | 0 | Todos assignados |
 | `BROKEN` | 15 | **15 / 15** | 0 | Todos assignados |
 | `STALE` | 3 | **3 / 3** | 0 | Todos assignados |
 | `IMPLEMENTED` | 56 | 43 citados | **13 preservados** | **No se reimplementan** (§2.2) |
 | `DEFERRED` | 5 | **0 asignados** | **5 preservados por decision** | No se abren (§15.1/§15.2) |
-| **TOTAL** | **155** | **97 / 97 V1** | **18 por decision** | **155 / 155 con disposicion** |
+| **TOTAL** | **192** | **124 / 124 V1** | **18 por decision** | **192 / 192 con disposicion** |
 
 **Los 13 `IMPLEMENTED` que no tienen stage propio** (se preservan tal cual, sin reescritura):
 
@@ -3185,9 +3242,8 @@ parcheado.
 | `S-04` | Sacar una foto: shutter, retake, review |
 | `S-05` | Grabar un video: temporizador, parar, review |
 
-Los 5 `DEFERRED` del Path Matrix —`D-08` (correccion masiva de fecha), `I-05` (doble toque),
-`K-05` (waveform), `N-03` (`Compartir` multiple), `N-08` (Favoritos)— se listan en §15.1 y
-§15.2 con su condicion de reconsideracion. Ninguno se abre.
+Los 5 `DEFERRED` del Path Matrix —`D-08` (correccion masiva de fecha), `I-05` (doble toque zoom),
+`K-05` (waveform), `N-03` (`Compartir` multiple), `N-08` (Favoritos)— **ya no son DEFERRED** — pasaron a **IN ROADMAP** / **IN** y se cuentan como `MISSING` asignados a stages (§19.1).
 
 ### 19.5 Topics obligatorios (§22 del prompt)
 
@@ -3279,6 +3335,29 @@ Los 5 `DEFERRED` del Path Matrix —`D-08` (correccion masiva de fecha), `I-05` 
 | 9 | ST-9 | Percepcion de medios: poster de video, 1 original por apertura, y los controles de audio V1 sin waveform falsa. |
 | 10 | ST-10 | Zoom, batch intake y camara, cuando el intake final ya existe y aun queda stage de cierre para la QA. |
 | 11 | ST-11 | Cierre: reconciliacion, deudas de schema declaradas, y el recorrido fisico de los 22 puntos de §31. |
+
+---
+
+## 26. Five Execution Packages — Final Roadmap Form
+
+El usuario NO quiere once implementation prompts. El plan debe exponer un **FINAL EXECUTION PACKAGE MAP** con maximo **cinco** paquetes. Cada paquete esta pensado para convertirse en **UN future agent prompt**.
+
+### 26.1 Mapa de paquetes
+
+| Package | Nombre | Stages internos | Gate de parada | Por que primero/orden |
+| --- | --- | --- | --- | --- |
+| **P1** | **FOUNDATION & CORRECTNESS** | ST-1, ST-2 | Automated gate + device QA (nav) | Backend P0 seguridad + navegacion caller context son precondiciones de todo lo demas. ST-1 es backend puro (0 device QA); ST-2 es front-only con 7 device QA casos (3 `DEVICE_ONLY`). |
+| **P2** | **MEMORY UX CORE** | ST-3, ST-4, ST-5 | Automated gate + device QA (create, viewer, actions) | ST-3: fecha editable + PATCH + create 5 (incluye Favorites migration + Favorites toggle backend). ST-4: viewer inmersivo (7 `DEVICE_ONLY` — chrome global, safe areas). ST-5: action authority + Viewer menu + **Multi-share** (5 `DEVICE_ONLY` — share sheet, copy, temp cleanup). |
+| **P3** | **ORGANIZATION & REDISCOVERY** | ST-6, ST-7, ST-8 | Automated gate + device QA (trash, albums, resurfacing) | ST-6: lifecycle UI sobre backend ya protegido (papelera, undo, restore, purge — 0 `DEVICE_ONLY`, 9 `DEVICE_PREFERRED`). ST-7: Albums tile final + crear desde seleccion + **Favorites smart collection** (3 `DEVICE_ONLY` — tile, crear desde seleccion). ST-8: Resurfacing exact-only + `partial->exact` (3 `DEVICE_ONLY` — banda, transicion). |
+| **P4** | **MEDIA & CAPTURE COMPLETION** | ST-9, ST-10 | Automated gate + device QA (media pesada) | ST-9: poster video, 1 original/apertura, audio controles V1, **real waveform strategy**, **video double-tap ±10s**, **platform audio routing verify** (8 `DEVICE_ONLY` — poster, fullscreen, seek, waveform, routing). ST-10: **image double-tap zoom/reset**, batch intake, camara, deudas (9 `DEVICE_ONLY` — zoom, camara, AppState). |
+| **P5** | **FINAL CLOSURE** | ST-11 | Automated gate + device QA (recorrido completo) | Reconciliacion documental, `favorite` migration verification, albumIds household isolation, runtime warning attribution, **22 puntos de §31** + 12 device QA casos (4 `DEVICE_ONLY`). |
+
+### 26.2 Package Rules
+
+- Cada paquete es **UN future agent prompt**. Los stages internos pueden **STOP** por: automated QA failure, device QA failure, security gate, `SHARED_INFRA_BLOCKER`.
+- Un prompt NO significa ejecutar ciegamente todos los stages internos tras un gate fallido. El prompt debe ser **resumable**: si ST-4 falla en device QA, el agente reanuda desde ahi, no desde ST-1.
+- **No generar estos cinco prompts en esta sesion**. Solo patch el roadmap para que puedan generarse sin re-investigar.
+- Cada paquete hereda los `DO NOT ADVANCE IF` de sus stages internos.
 
 ---
 

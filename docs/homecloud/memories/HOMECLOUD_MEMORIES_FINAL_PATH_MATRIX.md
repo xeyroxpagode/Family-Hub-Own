@@ -11,12 +11,15 @@ Leyenda de `CURRENT STATUS`: `IMPLEMENTED` · `PARTIAL` · `BROKEN` · `MISSING`
 `DEFERRED` · `EXISTING_UNUSED_CAPABILITY`.
 
 Convencion de retorno (§27 de Product Truth): los llamadores canonicos son
-`root` · `album:<id>` · `type:<kind>` · `resurfacing:<group>` · `trash` · `intake` · `camera`.
+`root` · `album:<id>` · `type:<kind>` · `resurfacing:<group>` · `trash` · `intake` · `camera` · `favorites`.
 **Root nunca es un fallback de conveniencia.**
 
-**Total de paths: 155.** Reconciliado tras el patch de audio de 2026-10-05 (antes 147).
-IDs existentes **preservados, sin renumerar**. Paths nuevos: `B-07`, `B-08`, `B-09`, `B-10`,
-`K-01b`, `D-05b`, `Q-08`, `Q-09`. Paths reconciliados: `B-01`, `C-05`, `D-04`, `D-05`,
+**Total de paths: 192.** Reconciliado tras el final roadmap delta audit de 2026-10-06 (antes 155).
+IDs existentes **preservados, sin renumerar**. Paths nuevos (reopened capabilities):
+`FAV-01`..`FAV-12` (Favorites), `MS-01`..`MS-08` (Multi-share), `I-05`,`I-06` (Image double-tap),
+`J-07`,`J-08` (Video double-tap), `K-05` (Waveform strategy), `K-06` (Audio routing),
+`K-07` (Waveform unsupported fallback). Previos: `B-07`, `B-08`, `B-09`, `B-10`,
+`K-01b`, `D-05b`, `Q-08`, `Q-09`. Reconciliados: `B-01`, `C-05`, `D-04`, `D-05`,
 `D-06`, `D-07`, `K-01`, `Q-07`.
 
 ---
@@ -1105,19 +1108,33 @@ IDs existentes **preservados, sin renumerar**. Paths nuevos: `B-07`, `B-08`, `B-
 - **DEVICE QA**: si
 - **CURRENT STATUS**: `PARTIAL` — el reset depende del cambio de `memory.id`; si la pagina permanece montada dentro del `windowSize=7` y el usuario vuelve a ella, **el zoom anterior se conserva**
 
-### PATH I-05 — Doble toque para zoom
-- **START CONTEXT**: pagina de imagen
-- **PRECONDITIONS**: —
-- **USER ACTION**: doble toque
-- **NEXT SURFACE**: —
-- **STATE CHANGE**: —
-- **SUCCESS**: —
-- **CANCEL**: —
-- **ERROR**: —
-- **RETURN CONTEXT**: —
-- **PERMISSION**: —
-- **DEVICE QA**: —
-- **CURRENT STATUS**: `DEFERRED` — decision de Product Truth §14.2. No hay detector de tap-count en el stack (RN core no lo ofrece; no hay RNGH instalado). El unico `onPress` alterna el chrome, y en la pagina escrita un simple scroll vertical lo dispara via `onTouchEnd`
+### PATH I-05 — Doble toque para zoom (IN)
+- **START CONTEXT**: pagina de imagen a escala 1 (fit)
+- **PRECONDITIONS**: imagen cargada, `scale === 1`
+- **USER ACTION**: doble toque en la imagen
+- **NEXT SURFACE**: pagina de imagen con zoom
+- **STATE CHANGE**: `scale` → zoom level (ej. 2.0) centrado en/cerca del punto de toque; `translate` ajustado
+- **SUCCESS**: zoom fluido alrededor de la ubicacion del toque; spring de retour con `useNativeDriver`
+- **CANCEL**: n/a
+- **ERROR**: si el gesto no se reconoce como doble toque, no hay accion (fallback a single tap = toggle chrome)
+- **RETURN CONTEXT**: pagina de imagen con zoom
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si, obligatorio
+- **CURRENT STATUS**: `MISSING` — no hay detector de tap-count en el stack actual (RN core no lo ofrece; `react-native-gesture-handler` no instalado). `PanResponder` actual no maneja doble toque. Requiere implementacion de detector de doble toque (tap-count + timing threshold) sobre `PanResponder` existente o migracion a RNGH si la decision §5.2 se revierte con evidencia.
+
+### PATH I-06 — Doble toque para reset (IN)
+- **START CONTEXT**: pagina de imagen con `scale > 1.01` (zoom activo)
+- **PRECONDITIONS**: zoom activo
+- **USER ACTION**: doble toque en la imagen
+- **NEXT SURFACE**: pagina de imagen a escala 1 (fit)
+- **STATE CHANGE**: `scale=1`, `translate={0,0}`
+- **SUCCESS**: animacion de retour a fit con spring; pager arbitration restaurado
+- **CANCEL**: n/a
+- **ERROR**: n/a
+- **RETURN CONTEXT**: pagina de imagen a fit
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si, obligatorio
+- **CURRENT STATUS**: `MISSING` — mismo detector que I-05. El reset estructural por cambio de `memory.id` ya existe (I-04); este path agrega el reset por gesto de doble toque mientras la pagina permanece montada.
 
 ### PATH I-06 — Error de carga de imagen sin token
 - **START CONTEXT**: pagina de imagen
@@ -1221,6 +1238,34 @@ IDs existentes **preservados, sin renumerar**. Paths nuevos: `B-07`, `B-08`, `B-
 - **DEVICE QA**: si
 - **CURRENT STATUS**: `IMPLEMENTED` — honesto y delimitado por evidencia, no por suposicion
 
+### PATH J-07 — Doble toque izquierda: -10 segundos (IN)
+- **START CONTEXT**: pagina de video reproduciendo o pausada
+- **PRECONDITIONS**: video cargado, `duration > 0`
+- **USER ACTION**: doble toque en lado izquierdo de la zona de video (aprox. < 50% width)
+- **NEXT SURFACE**: pagina de video con posicion actualizada
+- **STATE CHANGE**: `seekTo(max(0, currentPosition - 10))`
+- **SUCCESS**: salto audible y preciso de -10s; clamp a 0 si cerca del inicio
+- **CANCEL**: n/a
+- **ERROR**: si seek falla, copy honesto `No pudimos mover la posición.`
+- **RETURN CONTEXT**: pagina de video
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si, obligatorio (precision del salto, no pageo accidental)
+- **CURRENT STATUS**: `MISSING` — no hay detector de doble toque por zona en `MemoryVideoPage`. `VideoView` usa `nativeControls`; el gesto debe arbitrar con pager horizontal, fullscreen, controles nativos. Requiere detector de doble toque + logica de zona (izq/der).
+
+### PATH J-08 — Doble toque derecha: +10 segundos (IN)
+- **START CONTEXT**: pagina de video reproduciendo o pausada
+- **PRECONDITIONS**: video cargado, `duration > 0`
+- **USER ACTION**: doble toque en lado derecho de la zona de video (aprox. > 50% width)
+- **NEXT SURFACE**: pagina de video con posicion actualizada
+- **STATE CHANGE**: `seekTo(min(duration, currentPosition + 10))`
+- **SUCCESS**: salto audible y preciso de +10s; clamp a `duration` si cerca del final
+- **CANCEL**: n/a
+- **ERROR**: si seek falla, copy honesto `No pudimos mover la posición.`
+- **RETURN CONTEXT**: pagina de video
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si, obligatorio (precision del salto, no pageo accidental, no conflicto fullscreen)
+- **CURRENT STATUS**: `MISSING` — mismo detector que J-07. Debe arbitrar con pager horizontal (a escala 1 el swipe navega), fullscreen, single tap (chrome toggle), controles nativos. No se inventa comportamiento de doble toque centro.
+
 ---
 
 ## K. Audio
@@ -1295,33 +1340,47 @@ IDs existentes **preservados, sin renumerar**. Paths nuevos: `B-07`, `B-08`, `B-
 - **DEVICE QA**: si, obligatorio (el tono debe ser controlable)
 - **CURRENT STATUS**: `MISSING` — `playbackRate` no aparece en el archivo; la API esta instalada y el rango iOS (0–2) alcanza
 
-### PATH K-05 — Waveform de audio
-- **START CONTEXT**: pagina de audio
-- **PRECONDITIONS**: —
-- **USER ACTION**: —
-- **NEXT SURFACE**: —
-- **STATE CHANGE**: —
-- **SUCCESS**: —
-- **CANCEL**: —
-- **ERROR**: —
-- **RETURN CONTEXT**: —
-- **PERMISSION**: —
-- **DEVICE QA**: —
-- **CURRENT STATUS**: `DEFERRED` con veredicto `REAL_WAVEFORM_EXPENSIVE` + `DEVICE_VERIFY_REQUIRED` — **`FAKE WAVEFORM = OUT` bajo cualquier circunstancia.** La API real **existe** y es publica (`useAudioSampleListener` + `isAudioSamplingSupported`, `expo-audio@57.0.5`), pero: (a) solo muestrea **durante la reproduccion**, no hay muestreo en vivo al grabar; (b) requiere `RECORD_AUDIO` en Android; (c) el propio paquete advierte que no esta soportado en todas las plataformas; (d) una waveform estatica exigiria descargar y decodificar el original en el cliente, lo que es caro con el modelo de signed URL actual. Ningun donor de la tabla §32 muestra waveform en el visor. **V1 recibe un diseno honesto no-waveform y no vacio** (§16.3)
+### PATH K-05 — Waveform de audio: estrategia real (IN ROADMAP)
+- **START CONTEXT**: pagina de audio (antes/durante reproduccion)
+- **PRECONDITIONS**: audio cargado, `isAudioSamplingSupported` consultado
+- **USER ACTION**: reproduccion inicia (live) o pagina se muestra (static/progressive)
+- **NEXT SURFACE**: pagina de audio con waveform real
+- **STATE CHANGE**: muestras de audio reales → waveform visual
+- **SUCCESS**: waveform representa muestras reales del audio; no fake bars; fallback honesto si no soportado
+- **CANCEL**: usuario pausa o cierra → waveform se oculta/libera recursos
+- **ERROR**: `isAudioSamplingSupported === false` → honest fallback (no waveform, solo barra + identidad); error de muestreo → log + fallback
+- **RETURN CONTEXT**: pagina de audio
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si, obligatorio (CPU, memoria, latencia, iOS/Android behavior)
+- **CURRENT STATUS**: `MISSING` — estrategia por decidir: (A) Live via `useAudioSampleListener` durante playback; (B) Static generation via client decode (descarga + decode); (C) Progressive: live durante playback, cache para static. `expo-audio` expone `useAudioSampleListener` + `isAudioSamplingSupported`. Requiere device QA en iPhone objetivo. **Fake waveform PROHIBIDO permanentemente.** Si estrategia requiere shared derivative pipeline → `SHARED_INFRA_BLOCKER`.
 
-### PATH K-06 — Audio en background
-- **START CONTEXT**: pagina de audio reproduciendo
-- **PRECONDITIONS**: la app pasa a background
+### PATH K-06 — Waveform: fallback honesto cuando no soportado (IN)
+- **START CONTEXT**: pagina de audio, `isAudioSamplingSupported === false` o error
+- **PRECONDITIONS**: waveform no disponible
 - **USER ACTION**: —
-- **NEXT SURFACE**: pagina de audio pausada
-- **STATE CHANGE**: `pause()`
-- **SUCCESS**: pausa por revocacion de autorizacion; sin auto-resume
-- **CANCEL**: —
-- **ERROR**: —
-- **RETURN CONTEXT**: —
-- **PERMISSION**: —
+- **NEXT SURFACE**: pagina de audio sin waveform
+- **STATE CHANGE**: ninguna visual de waveform
+- **SUCCESS**: identidad visual honesta preservada: icono + etiqueta `Audio`, duracion/posicion `m:ss` visibles siempre, barra con seek toque+arrastre, nombre archivo presentable, buffering explicito. **Ningun fake waveform bajo ningun estado.**
+- **CANCEL**: n/a
+- **ERROR**: n/a
+- **RETURN CONTEXT**: pagina de audio
+- **PERMISSION**: `homecloud.view`
 - **DEVICE QA**: si
-- **CURRENT STATUS**: `IMPLEMENTED` — la pagina de audio **no** llama `setAudioModeAsync`, que es una decision deliberada; el grabador ya restaura el modo de playback
+- **CURRENT STATUS**: `MISSING` — diseno de §16.3 ya definido; este path garantiza que el fallback no degrada la UX.
+
+### PATH K-07 — Platform-native audio output routing verificado (IN / PRESERVE / DEVICE VERIFY)
+- **START CONTEXT**: Audio Viewer reproduciendo en iOS/Android
+- **PRECONDITIONS**: hardware disponible (speaker, wired headphones, Bluetooth, AirPlay)
+- **USER ACTION**: usuario cambia ruta de salida via OS (Control Center iOS / Quick Settings Android)
+- **NEXT SURFACE**: Audio Viewer continua reproduciendo en nueva ruta
+- **STATE CHANGE**: ruta de salida de audio cambia a nivel de sistema; app no interviene
+- **SUCCESS**: ruta no cambia inesperadamente al abrir Viewer; sobrevive play/pause; comporta a traves de cambios de pagina; grabacion no envenena playback routing; AppState no rompe sesion
+- **CANCEL**: n/a
+- **ERROR**: si OS no expone ruta esperada, comportamiento nativo prevalece; no se agrega picker custom
+- **RETURN CONTEXT**: Audio Viewer
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si, obligatorio (iOS: speaker, wired, Bluetooth, AirPlay; Android: speaker, wired, Bluetooth)
+- **CURRENT STATUS**: `PARTIAL` — `MemoryAudioPage` no llama `setAudioModeAsync` (correcto, §16.5). El grabador fuerza/restaura modo (deuda §16.4). Device QA requerido para verificar que routing nativo funciona sin bloqueos. **Custom HomeCloud output picker = OUT.**
 
 ---
 
@@ -2271,8 +2330,292 @@ IDs existentes **preservados, sin renumerar**. Paths nuevos: `B-07`, `B-08`, `B-
 
 ---
 
+## FAV. Favorites
+ 
+### PATH FAV-01 — Toggle favorite desde Viewer
+- **START CONTEXT**: `favorites` / `album:<id>` / `type:<kind>` / `resurfacing:<group>` / `root` → Viewer
+- **PRECONDITIONS**: Memory ACTIVE; `organize = true`
+- **USER ACTION**: tap star icon en Viewer top chrome
+- **NEXT SURFACE**: Viewer (continua abierto)
+- **STATE CHANGE**: `favorite` boolean flip en `homecloud_contents`
+- **SUCCESS**: star icon estado actualizado; si en Favoritos, item aparece/desaparece en dataset; snackbar `Agregado a favoritos` / `Quitado de favoritos`
+- **CANCEL**: n/a (toggle inmediato)
+- **ERROR**: rollback optimista + copy honesto `No se pudo actualizar favorito.`
+- **RETURN CONTEXT**: Viewer (sigue abierto)
+- **PERMISSION**: `homecloud.organize`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — no existe columna `favorite`, no hay endpoint, no hay UI star en Viewer
+ 
+### PATH FAV-02 — Toggle favorite desde seleccion multiple
+- **START CONTEXT**: seleccion activa en cualquier superficie
+- **PRECONDITIONS**: `organize = true`; 1+ Memories seleccionados
+- **USER ACTION**: `⋯` → `Marcar como favorito` / `Quitar de favoritos`
+- **NEXT SURFACE**: seleccion (continua)
+- **STATE CHANGE**: `favorite` flip en N Memories
+- **SUCCESS**: count honesto + snackbar; mixed-state semantics: `Marcar` afecta solo no-favoritos, `Quitar` afecta solo favoritos
+- **CANCEL**: `Cancelar` en hoja → seleccion intacta
+- **ERROR**: fallo parcial → fallidos nombrados + `Reintentar los que fallaron`
+- **RETURN CONTEXT**: superficie del llamador
+- **PERMISSION**: `homecloud.organize`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — autoridad de acciones (ST-5) existe pero acciones de favoritos no
+ 
+### PATH FAV-03 — Abrir coleccion Favoritos desde Albums rail
+- **START CONTEXT**: `root`
+- **PRECONDITIONS`: hay Memories con `favorite=true` AND `lifecycle=active`
+- **USER ACTION**: tap tile `⭐ Favoritos` en Albums rail (primer tile)
+- **NEXT SURFACE**: `favorites` (overlay con SectionList)
+- **STATE CHANGE**: `activeCollectionId = 'favorites'`
+- **SUCCESS**: dataset = Memories ACTIVE con `favorite=true`; orden canonico Timeline; empty honesto `Aún no hay favoritos.`
+- **CANCEL**: `X` → `root`, offset preservado
+- **ERROR**: `ErrorState` + `Reintentar`
+- **RETURN CONTEXT**: `root`
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — tile no existe en rail; factory `favorites` no existe; dataset no derivado
+ 
+### PATH FAV-04 — Favoritos vacio
+- **START CONTEXT**: `root`
+- **PRECONDITIONS**: 0 Memories con `favorite=true` AND `lifecycle=active`
+- **USER ACTION**: tap tile `⭐ Favoritos`
+- **NEXT SURFACE**: `favorites` overlay
+- **STATE CHANGE**: `activeCollectionId = 'favorites'`
+- **SUCCESS**: copy `Aún no hay favoritos.` (distinto de "cargando"); tile `+ Nuevo álbum` sigue visible en rail
+- **CANCEL**: `X` → `root`
+- **ERROR**: n/a
+- **RETURN CONTEXT**: `root`
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING`
+ 
+### PATH FAV-05 — Viewer desde Favoritos (pager solo Favoritos)
+- **START CONTEXT**: `favorites` → tap Memory
+- **PRECONDITIONS**: —
+- **USER ACTION**: tap en Memory
+- **NEXT SURFACE**: Viewer con `source = {kind:'favorites', sourceId: 'favorites'}`
+- **STATE CHANGE**: `viewer = {source, activeContentId}`
+- **SUCCESS**: pager recorre **solo** Memories del dataset Favoritos; etiqueta fuente = `Favoritos`
+- **CANCEL**: n/a
+- **ERROR**: `Missing` si dataset vacio transitorio
+- **RETURN CONTEXT**: `favorites`
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si, obligatorio
+- **CURRENT STATUS**: `MISSING` — factory `favorites` no existe en `homecloudMemoryViewerSource`
+ 
+### PATH FAV-06 — Seleccion dentro de Favoritos
+- **START CONTEXT**: `favorites`
+- **PRECONDITIONS**: —
+- **USER ACTION**: long press
+- **NEXT SURFACE**: seleccion contextual
+- **STATE CHANGE**: `mode='selecting'`, `purpose={generic}`, caller preserved
+- **SUCCESS**: **dataset sigue siendo Favoritos**; estructura no cambia; acciones incluyen `Quitar de favoritos`
+- **CANCEL**: `X` → `favorites`, offset preservado
+- **ERROR**: —
+- **RETURN CONTEXT**: `favorites`
+- **PERMISSION**: `homecloud.view`; `organize` para mutaciones
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — SEL-03 debe preservar caller `favorites`
+ 
+### PATH FAV-07 — Retorno de Viewer a Favoritos
+- **START CONTEXT**: `favorites` → Viewer
+- **PRECONDITIONS**: —
+- **USER ACTION**: cerrar Viewer
+- **NEXT SURFACE**: `favorites`
+- **STATE CHANGE**: `viewer = null`
+- **SUCCESS**: offset restaurado; dataset Favoritos intacto
+- **CANCEL**: n/a
+- **ERROR**: n/a
+- **RETURN CONTEXT**: **exactamente `favorites`**. Nunca `root`
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — VIEW-07 debe manejar source `favorites`
+ 
+### PATH FAV-08 — Trash favorite Memory
+- **START CONTEXT**: `favorites` / Viewer desde `favorites` / seleccion en `favorites`
+- **PRECONDITIONS**: `contribute = true`
+- **USER ACTION**: `Mover a papelera`
+- **NEXT SURFACE**: caller surface (`favorites` o Viewer avanza)
+- **STATE CHANGE**: `lifecycle=trashed`; `favorite` permanece `true` pero Memory ya no es ACTIVE
+- **SUCCESS**: desaparece de Favoritos inmediatamente; `Deshacer` disponible; membresias album preservadas
+- **CANCEL**: `Deshacer` → restore completo (vuelve a Favoritos si `favorite=true`)
+- **ERROR**: copy honesto
+- **RETURN CONTEXT**: caller surface
+- **PERMISSION**: `homecloud.contribute`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — lifecycle backend (ST-1) + UI (ST-6) no existen
+ 
+### PATH FAV-09 — Restore former favorite Memory
+- **START CONTEXT**: `trash`
+- **PRECONDITIONS**: Memory `TRASHED` con `favorite=true`; `contribute = true`
+- **USER ACTION**: `Restaurar`
+- **NEXT SURFACE**: `trash`
+- **STATE CHANGE**: `lifecycle=active`; `favorite=true` preservado
+- **SUCCESS**: Memory reaparece en Favoritos (si `favorite=true`) y en sus albums/origenes
+- **CANCEL**: `Cancelar` → queda en trash
+- **ERROR**: si album previo borrado → restore sin esa membresia (sin error)
+- **RETURN CONTEXT**: `trash`
+- **PERMISSION**: `homecloud.contribute`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING`
+ 
+### PATH FAV-10 — Permission denied: organize = false
+- **START CONTEXT**: cualquier superficie con Memory
+- **PRECONDITIONS**: `organize = false`
+- **USER ACTION**: —
+- **NEXT SURFACE**: —
+- **STATE CHANGE**: ninguna
+- **SUCCESS**: star icon **no se renderiza** en Viewer; `Marcar/Quitar favoritos` **no aparecen** en seleccion; tile `Favoritos` en rail **gateado por `organize`** (se oculta si `organize=false`)
+- **CANCEL**: n/a
+- **ERROR**: n/a
+- **RETURN CONTEXT**: —
+- **PERMISSION**: —
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — gating por capability no implementado
+ 
+### PATH FAV-11 — Mutation failure rollback
+- **START CONTEXT**: toggle favorite (Viewer o seleccion)
+- **PRECONDITIONS**: red falla / backend 5xx
+- **USER ACTION**: toggle
+- **NEXT SURFACE**: misma superficie
+- **STATE CHANGE**: optimista revertida
+- **SUCCESS**: star vuelve a estado anterior; snackbar `No se pudo actualizar. Reintentar.`
+- **CANCEL**: n/a
+- **ERROR**: n/a (rollback automatico)
+- **RETURN CONTEXT**: superficie origen
+- **PERMISSION**: `homecloud.organize`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING`
+ 
+### PATH FAV-12 — Favoritos no es Album normal: sin rename/delete/manual add
+- **START CONTEXT**: `root` → Albums rail
+- **PRECONDITIONS**: —
+- **USER ACTION**: inspeccionar tile `⭐ Favoritos`
+- **NEXT SURFACE**: —
+- **STATE CHANGE**: ninguna
+- **SUCCESS**: tile no tiene `⋯` menu; no se puede renombrar; no se puede eliminar; no aparece en hoja `Agregar a álbum`; no se puede agregar manualmente Memories via `Agregar a un álbum` → `Favoritos`
+- **CANCEL**: n/a
+- **ERROR**: n/a
+- **RETURN CONTEXT**: —
+- **PERMISSION**: —
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — diseño de smart collection no implementado
+ 
+## MS. Multi-Select Share
+ 
+### PATH MS-01 — Seleccionar N binarios y compartir
+- **START CONTEXT**: seleccion activa en `root` / `album:<id>` / `type:<kind>` / `favorites` / `resurfacing:<group>`
+- **PRECONDITIONS**: N >= 2 Memories binarios (image/video/audio); `contribute` no requerido para share
+- **USER ACTION**: `⋯` → `Compartir`
+- **NEXT SURFACE**: OS share sheet (iOS Share Sheet / Android Share Intent)
+- **STATE CHANGE**: N temporales descargados a cache; `expo-sharing` invocado con N URIs
+- **SUCCESS**: share sheet dismiss → `Compartido` honesto; temporales limpiados; caller context preservado; seleccion termina segun contrato exito
+- **CANCEL**: usuario descarta share sheet → temporales limpiados; seleccion **continua** (no termina por cancel share)
+- **ERROR**: preparacion falla → copy honesto `No se pudieron preparar N archivos.` + `Reintentar`; share sheet no abre
+- **RETURN CONTEXT**: superficie del llamador (dataset, offset, seleccion intacta si cancel/error)
+- **PERMISSION**: `homecloud.view` (share no requiere contribute)
+- **DEVICE QA**: si, obligatorio (iOS/Android share sheet multi-item)
+- **CURRENT STATUS**: `MISSING` — accion `Compartir` en seleccion no existe; `homecloudDownloadService` existe pero tiene fuga temporales; `expo-sharing` multi-URI no verificado
+ 
+### PATH MS-02 — Cancelar share sheet
+- **START CONTEXT**: share sheet abierta (despues de MS-01)
+- **PRECONDITIONS**: —
+- **USER ACTION**: tap fuera / swipe down / boton cancelar nativo
+- **NEXT SURFACE**: superficie del llamador
+- **STATE CHANGE**: temporales eliminados
+- **SUCCESS**: seleccion **continua activa**; caller context preservado; sin snackbar de exito
+- **CANCEL**: n/a (es el cancel)
+- **ERROR**: n/a
+- **RETURN CONTEXT**: llamador original
+- **PERMISSION**: —
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING`
+ 
+### PATH MS-03 — Fallo preparacion (descarga) parcial
+- **START CONTEXT**: seleccion N Memories → `Compartir`
+- **PRECONDITIONS**: al menos 1 download falla (red / 404 / timeout)
+- **USER ACTION**: —
+- **NEXT SURFACE**: hoja de acciones (share sheet no abre)
+- **STATE CHANGE**: exitosos en cache; fallidos reportados
+- **SUCCESS**: copy `N archivos listos, M fallaron.` + `Compartir los listos` / `Reintentar fallidos`; share sheet con solo exitosos si usuario elige
+- **CANCEL**: `Cancelar` → seleccion intacta
+- **ERROR**: todos fallan → `No se pudo preparar ningun archivo.`
+- **RETURN CONTEXT**: llamador original
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — `homecloudDownloadService` no maneja fallo parcial en batch
+ 
+### PATH MS-04 — Media mixta (image + video + audio)
+- **START CONTEXT**: seleccion con MIME heterogeneos
+- **PRECONDITIONS**: —
+- **USER ACTION**: `Compartir`
+- **NEXT SURFACE**: OS share sheet con N URIs de MIME variados
+- **STATE CHANGE**: N temporales en cache
+- **SUCCESS**: OS nativo maneja MIME mixto; share honesto; cleanup
+- **CANCEL**: share sheet dismiss → cleanup; seleccion continua
+- **ERROR**: si OS rechaza MIME mixto → fallback honesto (no share silencioso)
+- **RETURN CONTEXT**: llamador
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si, obligatorio (iOS/Android comportamiento MIME mixto)
+- **CURRENT STATUS**: `MISSING` — `expo-sharing` multi-MIME no verificado
+ 
+### PATH MS-05 — Escrito + binario en misma seleccion
+- **START CONTEXT**: seleccion con 1+ written + 1+ binario
+- **PRECONDITIONS**: —
+- **USER ACTION**: `Compartir`
+- **NEXT SURFACE**: OS share sheet
+- **STATE CHANGE**: binarios → temporales; escrito → texto en share payload
+- **SUCCESS**: share sheet con texto + archivos; comportamiento honesto: `Compartido` != destinatario recibio; cleanup
+- **CANCEL**: dismiss → cleanup; seleccion continua
+- **ERROR**: si escrito solo → `Share.share({message})`; si binario solo → `Sharing.shareAsync(uri)`
+- **RETURN CONTEXT**: llamador
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — mezcla texto+archivos en share sheet no verificado; `expo-sharing` no soporta texto
+ 
+### PATH MS-06 — Cleanup de temporales garantizado
+- **START CONTEXT**: cualquier share multi (exito / cancel / error / background)
+- **PRECONDITIONS**: N temporales creados en `Paths.cache/HomeCloud/`
+- **USER ACTION**: —
+- **NEXT SURFACE**: —
+- **STATE CHANGE**: temporales eliminados
+- **SUCCESS**: **0 bytes residuales** en `Paths.cache/HomeCloud/` tras share; cleanup en: exito share sheet dismiss, cancel share sheet, error preparacion, AppState background, crash (recovery al reinicio)
+- **CANCEL**: n/a
+- **ERROR**: si delete falla → log + retry silencioso; nunca leak permanente
+- **RETURN CONTEXT**: —
+- **PERMISSION**: —
+- **DEVICE QA**: si (verificar espacio antes/despues)
+- **CURRENT STATUS**: `MISSING` — `homecloudDownloadService` escribe en `Paths.document` y **nunca borra** (fuga probada)
+ 
+### PATH MS-07 — Retorno caller exacto tras share
+- **START CONTEXT**: seleccion en `album:<id>` / `type:<kind>` / `favorites` / `resurfacing:<group>`
+- **PRECONDITIONS**: share completado (exito o cancel)
+- **USER ACTION**: —
+- **NEXT SURFACE**: superficie del llamador
+- **STATE CHANGE**: seleccion termina segun contrato (§12.5); dataset identico; offset identico
+- **SUCCESS**: `album:<id>` → `album:<id>`; `favorites` → `favorites`; etc. **Nunca `root`**
+- **CANCEL**: n/a
+- **ERROR**: n/a
+- **RETURN CONTEXT**: **exactamente el llamador**
+- **PERMISSION**: —
+- **DEVICE QA**: si, obligatorio
+- **CURRENT STATUS**: `MISSING` — SEL-03/06 debe preservar caller tras accion share
+ 
+### PATH MS-08 — Maxima seleccion practica
+- **START CONTEXT**: seleccion N Memories
+- **PRECONDITIONS**: N grande (ej. 50+)
+- **USER ACTION**: `Compartir`
+- **NEXT SURFACE**: —
+- **STATE CHANGE**: —
+- **SUCCESS**: estrategia: limitar preparacion concurrente (ej. 5 a la vez); progress honesto; si usuario cancela prep → cleanup parcial; share sheet con los preparados
+- **CANCEL**: —
+- **ERROR**: OOM / storage full → fallback honesto
+- **RETURN CONTEXT**: llamador
+- **PERMISSION**: `homecloud.view`
+- **DEVICE QA**: si
+- **CURRENT STATUS**: `MISSING` — politica de batch share no definida
+ 
 ## Cobertura de la matriz
-
+ 
 | Dominio | Paths | Estados cubiertos |
 | --- | --- | --- |
 | A. Root | 10 | primera entrada, datos, vacio, refresh, household, tab global, 3 retornos, upload pendiente |
@@ -2283,9 +2626,9 @@ IDs existentes **preservados, sin renumerar**. Paths nuevos: `B-07`, `B-08`, `B-
 | F. Types | 5 | fila, abrir, vacio, seleccion, pager |
 | G. Selection | 8 | entrar desde 5 llamadores, D4, agregar, crear album, quitar, 0 seleccionados |
 | H. Viewer common | 8 | apertura exacta, inmersividad, cerrar, acciones, fuente, append, back Android, background |
-| I. Image | 6 | abrir, zoom, pan, reset, doble toque, carga infinita |
-| J. Video | 6 | shell, P1, reproducir, fullscreen, pagina inactiva, codec |
-| K. Audio | 7 | abrir, abrir audio importado con el mismo visor, seek, +/-10, velocidad, waveform, background |
+| I. Image | 7 | abrir, zoom, pan, reset, doble toque zoom, doble toque reset, carga infinita |
+| J. Video | 8 | shell, P1, reproducir, fullscreen, pagina inactiva, codec, doble toque -10s, doble toque +10s |
+| K. Audio | 10 | abrir, abrir audio importado con el mismo visor, seek, +/-10, velocidad, waveform estrategia real, waveform fallback honesto, background, platform-native routing verificado |
 | L. Written | 6 | crear, precision, leer, copiar, compartir texto, compartir binario |
 | M. Info/Edit | 5 | abrir, las dos fechas, descripcion, membresias, identidad tecnica |
 | N. Actions | 8 | seleccion, gates, compartir multi, album, un-solo-host, Viewer, resurfacing, favoritos |
@@ -2295,4 +2638,6 @@ IDs existentes **preservados, sin renumerar**. Paths nuevos: `B-07`, `B-08`, `B-
 | R. Upload | 7 | enviar, salir, retry, cancelar, reinicio, staging, filas huerfanas |
 | S. Camera | 9 | 3 estados de permiso, foto, video, background, handoff, guardar, retorno |
 | T. Permissions | 5 | sin view, sin organize, sin contribute, sin delete, cambio de household con draft |
-| **TOTAL** | **155** | |
+| **FAV. Favorites** | **12** | toggle desde Viewer, toggle desde seleccion, abrir coleccion Favoritos, vacio Favoritos, Viewer desde Favoritos, seleccion desde Favoritos, retorno Viewer→Favoritos, trash favorite Memory, restore former favorite, permission denied organize, mutation failure |
+| **MS. Multi-Select Share** | **8** | seleccionar N binarios, compartir N, cancelar share sheet, fallo preparacion, fallo descarga parcial, media mixta, escrito + binario comportamiento exacto, cleanup, retorno caller exacto |
+| **TOTAL** | **192** | |
