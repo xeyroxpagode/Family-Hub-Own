@@ -261,6 +261,35 @@ function emit(status: AppStatus): void {
   for (const handler of [...appStatusListeners]) handler(status);
 }
 
+/**
+ * `PanResponder` — the drag-selection seam, made DRIVABLE.
+ *
+ * `create` records the production config and returns handlers that delegate straight
+ * to it, so a test can invoke the REAL callbacks — including the ones that decide
+ * whether the responder claims a move stream at all — instead of only inspecting
+ * them.
+ */
+type PanResponderConfig = Record<string, (...args: never[]) => unknown>;
+const panResponderConfigs: PanResponderConfig[] = [];
+const panResponderHandlerSets: Record<string, unknown>[] = [];
+const panResponderStub = {
+  create: (config: PanResponderConfig) => {
+    const handlers: Record<string, unknown> = {};
+    for (const [key, handler] of Object.entries(config)) {
+      handlers[key] = (...args: never[]) => (handler as (...a: never[]) => unknown)(...args);
+    }
+    panResponderConfigs.push(config);
+    panResponderHandlerSets.push(handlers);
+    return { panHandlers: handlers };
+  },
+};
+
+/** The most recently created responder's config + handlers. */
+function latestPanResponder(): { config: PanResponderConfig; handlers: Record<string, unknown> } {
+  const index = panResponderConfigs.length - 1;
+  if (index < 0) throw new Error('no PanResponder was created');
+  return { config: panResponderConfigs[index], handlers: panResponderHandlerSets[index] };
+}
 const reactNativeStub = {
   Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web ?? values.default },
   View: 'View',
@@ -272,6 +301,7 @@ const reactNativeStub = {
   KeyboardAvoidingView: 'KeyboardAvoidingView',
   Keyboard: { dismiss: () => undefined },
   StyleSheet: { create: <T,>(styles: T): T => styles, flatten: (style: unknown) => style },
+  PanResponder: panResponderStub,
   AppState: appStateStub,
 };
 
@@ -535,6 +565,9 @@ function walk(node: unknown, visit: (element: TestElement) => void): void {
   const props = element.props ?? {};
   walk(props.children, visit);
   walk(props.ListFooterComponent, visit);
+  // The empty state lives INSIDE the list now (STAGE 2 reopen), so a walker has to
+  // descend into it exactly like the footer.
+  walk(props.ListEmptyComponent, visit);
   walk(props.footer, visit);
 }
 
@@ -644,10 +677,32 @@ async function chooseSortThroughFilterMenu(surface: { tree: unknown; settle: (ro
     return true;
   }
 
+/**
+ * Page forward the way a member does now.
+ *
+ * STAGE 2 REOPEN: `Mostrar más archivos` is GONE — the list pages itself through
+ * `onEndReached`, so the trigger is the list's own callback and not a button.
+ */
 function pressLoadMore(tree: unknown): boolean {
-  const control = findOne(tree, (element) => element.props?.title === 'Mostrar más archivos');
-  if (typeof control?.props.onPress !== 'function') return false;
-  control.props.onPress();
+  const trigger = listOf(tree)?.props?.onEndReached;
+  if (typeof trigger !== 'function') return false;
+  (trigger as () => void)();
+  return true;
+}
+
+/**
+ * The manual refresh path that still EXISTS.
+ *
+ * The visible `Actualizar` button is gone (zero visible Refresh controls is the
+ * product truth); the list container carries a custom ACCESSIBILITY action instead,
+ * and this fires it.
+ */
+function pressRefreshControl(tree: unknown): boolean {
+  const container = findOne(tree, (element) => Array.isArray(element.props?.accessibilityActions)
+    && element.props.accessibilityActions.some((action: { name?: string }) => action.name === 'refresh-files')
+    && typeof element.props?.onAccessibilityAction === 'function');
+  if (!container) return false;
+  (container.props.onAccessibilityAction as (event: unknown) => void)({ nativeEvent: { actionName: 'refresh-files' } });
   return true;
 }
 
@@ -909,7 +964,7 @@ async function testUnmountRemovesTheListener(): Promise<void> {
 }
 
 async function testExplicitRefreshStillWorks(): Promise<void> {
-  console.log('\n=== A6: the explicit refresh control is unchanged ===');
+  console.log('\n=== A6: a manual refresh still exists, without a visible button ===');
   const world = new World();
   const household = world.add(new Household(HOUSEHOLD_A, { rows: looseRows(HOUSEHOLD_A, 3) }));
   const surface = mountSurface(world, household);
@@ -917,7 +972,12 @@ async function testExplicitRefreshStillWorks(): Promise<void> {
   const before = household.filesReads.length;
 
   household.rename(`${HOUSEHOLD_A}-c-000`, 'renamed-by-hand.txt');
-  record(pressByLabel(surface.tree, 'Actualizar archivos'), 'A6.1. the manual control is reachable');
+  // STAGE 2 REOPEN: the visible `Actualizar` button is gone. What remains is the
+  // ACCESSIBILITY-ONLY `refresh-files` action on the list container, and it is the
+  // SAME window-preserving authority — proven next by the identical single read.
+  record(pressByLabel(surface.tree, 'Actualizar archivos') === false,
+    'A6.0. there is NO visible Refresh control left anywhere on the surface');
+  record(pressRefreshControl(surface.tree), 'A6.1. the accessibility refresh action is reachable');
   await surface.settle();
   record(household.filesReads.length === before + 1, 'A6.2. and it reads exactly once');
   record(tileText(surface.tree, `${HOUSEHOLD_A}-c-000`).includes('renamed-by-hand.txt'),
@@ -1238,10 +1298,41 @@ function testBoundaries(): void {
   const shell = fs.readFileSync(frontSource('screens/HomeCloudScreen.tsx'), 'utf8');
   const pagination = fs.readFileSync(frontSource('services/homecloud/homecloudFilesPagination.ts'), 'utf8');
 
-  record(!/setInterval\(/.test(screen), 'F1. no polling: the Files surface has no interval');
-  record((screen.match(/setTimeout\(/g) || []).length === 1, 'F2. and exactly one timer — the pre-existing search debounce, not a repeat');
+// STAGE 2 REOPEN: drag-selection added ONE interval, and it is not polling. It is
+  // the auto-scroll tick, it exists only while a long-press sweep is ARMED, and it is
+  // cleared on release, on termination, on leaving selection mode, on a context
+  // change and on unmount. What stays forbidden is a REPEATING read on a timer, which
+  // is what "polling" would mean: the interval body must never ask the server for
+  // anything.
+  record((screen.match(/setInterval\(/g) || []).length === 1, 'F1. exactly one interval, and it is the drag auto-scroll tick');
+  const autoScrollBody = /const autoScrollStep = useCallback\(\(\) => \{[\s\S]*?\}, \[hitTestPointer\]\);/.exec(screen);
+  const autoScrollSource = autoScrollBody === null ? '' : autoScrollBody[0];
+  record(autoScrollBody !== null && !/fetchFilesBrowser|controllerRef\.current!\.load/.test(autoScrollSource),
+    'F1a. the tick never reads from the server — it only moves the list and re-hit-tests');
+  record(/const stopAutoScroll = useCallback/.test(screen) && /clearInterval\(/.test(screen),
+    'F1b. and there is exactly one place that clears it');
+  // That one place is reached from every end of a gesture: release, terminate, leaving
+  // selection mode, a context change and unmount. If any of those paths bypassed
+  // `stopAutoScroll` a tick would outlive its gesture and keep scrolling a list nobody
+  // is touching.
+  record(/onPanResponderRelease: \(\) => disarmDragSelection\(\)/.test(screen)
+    && /onPanResponderTerminate: \(\) => disarmDragSelection\(\)/.test(screen),
+    'F1c. both gesture ends go through the one disarming function');
+  record(/const disarmDragSelection = useCallback\(\(\) => \{\s*dragGestureRef\.current = null;\s*stopAutoScroll\(\);/.test(screen),
+    'F1d. which clears the armed state AND the timer together');
+  record(/useEffect\(\(\) => \{ disarmDragSelection\(\); \}, \[dragScope/.test(screen)
+    && /useEffect\(\(\) => \(\) => disarmDragSelection\(\)/.test(screen),
+    'F1e. and a context change or an unmount disarms it as well');
+  record((screen.match(/setTimeout\(/g) || []).length === 1, 'F2. and exactly one timeout - the pre-existing search debounce, not a repeat');
   record(!/supabase|createClient|\.channel\(|postgres_changes/i.test(screen), 'F3. no realtime subscription of any kind');
-  record(!/new Map\(|CACHE_TTL|_cache\b/i.test(screen), 'F4. no new list cache was introduced');
+  // `new Map(` now legitimately appears once, as the MEASURED TILE FRAME map the drag
+  // sweep hit-tests against. That is layout measurement, not a data cache: it is never
+  // read from, never survives a context change, and holds only frames. What must stay
+  // absent is a data cache.
+  record((screen.match(/new Map\(/g) || []).length === 1
+    && /dragFramesRef = useRef<FileTileFrames>\(new Map\(\)\)/.test(screen)
+    && !/CACHE_TTL/.test(screen),
+    'F4. the only Map is the measured tile-frame map, not a data cache');
   record(/await controllerRef\.current!\.refreshPreservingWindow\(\)/.test(screen), 'F5. a return goes through the EXISTING window-preserving refresh');
   record((screen.match(/createFilesPagination\(/g) || []).length === 1, 'F6. still exactly ONE read controller on the surface');
   record(/AppState\.addEventListener\('change'/.test(screen), "F7. the lifecycle signal is the platform's own AppState");

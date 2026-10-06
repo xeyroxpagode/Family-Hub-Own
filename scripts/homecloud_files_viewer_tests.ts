@@ -237,8 +237,19 @@ console.log('--- V-I: a tap opens the Viewer only OUTSIDE selection ---');
     record(/files\.find\(\(candidate\) => candidate\.id === fileId\)/.test(handler[0]), 'the Viewer target is resolved against the CURRENT rows by id');
     record(/if \(!target\) return;/.test(handler[0]), 'a File that left the window simply does not open');
   }
-  const longHandler = /const handleFileLongPress = useCallback\(\(fileId: string\) => \{[\s\S]*?\}, \[selection\.mode\]\);/.exec(screenSource);
-  record(Boolean(longHandler) && /if \(selection\.mode\) return;/.test(longHandler![0]), 'a long press inside selection still opens nothing');
+  // STAGE 2 REOPEN: inside selection a long press no longer returns early — it ARMS
+  // the drag sweep. What must still hold is the property that test existed for: it
+  // must not open ANYTHING. No File menu, no navigation, no Viewer.
+  const longHandler = /const handleFileLongPress = useCallback\(\(fileId: string\) => \{[\s\S]*?\}, \[selection\.mode, armDragSelection\]\);/.exec(screenSource);
+  record(Boolean(longHandler), 'the long-press handler exists and depends on the sweep arming');
+  if (longHandler) {
+    record(/if \(selection\.mode\) \{[\s\S]*?armDragSelection\(fileId\);[\s\S]*?return;/.test(longHandler[0]),
+      'a long press inside selection arms the sweep and returns');
+    record(/setViewerTargetId/.test(longHandler[0]) === false,
+      'and it opens NOTHING — no File menu, no navigation, no Viewer');
+    record(/setActionTargetId/.test(longHandler[0]) !== false,
+      'while OUTSIDE selection it still opens the contextual File actions');
+  }
   // Normal tap IS opening, so the long-press menu must NOT also offer "Abrir".
   // The grammar keeps it only as a declared seam that is never painted.
   const openSeam = /id: 'open'[\s\S]{0,200}?implemented: false/.test(grammarSource);

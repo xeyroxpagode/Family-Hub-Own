@@ -276,6 +276,37 @@ function emit(status: AppStatus): void {
   for (const handler of [...appStatusListeners]) handler(status);
 }
 
+/**
+ * `PanResponder` — the drag-selection seam, made DRIVABLE.
+ *
+ * `create` records the production config and returns handlers that delegate straight
+ * to it. That is deliberate: a test can then invoke the REAL callbacks — including
+ * the ones that decide whether the responder claims a move stream at all — rather
+ * than only inspecting them, which is the difference between proving gesture
+ * arbitration and proving that a string exists in the file.
+ */
+type PanResponderConfig = Record<string, (...args: never[]) => unknown>;
+const panResponderConfigs: PanResponderConfig[] = [];
+const panResponderHandlerSets: Record<string, unknown>[] = [];
+const panResponderStub = {
+  create: (config: PanResponderConfig) => {
+    const handlers: Record<string, unknown> = {};
+    for (const [key, handler] of Object.entries(config)) {
+      handlers[key] = (...args: never[]) => (handler as (...a: never[]) => unknown)(...args);
+    }
+    panResponderConfigs.push(config);
+    panResponderHandlerSets.push(handlers);
+    return { panHandlers: handlers };
+  },
+};
+
+/** The most recently created responder's config + handlers. */
+function latestPanResponder(): { config: PanResponderConfig; handlers: Record<string, unknown> } {
+  const index = panResponderConfigs.length - 1;
+  if (index < 0) throw new Error('no PanResponder was created');
+  return { config: panResponderConfigs[index], handlers: panResponderHandlerSets[index] };
+}
+
 const reactNativeStub = {
   Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web ?? values.default },
   View: 'View',
@@ -289,6 +320,7 @@ const reactNativeStub = {
   KeyboardAvoidingView: 'KeyboardAvoidingView',
   Keyboard: { dismiss: () => undefined, addListener: () => ({ remove: () => undefined }) },
   StyleSheet: { create: <T,>(styles: T): T => styles, flatten: (style: unknown) => style },
+  PanResponder: panResponderStub,
   AppState: appStateStub,
   /**
    * The window the REAL `ActionSheet` measures itself against. It is a variable
@@ -808,6 +840,9 @@ function walk(node: unknown, visit: (element: TestElement) => void): void {
   const props = element.props ?? {};
   walk(props.children, visit);
   walk(props.ListFooterComponent, visit);
+  // The empty state lives INSIDE the list now (STAGE 2 reopen), so a walker has to
+  // descend into it exactly like the footer.
+  walk(props.ListEmptyComponent, visit);
   walk(props.footer, visit);
 }
 
@@ -935,11 +970,20 @@ async function pressFavoritesToggle(surface: { tree: unknown; settle: (rounds?: 
     return true;
   }
 
-/** The manual refresh control: a same-context re-read, never a first-page reset. */
+/**
+ * The manual refresh path that still EXISTS.
+ *
+ * STAGE 2 REOPEN: the visible `Actualizar` button is gone — the product truth is
+ * ZERO visible Refresh controls. What replaced it is a custom ACCESSIBILITY action
+ * on the list container, so this helper fires that action rather than pressing a
+ * button that must no longer exist.
+ */
 function pressRefreshControl(tree: unknown): boolean {
-  const control = findOne(tree, (element) => element.props?.accessibilityLabel === 'Actualizar archivos');
-  if (typeof control?.props.onPress !== 'function') return false;
-  control.props.onPress();
+  const container = findOne(tree, (element) => Array.isArray(element.props?.accessibilityActions)
+    && element.props.accessibilityActions.some((action: { name?: string }) => action.name === 'refresh-files')
+    && typeof element.props?.onAccessibilityAction === 'function');
+  if (!container) return false;
+  (container.props.onAccessibilityAction as (event: unknown) => void)({ nativeEvent: { actionName: 'refresh-files' } });
   return true;
 }
 
@@ -1527,14 +1571,17 @@ async function testRefusedFavoritePreservesEverything(): Promise<void> {
   const household = new Household({ loose: 300 });
   const surface = mountSurface(household);
   await surface.settle();
-  // Load three real pages so a collapse is measurable.
-  const listProps = (): { data: unknown[] } => (listOf(surface.tree)?.props ?? { data: [] }) as { data: unknown[] };
+  // Load three real pages so a collapse is measurable. STAGE 2 REOPEN: pagination is
+  // AUTOMATIC now — there is no `Mostrar más archivos` button left to press, so this
+  // drives the list's own `onEndReached`, which is what a scroll does.
   for (let page = 0; page < 2; page += 1) {
-    (listOf(surface.tree)?.props?.ListFooterComponent as TestElement | undefined)?.props?.children;
-    const moreButton = findOne(surface.tree, (element) => element.props?.title === 'Mostrar más archivos');
-    if (moreButton && typeof moreButton.props.onPress === 'function') moreButton.props.onPress();
+    const list = listOf(surface.tree);
+    const trigger = list?.props?.onEndReached as (() => void) | undefined;
+    if (typeof trigger === 'function') trigger();
     await surface.settle(20, 5);
   }
+  record(findOne(surface.tree, (element) => element.props?.title === 'Mostrar más archivos') === null,
+    'U-K0a. and there is no `Mostrar más archivos` button any more: the list pages itself');
   const loadedBefore = listedFileIds(surface.tree).length;
   record(loadedBefore === 300, `U-K1. the member has a real 300-row window loaded (${loadedBefore})`);
   const readsBefore = household.fileReads().length;

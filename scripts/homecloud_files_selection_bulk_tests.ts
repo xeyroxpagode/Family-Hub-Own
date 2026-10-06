@@ -239,6 +239,35 @@ const reactStub: Record<string, unknown> = {
 reactStub.default = reactStub;
 reactStub.Fragment = Symbol.for('react.fragment');
 
+/**
+ * `PanResponder` — the drag-selection seam, made DRIVABLE.
+ *
+ * `create` records the production config and returns handlers that delegate straight
+ * to it, so a test can invoke the REAL callbacks — including the ones that decide
+ * whether the responder claims a move stream at all — instead of only inspecting
+ * them.
+ */
+type PanResponderConfig = Record<string, (...args: never[]) => unknown>;
+const panResponderConfigs: PanResponderConfig[] = [];
+const panResponderHandlerSets: Record<string, unknown>[] = [];
+const panResponderStub = {
+  create: (config: PanResponderConfig) => {
+    const handlers: Record<string, unknown> = {};
+    for (const [key, handler] of Object.entries(config)) {
+      handlers[key] = (...args: never[]) => (handler as (...a: never[]) => unknown)(...args);
+    }
+    panResponderConfigs.push(config);
+    panResponderHandlerSets.push(handlers);
+    return { panHandlers: handlers };
+  },
+};
+
+/** The most recently created responder's config + handlers. */
+function latestPanResponder(): { config: PanResponderConfig; handlers: Record<string, unknown> } {
+  const index = panResponderConfigs.length - 1;
+  if (index < 0) throw new Error('no PanResponder was created');
+  return { config: panResponderConfigs[index], handlers: panResponderHandlerSets[index] };
+}
 const reactNativeStub = {
   Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web ?? values.default },
   View: 'View',
@@ -250,6 +279,7 @@ const reactNativeStub = {
   KeyboardAvoidingView: 'KeyboardAvoidingView',
   Keyboard: { dismiss: () => undefined },
   StyleSheet: { create: <T,>(styles: T): T => styles, flatten: (style: unknown) => style },
+  PanResponder: panResponderStub,
   // The Files surface subscribes to app foreground as a freshness boundary, so
   // the device primitive is part of what this host must provide. It is inert
   // here: no test in this file drives it.
@@ -595,6 +625,9 @@ function walk(node: unknown, visit: (element: TestElement) => void): void {
   const props = element.props ?? {};
   walk(props.children, visit);
   walk(props.ListFooterComponent, visit);
+  // The empty state lives INSIDE the list now (STAGE 2 reopen), so a walker has to
+  // descend into it exactly like the footer.
+  walk(props.ListEmptyComponent, visit);
   walk(props.footer, visit);
 }
 
@@ -715,16 +748,21 @@ function pressFolder(tree: unknown, folderId: string): boolean {
 
 
 
-/** The manual refresh control: a same-context re-read, never a first-page reset. */
 /**
- * STAGE 2 (Phase 2): the secondary manual-refresh path moved into the header
- * overflow and is still labelled "Actualizar archivos", so the secondary path is
- * proven through the same seam as before.
+ * The manual refresh path that still EXISTS: a same-context re-read, never a
+ * first-page reset.
+ *
+ * STAGE 2 REOPEN: the visible `Actualizar` button is gone — the product truth is
+ * ZERO visible Refresh controls. It is replaced by a custom ACCESSIBILITY action on
+ * the list container, which reaches the SAME window-preserving authority. This fires
+ * that action, and B33 asserts the visible button really is gone.
  */
 function pressRefreshControl(tree: unknown): boolean {
-  const control = findOne(tree, (element) => element.props?.accessibilityLabel === 'Actualizar archivos');
-  if (typeof control?.props.onPress !== 'function') return false;
-  control.props.onPress();
+  const container = findOne(tree, (element) => Array.isArray(element.props?.accessibilityActions)
+    && element.props.accessibilityActions.some((action: { name?: string }) => action.name === 'refresh-files')
+    && typeof element.props?.onAccessibilityAction === 'function');
+  if (!container) return false;
+  (container.props.onAccessibilityAction as (event: unknown) => void)({ nativeEvent: { actionName: 'refresh-files' } });
   return true;
 }
 
@@ -974,7 +1012,15 @@ async function testSelectionGestures(): Promise<void> {
     // batching Files must not be able to move or delete one by long-pressing it.
     const bodyInsideSelection = tileBody(surface.tree, 'c-001');
     const actionsInsideSelection = (bodyInsideSelection?.props?.accessibilityActions ?? []) as { name: string; label: string }[];
-    record(actionsInsideSelection.length === 0, 'B28. inside selection the tile offers NO contextual action at all');
+    // STAGE 2 REOPEN: drag-selection added explicit `select` / `deselect`
+    // accessibility actions, and they are REQUIRED — drag is an enhancement and must
+    // never be the only way to select a File. What must still be absent inside a
+    // multi-select is the CONTEXTUAL File menu: a member batching Files must not be
+    // able to move or delete one of them from the tile.
+    record(actionsInsideSelection.every((action) => action.name !== 'longpress'),
+      'B28. inside selection the tile offers NO contextual File-menu action');
+    record(actionsInsideSelection.map((action) => action.name).join(',') === 'select,deselect',
+      'B28a. but it DOES offer explicit select / deselect actions, so drag is never the only path');
     // The host is ALWAYS mounted - it decides its own visibility - so "the menu did
     // not open" means the host holds NO resolved target, not that it is absent.
     record(selectByLongPress(surface.tree, 'c-001') && actionHostElement(surface.tree)?.props?.file == null,

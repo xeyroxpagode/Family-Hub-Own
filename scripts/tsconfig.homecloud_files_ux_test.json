@@ -13,6 +13,7 @@
     "../front/mi-front-limpio/services/homecloud/homecloudFilesService.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudFileSelection.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudFilesPagination.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudDragSelection.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudBulkMove.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudTypes.ts",
     "../front/mi-front-limpio/screens/HomeCloudFilesScreen.tsx"

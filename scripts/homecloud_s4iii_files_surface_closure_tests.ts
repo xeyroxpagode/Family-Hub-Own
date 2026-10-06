@@ -231,6 +231,35 @@ const reactStub: Record<string, unknown> = {
 reactStub.default = reactStub;
 reactStub.Fragment = Symbol.for('react.fragment');
 
+/**
+ * `PanResponder` — the drag-selection seam, made DRIVABLE.
+ *
+ * `create` records the production config and returns handlers that delegate straight
+ * to it, so a test can invoke the REAL callbacks — including the ones that decide
+ * whether the responder claims a move stream at all — instead of only inspecting
+ * them.
+ */
+type PanResponderConfig = Record<string, (...args: never[]) => unknown>;
+const panResponderConfigs: PanResponderConfig[] = [];
+const panResponderHandlerSets: Record<string, unknown>[] = [];
+const panResponderStub = {
+  create: (config: PanResponderConfig) => {
+    const handlers: Record<string, unknown> = {};
+    for (const [key, handler] of Object.entries(config)) {
+      handlers[key] = (...args: never[]) => (handler as (...a: never[]) => unknown)(...args);
+    }
+    panResponderConfigs.push(config);
+    panResponderHandlerSets.push(handlers);
+    return { panHandlers: handlers };
+  },
+};
+
+/** The most recently created responder's config + handlers. */
+function latestPanResponder(): { config: PanResponderConfig; handlers: Record<string, unknown> } {
+  const index = panResponderConfigs.length - 1;
+  if (index < 0) throw new Error('no PanResponder was created');
+  return { config: panResponderConfigs[index], handlers: panResponderHandlerSets[index] };
+}
 const reactNativeStub = {
   Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web ?? values.default },
   View: 'View',
@@ -242,6 +271,7 @@ const reactNativeStub = {
   KeyboardAvoidingView: 'KeyboardAvoidingView',
   Keyboard: { dismiss: () => undefined },
   StyleSheet: { create: <T,>(styles: T): T => styles, flatten: (style: unknown) => style },
+  PanResponder: panResponderStub,
   // The Files surface subscribes to app foreground as a freshness boundary, so
   // the device primitive is part of what this host must provide. It is inert
   // here: no test in this file drives it.
@@ -567,6 +597,9 @@ function walk(node: unknown, visit: (element: TestElement) => void): void {
   const props = element.props ?? {};
   walk(props.children, visit);
   walk(props.ListFooterComponent, visit);
+  // The empty state lives INSIDE the list now (STAGE 2 reopen), so a walker has to
+  // descend into it exactly like the footer.
+  walk(props.ListEmptyComponent, visit);
   // ActionSheet renders its confirm action through `footer`, so a sheet's
   // primary control is only reachable by walking it too.
   walk(props.footer, visit);
@@ -631,20 +664,33 @@ function titleOf(tree: unknown): string | undefined {
   return texts.find((text) => text === 'Archivos' || text === 'Recetas' || text === 'Viajes' || text === 'Renombrada');
 }
 
-/** The load-more control is whatever the footer leaves enabled. */
+/**
+ * STAGE 2 REOPEN — the load-more affordance is GONE.
+ *
+ * Pagination became automatic, so there is no `Mostrar más archivos` button for a
+ * member to stop on. The list pages itself through `onEndReached`, which is what a
+ * scroll reaches, so this helper drives that instead. The two assertions around it
+ * prove the button is really gone rather than merely unused.
+ */
 function pressLoadMore(tree: unknown): boolean {
-  const footer = listOf(tree).props.ListFooterComponent;
-  const enabled = findAll(footer, (element) => typeof element.props?.onPress === 'function' && element.props?.disabled !== true
-    && typeof element.props?.title === 'string' && element.props.title.length > 0);
-  if (enabled.length !== 1) return false;
-  enabled[0].props.onPress();
+  const trigger = listOf(tree)?.props?.onEndReached;
+  if (typeof trigger !== 'function') return false;
+  (trigger as () => void)();
   return true;
 }
 
 function hasLoadMoreCta(tree: unknown): boolean {
-  const footer = listOf(tree).props.ListFooterComponent;
+  const footer = listOf(tree)?.props?.ListFooterComponent;
   if (!footer) return false;
   return findAll(footer, (element) => element.props?.title === 'Mostrar más archivos').length > 0;
+}
+
+/** The list is wired for automatic pagination, and early. */
+function paginationIsAutomatic(tree: unknown): boolean {
+  const list = listOf(tree);
+  if (!list) return false;
+  const threshold = list.props?.onEndReachedThreshold;
+  return typeof list.props?.onEndReached === 'function' && typeof threshold === 'number' && threshold >= 1.5;
 }
 
 function typeSearch(tree: unknown, text: string): boolean {
@@ -691,10 +737,15 @@ async function chooseSortThroughFilterMenu(surface: { tree: unknown; settle: () 
     return true;
   }
 
-  function pressRefreshControl(tree: unknown): boolean {
-  const refresh = findOne(tree, (element) => element.props?.accessibilityLabel === 'Actualizar archivos');
-  if (!refresh || typeof refresh.props.onPress !== 'function') return false;
-  refresh.props.onPress();
+function pressRefreshControl(tree: unknown): boolean {
+  // STAGE 2 REOPEN: the visible `Actualizar` button is gone. The path that remains is
+  // the ACCESSIBILITY-ONLY `refresh-files` action on the list container, reaching the
+  // same window-preserving authority.
+  const container = findOne(tree, (element) => Array.isArray(element.props?.accessibilityActions)
+    && element.props.accessibilityActions.some((action: { name?: string }) => action.name === 'refresh-files')
+    && typeof element.props?.onAccessibilityAction === 'function');
+  if (!container) return false;
+  (container.props.onAccessibilityAction as (event: unknown) => void)({ nativeEvent: { actionName: 'refresh-files' } });
   return true;
 }
 
@@ -1136,7 +1187,7 @@ const expectations: { total: number; pages: number }[] = [
     record(first.files.length === Math.min(total, 100), `C.${total}. and holds ${Math.min(total, 100)} rows`);
 
     if (pages === 1) {
-      record(first.nextOffset === null, `C.${total}. with nextOffset null, so no phantom CTA exists`);
+      record(first.nextOffset === null, `C.${total}. with nextOffset null, so the list asks for nothing more`);
       continue;
     }
     // Reaching the end must never require an EMPTY page request.
@@ -1144,7 +1195,7 @@ const expectations: { total: number; pages: number }[] = [
     const loaded = controller.getState();
     record(loaded.files.length === total, `C.${total}. reaching all ${total} took ${offsets.length} reads, not ${offsets.length + 1}`);
     record(offsets.length === pages, `C.${total}. which is exactly ${pages} page reads`);
-    record(!hasMoreFilesPages(loaded), `C.${total}. and the CTA is gone only at the real end`);
+    record(!hasMoreFilesPages(loaded), `C.${total}. and the list stops paging only at the real end`);
     record(offsets.every((offset) => offset < total), `C.${total}. no request was made past the last row`);
     const ids = loaded.files.map((file: { id: string }) => file.id);
     record(new Set(ids).size === ids.length, `C.${total}. no duplicate row`);
@@ -1156,7 +1207,7 @@ const expectations: { total: number; pages: number }[] = [
   const exactController = createFilesPagination({ limit: 100, read: exact.read, onState: () => undefined });
   await exactController.load();
   record(exact.offsets[0] === 0 && exactController.getState().files.length === 100 && !hasMoreFilesPages(exactController.getState()),
-    'C.100x. exactly 100 files answers a FULL page and still reports no next page (no phantom "Mostrar más")');
+    'C.100x. exactly 100 files answers a FULL page and still reports no next page, so no phantom page is ever requested');
   const oneMore = boundaryReader(101);
   const moreController = createFilesPagination({ limit: 100, read: oneMore.read, onState: () => undefined });
   await moreController.load();
@@ -1197,27 +1248,30 @@ async function testWindowPreservation(): Promise<void> {
   await controller.refreshPreservingWindow();
   record(controller.getState().files.length === 250, 'C2. the loaded window SURVIVES the upload reconciliation (250, not 100)');
   record(offsets[0] === 0 && offsets.length === 3, 'C3. it was re-read from offset 0 in page-sized windows');
-  record(hasMoreFilesPages(controller.getState()) === true, 'C4. and the household really has one more, so the CTA is honest');
+  record(hasMoreFilesPages(controller.getState()) === true, 'C4. and the household really has one more, so the automatic pagination trigger is honest');
   record(seen.length > 0, 'C5. the refresh published state instead of silently mutating');
 
   // A metadata edit lands, with no new row.
   datasetOffset = 0;
   await controller.refreshPreservingWindow();
   record(controller.getState().files.length === 250, 'C6. a metadata refresh also preserves the window');
-  record(hasMoreFilesPages(controller.getState()) === false, 'C7. and with no extra row there is no CTA');
+  record(hasMoreFilesPages(controller.getState()) === false, 'C7. and with no extra row the list stops asking');
 
   // 200 loaded: the same guarantee at a different window size.
   const small = new Household({ folders: [], loose: 205 });
   const surface = mountSurface(small);
   await surface.settle();
   record(listedFileIds(surface.tree).length === 100, 'C8. the real surface starts at one page');
-  record(hasLoadMoreCta(surface.tree), 'C9. with a load-more affordance while more really exist');
-  record(pressLoadMore(surface.tree), 'C10. the affordance is reachable');
+  record(hasLoadMoreCta(surface.tree) === false,
+    'C9. there is NO load-more button any more: a normal scroll must never stop on one');
+  record(paginationIsAutomatic(surface.tree),
+    'C9a. the list is wired for automatic pagination with an early threshold');
+  record(pressLoadMore(surface.tree), 'C10. the pagination trigger is reachable');
   await surface.settle();
   record(listedFileIds(surface.tree).length === 200, 'C11. two pages are loaded');
 
   // Manual refresh.
-  record(pressRefreshControl(surface.tree), 'C12. the manual refresh control is reachable');
+  record(pressRefreshControl(surface.tree), 'C12. the accessibility refresh action is reachable');
   await surface.settle();
   record(listedFileIds(surface.tree).length === 200, 'C13. and it preserves the loaded window');
 
@@ -1225,7 +1279,9 @@ async function testWindowPreservation(): Promise<void> {
   reconcileHomeCloudReadAfterCompletion({ householdId: HOUSEHOLD_ID, jobId: 'job-s4iii', role: 'file' });
   await surface.settle();
   record(listedFileIds(surface.tree).length === 200, 'C14. an upload completion preserves the loaded window');
-  record(hasLoadMoreCta(surface.tree), 'C15. and the next page is still offered (205 exist)');
+  record(hasMoreFilesPages({ nextOffset: 200 } as never) === true
+    && (listOf(surface.tree)?.props?.onEndReached !== undefined),
+    'C15. and the next page is still armed for the next scroll (205 exist)');
 
   // A move / metadata update: `saveFile` is what refreshes the list after a file
   // changes, so the wiring is asserted where it lives. (The File info sheet is a

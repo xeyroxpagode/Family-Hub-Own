@@ -705,3 +705,145 @@ reachability on real hardware is not claimed here.
 ### COMMIT
 
 `fix(homecloud): repair file favorites interaction`
+---
+
+## SLICE B -- DRAG SELECTION, REFRESH and AUTOMATIC PAGINATION
+
+### PRE-AUDIT AGAINST `c6abd40` (SLICE A)
+
+| Reopen finding | Confirmed at HEAD | Evidence |
+|---|---|---|
+| A long press inside selection mode did NOTHING | YES | `handleFileLongPress` was `if (selection.mode) return;` -- the product requirement is a continuous sweep |
+| `Mostrar más archivos` was the normal way to page | YES | `ListFooterComponent` rendered that button whenever `hasMore` |
+| `Actualizar` was a VISIBLE overflow item | YES | the header overflow carried it, plus the hint said "Seleccionar archivos o actualizar" |
+| The empty state was DEAD | YES | `items.length === 0` rendered a plain `View`, so the `FlatList` and its `RefreshControl` were UNMOUNTED |
+| Automatic pagination could retry-storm | N/A | pagination was manual, so the latch did not exist yet |
+
+No PanResponder donor was reused as-is: `AccountSheet` and `HouseholdSwitcherSheet` use
+PanResponder for a sheet swipe, which is a different arbitration problem. React Native's
+own `PanResponder` is used here, with **no new dependency** -- no gesture-handler, no
+reanimated, no `GestureHandlerRootView`.
+
+### ARCHITECTURE DECISION: WHY THE RESPONDER IS ARMED, AND WHY IT BLOCKS THE NATIVE ONE
+
+Normal scrolling inside selection mode must keep working. A member sweeping straight down
+a column of Files and a member flicking the list are the same physical motion, so no axis
+or distance discriminator can separate them. Only the LONG PRESS can, because it is a
+decision the member already made. Therefore:
+
+- `onStartShouldSetPanResponder` / `...Capture` return **false unconditionally** and
+  `onShouldBlockNativeResponder` is false until armed, so a swipe is still a swipe.
+- `onLongPress` arms the sweep. The mode is read ONCE, from the anchor's CURRENT selection
+  state, and never re-derived.
+- After arming, `onMoveShouldSetPanResponder` is true, `onPanResponderTerminationRequest`
+  is false, and `onShouldBlockNativeResponder` is **true**. That last one is not optional
+  decoration: React Native 0.86 is on the New Architecture, where the `FlatList` pan is a
+  NATIVE recognizer, so blocking it is the only way to keep a stationary finger on a tile
+  that is scrolling underneath it. This was read out of the installed
+  `react-native/Libraries/Components/ScrollView/ScrollView.js` and `Pressable.js`, not
+  assumed.
+
+### THE PURE MODULE
+
+`homecloudDragSelection.ts` owns the three decisions that are not styling, framework-free
+and directly testable: the anchor mode, the visited-once fold, the MEASURED hit test
+(`pointerToListContent` + `hitTestFileTile`, with gutters returning `null` rather than the
+nearest neighbour), and the auto-scroll bounds. The screen owns the responder, the timer
+and the measured frames, and re-implements none of it.
+
+Auto-scroll: 72 dp edge zone, 12 dp step, 16 ms tick, clamped to
+`max(0, contentHeight - viewportHeight)`. A tick that cannot move the list returns `null`,
+which is what stops the timer at a boundary instead of firing forever against it.
+
+### REFRESH
+
+`Actualizar` is REMOVED from the visible overflow and the overflow hint no longer mentions
+updating. `RefreshControl` and every automatic freshness signal (focus, foreground, tab
+return, upload reconciliation, household/context changes) are untouched. An
+ACCESSIBILITY-ONLY `refresh-files` action on the list container replaces the button and
+calls the SAME window-preserving `refresh()` -- no duplicated refresh implementation and no
+second visible item. The empty state moved into `ListEmptyComponent`, so the scroll surface
+and its `RefreshControl` exist on an empty root, an empty folder, an empty Favoritos result
+and an empty search.
+
+### PAGINATION
+
+`Mostrar más archivos` is GONE. `onEndReached` reaches the canonical `loadMore()` with
+`onEndReachedThreshold={2}` (the grid viewport is only a few rows). The synchronous
+`loadingMore` guard and the generation rejection are preserved. The footer renders: nothing
+while idle (a fixed 24 dp spacer, so there is no layout jump), a small `ActivityIndicator`
+while a page is in flight, and on a failure the error plus a COMPACT `Reintentar`.
+
+New `autoPageBlocked` latch + `retryNextPage()`: after a failed AUTOMATIC request, automatic
+requests are refused, the failed `nextOffset` is kept, and only the explicit retry re-arms
+one attempt. A second failure latches again, so a retry can never become a loop. A first
+page, a window-preserving refresh and a household reset all clear it.
+
+### EVIDENCE (CLASSIFIED HONESTLY)
+
+| Claim | Class | What actually ran |
+|---|---|---|
+| The sweep model is an anchor decision, each File processed at most once | PURE_UNIT | `homecloudDragSelection` executed: ADD from an unselected anchor, REMOVE from a selected one, re-crossing returns the SAME object (so a second processing is structurally impossible), a 41-tile sweep visits 41. |
+| Hit testing uses measured frames | PURE_UNIT | Executed on a deliberately NON-174dp grid with a 24dp gutter: second column, next row, gutter returns `null`, and a 500dp scroll offset resolves against real content. |
+| The gesture does not break normal scrolling | COMPONENT_BEHAVIOUR | The surface's own `PanResponder` was ASKED, not read: before arming `onStartShouldSetPanResponder === false`, `onMoveShouldSetPanResponder === false` and `onShouldBlockNativeResponder === false`; after arming, move is claimed, start is still refused, native is blocked, termination is refused. |
+| The sweep works end to end | COMPONENT_BEHAVIOUR | The real Files screen, the real `FileTile`, the real responder: a 5-crossing sweep through TWO columns selected exactly 6 Files; re-crossing changed nothing; a second gesture anchored on a selected File removed the run; the same was then repeated at a 4-row scroll offset. |
+| Folders are ignored | COMPONENT_BEHAVIOUR | The folder tile has no `onLayout` and no `panHandlers` at all, and dragging the finger back over the folder row selected nothing extra. |
+| Auto-scroll starts, keeps going in bounded steps and stops | COMPONENT_BEHAVIOUR | Real `setInterval`: a finger in the middle does not scroll; the bottom edge scrolls the list under a stationary finger and keeps going; release stops it, terminate stops it, leaving selection mode stops it. |
+| No timer leak | COMPONENT_BEHAVIOUR + SOURCE | The offset was sampled 80 ms after each end and did not move again; and every end reaches the ONE `stopAutoScroll`, from release, terminate, mode exit, the context effect and unmount. |
+| Zero visible Refresh controls | COMPONENT_BEHAVIOUR | Asserted on the RENDERED tree: no element carries the label `Actualizar archivos`, no button titled `Actualizar`, the overflow's own titles do not include it, the hint no longer advertises it, and exactly ONE `refresh-files` accessibility action exists. |
+| Empty states are refreshable | COMPONENT_BEHAVIOUR | An empty root, and an empty Favoritos result: the `FlatList` is still mounted, `ListEmptyComponent` renders, the `RefreshControl` exists, and firing it issues a real read. |
+| Pull-to-refresh and the AT action share one authority | COMPONENT_BEHAVIOUR | The `RefreshControl` was invoked: indicator true, then false after settle (a `finally`), exactly one read. The `refresh-files` action produced exactly one more read. |
+| Automatic pagination is wired and early | COMPONENT_BEHAVIOUR | The list's own `onEndReached` was invoked: threshold 2 (>= 1.5), FIVE rapid invocations produced exactly ONE request, 250 rows paged to exhaustion, and three further invocations at the end produced NO read. |
+| A stale page cannot append | COMPONENT_BEHAVIOUR | A next page was held in flight, the household was switched underneath it, and the late answer did not appear in the new household's list. |
+| The failure latch works | COMPONENT_BEHAVIOUR | A failing next page: one request, the failure stated, a compact `Reintentar` present, then FOUR further automatic invocations produced ZERO requests; only the explicit retry asked again, and the affordance disappeared once the page landed. |
+| Footer states | COMPONENT_BEHAVIOUR | A gated page showed exactly one `Cargando más archivos` indicator and NO paging button at all; idle showed no spinner; the final page showed no spinner. |
+| Selection is still fully accessible without a drag | COMPONENT_BEHAVIOUR | Inside selection the tile is a `checkbox` announcing `selected`, and offers explicit `select`/`deselect` actions that really select and really deselect; the tap toggle and the bar summary still work. |
+
+### A HARNESS GAP THIS SLICE FOUND AND CLOSED (AGAIN)
+
+The three surfaces that mount the real Files screen stubbed `react-native` without
+`PanResponder`, so the screen crashed on mount the moment a pan responder existed. Each now
+provides a DRIVABLE stub: `create` records the production config and the handlers delegate
+straight to it, which is what makes "does this responder claim a move?" an answerable
+question instead of an unreadable string.
+
+Two existing assertions had to change because the product truth changed, and both were
+updated to assert the NEW truth rather than to be relaxed:
+
+- freshness F1 asserted "the Files surface has no interval". That is now false by design, so
+  the suite instead asserts there is exactly ONE interval, that its body never reads from
+  the server, and that every gesture end reaches the one `clearInterval`. F4's "no new Map"
+  became "the only Map is the measured tile-frame map", because the frame map is
+  measurement, not a data cache.
+- selection/bulk B28 asserted "inside selection the tile offers NO accessibility action at
+  all". Drag-selection REQUIRES explicit `select`/`deselect` actions, so the suite now
+  asserts the absence of the contextual `longpress` action specifically.
+
+### THE UX SUITE WAS REWRITTEN, NOT EXTENDED
+
+`homecloud_files_ux_tests.ts` was almost entirely source regexes -- it could prove the string
+`title="Actualizar"` existed and nothing about whether pressing it worked. It is now a
+153-assertion suite that mounts the real Files screen over a hook host and a stubbed
+transport and EXERCISES the claims, with the genuinely source-scoped checks (donor reuse,
+design tokens) kept and labelled as such.
+
+### SLICE B REGRESSION
+
+`homecloud-files-ux` PASS (153) -- `homecloud-files-slice1-selection-bulk` PASS (178) --
+`homecloud-files-freshness` PASS -- `homecloud-w1bc-pagination-reconciliation` PASS (84) --
+`homecloud-files-favorites` PASS (100) -- `homecloud-files-favorites-ui` PASS (157) --
+`homecloud-files-hierarchy-ui` PASS (129) -- `homecloud-s4iii-files-surface` PASS (234) --
+`homecloud-files-viewer` PASS -- frontend `tsc --noEmit` PASS -- `git diff --check` clean.
+
+**`frontend-lint` was ALREADY RED at HEAD and was not made redder.** React Compiler
+"Compilation Skipped: Existing memoization could not be preserved" errors already exist in
+`PlannerSheetHost.tsx` and at nine sites in `HomeCloudFilesScreen.tsx`. The error set was
+diffed against `HEAD` with `eslint --stdin` and is IDENTICAL, so this slice introduced no new
+lint error. It is reported here as pre-existing debt, not as a pass.
+
+Real runtime: no Stage 2 UI suite requires the local stack, so nothing new was run here;
+`homecloud-files-favorites-runtime` and the Stage 2 integrated suite are re-run in Slice D.
+
+### COMMIT
+
+`refactor(homecloud): finish files selection refresh and pagination`

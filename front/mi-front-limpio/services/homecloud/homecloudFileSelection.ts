@@ -60,6 +60,24 @@ export function deselectFile(previous: FileSelection, fileId: string): FileSelec
 export const toggleFileSelection = (previous: FileSelection, fileId: string): FileSelection =>
   (previous.ids.has(fileId) ? deselectFile(previous, fileId) : selectFile(previous, fileId));
 
+/**
+ * Put ONE File into a decided selection state.
+ *
+ * This exists because the drag-selection sweep is not a toggle. A sweep reads its
+ * mode once, from the anchor, and then every crossed File is set to that same
+ * decided state — so calling `toggleFileSelection` per crossed tile would invert
+ * the File the finger went down on and make the gesture mean whatever the last
+ * crossed tile happened to be. The set mutation lives HERE so the sweep, the tap
+ * and the future cannot each grow their own copy of it.
+ *
+ * A File already in the requested state is returned UNCHANGED (same object), so a
+ * repeated set is a no-op rather than a new identity that would re-render the grid
+ * for nothing.
+ */
+export function setFileSelectionSelected(previous: FileSelection, fileId: string, selected: boolean): FileSelection {
+  return selected ? selectFile(previous, fileId) : deselectFile(previous, fileId);
+}
+
 /** A long press enters selection mode and selects the pressed File in one intent. */
 export const beginFileSelectionAt = (previous: FileSelection, fileId: string): FileSelection =>
   selectFile(enterFileSelection(previous), fileId);

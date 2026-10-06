@@ -81,6 +81,17 @@ export type FilesPaginationState = {
   /** A failed LATER page. Never a reason to drop what is already on screen. */
   readonly pageError: string | null;
   /**
+   * Automatic next-page loading is BLOCKED.
+   *
+   * Stage 2 reopen: pagination became automatic, so a page failure used to become
+   * a retry storm — the list asks for the next page the moment it is scrolled
+   * again, so a household on a flaky connection burned a request per frame and
+   * the member never saw anything but a spinner. After a failed AUTOMATIC request
+   * this latches, the failed `nextOffset` is kept, and only an EXPLICIT retry
+   * re-arms it. A successful page clears it.
+   */
+  readonly autoPageBlocked: boolean;
+  /**
    * The query identity the loaded rows belong to, or `null` while nothing loaded
    * belongs to the current query. S4-iii B1: the surface must not render the
    * loaded rows while this disagrees with its current query.
@@ -95,6 +106,7 @@ export const FILES_PAGINATION_INITIAL: FilesPaginationState = {
   loading: true,
   loadingMore: false,
   pageError: null,
+  autoPageBlocked: false,
   contextKey: null,
 };
 
@@ -124,8 +136,19 @@ export type FilesPaginationController = {
   getState(): FilesPaginationState;
   /** First page at offset 0. Supersedes every request in flight. */
   load(): Promise<void>;
-  /** The next page. A no-op when there is no next page. */
+  /**
+   * The next page, AUTOMATICALLY. A no-op when there is no next page, when a page
+   * is already in flight, or when `autoPageBlocked` is latched by a previous
+   * failure. This is the path a scroll reaches.
+   */
   loadMore(): Promise<void>;
+  /**
+   * The next page, EXPLICITLY. Clears the automatic latch and asks for exactly
+   * the page that failed, so the member's `Reintentar` is never a no-op and the
+   * list is never left permanently unable to page. If it fails again the latch
+   * returns, so a retry can never become a loop.
+   */
+  retryNextPage(): Promise<void>;
   /**
    * Re-read offset 0 for exactly the number of rows already loaded. Same data,
    * same question, same generation discipline — the loaded window survives.
@@ -211,6 +234,8 @@ export function createFilesPagination(options: FilesPaginationOptions): FilesPag
   // Mirrors the loading flags, because a stale response must be able to tell
   // that a newer generation already took over.
   let loadingMore = false;
+  // The AUTOMATIC-pagination latch. See `autoPageBlocked` on the state.
+  let autoPageBlocked = false;
 
   const publish = (patch: Partial<FilesPaginationState>) => {
     state = { ...state, ...patch };
@@ -232,11 +257,13 @@ export function createFilesPagination(options: FilesPaginationOptions): FilesPag
     const mine = ++generation;
     const contextKey = currentContextKey();
     // A new first page supersedes any page still in flight, so the spinner for
-    // "loading more" must not survive into the new query.
+    // "loading more" must not survive into the new query, and a failure latch
+    // belongs to the OLD question.
     loadingMore = false;
+    autoPageBlocked = false;
     const start = supersedesContext
-      ? { loading: true, loadingMore: false, pageError: null, contextKey: null }
-      : { loadingMore: false, pageError: null };
+      ? { loading: true, loadingMore: false, pageError: null, autoPageBlocked: false, contextKey: null }
+      : { loadingMore: false, pageError: null, autoPageBlocked: false };
     publish(start);
     try {
       const page = await read({ limit, offset: 0 });
@@ -283,9 +310,12 @@ export function createFilesPagination(options: FilesPaginationOptions): FilesPag
       const mine = ++generation;
       const contextKey = currentContextKey();
       loadingMore = false;
+      // A refresh re-reads the window from the source, so the window is no longer
+      // the stale one the failure was about: the latch is released with it.
+      autoPageBlocked = false;
       // A refresh answers the same question: the loaded rows keep their context
       // and stay on screen while the same window is re-read.
-      publish({ loadingMore: false, pageError: null });
+      publish({ loadingMore: false, pageError: null, autoPageBlocked: false });
       return (async () => {
         const collected: HomeCloudFile[] = [];
         let folders: HomeCloudFolder[] = [];
@@ -314,33 +344,51 @@ export function createFilesPagination(options: FilesPaginationOptions): FilesPag
 
     async loadMore() {
       const offset = state.nextOffset;
-      // No next page: the final page shows no CTA, so this is a no-op.
-      if (offset === null || loadingMore || state.loading) return;
+      // No next page: the final page shows no spinner and no CTA, so this is a
+      // no-op. A latched failure: automatic paging is BLOCKED until the member
+      // asks for it explicitly, so a flaky connection cannot become a retry storm.
+      if (offset === null || loadingMore || state.loading || autoPageBlocked) return;
       const mine = generation;
       loadingMore = true;
       publish({ loadingMore: true, pageError: null });
       try {
         const page = await read({ limit, offset });
         if (mine !== generation) return;
+        autoPageBlocked = false;
         publish({
           files: appendUniqueFiles(state.files, page.files),
           nextOffset: page.nextOffset,
           loadingMore: false,
+          autoPageBlocked: false,
         });
       } catch (error) {
         if (mine !== generation) return;
         // Loaded pages and `nextOffset` survive untouched, so the next attempt
-        // asks for the very same page.
-        publish({ pageError: pageErrorMessage(error), loadingMore: false });
+        // asks for the very same page — and automatic attempts stop until it is
+        // asked for on purpose.
+        autoPageBlocked = true;
+        publish({ pageError: pageErrorMessage(error), loadingMore: false, autoPageBlocked: true });
       } finally {
         if (mine === generation) loadingMore = false;
       }
+    },
+
+    /**
+     * The member's `Reintentar`. It re-arms exactly one attempt for the page that
+     * failed and nothing else: the latch is cleared, the request runs, and a second
+     * failure latches again, so a retry can never turn into a loop.
+     */
+    retryNextPage() {
+      autoPageBlocked = false;
+      publish({ autoPageBlocked: false });
+      return controller.loadMore();
     },
 
     reset() {
       // Bumping the generation is what discards in-flight pages.
       generation += 1;
       loadingMore = false;
+      autoPageBlocked = false;
       state = FILES_PAGINATION_INITIAL;
       onState(state);
     },

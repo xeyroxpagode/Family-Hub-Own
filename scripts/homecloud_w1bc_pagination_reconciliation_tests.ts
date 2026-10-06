@@ -185,7 +185,7 @@ async function testOverOneHundredFiles(): Promise<void> {
   const first = controller.getState();
   record(first.files.length === 100, 'A1. page 1 holds the full 100 items (no silent truncation)');
   record(first.nextOffset === 100, 'A2. the read\'s PROVEN next offset is reported');
-  record(hasMoreFilesPages(first), 'A3. so the surface shows a "load more" affordance');
+  record(hasMoreFilesPages(first), 'A3. so the list keeps paging on its own — STAGE 2 reopen removed the affordance entirely');
   record(transport.calls[0].includes('limit=100') && transport.calls[0].includes('offset=0'),
     'A4. the first page asks the EXISTING contract for limit/offset at 0');
 
@@ -206,11 +206,11 @@ async function testFinalPage(): Promise<void> {
   const { controller, last } = harness(async ({ offset }) => (offset === 0 ? probedPage(107, 0) : probedPage(107, offset)));
 
   await controller.load();
-  record(hasMoreFilesPages(controller.getState()), 'B1. a non-null nextOffset means more pages');
+  record(hasMoreFilesPages(controller.getState()), 'B1. a non-null nextOffset means the list will keep paging on its own');
   await controller.loadMore();
   const final = controller.getState();
   record(final.nextOffset === null, 'B2. a short page resolves nextOffset to null (the last page)');
-  record(!hasMoreFilesPages(final), 'B3. so no load-more affordance remains');
+  record(!hasMoreFilesPages(final), 'B3. so the list stops asking, and shows no fake loading at the end');
   record(final.files.length === 107, 'B4. every item of the last page is still shown');
 
   // Asking again is a no-op, not a request past the end.
@@ -242,9 +242,20 @@ const { controller } = harness(async ({ offset }) => {
   record(failed.loading === false, 'C5. a page failure is not presented as a first-page load');
 
   failNext = false;
+  // STAGE 2 REOPEN: automatic next-page loading is LATCHED after a failure, so a
+  // flaky connection cannot become a retry storm. Only an EXPLICIT request re-arms
+  // it, which is exactly what the footer's `Reintentar` does — so the retry here is
+  // `retryNextPage()`, not `loadMore()`. The two extra assertions make the latch
+  // itself observable rather than incidental.
   await controller.loadMore();
+  record(controller.getState().pageError !== null && controller.getState().autoPageBlocked === true,
+    'C5a. a second AUTOMATIC attempt is refused while the failure is latched');
+  record(controller.getState().nextOffset === 100 && controller.getState().files.length === 100,
+    'C5b. and nothing was changed by the refusal: same offset, same loaded rows');
+  await controller.retryNextPage();
   const retried = controller.getState();
   record(retried.pageError === null, 'C6. a successful retry clears the page error');
+  record(retried.autoPageBlocked === false, 'C6a. and re-arms automatic paging');
   record(retried.files.length === 105, 'C7. the retried page is appended to what was already loaded');
 }
 
