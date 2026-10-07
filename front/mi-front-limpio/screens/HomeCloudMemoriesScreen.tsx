@@ -220,7 +220,11 @@ const EMPTY_MEMORIES: readonly HomeCloudMemoryListItem[] = [];
  *    SectionList, so normal scrolling is never disabled by entering selection
  *    and there is never more than one mounted-row registry in play.
  */
-export function HomeCloudMemoriesView() {
+type HomeCloudMemoriesViewProps = {
+  active?: boolean;
+};
+
+export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewProps = {}) {
   const { session } = useAuth();
   const { currentHousehold } = useHousehold();
   const token = session?.access_token ?? null;
@@ -236,6 +240,8 @@ export function HomeCloudMemoriesView() {
   const memoriesRef = useRef(memories);
   memoriesRef.current = memories;
   const [viewer, setViewer] = useState<MemoryViewerSession | null>(null);
+  const viewerRef = useRef<MemoryViewerSession | null>(viewer);
+  viewerRef.current = viewer;
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -334,11 +340,8 @@ export function HomeCloudMemoriesView() {
   }, [loadFirstPage]);
 
   useEffect(() => {
-    setMemories([]);
-    setNextOffset(null);
-    setError(null);
-    setViewer(null);
-  }, [householdId]);
+    if (!active) setViewer(null);
+  }, [active]);
 
   /**
    * W1-C: correctness of the timeline does NOT depend on `MemoryIntake`.
@@ -700,7 +703,7 @@ export function HomeCloudMemoriesView() {
    * only by the open collection. Entering a selection can no longer change it,
    * which is one of the things that used to reset the user's position.
    */
-  const sourceKey = activeCollectionId ?? 'library';
+  const sourceKey = activeCollectionId ?? 'root';
   const sourceKeyRef = useRef(sourceKey);
   sourceKeyRef.current = sourceKey;
 
@@ -1317,17 +1320,22 @@ export function HomeCloudMemoriesView() {
         cancelSelection();
         return true;
       }
-      // 3. An open automatic collection closes its own nested overlay.
+      // 3. A Viewer closes before the caller surface below it changes.
+      if (viewerRef.current !== null) {
+        setViewer(null);
+        return true;
+      }
+      // 4. An open automatic collection closes its own nested overlay.
       if (collectionDetailOpen) {
         closeCollection();
         return true;
       }
-      // 4. The Album detail closes instead of the whole HomeCloud screen.
+      // 5. The Album detail closes instead of the whole HomeCloud screen.
       if (openAlbumIdRef.current !== null) {
         closeAlbum();
         return true;
       }
-      // 5. Otherwise the existing navigation behaviour applies.
+      // 6. Otherwise the existing navigation behaviour applies.
       return false;
     });
     return () => subscription.remove();
@@ -1414,6 +1422,15 @@ export function HomeCloudMemoriesView() {
   // household's Albums leak into the next, which is not a fix.
   useEffect(() => {
     setOpenAlbumId(null);
+    setMemories([]);
+    memoriesRef.current = [];
+    setNextOffset(null);
+    setLoading(Boolean(token && householdId));
+    setLoadingMore(false);
+    setRefreshing(false);
+    setError(null);
+    setViewer(null);
+    previousViewerMemoriesRef.current = EMPTY_MEMORIES;
     setEditor(null);
     setActionsAlbum(null);
     setSheetError(null);
@@ -1439,13 +1456,13 @@ export function HomeCloudMemoriesView() {
     if (token && householdId) void railControllerRef.current!.load();
   }, [abortDrag, householdId, token]);
 
-  const showAlbumDetail = !selecting && openAlbumId !== null;
+  const showAlbumDetail = openAlbumId !== null;
   /**
-   * HC2-C C1 — the collection overlay, gated exactly like the Album one: while a
-   * selection is active the selection grid IS the surface, and `activeCollectionId`
-   * is deliberately KEPT so cancel returns to the same collection context.
+   * P1 ST-2 — caller context is preserved through selection. The Album and
+   * collection overlays remain mounted while selecting, so cancel and Back return
+   * to the same visible caller instead of exposing the root Timeline underneath.
    */
-  const showCollectionDetail = !selecting && activeCollection !== null;
+  const showCollectionDetail = activeCollection !== null;
 
   // =========================================================================
   // Render
@@ -1793,9 +1810,8 @@ export function HomeCloudMemoriesView() {
        * SectionList stays mounted for the whole time the Album is open, so its
        * loaded pages, its grouped dataset and its scroll offset all survive Back.
        *
-       * While a selection is active it is NOT rendered: the selection grid IS
-       * the surface. `openAlbumId` is deliberately KEPT, which is what makes
-       * cancel return to the exact same Album context.
+       * While a selection is active it stays rendered: the selection session is
+       * an overlay state on this same caller, not a route away from it.
        */}
       {showAlbumDetail ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -1810,6 +1826,9 @@ export function HomeCloudMemoriesView() {
             onRefresh={refreshDetail}
             onLoadMore={loadMoreDetail}
             onAddMemories={() => { if (openAlbumId !== null) enterAddToAlbum(openAlbumId); }}
+            selectedMemoryIds={selection.selectedIds}
+            excludedMemoryIds={selection.excludedIds}
+            onToggleMemory={handleToggle}
             onLongPressMemory={(contentId) => {
               if (openAlbumId !== null) enterRemoveFromAlbum(openAlbumId, contentId);
             }}

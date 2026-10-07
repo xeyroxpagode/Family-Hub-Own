@@ -239,6 +239,26 @@ const commands = {
     'node',
     ['scripts/homecloud_purge_storage_honesty_tests.js'],
   ),
+  'homecloud-selection-caller-context': () => runCommand(
+    'HomeCloud selection caller context tests',
+    'node',
+    ['scripts/homecloud_selection_caller_context_tests.js'],
+  ),
+  'homecloud-viewer-android-back': () => runCommand(
+    'HomeCloud Viewer Android Back tests',
+    'node',
+    ['scripts/homecloud_viewer_android_back_tests.js'],
+  ),
+  'homecloud-global-tab-switch': () => runCommand(
+    'HomeCloud global tab switch tests',
+    'node',
+    ['scripts/homecloud_global_tab_switch_tests.js'],
+  ),
+  'homecloud-scroll-offsets': () => runCommand(
+    'HomeCloud scroll offset tests',
+    'node',
+    ['scripts/homecloud_scroll_offset_tests.js'],
+  ),
 
   'homecloud-s0-gallery-intake-contract': () => runCommand(
     'HomeCloud S0 gallery intake contract tests',
@@ -1033,6 +1053,10 @@ typecheck: ['frontend-typecheck', 'test-typecheck'],
     'homecloud-lifecycle-backend-contract',
     'homecloud-delete-capability-enforcement',
     'homecloud-purge-storage-honesty',
+    'homecloud-selection-caller-context',
+    'homecloud-viewer-android-back',
+    'homecloud-global-tab-switch',
+    'homecloud-scroll-offsets',
     'homecloud-1d-backend-enforcement',
     'homecloud-1d-capability-resolution',
     'homecloud-1d-frontend-projection',

@@ -1368,8 +1368,9 @@ record(
   'a partial failure offers a retry of ONLY the failed Memories',
 );
 record(
-  SCREEN.includes('showAlbumDetail = !selecting && openAlbumId !== null'),
-  'the Album detail overlay is hidden while selecting, but openAlbumId is KEPT',
+  SCREEN.includes('showAlbumDetail = openAlbumId !== null')
+    && !SCREEN_CODE.includes('showAlbumDetail = !selecting'),
+  'the Album detail overlay stays mounted while selecting, preserving the caller context',
 );
 record(
   SCREEN.includes('enterAddToAlbum') && SCREEN.includes('onAddMemories')
@@ -1394,25 +1395,25 @@ record(
   'there is exactly ONE BackHandler owner (no competing listeners)',
 );
 /*
-   * HC2-C: Back priority is now drag, SELECTION, collection detail, Album,
-   * existing behaviour.
+   * P1 ST-2: Back priority is now drag, SELECTION, Viewer, collection detail,
+   * Album, existing behaviour.
    *
    * Selection moved ABOVE the collection detail because selection is contextual
    * state in the surface you are already on: while selecting, Back must leave
-   * the selection, not close the surface underneath it. That ordering is what
-   * makes "cancel returns to the exact same place" true.
+   * the selection, not close the surface underneath it. The Viewer then closes
+   * before its caller surface, so Back cannot leave it frozen over Missing.
    */
   record(
-    /if \(dragRef\.current\.active\) \{[\s\S]*?abortDrag\(\);[\s\S]*?return true;[\s\S]*?if \(selecting\)[\s\S]*?cancelSelection\(\);[\s\S]*?return true;[\s\S]*?if \(collectionDetailOpen\)[\s\S]*?closeCollection\(\);[\s\S]*?if \(openAlbumIdRef\.current !== null\)[\s\S]*?return false;/.test(SCREEN_CODE),
-    'the Back priority is exactly: drag, selection, collection detail, Album, existing behaviour',
+    /if \(dragRef\.current\.active\) \{[\s\S]*?abortDrag\(\);[\s\S]*?return true;[\s\S]*?if \(selecting\)[\s\S]*?cancelSelection\(\);[\s\S]*?return true;[\s\S]*?if \(viewerRef\.current !== null\)[\s\S]*?setViewer\(null\);[\s\S]*?return true;[\s\S]*?if \(collectionDetailOpen\)[\s\S]*?closeCollection\(\);[\s\S]*?if \(openAlbumIdRef\.current !== null\)[\s\S]*?return false;/.test(SCREEN_CODE),
+    'the Back priority is exactly: drag, selection, Viewer, collection detail, Album, existing behaviour',
   );
 record(
   SCREEN.includes('status === \'active\'') && SCREEN.includes('abortDrag();'),
   'AppState handles gesture cleanup ONLY: backgrounding kills the drag, never the product behaviour',
 );
 record(
-  /useEffect\(\(\) => \{[\s\S]*?resetMemorySelectionScope\(\)[\s\S]*?\}, \[abortDrag, householdId, token\]\);/.test(SCREEN_CODE),
-  'the ONE household reset effect clears the session, the registry and the offsets',
+  /useEffect\(\(\) => \{[\s\S]*?setMemories\(\[\]\);[\s\S]*?setViewer\(null\);[\s\S]*?resetMemorySelectionScope\(\)[\s\S]*?\}, \[abortDrag, householdId, token\]\);/.test(SCREEN_CODE),
+  'the ONE household reset effect clears memories, Viewer, the session, the registry and the offsets',
 );
 record(
   SCREEN.includes('clearMemoryRowRegistry') && SCREEN.includes('scrollOffsetsRef.current.clear()'),
@@ -1428,8 +1429,8 @@ record(
   'the scroll offset is tracked per surface and restored on re-entry, through the ONE adapter',
 );
 record(
-  SCREEN.includes("const sourceKey = activeCollectionId ?? 'library';"),
-  'the surface key depends ONLY on the open collection: entering a selection cannot change it',
+  SCREEN.includes("const sourceKey = activeCollectionId ?? 'root';"),
+  'the surface key depends ONLY on the open collection or root: entering a selection cannot change it',
 );
 record(
   SCREEN.includes('fetchHomeCloudAlbums(token)') && SCREEN.includes('destinationAlive'),

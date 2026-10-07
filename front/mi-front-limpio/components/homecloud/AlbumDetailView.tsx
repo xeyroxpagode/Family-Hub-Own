@@ -62,6 +62,9 @@ export function AlbumDetailView({
   onRefresh,
   onLoadMore,
   onAddMemories,
+  selectedMemoryIds,
+  excludedMemoryIds,
+  onToggleMemory,
   onLongPressMemory,
   onOpenMemory,
 }: {
@@ -79,6 +82,9 @@ export function AlbumDetailView({
   onRefresh: () => void;
   onLoadMore: () => void;
   onAddMemories: () => void;
+  selectedMemoryIds: ReadonlySet<string>;
+  excludedMemoryIds: ReadonlySet<string>;
+  onToggleMemory: (contentId: string) => void;
   /** MO-A3 entry D: a long press starts a bulk removal from THIS Album. */
   onLongPressMemory: (contentId: string) => void;
   onOpenMemory: (memory: HomeCloudMemoryListItem) => void;
@@ -157,9 +163,7 @@ export function AlbumDetailView({
           keyExtractor={(row) => row.key}
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled={false}
-          refreshControl={
-            <RefreshControl refreshing={state.refreshing} onRefresh={onRefresh} />
-          }
+          refreshControl={selecting ? undefined : <RefreshControl refreshing={state.refreshing} onRefresh={onRefresh} />}
           renderSectionHeader={({ section }) => (
             <View style={styles.sectionHeader}>
               {section.yearTitle && section.yearTitle !== section.title ? (
@@ -179,9 +183,9 @@ export function AlbumDetailView({
                   key={memory.id}
                   memory={memory}
                   accessToken={accessToken}
-                  selecting={false}
-                  selected={false}
-                  unselectable={false}
+                  selecting={selecting}
+                  selected={selectedMemoryIds.has(memory.id)}
+                  unselectable={excludedMemoryIds.has(memory.id)}
                   /*
                    * HC2-C BUG D — THERE IS NO PER-TILE REMOVE AFFORDANCE.
                    *
@@ -195,7 +199,7 @@ export function AlbumDetailView({
                    * press -> selection -> `Quitar del álbum`. That deletes the
                    * Memory↔Album link and nothing else.
                    */
-                  onToggle={noop}
+                  onToggle={onToggleMemory}
                   onOpen={onOpenMemory}
                   onLongPress={onLongPressMemory}
                   onDragArm={noop}

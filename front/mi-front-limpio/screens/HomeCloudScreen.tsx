@@ -39,7 +39,7 @@ export function HomeCloudScreen() {
           <HomeCloudFilesView />
         </View>
         <View style={[styles.pane, section !== 'memories' && styles.hidden]} accessibilityElementsHidden={section !== 'memories'}>
-          <HomeCloudMemoriesView />
+          <HomeCloudMemoriesView active={section === 'memories'} />
         </View>
       </View>
     </View>
