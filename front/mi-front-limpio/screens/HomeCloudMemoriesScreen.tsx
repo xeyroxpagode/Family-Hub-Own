@@ -1856,6 +1856,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
             state={collections}
             accessToken={token}
             selecting={selecting}
+            selectedMemoryIds={selection.selectedIds}
             onBack={closeCollection}
             onRefresh={() => void collectionsControllerRef.current!.refresh()}
             onLoadMore={() => void collectionsControllerRef.current!.loadMore()}

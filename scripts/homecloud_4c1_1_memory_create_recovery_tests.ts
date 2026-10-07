@@ -37,19 +37,19 @@ function stripComments(source: string): string {
 const captureCode = stripComments(captureSource);
 
 /**
- * ONE STABLE NATIVE MODAL HOST for source|binary.
+ * ONE STABLE NATIVE MODAL HOST for the binary Review.
  *
- * Slice it by its own mount marker. Inside it, `source` and `binary` are two
- * CONTENT branches of the same host, so each one is sliced by its own branch
- * anchor rather than by a host marker (there is only one host).
+ * Slice it by its own mount marker. The P2 create menu (5 flat actions, no
+ * chooser sheet) routes gallery and audio pickers STRAIGHT to the Review,
+ * so the host's only content is binary.
  */
 const hostForm = component.slice(
-  component.indexOf("visible={sheet === 'source' || sheet === 'binary'}"),
+  component.indexOf("visible={sheet === 'binary'}"),
   component.indexOf("visible={sheet === 'recorder'}"),
 );
-const binaryContentStart = component.indexOf('{sheet === \'binary\' ? (');
-/** The binary branch: from its ternary to the source branch's own body. */
-const binaryContent = component.slice(binaryContentStart, component.indexOf('<View style={styles.actions}>', binaryContentStart));
+/** The binary Review content: the host's ScrollView form, nothing else. */
+const binaryFormStart = component.indexOf('contentContainerStyle={styles.form}');
+const binaryContent = component.slice(binaryFormStart, component.indexOf('</ActionSheet>', binaryFormStart));
 const writtenForm = component.slice(component.indexOf("visible={sheet === 'written'}"));
 /** The picker flow, from its own declaration to the first `choose*` wrapper. */
 const runPickerSource = component.slice(component.indexOf('const runPicker'), component.indexOf('const chooseMedia'));
@@ -126,7 +126,10 @@ test('3. review replaces the create sheet only on a real selection', () => {
   // can never open the Review.
   assert.ok(runPickerSource.indexOf('if (!draft) return;') >= 0, 'runPicker bails on a null draft');
   assert.ok(runPickerSource.indexOf('if (!draft) return;') < runPickerSource.indexOf('setBinaryDraft(draft);'));
-  assert.match(runPickerSource, /setBinaryDraft\(draft\);[\s\S]{0,200}setSheet\('binary'\);/);
+  // The draft, its editable semantic date and the Review open in the same
+  // commit: the window covers the binaryDate seeding, still with no
+  // intermediate sheet (proven by the single setSheet above).
+  assert.match(runPickerSource, /setBinaryDraft\(draft\);[\s\S]{0,600}setSheet\('binary'\);/);
 });
 
 test('4. success clears the draft and the transient picker state', () => {
@@ -255,18 +258,16 @@ test('17. it never uses createdAt / import date / selection date', () => {
   assert.equal(derived.capturePrecision, 'unknown');
 });
 
-test('18. Review shows the date informationally and never asks for precision', () => {
-  // The precision editor exists only for the WRITTEN form, which has no
-  // gallery metadata to derive from.
-  assert.doesNotMatch(binaryContent, /MemorySemanticDateFields/);
-  assert.equal(stripComments(component).split('MemorySemanticDateFields').length - 1, 3); // import x2 + written form
-  assert.match(hostForm, /subtitle=\{sheet === 'binary' && binaryDraft \? formatMediaCaptureDate\(binaryDraft\.capture\) : undefined\}/);
-  assert.match(binaryContent, /<MemoryCaptureSummary capture=\{binaryDraft\?\.capture\} \/>/);
-  // Nothing in the review is a date INPUT.
-  assert.doesNotMatch(binaryContent, /semanticDateValueFromDraft|setSemanticDatePrecision|semanticDateDraftFromCapture/);
-  // The summary is a readout, not an editor.
-  const summary = component.slice(component.indexOf('function MemoryCaptureSummary'), component.indexOf('function MemoryAlbumSelector'));
-  assert.doesNotMatch(summary, /onPress|FilterChip|AppInput|semanticDate/);
+test('18. Review edits the semantic date (ST-3) instead of only showing it', () => {
+  // ST-3 contract: the binary Review owns an editable semantic date seeded
+  // from the capture. The old read-only summary (MemoryCaptureSummary +
+  // formatMediaCaptureDate subtitle) is gone on purpose.
+  assert.match(binaryContent, /<MemorySemanticDateFields value=\{binaryDate\} onChange=\{setBinaryDate\}/);
+  assert.match(component, /semanticDateValueFromDraft\(binaryDate\)/);
+  assert.doesNotMatch(component, /MemoryCaptureSummary|formatMediaCaptureDate/);
+  // The save stays honest: an invalid draft disables Guardar, it never
+  // synthesizes a date.
+  assert.match(component, /Boolean\(semanticDateDraftError\(binaryDate\)\)/);
 });
 
 test('media date source priority is documented and executable', () => {
@@ -504,7 +505,8 @@ test('VIEWER is a local overlay while MemoryCard stays non-navigational', () => 
 //   "a valid gallery artifact reaches the review/binary state EXACTLY ONCE,
 //    and never loses the draft on the way",
 //
-// on ONE stable native modal host that also presents the source chooser.
+// on ONE stable native modal host that the create menu feeds directly (no
+// chooser sheet since the frozen 5 flat actions).
 //
 // What is deliberately NOT the contract: *which setter* performs the
 // transition, or *when* relative to any native dismissal callback. Two
@@ -520,9 +522,10 @@ test('32. a valid gallery artifact reaches the Review in EXACTLY ONE transition'
   // leave, and that signal is not a cross-platform authority.
   assert.equal(runPickerSource.split('setSheet(').length - 1, 1);
   assert.match(runPickerSource, /setSheet\('binary'\);/);
-  // The draft and the Review open in the same commit: no window in which the
-  // artifact exists while the Review does not.
-  assert.match(runPickerSource, /setBinaryDraft\(draft\);[\s\S]{0,200}setSheet\('binary'\);/);
+  // The draft, its editable semantic date and the Review open in the same
+  // commit: no window in which the artifact exists while the Review does not.
+  // The window covers the binaryDate seeding (ST-3), still atomically.
+  assert.match(runPickerSource, /setBinaryDraft\(draft\);[\s\S]{0,600}setSheet\('binary'\);/);
   assert.ok(runPickerSource.indexOf('setBinaryDraft(draft);') < runPickerSource.indexOf("setSheet('binary')"));
 });
 
@@ -571,10 +574,11 @@ test('35. every close path of the unified host converges on ONE authority', () =
 });
 
 test('36. the Review keeps its draft on every close path while the engine owns it', () => {
-  // Same single authority (X / backdrop / Android back) and a close policy that
-  // varies per content: only an IDLE binary may be abandoned, and a submitting
-  // one cannot be discarded from any affordance.
-  assert.match(hostForm, /closeDisabled=\{sheet === 'binary' && \(active \|\| accepting\)\}/);
+  // Same single authority (X / backdrop / Android back) and a close policy
+  // that only lets an IDLE binary be abandoned: a submitting one cannot be
+  // discarded from any affordance. The host is binary-only, so the guard no
+  // longer names the sheet.
+  assert.match(hostForm, /closeDisabled=\{active \|\| accepting\}/);
   assert.match(sourceBinaryClosePolicy, /if \(sheet === 'binary' && !active && !accepting\) \{/);
   // Exactly one door into closeReview from the host: no unguarded variant.
   assert.equal((sourceBinaryClosePolicy.match(/closeReview\(\)/g) ?? []).length, 1);
@@ -595,26 +599,26 @@ test('36. the Review keeps its draft on every close path while the engine owns i
 // behavioural: one stable host, content transitions instead of presentations,
 // and no timer and no dismissal callback standing in for a native signal.
 
-test('37. source and binary share ONE native modal host, and it is the old dual-host topology that is gone', () => {
+test('37. the binary Review owns ONE native modal host, and the chooser sheet is gone', () => {
   const code = stripComments(component);
-  assert.equal((code.match(/visible=\{sheet === 'source' \|\| sheet === 'binary'\}/g) ?? []).length, 1);
-  // Neither host may come back: two native Modals is exactly what raced.
-  assert.equal((code.match(/visible=\{sheet === 'source'\}/g) ?? []).length, 0);
-  assert.equal((code.match(/visible=\{sheet === 'binary'\}/g) ?? []).length, 0);
+  // Exactly one binary host. The P2 create menu (5 flat actions) removed the
+  // 'source' chooser sheet, so no source-gated visibility may exist.
+  assert.equal((code.match(/visible=\{sheet === 'binary'\}/g) ?? []).length, 1);
+  assert.equal((code.match(/sheet === 'source'/g) ?? []).length, 0);
+  assert.doesNotMatch(code, /Elegir contenido/);
 });
 
-test('38. source -> binary is a CONTENT transition of the same host', () => {
+test('38. picker -> binary is a DIRECT transition into the single host', () => {
   const code = stripComments(hostForm);
-  // Two content branches behind one presentation.
-  assert.match(code, /\{sheet === 'binary' \? \(/);
-  assert.match(code, /title=\{sheet === 'binary' \? 'Revisar recuerdo' : 'Elegir contenido'\}/);
-  assert.match(code, /size=\{sheet === 'binary' \? 'scrollable-content' : 'content'\}/);
-  assert.match(code, /keyboardAware=\{sheet === 'binary'\}/);
-  assert.match(code, /footer=\{sheet === 'binary' \? \(/);
-  // The transition itself is the plain setSheet('binary') content change, and it
-  // runs the source's CLOSE logic zero times: no intermediate sheet, no
-  // unmount, no dismissal callback between the two contents.
-  assert.match(runPickerSource, /setBinaryDraft\(draft\);[\s\S]{0,200}setSheet\('binary'\);/);
+  // Fixed Review chrome: no content ternary any more.
+  assert.match(code, /title="Revisar recuerdo"/);
+  assert.match(code, /size="scrollable-content"/);
+  assert.match(code, /keyboardAware/);
+  assert.doesNotMatch(code, /sheet === 'binary' \?/);
+  // The transition itself is the plain setSheet('binary') content change, and
+  // it runs no close logic: no intermediate sheet, no unmount, no dismissal
+  // callback between pick and Review.
+  assert.match(runPickerSource, /setBinaryDraft\(draft\);[\s\S]{0,600}setSheet\('binary'\);/);
   assert.doesNotMatch(runPickerSource, /closeReview|closeCreate|discardDraftArtifact/);
 });
 
@@ -640,7 +644,7 @@ test('40. the host has no timer, no opacity/zIndex trick and no navigation escap
   assert.doesNotMatch(code, /opacity:\s*0|zIndex:\s*9999|elevation:\s*100/);
   assert.doesNotMatch(code, /router\.(push|replace)|navigation\.(navigate|goBack)/);
   // Visibility is the presentation contract, full stop.
-  assert.match(hostForm, /visible=\{sheet === 'source' \|\| sheet === 'binary'\}/);
+  assert.match(hostForm, /visible=\{sheet === 'binary'\}/);
 });
 
 console.log(`\nHOMECLOUD_4C1_1_MEMORY_CREATE_RECOVERY_RESULT pass=${passed} fail=${failed}`);

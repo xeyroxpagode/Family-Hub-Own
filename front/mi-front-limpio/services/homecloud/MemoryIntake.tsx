@@ -11,12 +11,8 @@ import { generateMutationId } from '../api';
 import { createMemoryIntakeService } from './homecloudMemoryIntakeService';
 import { createWrittenMemory } from './homecloudWrittenMemoryService';
 import {
-  formatMediaCaptureDate,
-  memoryRegisterCaptureFields,
-  type MediaCaptureMetadata,
-} from './homecloudMediaCaptureMetadata';
-import {
   emptySemanticDateDraft,
+  semanticDateDraftFromCapture,
   semanticDateDraftError,
   semanticDateValueFromDraft,
   type SemanticDateDraft,
@@ -44,7 +40,7 @@ export interface MemoryIntakeProps {
   destinationsRevision?: number;
 }
 
-type Sheet = 'create' | 'source' | 'camera' | 'binary' | 'recorder' | 'audio-handoff' | 'written' | null;
+type Sheet = 'create' | 'camera' | 'binary' | 'recorder' | 'audio-handoff' | 'written' | null;
 
 /**
  * HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION
@@ -132,6 +128,7 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
   const [pendingAudioDraft, setPendingAudioDraft] = useState<{ draft: BinaryMemoryDraft; attempt: MemoryAttempt } | null>(null);
   const [binaryCaption, setBinaryCaption] = useState('');
   const [binaryAlbumId, setBinaryAlbumId] = useState<string | null>(initialAlbumId ?? null);
+  const [binaryDate, setBinaryDate] = useState<SemanticDateDraft>(emptySemanticDateDraft);
   const [picking, setPicking] = useState(false);
   const [pickerFailure, setPickerFailure] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
@@ -305,6 +302,7 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
     setSubmitFailure(null);
     setBinaryCaption('');
     setBinaryAlbumId(initialAlbumId ?? null);
+    setBinaryDate(emptySemanticDateDraft());
   }, [initialAlbumId]);
 
   useEffect(() => {
@@ -328,7 +326,7 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
    * no submit is in flight. Source, kind and MIME are deliberately NOT part of
    * it, so no source can end up with a Save button the others do not have.
    */
-  const saveDisabled = !binaryDraft || active || accepting;
+  const saveDisabled = !binaryDraft || active || accepting || Boolean(semanticDateDraftError(binaryDate));
 
   // The trigger depends on the LOCAL guard only. A remote status that could be
   // orphaned must never be able to disable the only entry point.
@@ -366,6 +364,12 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
       setReviewAttempt(mediaAttempt);
       setBinaryCaption('');
       setBinaryAlbumId(initialAlbumId ?? null);
+      setBinaryDate(semanticDateDraftFromCapture(
+        draft.capture.capturedAt,
+        draft.capture.capturePrecision,
+        draft.capture.capturedYear,
+        draft.capture.capturedMonth,
+      ));
       setSheet('binary');
     } catch (error) {
       if (pickerAttemptRef.current === attempt && attemptAuthorityRef.current.owns(mediaAttempt)) {
@@ -410,7 +414,7 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
       memoryDevTrace('review_close_requested', { reason: 'audio_handoff_attempt_lost', source: pendingAudioDraft.draft.source });
       setPendingAudioDraft(null); setSheet('create'); return;
     }
-    setBinaryDraft(pendingAudioDraft.draft); setReviewAttempt(pendingAudioDraft.attempt); setBinaryCaption(''); setBinaryAlbumId(initialAlbumId ?? null); setPendingAudioDraft(null); setSheet('binary');
+    setBinaryDraft(pendingAudioDraft.draft); setReviewAttempt(pendingAudioDraft.attempt); setBinaryCaption(''); setBinaryAlbumId(initialAlbumId ?? null); setBinaryDate(semanticDateDraftFromCapture(pendingAudioDraft.draft.capture.capturedAt, pendingAudioDraft.draft.capture.capturePrecision, pendingAudioDraft.draft.capture.capturedYear, pendingAudioDraft.draft.capture.capturedMonth)); setPendingAudioDraft(null); setSheet('binary');
   }, [initialAlbumId, pendingAudioDraft, sheet]);
 
   /** CLOSE contract: nothing transient survives, Create is ready to reopen. */
@@ -474,7 +478,7 @@ setSheet(null);
 
   const acceptCamera = useCallback((draft: BinaryMemoryDraft, attempt: MemoryAttempt) => {
     if (!attemptAuthorityRef.current.owns(attempt)) return;
-    setBinaryDraft(draft); setReviewAttempt(attempt); setBinaryCaption(''); setBinaryAlbumId(initialAlbumId ?? null); setSheet('binary');
+    setBinaryDraft(draft); setReviewAttempt(attempt); setBinaryCaption(''); setBinaryAlbumId(initialAlbumId ?? null); setBinaryDate(semanticDateDraftFromCapture(draft.capture.capturedAt, draft.capture.capturePrecision, draft.capture.capturedYear, draft.capture.capturedMonth)); setSheet('binary');
   }, [initialAlbumId]);
 
   const closeCamera = useCallback(() => { attemptAuthorityRef.current.invalidate(); setSheet('create'); }, []);
@@ -493,10 +497,6 @@ setSheet(null);
    *   below is the second line of defence against discarding a live draft.
    */
   const handleSourceBinaryRequestClose = useCallback(() => {
-    if (sheet === 'source') {
-      setSheet('create');
-      return;
-    }
     if (sheet === 'binary' && !active && !accepting) {
       closeReview();
     }
@@ -552,7 +552,7 @@ setSheet(null);
     acceptingRef.current = true;
     setAccepting(true);
     setSubmitFailure(null);
-    const capture = binaryDraft.capture;
+    const capture = semanticDateValueFromDraft(binaryDate);
     if (reviewAttempt) memoryAttemptTrace(reviewAttempt, 'submit', { mimeType: binaryDraft.artifact.mimeType });
     else memoryDevTrace('submit_press', { source: binaryDraft.source, mimeType: binaryDraft.artifact.mimeType });
     let accepted = false;
@@ -560,7 +560,10 @@ setSheet(null);
       const acceptedJobId = await service.createBinaryMemory(binaryDraft, {
         caption: binaryCaption.trim() || null,
         initialAlbumId: binaryAlbumId,
-        ...memoryRegisterCaptureFields(capture),
+        capturePrecision: capture.precision,
+        capturedAt: capture.capturedAt,
+        capturedYear: capture.capturedYear,
+        capturedMonth: capture.capturedMonth,
       }, reviewAttempt ?? undefined);
       if (!acceptedJobId) {
         runtimeTrace('intake_submit_rejected', { phase: 'service', outcomeKind: 'not_accepted', pickingRef: pickingRef.current, picking });
@@ -586,7 +589,7 @@ setSheet(null);
       if (!accepted) acceptedDraftRef.current = null;
       if (mountedRef.current) setAccepting(false);
     }
-  }, [active, binaryAlbumId, binaryCaption, binaryDraft, clearBinaryDraft, picking, reviewAttempt, service]);
+  }, [active, binaryAlbumId, binaryCaption, binaryDate, binaryDraft, clearBinaryDraft, picking, reviewAttempt, service]);
 
   const submitWritten = useCallback(async () => {
     if (writtenSubmitting || !writtenText.trim() || semanticDateDraftError(writtenDate)) return;
@@ -673,8 +676,9 @@ const openWritten = () => {
 
       <ActionSheet visible={sheet === 'create'} title="Guardar un recuerdo" onRequestClose={closeCreate} size="content">
         <View style={styles.actions}>
-          <AppButton title="Capturar momento" disabled={picking} onPress={openCamera} />
-          <AppButton title="Elegir foto/video/audio" variant="secondary" disabled={picking} onPress={() => setSheet('source')} />
+          <AppButton title={picking ? 'Abriendo…' : 'Fotos y videos'} loading={picking} disabled={picking} onPress={() => void chooseMedia()} />
+          <AppButton title="Capturar momento" variant="secondary" disabled={picking} onPress={openCamera} />
+          <AppButton title={picking ? 'Abriendo…' : 'Importar audio'} loading={picking} variant="secondary" disabled={picking} onPress={() => void chooseAudio()} />
           <AppButton title="Grabar audio" variant="secondary" disabled={picking} onPress={openRecorder} />
           <AppButton title="Escribir un recuerdo" variant="secondary" onPress={openWritten} disabled={picking} />
           {pickingError ? (
@@ -687,40 +691,41 @@ const openWritten = () => {
       </ActionSheet>
 
       {/*
-       * SINGLE NATIVE MODAL HOST for source + binary.
+       * SINGLE NATIVE MODAL HOST for the binary Review.
        *
        * One Modal instance stays presented across
-       * source → native gallery picker → binary. Only title, body, footer and
-       * close policy change. That is what makes the picker presentation legal
+       * create action → native picker → binary. The P2 create menu routes
+       * gallery and audio pickers STRAIGHT to the Review (5 flat actions, no
+       * chooser sheet). Only the Review content and its close policy live
+       * here. That is what makes the picker presentation legal
        * on iOS (presenting from an already-presented host) and it is why there
        * is no dismiss/present race and no `onDismiss` authority anywhere in
        * this flow: the host's visibility is `visible`, nothing else.
        */}
       <ActionSheet
-        visible={sheet === 'source' || sheet === 'binary'}
-        title={sheet === 'binary' ? 'Revisar recuerdo' : 'Elegir contenido'}
-        subtitle={sheet === 'binary' && binaryDraft ? formatMediaCaptureDate(binaryDraft.capture) : undefined}
+        visible={sheet === 'binary'}
+        title="Revisar recuerdo"
         onRequestClose={handleSourceBinaryRequestClose}
-        closeDisabled={sheet === 'binary' && (active || accepting)}
-        size={sheet === 'binary' ? 'scrollable-content' : 'content'}
-        keyboardAware={sheet === 'binary'}
-        footer={sheet === 'binary' ? (
+        closeDisabled={active || accepting}
+        size="scrollable-content"
+        keyboardAware
+        footer={(
           <AppButton
             title={accepting ? 'Guardando…' : binarySubmitLabel(state.status)}
             loading={active || accepting}
             disabled={saveDisabled}
             onPress={() => { Keyboard.dismiss(); void submitBinary(); }}
           />
-        ) : undefined}
+        )}
       >
-        {sheet === 'binary' ? (
+        {(
           <ScrollView
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             contentContainerStyle={styles.form}
           >
             {binaryDraft ? <MemoryMediaReview draft={binaryDraft} attempt={reviewAttempt ?? undefined} /> : null}
-            <MemoryCaptureSummary capture={binaryDraft?.capture} />
+            <MemorySemanticDateFields value={binaryDate} onChange={setBinaryDate} disabled={active || accepting} />
             {binaryDraft?.source === 'audio-recorder' && state.status !== 'failed' ? <AppButton title="Volver a grabar" size="sm" variant="secondary" disabled={active} onPress={reRecordAudio} /> : null}
             <AppInput
               label="Texto (opcional)"
@@ -739,13 +744,6 @@ const openWritten = () => {
               </View>
             ) : null}
           </ScrollView>
-        ) : (
-          <View style={styles.actions}>
-            <AppButton title={picking ? 'Abriendo…' : 'Fotos y videos'} loading={picking} disabled={picking} onPress={() => void chooseMedia()} />
-            <AppButton title="Audio" variant="secondary" disabled={picking} onPress={() => void chooseAudio()} />
-            <AppButton title="Volver" variant="ghost" disabled={picking} onPress={() => setSheet('create')} />
-            {pickingError ? <View style={styles.error}><AppText variant="bodySmall" tone="danger">{pickingError}</AppText>{state.permissionDenied && state.canAskAgain === false ? <AppButton title="Abrir configuración" size="sm" variant="secondary" onPress={() => void Linking.openSettings()} /> : null}</View> : null}
-          </View>
         )}
       </ActionSheet>
 
@@ -794,28 +792,6 @@ const openWritten = () => {
         </ScrollView>
       </ActionSheet>
     </>
-  );
-}
-
-/**
- * Informational, non-interactive summary of the semantic date the gallery
- * already knows. A photo/video does NOT get asked to grade its own precision:
- * there is no "exact / month-year / year / no date" choice here, only the
- * honest result ("12 ene 2024" or "Sin fecha").
- */
-function MemoryCaptureSummary({ capture }: { capture: MediaCaptureMetadata | undefined }) {
-  return (
-    <View style={styles.captureSummary} accessibilityLabel={`Fecha del recuerdo: ${formatMediaCaptureDate(capture ?? { capturedAt: null, capturedYear: null, capturedMonth: null, capturePrecision: 'unknown' })}`}>
-      <AppText variant="caption" tone="secondary" weight="700">{'Fecha'}</AppText>
-      <AppText variant="bodySmall" tone={capture?.capturePrecision === 'exact' ? 'primary' : 'secondary'}>
-        {formatMediaCaptureDate(capture ?? { capturedAt: null, capturedYear: null, capturedMonth: null, capturePrecision: 'unknown' })}
-      </AppText>
-      <AppText variant="caption" tone="tertiary">
-        {capture?.capturePrecision === 'exact'
-          ? 'Fecha obtenida de la captura o de la metadata del archivo.'
-          : 'Este archivo no trae fecha, así que queda como Sin fecha.'}
-      </AppText>
-    </View>
   );
 }
 
@@ -878,7 +854,6 @@ const styles = StyleSheet.create({
   },
   actions: { gap: spacing[3], paddingBottom: spacing[2] },
   form: { gap: spacing[4], paddingBottom: spacing[4] },
-  captureSummary: { gap: spacing[1] },
   albumSection: { gap: spacing[2] },
   albumList: { gap: spacing[2], paddingRight: spacing[4] },
   error: { gap: spacing[2], alignItems: 'flex-start' },

@@ -54,6 +54,7 @@ export function MemoryCollectionDetailView({
   state,
   accessToken,
   selecting,
+  selectedMemoryIds,
   onBack,
   onRefresh,
   onLoadMore,
@@ -66,6 +67,7 @@ export function MemoryCollectionDetailView({
   state: MemoryCollectionsState;
   accessToken: string | null;
   selecting: boolean;
+  selectedMemoryIds?: ReadonlySet<string>;
   onBack: () => void;
   onRefresh: () => void;
   onLoadMore: () => void;
@@ -160,7 +162,7 @@ export function MemoryCollectionDetailView({
                   memory={memory}
                   accessToken={accessToken}
                   selecting={selecting}
-                  selected={false}
+                  selected={selectedMemoryIds?.has(memory.id) === true}
                   unselectable={false}
                   onToggle={selecting ? onToggle : noop}
                   onOpen={onOpenMemory}
