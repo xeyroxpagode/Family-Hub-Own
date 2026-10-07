@@ -6,6 +6,7 @@ const readController = require('../controllers/homecloud.read.controller')
 const intakeController = require('../controllers/homecloud.intake.controller')
 const filesController = require('../controllers/homecloud.files.controller')
 const albumsController = require('../controllers/homecloud.albums.controller')
+const lifecycleController = require('../controllers/homecloud.lifecycle.controller')
 
 const router = express.Router()
 
@@ -46,6 +47,10 @@ router.get('/content/:contentId', readController.getContentByIdController)
 // `order` defaults to the global Timeline (newest -> oldest); `order=album`
 // with `albumId` selects the EXPLICIT Album presentation mode (oldest -> newest).
 router.get('/memories', readController.listMemoriesController)
+router.post('/memories/:contentId/trash', lifecycleController.trashMemoryController)
+router.post('/memories/:contentId/restore', lifecycleController.restoreMemoryController)
+router.delete('/memories/:contentId', lifecycleController.purgeMemoryController)
+router.post('/memories/purge-all', lifecycleController.purgeAllMemoriesController)
 
 // Folders: list and get by ID (protected, household-scoped)
 // No lifecycle on folders; stable ordering by name

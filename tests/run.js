@@ -224,6 +224,21 @@ const commands = {
     'node',
     ['scripts/compiled/scripts/homecloud_4c1_1_memory_create_recovery_tests.js'],
   ),
+  'homecloud-lifecycle-backend-contract': () => runCommand(
+    'HomeCloud lifecycle backend contract tests',
+    'node',
+    ['scripts/homecloud_lifecycle_backend_contract_tests.js'],
+  ),
+  'homecloud-delete-capability-enforcement': () => runCommand(
+    'HomeCloud delete capability enforcement tests',
+    'node',
+    ['scripts/homecloud_delete_capability_enforcement_tests.js'],
+  ),
+  'homecloud-purge-storage-honesty': () => runCommand(
+    'HomeCloud purge storage honesty tests',
+    'node',
+    ['scripts/homecloud_purge_storage_honesty_tests.js'],
+  ),
 
   'homecloud-s0-gallery-intake-contract': () => runCommand(
     'HomeCloud S0 gallery intake contract tests',
@@ -396,6 +411,31 @@ const commands = {
     'HomeCloud 1F DTO leak regression tests',
     'node',
     ['scripts/homecloud_1f_dto_leak_tests.js'],
+  ),
+  'homecloud-1d-backend-enforcement': () => runCommand(
+    'HomeCloud 1D backend enforcement tests',
+    'node',
+    ['scripts/homecloud_1d_backend_enforcement_tests.js'],
+  ),
+  'homecloud-1d-capability-resolution': () => runCommand(
+    'HomeCloud 1D capability resolution contract tests',
+    'node',
+    ['scripts/homecloud_1d_capability_resolution_contract_tests.js'],
+  ),
+  'homecloud-1d-frontend-projection': () => runCommand(
+    'HomeCloud 1D frontend projection tests',
+    'node',
+    ['scripts/homecloud_1d_frontend_projection_tests.js'],
+  ),
+  'homecloud-1d-new-household-capability-regression': () => runCommand(
+    'HomeCloud 1D new household capability regression tests',
+    'node',
+    ['scripts/homecloud_1d_new_household_capability_regression_tests.js'],
+  ),
+  'homecloud-1d-rls-bypass': () => runCommand(
+    'HomeCloud 1D RLS bypass tests',
+    'node',
+    ['scripts/homecloud_1d_rls_bypass_tests.js'],
   ),
   'homecloud-stage-a1-capture-recovery': () => runCommand(
     'HomeCloud Stage A1 in-app capture runtime recovery tests',
@@ -988,6 +1028,16 @@ typecheck: ['frontend-typecheck', 'test-typecheck'],
     'homecloud-moa2-album-surface',
     'homecloud-moa1-album-contract',
     'frontend-typecheck',
+  ],
+  'homecloud-p1-lifecycle': [
+    'homecloud-lifecycle-backend-contract',
+    'homecloud-delete-capability-enforcement',
+    'homecloud-purge-storage-honesty',
+    'homecloud-1d-backend-enforcement',
+    'homecloud-1d-capability-resolution',
+    'homecloud-1d-frontend-projection',
+    'homecloud-1d-new-household-capability-regression',
+    'homecloud-1d-rls-bypass',
   ],
   lint: ['backend-syntax', 'backend-eslint', 'frontend-lint'],
   backend: ['testing-core', 'core-backend'],
