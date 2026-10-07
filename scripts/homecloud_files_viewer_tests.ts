@@ -120,7 +120,12 @@ console.log('--- V-B: active web content is refused, not rendered ---');
   record(viewerUnsupportedReason(kind('blob.bin', 'application/octet-stream')) === 'No podemos previsualizar este formato.', 'an ordinary unknown format gets the plain honest reason');
   // The renderer must never be handed active content.
   record(!viewerSource.includes('dangerouslySetInnerHTML'), 'the Viewer never injects raw document HTML');
-  record(!/WebView/i.test(viewerCode), 'the Viewer renders no WebView, so no script from an upload can execute');
+  // Slice C Expo-Go correction: the PDF renderer IS a WebView now - a locked-down
+  // local host for the bundled engine, never a browser. Active content refusal
+  // still holds for uploads (SVG/HTML/XML are never rendered), while the PDF
+  // host itself is proven prop-by-prop in X-F and branch-mounted in V-L1/V-L6.
+  record(/from 'react-native-webview'/.test(viewerCode), 'the PDF renderer hosts the local engine in a WebView, not a native module');
+  record(/originWhitelist/.test(viewerCode) && /allowFileAccess=\{false\}/.test(viewerCode), 'and that host is locked down rather than being a generic browser');
 }
 
 // ── V-C: original authority ────────────────────────────────────────────────
@@ -470,6 +475,18 @@ void (async () => {
     compiledRoot: path.join(__dirname, '..', 'front', 'mi-front-limpio'),
     record,
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // V-M — SLICE C EXPO-GO CORRECTION: protocol, policy, transport, compat gate
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // The native renderer is gone; the evidence for its replacement lives in its
+  // own module so the gate stays readable. It executes the REAL policy, bridge,
+  // transport and viewer-HTML modules plus the static Expo Go hard gate.
+  const pdfgo = require('./homecloud_files_pdf_expo_go_tests') as {
+    runPdfExpoGoTests: (options: { record: (ok: boolean, message: string) => void }) => Promise<void>;
+  };
+  await pdfgo.runPdfExpoGoTests({ record });
 
   testOnly.reset();
   console.log(`\nFILES_VIEWER_RESULT pass=${passCount} fail=${failCount}`);

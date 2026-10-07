@@ -8,8 +8,14 @@
   "include": [
     "../scripts/homecloud_files_viewer_tests.ts",
     "../scripts/homecloud_files_viewer_branch_tests.ts",
+    "../scripts/homecloud_files_pdf_expo_go_tests.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudViewerKind.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudTypes.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudPdfPolicy.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudPdfBridge.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudPdfViewerHtml.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudPdfTransport.ts",
+    "../front/mi-front-limpio/services/homecloud/pdfJsEngine.generated.ts",
     "../front/mi-front-limpio/screens/HomeCloudFileViewerScreen.tsx",
     "../front/mi-front-limpio/screens/HomeCloudFilesScreen.tsx"
   ],

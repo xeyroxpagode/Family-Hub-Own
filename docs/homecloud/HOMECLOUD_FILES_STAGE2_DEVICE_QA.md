@@ -12,9 +12,11 @@
 
 ## HOW TO USE IT
 
-- Build the app with the **dev client** (`npx expo run:android` / `run:ios`). The inline
-  PDF renderer is a NATIVE module, so Expo Go will not render a PDF; it will fall back to
-  the system hand-off. That fallback is expected behaviour, not a defect.
+- Run in **Expo Go**: `npx expo start -c --go` from `front/mi-front-limpio`, open on the
+  physical iPhone. Since the Slice C Expo-Go correction the inline PDF renderer is a
+  locally bundled pdf.js engine in a locked-down WebView, so Expo Go IS the supported
+  path — a dev-client build is no longer required for PDFs. (If you do use a dev
+  client, the same checks apply.)
 - Test on a real phone on a real household, with a second device handy for the
   household-isolation rows.
 - For the "slow network" rows, throttle the connection; do not substitute a guess.
@@ -94,9 +96,13 @@
 | V4 | MP4 plays inline | UNPROVEN_DEVICE |
 | V5 | Common audio (MP3/M4A) plays on the HomePlus audio surface | UNPROVEN_DEVICE |
 | V6 | A MULTI-PAGE PDF opens INLINE, scrolls page by page | UNPROVEN_DEVICE |
-| V7 | A PDF zooms (pinch and/or double tap) | UNPROVEN_DEVICE |
-| V8 | A LARGER PDF (say 10–30 MB) opens inline without the app dying | UNPROVEN_DEVICE |
-| V9 | A PASSWORD-PROTECTED PDF: an honest specific message plus the hand-off; never a blank screen | UNPROVEN_DEVICE |
+| V7 | A PDF zooms (pinch and/or double tap) and pans while zoomed | UNPROVEN_DEVICE |
+| V8 | A LARGER PDF (say 10–30 MB) shows the intentional too-large state plus the hand-off; the app does NOT die | UNPROVEN_DEVICE |
+| V9 | A PASSWORD-PROTECTED PDF: the dedicated protected-state plus the hand-off; never a blank screen | UNPROVEN_DEVICE |
+| V9b | A CORRUPT PDF: the honest failure state plus the hand-off; never a stack trace | UNPROVEN_DEVICE |
+| V9c | First page appears centered, fit-to-width, no horizontal clipping, no white flash on open | UNPROVEN_DEVICE |
+| V9d | Closing the viewer mid-load returns to Files cleanly; reopening another PDF shows no stale content | UNPROVEN_DEVICE |
+| V9e | A document link tap performs a system handoff; the viewer never navigates away on its own | UNPROVEN_DEVICE |
 | V10 | TXT: long-press the text, select and copy it | UNPROVEN_DEVICE |
 | V11 | Markdown: selectable and copyable | UNPROVEN_DEVICE |
 | V12 | CSV: selectable and copyable | UNPROVEN_DEVICE |
@@ -110,6 +116,21 @@
 | V20 | Closing the Viewer returns to the same folder, query, order and scroll position | UNPROVEN_DEVICE |
 | V21 | With the app on airplane mode and a cached File open: the failure is specific, never blank, never a stack trace | UNPROVEN_DEVICE |
 
+## EXPO GO ACCEPTANCE (physical iPhone, `npx expo start -c --go`)
+
+| # | Check | Result |
+|---|---|---|
+| G1 | HomePlus boots normally in Expo Go, no red screen | UNPROVEN_DEVICE |
+| G2 | Files opens; Scanner/camera remains usable | UNPROVEN_DEVICE |
+| G3 | A normal PDF opens inline; first page centered and crisp | UNPROVEN_DEVICE |
+| G4 | Multi-page scroll works; pager follows | UNPROVEN_DEVICE |
+| G5 | Pinch zoom works; zoomed pan works; page fit is correct | UNPROVEN_DEVICE |
+| G6 | Closing the viewer returns to the correct Files state | UNPROVEN_DEVICE |
+| G7 | Reopening another PDF never shows stale content | UNPROVEN_DEVICE |
+| G8 | Corrupt PDF → polished failure; oversized PDF → polished fallback + working share/open | UNPROVEN_DEVICE |
+| G9 | No white screen at any point; no raw WebView/browser error surface | UNPROVEN_DEVICE |
+| G10 | No `react-native-blob-util` / `react-native-pdf` / native-module runtime error anywhere | UNPROVEN_DEVICE |
+
 ## HOUSEHOLD ISOLATION (needs two devices in two households)
 
 | # | Check | Result |
@@ -122,9 +143,9 @@
 ## WHAT THIS CHECKLIST CANNOT REPLACE
 
 - The suites in `docs/homecloud/HOMECLOUD_FILES_STAGE2_EXECUTION_LOG.md` prove the model,
-  the wiring, the guards and the mounted-component branches. They cannot prove that a
-  native renderer decoded a real document, that a codec played a real file, that a notch
-  leaves the close button reachable, or that a native scroll recognizer yields to an
-  armed drag-selection gesture on a real touch stack.
+  the wiring, the guards and the mounted-component branches. They cannot prove that the
+  bundled engine painted a real document on a real GPU, that a codec played a real file,
+  that a notch leaves the close button reachable, or that a native scroll recognizer
+  yields to an armed drag-selection gesture on a real touch stack.
 - Those four are exactly the rows above. Until a human fills them in, Stage 2 is
   `IMPLEMENTATION + SOURCE/RUNTIME CLOSED — DEVICE ACCEPTANCE PENDING`.

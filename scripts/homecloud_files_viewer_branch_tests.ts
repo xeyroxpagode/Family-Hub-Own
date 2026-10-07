@@ -4,9 +4,9 @@
  * WHY THIS FILE EXISTS SEPARATELY
  * -------------------------------
  * The Stage 2 Viewer suite was 133 assertions of SOURCE and PURE evidence: it proved
- * that `react-native-pdf` appeared in the file, that `pdf.js` did not, that the bounded
- * read really was bounded. Every one of those claims is worth keeping. None of them
- * proves that tapping a PDF shows a PDF, that a video which fails to decode says so,
+ * that the viewer asked for the original, that the bounded read really was bounded.
+ * Every one of those claims is worth keeping. None of them proves that tapping a PDF
+ * shows a PDF, that a video which fails to decode says so,
  * that the text branch is selectable, that the safe area is respected, or that Android
  * back closes the Viewer instead of the app. Those are the claims device QA disproved,
  * so they are executed here.
@@ -188,6 +188,11 @@ const reactNativeStub = {
   Image: 'Image',
   ActivityIndicator: 'ActivityIndicator',
   StyleSheet: { create: <T,>(styles: T): T => styles, flatten: (style: unknown) => style },
+  Linking: {
+    openURL: async (url: string) => {
+      openedLinks.push(url);
+    },
+  },
   BackHandler: {
     addEventListener: (_event: string, handler: () => boolean) => {
       backHandlerSeq += 1;
@@ -197,6 +202,9 @@ const reactNativeStub = {
     },
   },
 };
+
+/** Every external-link handoff the Viewer attempted, in order. */
+const openedLinks: string[] = [];
 
 /** Mutable so a test can install a notch and assert the Viewer respects it. */
 const insets = { top: 0, bottom: 0, left: 0, right: 0 };
@@ -219,15 +227,18 @@ const audioStub = {
 };
 
 /**
- * `react-native-pdf` recorded, not replaced.
+ * `react-native-webview` recorded, not replaced.
  *
- * The stub returns a `Pdf` element carrying the props the Viewer's real renderer would
- * receive, so the assertions read the ACTUAL render configuration — source URI, paging,
- * zoom, certificate policy — off the mounted tree.
+ * The stub returns a `WebView` element carrying the props the Viewer's real
+ * renderer host would receive, so the assertions read the ACTUAL render
+ * configuration — local html source, origin whitelist, navigation policy —
+ * off the mounted tree. It reports nothing back: renderer verdicts arrive as
+ * explicit `onMessage` payloads the tests fire themselves.
  */
-const pdfStub = {
+const webviewStub = {
   __esModule: true,
-  default: (props: Record<string, unknown>) => ({ type: 'Pdf', props: { ...props, children: undefined } }),
+  default: (props: Record<string, unknown>) => ({ type: 'WebView', props: { ...props, children: undefined } }),
+  WebView: (props: Record<string, unknown>) => ({ type: 'WebView', props: { ...props, children: undefined } }),
 };
 
 /** The real `AppText`, so `selectable` is proven to reach the platform `Text`. */
@@ -342,7 +353,7 @@ function installViewerStubs(compiledRoot: string): void {
     ['react-native-safe-area-context', safeAreaStub],
     ['expo-video', videoStub],
     ['expo-audio', audioStub],
-    ['react-native-pdf', pdfStub],
+    ['react-native-webview', webviewStub],
     ['expo-file-system', fileSystemStub],
     ['expo-sharing', sharingStub],
   ];
@@ -482,6 +493,7 @@ export async function runViewerBranchTests(options: {
 
   const viewerModule = require(path.join(compiledRoot, 'screens/HomeCloudFileViewerScreen')) as {
     HomeCloudFileViewer: (props: Record<string, unknown>) => unknown;
+    ViewerPdfSurface: (props: Record<string, unknown>) => unknown;
   };
   const { classifyHomeCloudViewerFile } = require(path.join(compiledRoot, 'services/homecloud/homecloudViewerKind')) as {
     classifyHomeCloudViewerFile: (input: { fileName: string; mimeType?: string | null }) => { kind: string };
@@ -515,65 +527,170 @@ export async function runViewerBranchTests(options: {
     return surface;
   };
 
+  // ── bridge-driving helpers: the fake native WebView + firing renderer verdicts ──
+
+  /** Deterministic staged bytes for every PDF branch below (carried, not parsed). */
+  const PDF_BODY = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\ntrailer<</Root 1 0 R>>\n';
+
+  function webviewOf(tree: unknown): ViewerElement | null {
+    return findOne(tree, (element) => element.type === 'WebView');
+  }
+
+  /**
+   * Attaches a fake native WebView to the mounted tree and returns the
+   * RN->Viewer outbox. The ref object lives in the surface's own hook slot, so
+   * it survives re-renders; attach ONCE per mount, right after the first expand.
+   */
+  function attachBridge(tree: unknown): { sent: string[] } {
+    const sent: string[] = [];
+    const wv = webviewOf(tree);
+    const ref = (wv?.props as Record<string, unknown> | undefined)?.ref as { current: unknown } | undefined;
+    if (ref) ref.current = { postMessage: (message: string) => { sent.push(message); } };
+    return { sent };
+  }
+
+  /** Fires one renderer->RN message through the mounted WebView's onMessage. */
+  function fireViewer(tree: unknown, message: unknown): void {
+    const wv = webviewOf(tree);
+    const handler = (wv?.props as Record<string, unknown> | undefined)?.onMessage as ((event: unknown) => void) | undefined;
+    handler?.({ nativeEvent: { data: typeof message === 'string' ? message : JSON.stringify(message) } });
+  }
+
+  function sentMessages(sent: string[], type: string): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    for (const raw of sent) {
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        if (parsed && parsed.type === type) out.push(parsed);
+      } catch {
+        out.push({ type: '__unparseable__' });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Flushes a freshly mounted tree: the FIRST expand executes nested surfaces
+   * (scheduling their effects), the render commits those effects, and the
+   * SECOND expand observes the same hook state. Calling only render+expand
+   * leaves nested effects permanently unscheduled, because `settle()` only
+   * converges while something is dirty. Re-expansion is side-effect-free: every
+   * hook cell is already initialized and every dep list is unchanged.
+   */
+  function refresh(surface: ViewerMount): unknown {
+    surface.expanded();
+    surface.render();
+    return surface.expanded();
+  }
+
   console.log('\n--- V-L1: a PDF opens INLINE, from the LOCAL staged original ---');
   {
     record(classifyHomeCloudViewerFile({ fileName: 'contrato.pdf', mimeType: 'application/pdf' }).kind === 'pdf',
       'V-L1a. the classification layer still routes a PDF to the pdf family');
     const surface = await mount(file());
-    const tree = surface.expanded();
-    const pdf = findOne(tree, (element) => element.type === 'Pdf');
-    record(pdf !== null, 'V-L1b. tapping a PDF mounts the inline PDF surface — not a hand-off and not a blank screen');
-    const source = (pdf?.props?.source ?? {}) as { uri?: string };
-    record(typeof source.uri === 'string' && source.uri.startsWith('file://'),
-      `V-L1c. and its source is the LOCAL staged file (${String(source.uri).slice(0, 40)})`);
-    record(String(source.uri).includes('viewer-c-pdf.pdf'),
-      'V-L1d. named deterministically from the content id, exactly like the text staging slot');
-    record(source.uri !== access.signedUrl,
-      'V-L1e. and it is NOT the signed URL, so no live credential is handed to a renderer');
-    record(!/^https?:/i.test(String(source.uri)), 'V-L1f. the renderer is never given a remote document');
-    const serialized = JSON.stringify(pdf?.props ?? {});
-    record(!/cdn\.|unpkg|jsdelivr|googleapis|microsoft|docs\.google|drive\.google/i.test(serialized),
-      'V-L1g. no CDN, Google or Microsoft host appears anywhere in the renderer props');
-    record(pdf?.props?.enablePaging === true, 'V-L1h. native paging is on, so a multi-page document is navigable');
-    record(pdf?.props?.enableDoubleTapZoom === true, 'V-L1i. native zoom is on');
-    record(pdf?.props?.trustAllCerts === false, 'V-L1j. certificate trust is NOT disabled');
+    // The surface reads whatever is STAGED when its own effect runs, which is
+    // after the first expand - so the fixture is installed between mount and expand.
+    stagedText.body = PDF_BODY;
+    let tree = refresh(surface);
+    const wv = webviewOf(tree);
+    record(wv !== null, 'V-L1b. tapping a PDF mounts the inline WebView renderer — not a hand-off and not a blank screen');
+    const source = (wv?.props?.source ?? {}) as { html?: unknown; baseUrl?: unknown };
+    const html = typeof source.html === 'string' ? source.html : '';
+    record(html.length > 300 * 1024 && html.includes('pdfjsLib'),
+      'V-L1c. whose source is the LOCAL bundled engine inlined into local HTML');
+    record(!/<script\s+src/i.test(html), 'V-L1d. with no external script reference anywhere in the page');
+    record(!html.includes(access.signedUrl) && !html.includes('token=secret'),
+      'V-L1e. and the signed URL is NOWHERE in the renderer: no live credential is handed to it');
+    record(!/src="https?:/i.test(html) && !/<link[\s>]/i.test(html),
+      'V-L1f. the renderer page pulls nothing from the network: no remote script, no remote stylesheet');
+    record((wv?.props?.originWhitelist as unknown[])?.join(',') === 'about:blank',
+      'V-L1g. the origin whitelist is exactly about:blank');
+    record((wv?.props as Record<string, unknown>)?.allowFileAccess === false,
+      'V-L1h. file access is explicitly off');
+    record(typeof (wv?.props as Record<string, unknown>)?.onShouldStartLoadWithRequest === 'function'
+      && ((wv?.props as Record<string, unknown>)?.onShouldStartLoadWithRequest as (request: unknown) => boolean)({ url: 'https://evil.example/' }) === false,
+      'V-L1i. navigation is blocked: even an explicit load request returns false');
     record(native.downloads.length === 1 && native.downloads[0]?.url === access.signedUrl,
-      'V-L1k. exactly one authorized transfer staged the bytes, from the signed original');
+      'V-L1j. exactly one authorized transfer staged the bytes, from the signed original');
     record(native.downloads[0]?.destination.startsWith('file:///cache/'),
-      'V-L1l. into the TEMPORARY cache, never into a folder that looks like a library');
+      'V-L1k. into the TEMPORARY cache, never into a folder that looks like a library');
     record(native.downloads[0]?.idempotent === true,
-      'V-L1m. idempotently, so a repeat view replaces its own slot instead of colliding');
+      'V-L1l. idempotently, so a repeat view replaces its own slot instead of colliding');
+
+    // Drive the versioned protocol: READY -> INIT + chunks -> DOCUMENT_LOADED.
+    const { sent } = attachBridge(tree);
+    await surface.settle();
+    fireViewer(tree, { v: 1, type: 'READY', docId: 'boot' });
+    const inits = sentMessages(sent, 'INIT_DOCUMENT');
+    record(inits.length === 1, 'V-L1m. READY triggers exactly one bounded transfer session');
+    const docId = inits[0]?.docId;
+    record(typeof docId === 'string' && (inits[0]?.byteLength as number) === Buffer.byteLength(PDF_BODY),
+      'V-L1n. and the session declares the REAL byte length');
+    fireViewer(tree, { v: 1, type: 'READY', docId: 'boot' });
+    record(sentMessages(sent, 'INIT_DOCUMENT').length === 1,
+      'V-L1o. a duplicate READY does NOT re-send the document');
+    const chunks = sentMessages(sent, 'LOAD_CHUNK').sort((a, b) => Number(a.index) - Number(b.index));
+    const reassembled = Buffer.from(chunks.map((chunk) => String(chunk.data)).join(''), 'base64').toString('utf8');
+    record(chunks.length >= 1 && reassembled === PDF_BODY,
+      `V-L1p. the chunks reassemble to the EXACT staged bytes (${chunks.length} chunk(s))`);
+    record(sent.every((raw) => { try { JSON.parse(raw); return true; } catch { return false; } }),
+      'V-L1q. every bridge message is well-formed protocol JSON');
+    fireViewer(tree, { v: 1, type: 'DOCUMENT_LOADED', docId, pages: 4 });
+    surface.render();
+    tree = surface.expanded();
+    record(renderText(tree).some((text) => text.includes('1 / 4')),
+      'V-L1r. the shell reports the current page once the document loads');
+    fireViewer(tree, { v: 1, type: 'PAGE_CHANGED', docId, page: 3, pages: 4 });
+    surface.render();
+    tree = surface.expanded();
+    record(renderText(tree).some((text) => text.includes('3 / 4')),
+      'V-L1s. and follows page movement');
+    // A stale session cannot steer the live one.
+    fireViewer(tree, { v: 1, type: 'PAGE_CHANGED', docId: 'stale-session', page: 2, pages: 4 });
+    surface.render();
+    tree = surface.expanded();
+    record(renderText(tree).some((text) => text.includes('3 / 4')),
+      'V-L1t. a message for a FOREIGN session is ignored');
+    // A single bad page must not nuke a readable document.
+    fireViewer(tree, { v: 1, type: 'RENDER_ERROR', docId, page: 3 });
+    surface.render();
+    tree = surface.expanded();
+    record(renderText(tree).some((text) => text.includes('3 / 4')),
+      'V-L1u. a single RENDER_ERROR keeps the document instead of failing it');
 
     // A renderer that cannot open the document gets an HONEST surface, never a blank one.
-    (pdf?.props?.onError as (() => void) | undefined)?.();
+    fireViewer(tree, { v: 1, type: 'LOAD_ERROR', docId, code: 'corrupt' });
     surface.render();
     const failed = surface.expanded();
     const failedText = renderText(failed).join(' ');
     record(/no pudimos abrir este pdf/i.test(failedText),
-      'V-L1n. a PDF the device cannot open says so SPECIFICALLY instead of showing nothing');
+      'V-L1v. a PDF the device cannot open says so SPECIFICALLY instead of showing nothing');
     record(/contraseña|dañado/i.test(failedText),
-      'V-L1o. and it names the two honest reasons: password-protected or damaged');
+      'V-L1w. and it names the two honest reasons: password-protected or damaged');
     record(findAll(failed, (element) => element.type === 'AppButton' && element.props?.title === 'Abrir o compartir con…').length === 1,
-      'V-L1p. and it still offers the explicit system hand-off');
-    record(!/at \w+ \(|Error:|stack/i.test(failedText), 'V-L1q. and never a stack trace');
+      'V-L1x. and it still offers the explicit system hand-off');
+    record(!/at \w+ \(|Error:|stack/i.test(failedText), 'V-L1y. and never a stack trace');
     surface.unmount();
     record(native.deletions.some((uri) => uri.includes('viewer-c-pdf.pdf')),
-      'V-L1r. closing the Viewer removes the staged copy');
+      'V-L1z. closing the Viewer removes the staged copy');
   }
 
   console.log('\n--- V-L2: a target change releases the previous staging ---');
   {
     const surface = await mount(file({ id: 'c-first', displayName: 'primero.pdf' }));
+    stagedText.body = PDF_BODY;
+    const firstKey = (webviewOf(refresh(surface))?.props as Record<string, unknown> | undefined)?.key;
     surface.setProps({ file: file({ id: 'c-second', displayName: 'segundo.pdf' }) });
     await surface.settle();
     record(native.deletions.some((uri) => uri.includes('viewer-c-first.pdf')),
       'V-L2a. switching to another File DELETES the previous staged copy — copies cannot accumulate');
     record(native.downloads.length === 2 && native.downloads[1]?.destination.includes('viewer-c-second.pdf'),
       'V-L2b. and stages the new one into its own deterministic slot');
-    const tree = surface.expanded();
-    const pdf = findOne(tree, (element) => element.type === 'Pdf');
-    record(((pdf?.props?.source ?? {}) as { uri?: string }).uri?.includes('viewer-c-second.pdf') === true,
-      'V-L2c. so the renderer is showing the SECOND File, with no trace of the first');
+    // The surface effect for the new uri runs on expand+render; flush fully so
+    // the new session is committed AND observed before asserting on it.
+    const secondKey = (webviewOf(refresh(surface))?.props as Record<string, unknown> | undefined)?.key;
+    record(typeof firstKey === 'string' && typeof secondKey === 'string' && firstKey !== secondKey,
+      'V-L2c. so the renderer is REMOUNTED for the second File: no stale pixels can survive the switch');
     surface.unmount();
   }
 
@@ -585,7 +702,7 @@ export async function runViewerBranchTests(options: {
     record(image !== null, 'V-L3a. an image mounts the HomePlus image surface');
     record(((image?.props?.source ?? {}) as { uri?: string }).uri === access.signedUrl,
       'V-L3b. from the authorized signed original');
-    record(findAll(imageTree, (element) => element.type === 'Pdf').length === 0,
+    record(findAll(imageTree, (element) => element.type === 'WebView').length === 0,
       'V-L3c. and no PDF renderer is involved at all');
     imageSurface.unmount();
 
@@ -614,7 +731,7 @@ export async function runViewerBranchTests(options: {
       || findAll(audioTree, (element) => element.type === 'AppButton'
         && /^(Reproducir|Pausar)$/.test(String(element.props?.title))).length === 1,
       'V-L3i. an audio File takes the existing HomePlus audio surface');
-    record(findOne(audioTree, (element) => element.type === 'Pdf') === null
+    record(findOne(audioTree, (element) => element.type === 'WebView') === null
       && findOne(audioTree, (element) => element.type === 'VideoView') === null,
       'V-L3j. and no PDF or video renderer is dragged into it');
     audioSurface.unmount();
@@ -677,7 +794,7 @@ export async function runViewerBranchTests(options: {
     record(/vista previa no disponible/i.test(officeText), 'V-L5h. an Office document is an honest external hand-off');
     record(findAll(officeTree, (element) => element.type === 'AppButton' && element.props?.title === 'Abrir o compartir con…').length === 1,
       'V-L5i. with the hand-off actually offered');
-    record(findOne(officeTree, (element) => element.type === 'Pdf') === null,
+    record(findOne(officeTree, (element) => element.type === 'WebView') === null,
       'V-L5j. and no PDF renderer is mounted for it, because it is not a PDF');
     record(native.downloads.length === 1, 'V-L5k. and the exact original WAS staged, so the hand-off is real');
     office.unmount();
@@ -686,7 +803,7 @@ export async function runViewerBranchTests(options: {
     const svgTree = svg.expanded();
     record(/documento web activo/i.test(renderText(svgTree).join(' ')),
       'V-L5l. an SVG is still refused as active web content, with the security reason stated');
-    record(findAll(svgTree, (element) => element.type === 'Pdf').length === 0
+    record(findAll(svgTree, (element) => element.type === 'WebView').length === 0
       && findAll(svgTree, (element) => element.type === 'Image').length === 0,
       'V-L5m. and no renderer executes it');
     svg.unmount();
@@ -695,9 +812,155 @@ export async function runViewerBranchTests(options: {
     const refusedText = renderText(refused.expanded()).join(' ');
     record(/autorizar|permiso|conexión/i.test(refusedText),
       'V-L5n. an authorization failure is still a real, stated surface — never a blank Viewer');
-    record(findOne(refused.expanded(), (element) => element.type === 'Pdf') === null,
+    record(findOne(refused.expanded(), (element) => element.type === 'WebView') === null,
       'V-L5o. and no renderer is mounted for bytes that were never authorized');
     refused.unmount();
+  }
+
+  console.log('\n--- V-L6: password, oversized, links, hostile input, timeouts, close, reopen ---');
+  {
+    openedLinks.length = 0;
+
+    // V-L6a. A password-protected PDF gets its OWN intentional state.
+    const locked = await mount(file({ id: 'c-locked', displayName: 'clave.pdf' }));
+    stagedText.body = PDF_BODY;
+    const lockedTree = refresh(locked);
+    const lockedBridge = attachBridge(lockedTree);
+    await locked.settle();
+    fireViewer(lockedTree, { v: 1, type: 'READY', docId: 'boot' });
+    const lockedInit = sentMessages(lockedBridge.sent, 'INIT_DOCUMENT')[0];
+    fireViewer(lockedTree, { v: 1, type: 'LOAD_ERROR', docId: lockedInit?.docId, code: 'password' });
+    locked.render();
+    const lockedText = renderText(locked.expanded()).join(' ');
+    record(/protegido|contraseña/i.test(lockedText),
+      'V-L6a. a password-protected PDF says it is protected instead of failing generically');
+    record(findAll(locked.expanded(), (element) => element.type === 'AppButton' && element.props?.title === 'Abrir o compartir con…').length >= 1,
+      'V-L6b. and still offers the safe hand-off');
+    locked.unmount();
+
+    // V-L6c. An oversized PDF never reaches the bridge: intentional fallback.
+    const huge = await mount(file({ id: 'c-huge', displayName: 'manual.pdf' }));
+    stagedText.body = `x`.repeat(8 * 1024 * 1024 + 1);
+    let hugeTree = huge.expanded();
+    const hugeBridge = attachBridge(hugeTree);
+    huge.render();
+    await huge.settle(4, 5);
+    const hugeText = renderText(huge.expanded()).join(' ');
+    record(/muy grande/i.test(hugeText),
+      'V-L6c. an oversized PDF produces the polished too-large state, not a crash');
+    record(findAll(huge.expanded(), (element) => element.type === 'AppButton' && element.props?.title === 'Abrir o compartir con…').length >= 1,
+      'V-L6d. with the Open/Share fallback offered');
+    record(hugeBridge.sent.length === 0,
+      'V-L6e. and ZERO bridge messages were attempted for it');
+    stagedText.body = 'line one\nline two';
+    huge.unmount();
+
+    // V-L6f. Document links become an explicit system handoff, never navigation.
+    const linked = await mount(file({ id: 'c-linked', displayName: 'enlaces.pdf' }));
+    stagedText.body = PDF_BODY;
+    let linkedTree = refresh(linked);
+    const linkedBridge = attachBridge(linkedTree);
+    await linked.settle();
+    fireViewer(linkedTree, { v: 1, type: 'READY', docId: 'boot' });
+    const linkedDoc = sentMessages(linkedBridge.sent, 'INIT_DOCUMENT')[0]?.docId;
+    fireViewer(linkedTree, { v: 1, type: 'DOCUMENT_LOADED', docId: linkedDoc, pages: 2 });
+    linked.render();
+    linkedTree = linked.expanded();
+    fireViewer(linkedTree, { v: 1, type: 'LINK_PRESSED', docId: linkedDoc, url: 'https://ejemplo.org/fuente' });
+    await linked.settle(3, 5);
+    record(openedLinks.includes('https://ejemplo.org/fuente'),
+      'V-L6f. tapping a document link performs an explicit system handoff with the exact URL');
+    record(webviewOf(linked.expanded()) !== null,
+      'V-L6g. and the viewer itself stays put instead of navigating away');
+    // Hostile input against the live session changes nothing.
+    fireViewer(linkedTree, '{not json');
+    fireViewer(linkedTree, { v: 1, type: 'SELF_DESTRUCT', docId: linkedDoc });
+    fireViewer(linkedTree, { v: 999, type: 'READY', docId: linkedDoc });
+    fireViewer(linkedTree, { v: 1, type: 'LOAD_ERROR', docId: linkedDoc, code: 'rm -rf' });
+    linked.render();
+    const hostileTree = linked.expanded();
+    const hostileText = renderText(hostileTree).join(' ');
+    record(!/no pudimos abrir/i.test(hostileText) && renderText(hostileTree).some((text) => text.includes('1 / 2')),
+      'V-L6h. malformed, unknown-version and invented-code messages are ignored without failing the document');
+    linked.unmount();
+
+    // V-L6i. Timeouts and close-during-load, against the REAL surface directly
+    // with controlled clocks (production always uses the policy defaults).
+    const viewerSurface = viewerModule.ViewerPdfSurface;
+    record(typeof viewerSurface === 'function', 'V-L6i. the real PDF surface is exported for direct mounting');
+    const directFailures: Array<{ title: string; message: string }> = [];
+    const directMount = (uri: string, timeouts: Record<string, number>) => {
+      const box = { current: { uri, onDocumentFailed: (failure: { title: string; message: string }) => { directFailures.push(failure); }, timeouts } };
+      const host = createViewerHost();
+      activeViewerHost = host;
+      const view = () => viewerSurface(box.current);
+      host.__render(view);
+      host.__commit();
+      return {
+        render: () => { host.__render(view); host.__commit(); },
+        settle: async (rounds = 10, waitMs = 5) => { await host.__settle(view, rounds, waitMs); host.__render(view); host.__commit(); },
+        expanded: () => expand(host.__lastTree(), 0),
+        unmount: () => host.__unmount(),
+      };
+    };
+    // A renderer that never says READY becomes the honest failure, not a spinner.
+    stagedText.body = PDF_BODY;
+    directFailures.length = 0;
+    const silent = directMount('file:///cache/HomeCloudViewer/viewer-silent.pdf', { readyMs: 40, loadMs: 5000 });
+    silent.expanded();
+    await silent.settle(15, 10);
+    record(directFailures.length === 1 && /no pudimos abrir este pdf/i.test(directFailures[0]?.title ?? ''),
+      'V-L6j. a WebView that never reports READY fails honestly once the clock runs out');
+    silent.unmount();
+    // Bytes sent but document never opened: the LOAD clock, not a hang.
+    directFailures.length = 0;
+    const stalled = directMount('file:///cache/HomeCloudViewer/viewer-stalled.pdf', { readyMs: 5000, loadMs: 40 });
+    let stalledTree = stalled.expanded();
+    const stalledBridge = attachBridge(stalledTree);
+    await stalled.settle();
+    fireViewer(stalledTree, { v: 1, type: 'READY', docId: 'boot' });
+    record(sentMessages(stalledBridge.sent, 'INIT_DOCUMENT').length === 1,
+      'V-L6k. the stalled session did send its bytes before the load clock ran out');
+    await stalled.settle(15, 10);
+    record(directFailures.length === 1,
+      'V-L6l. and a document that never opens fails honestly instead of spinning forever');
+    stalled.unmount();
+    // Closing mid-load: no failure, no transfer, no leak.
+    directFailures.length = 0;
+    const early = directMount('file:///cache/HomeCloudViewer/viewer-early.pdf', { readyMs: 5000, loadMs: 5000 });
+    early.expanded();
+    early.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    record(directFailures.length === 0,
+      'V-L6m. closing during load reports nothing and leaks nothing');
+
+    // V-L6n. Reopening after a close starts a clean session (no stale content).
+    const first = await mount(file({ id: 'c-re-a', displayName: 'a.pdf' }));
+    stagedText.body = PDF_BODY;
+    const firstOpen = refresh(first);
+    const firstBridge = attachBridge(firstOpen);
+    await first.settle();
+    fireViewer(firstOpen, { v: 1, type: 'READY', docId: 'boot' });
+    const firstDoc = sentMessages(firstBridge.sent, 'INIT_DOCUMENT')[0]?.docId;
+    fireViewer(firstOpen, { v: 1, type: 'DOCUMENT_LOADED', docId: firstDoc, pages: 5 });
+    first.render();
+    record(renderText(first.expanded()).some((text) => text.includes('1 / 5')),
+      'V-L6n. the first open shows its own page count');
+    first.unmount();
+    const second = await mount(file({ id: 'c-re-b', displayName: 'b.pdf' }));
+    stagedText.body = PDF_BODY;
+    const secondOpen = refresh(second);
+    const secondBridge = attachBridge(secondOpen);
+    await second.settle();
+    fireViewer(secondOpen, { v: 1, type: 'READY', docId: 'boot' });
+    const secondDoc = sentMessages(secondBridge.sent, 'INIT_DOCUMENT')[0]?.docId;
+    record(typeof secondDoc === 'string' && secondDoc !== firstDoc,
+      'V-L6o. the reopen mints a FRESH session, so the old document cannot bleed through');
+    fireViewer(secondOpen, { v: 1, type: 'DOCUMENT_LOADED', docId: secondDoc, pages: 7 });
+    second.render();
+    record(renderText(second.expanded()).some((text) => text.includes('1 / 7')),
+      'V-L6p. and shows the new document, never the previous pixels');
+    second.unmount();
   }
 }
 

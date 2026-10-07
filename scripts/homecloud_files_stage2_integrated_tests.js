@@ -596,7 +596,8 @@ async function run() {
       if (unsafe.length > 0) unsafe.forEach((line) => console.error(`      ${line}`));
 
       const viewerSource = fs.readFileSync(path.join(repositoryRoot, 'front/mi-front-limpio/screens/HomeCloudFileViewerScreen.tsx'), 'utf8');
-      record(!/WebView/i.test(viewerSource.replace(/\/\*[\s\S]*?\*\//g, ' ')), 'P4. no WebView anywhere in the Viewer');
+      const viewerCode = viewerSource.replace(/\/\*[\s\S]*?\*\//g, ' ');
+      record(/from 'react-native-webview'/.test(viewerCode) && /originWhitelist/.test(viewerCode) && /onShouldStartLoadWithRequest/.test(viewerCode) && !/react-native-pdf/.test(viewerCode), 'P4. the Viewer WebView is the locked-down local PDF host (Expo-Go-compatible renderer, no native PDF module)');
       const accessSource = fs.readFileSync(path.join(repositoryRoot, 'front/mi-front-limpio/services/homecloud/homecloudViewerAccess.ts'), 'utf8');
       record(!/variant=preview/.test(accessSource), 'P5. the Viewer never requests a preview variant');
       record(!/AsyncStorage|SecureStore/.test(accessSource.replace(/\/\*[\s\S]*?\*\//g, ' ')), 'P6. a signed URL is never persisted');
