@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Image, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Image, Linking, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import Pdf from 'react-native-pdf';
+import { File } from 'expo-file-system';
+import { WebView } from 'react-native-webview';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { AppButton, AppText } from '../components/ui';
 import { colors, radius, spacing } from '../constants/theme';
@@ -20,6 +21,23 @@ import {
   type ViewerTextPreview,
 } from '../services/homecloud/homecloudViewerAccess';
 import { isInlineRenderableFamily } from '../services/homecloud/homecloudViewerKind';
+import {
+  PDF_VIEWER_LOAD_TIMEOUT_MS,
+  PDF_VIEWER_READY_TIMEOUT_MS,
+  VIEWER_PDF_PASSWORD_MESSAGE,
+  VIEWER_PDF_PASSWORD_TITLE,
+  VIEWER_PDF_TOO_LARGE_MESSAGE,
+  VIEWER_PDF_TOO_LARGE_TITLE,
+  pdfInlineEligibility,
+} from '../services/homecloud/homecloudPdfPolicy';
+import {
+  PDF_BRIDGE_PROTOCOL_VERSION,
+  parseViewerMessage,
+  serializeRnMessage,
+} from '../services/homecloud/homecloudPdfBridge';
+import { buildPdfViewerHtml } from '../services/homecloud/homecloudPdfViewerHtml';
+import { PdfTooLargeError, readStagedPdfForBridge } from '../services/homecloud/homecloudPdfTransport';
+import { PDFJS_ENGINE_SOURCE } from '../services/homecloud/pdfJsEngine.generated';
 
 /**
  * HomeCloud Files - Stage 2 / Phase 3 - VIEWER V1.
@@ -37,12 +55,19 @@ import { isInlineRenderableFamily } from '../services/homecloud/homecloudViewerK
  *   text / csv / markdown    a BOUNDED local read of the original, never the whole
  *                           file, with an honest "partial preview" indication, and
  *                           NATIVE TEXT SELECTION so the member can copy from it.
- *   pdf                     rendered INLINE by `react-native-pdf` from the LOCAL
- *                           STAGED ORIGINAL (`file://`), privately, with native
- *                           paging and zoom. It is a native renderer reading a file
- *                           descriptor, so the bytes never enter the JS heap. The
- *                           decision and its evidence are in
- *                           `docs/homecloud/HOMECLOUD_FILES_STAGE2_PDF_RENDERER_DECISION.md`.
+ *   pdf                     rendered INLINE from the LOCAL STAGED ORIGINAL
+ *                           (`file://`), privately, inside the HomePlus shell: a
+ *                           locally bundled pdf.js engine (no CDN, no third party,
+ *                           no network) runs in a locked-down WebView and receives
+ *                           the bytes over a bounded, chunked, versioned bridge.
+ *                           Documents above INLINE_PDF_PREVIEW_MAX_BYTES are NOT
+ *                           attempted; they get an intentional "too large" state
+ *                           with the system hand-off. The decision, the memory
+ *                           model and the Expo Go constraint are recorded in
+ *                           `docs/homecloud/HOMECLOUD_FILES_STAGE2_SLICE_C_EXPO_GO_CORRECTION.md`.
+ *                           Expo Go cannot load custom native modules, which is why
+ *                           the previous native renderer had to go; every
+ *                           dependency used here ships inside Expo Go.
  *   office                  staged to the TEMPORARY cache and handed to the
  *                           platform: a privacy-safe external/system handoff is
  *                           honest for DOC/XLS/PPT, and pretending otherwise would
@@ -95,6 +120,13 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
 
   const clearStaging = useCallback((target: HomeCloudFile) => {
     discardViewerStaging(target.id, target.displayName);
+  }, []);
+
+  // Stable identity on purpose: the PDF surface gates its transfer effect on
+  // this callback, so an inline arrow here would re-run the whole staging read
+  // on every parent render.
+  const handlePdfFailed = useCallback((next: { title: string; message: string }) => {
+    setRenderFailure(next);
   }, []);
 
   // One fresh grant per target, plus AT MOST ONE controlled re-grant if the access
@@ -278,14 +310,16 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
       // The source is the LOCAL STAGED ORIGINAL — the deterministic
       // `file://…/HomeCloudViewer/viewer-<id>.pdf` slot — never a signed URL, never a
       // third-party viewer and never a CDN renderer. That is what keeps a household's
-      // document inside the app.
+      // document inside the app. The surface reads the staged bytes through a BOUNDED
+      // chunked bridge into a locally bundled engine (see homecloudPdfTransport.ts
+      // and homecloudPdfViewerHtml.ts); oversized documents never reach the bridge.
       if (stagedUri === null) {
         return <View style={styles.center}><ActivityIndicator color={colors.brand} /><AppText variant="caption" tone="secondary">Preparando el PDF…</AppText></View>;
       }
       return (
         <ViewerPdfSurface
           uri={stagedUri}
-          onRenderError={() => setRenderFailure({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE })}
+          onDocumentFailed={handlePdfFailed}
         />
       );
     }
@@ -343,36 +377,259 @@ export const VIEWER_VIDEO_RENDER_MESSAGE =
   'No pudimos reproducir este video aquí. Podés abrirlo o compartirlo con otra app.';
 
 /**
- * THE INLINE PDF SURFACE.
+ * THE INLINE PDF SURFACE (Expo-Go-compatible).
  *
- * `react-native-pdf` renders through `android.graphics.pdf.PdfRenderer` and PDFKit, both
- * of which read the document from a FILE DESCRIPTOR. The bytes therefore never enter the
- * JS heap, which is the property the whole Stage 2 Viewer correction turned on.
+ * Architecture: HomePlus shell -> staged `file://` original -> bounded chunked
+ * bridge -> LOCAL pdf.js engine inside a locked-down WebView. The engine source
+ * is vendored into the bundle (never fetched), the document bytes travel as
+ * base64 chunks under a versioned protocol with a per-open `docId` session, and
+ * the WebView itself is nailed down: no file access, no new windows, no
+ * navigation - every link tap returns as an explicit LINK_PRESSED message so
+ * React Native performs the system handoff.
  *
- * `trustAllCerts` is deliberately absent: there is no TLS to trust, because the source is
- * a local file and the download already happened over the authorized transfer.
+ * LIFECYCLE. One `docId` per DOCUMENT (`key` on the WebView follows the uri, so
+ * paging between Files unmounts the renderer holding the previous document's
+ * pixels). Unmount sends DISPOSE best-effort and drops every byte reference,
+ * so a close during load cannot leak the transfer or the renderer.
+ *
+ * TIMEOUTS. READY (engine booted) and LOAD (document opened) are both bounded;
+ * a renderer that never answers becomes the same honest failure surface as a
+ * corrupt file - never an indefinite spinner.
+ *
+ * Exported (not just module-local) so the automated suite mounts the REAL
+ * surface with controlled timeouts; production always uses the policy defaults.
  */
-function ViewerPdfSurface({ uri, onRenderError }: { uri: string; onRenderError: () => void }) {
-  const reported = useRef(false);
+export function ViewerPdfSurface({
+  uri,
+  onDocumentFailed,
+  timeouts,
+}: {
+  uri: string;
+  onDocumentFailed: (failure: { title: string; message: string }) => void;
+  /** Override for tests and constrained devices; defaults are the policy values. */
+  timeouts?: { readonly readyMs?: number; readonly loadMs?: number };
+}) {
+  const webviewRef = useRef<WebView | null>(null);
+  // One session per DOCUMENT, not per mount: the parent reuses this surface when
+  // the member pages between Files, so the session follows the uri. A new uri
+  // mints a new session, which (via `key` on the WebView) unmounts the renderer
+  // holding the previous document's pixels: stale content on reopen is
+  // impossible by construction, not by cleanup discipline.
+  const [sessionKey, setSessionKey] = useState(() => `pdf-${pdfSessionCounter++}`);
+  const uriRef = useRef(uri);
+  if (uriRef.current !== uri) {
+    uriRef.current = uri;
+    setSessionKey(`pdf-${pdfSessionCounter++}`);
+  }
+  const [page, setPage] = useState<{ page: number; pages: number } | null>(null);
+  const stateRef = useRef({
+    session: '',
+    settled: false,
+    rendererReady: false,
+    sent: false,
+    payload: null as { byteLength: number; chunks: string[] } | null,
+    readyTimer: null as ReturnType<typeof setTimeout> | null,
+    loadTimer: null as ReturnType<typeof setTimeout> | null,
+  });
+  const html = useMemo(() => getPdfViewerHtml(), []);
+
+  /** Resets the mutable session box when the document changed under it. */
+  const sessionState = useCallback(() => {
+    const state = stateRef.current;
+    if (state.session !== sessionKey) {
+      if (state.readyTimer) clearTimeout(state.readyTimer);
+      if (state.loadTimer) clearTimeout(state.loadTimer);
+      state.session = sessionKey;
+      state.settled = false;
+      state.rendererReady = false;
+      state.sent = false;
+      state.payload = null;
+      state.readyTimer = null;
+      state.loadTimer = null;
+    }
+    return state;
+  }, [sessionKey]);
+
+  const failOnce = useCallback((failure: { title: string; message: string }) => {
+    const state = sessionState();
+    if (state.settled || state.session !== sessionKey) return;
+    state.settled = true;
+    if (state.readyTimer) clearTimeout(state.readyTimer);
+    if (state.loadTimer) clearTimeout(state.loadTimer);
+    state.payload = null;
+    onDocumentFailed(failure);
+  }, [onDocumentFailed, sessionKey, sessionState]);
+
+  const sendDocument = useCallback(() => {
+    const state = sessionState();
+    if (state.settled || state.session !== sessionKey || !state.rendererReady || !state.payload || state.sent) return;
+    const target = webviewRef.current;
+    if (!target) return;
+    state.sent = true;
+    target.postMessage(serializeRnMessage({ v: PDF_BRIDGE_PROTOCOL_VERSION, type: 'INIT_DOCUMENT', docId: sessionKey, byteLength: state.payload.byteLength, totalChunks: state.payload.chunks.length }));
+    for (let index = 0; index < state.payload.chunks.length; index += 1) {
+      target.postMessage(serializeRnMessage({ v: PDF_BRIDGE_PROTOCOL_VERSION, type: 'LOAD_CHUNK', docId: sessionKey, index, data: state.payload.chunks[index] }));
+    }
+    // The payload served its purpose; drop it so a many-chunk document is not
+    // held twice (here and in the renderer) for the rest of the session.
+    state.payload = null;
+    const loadMs = timeouts?.loadMs ?? PDF_VIEWER_LOAD_TIMEOUT_MS;
+    if (state.loadTimer) clearTimeout(state.loadTimer);
+    state.loadTimer = setTimeout(() => {
+      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+    }, loadMs);
+  }, [failOnce, sessionKey, sessionState, timeouts]);
+
+  useEffect(() => {
+    const state = sessionState();
+    setPage(null);
+    let active = true;
+    const readyMs = timeouts?.readyMs ?? PDF_VIEWER_READY_TIMEOUT_MS;
+    state.readyTimer = setTimeout(() => {
+      if (!active) return;
+      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+    }, readyMs);
+    // The gate runs on the REAL staged size: metadata can be stale, the file
+    // on disk cannot. Oversized documents never reach the bridge at all.
+    let staged: File;
+    try {
+      staged = new File(uri);
+    } catch {
+      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+      return () => { active = false; };
+    }
+    const gate = pdfInlineEligibility(staged.size ?? null);
+    if (!gate.eligible && gate.reason === 'too_large') {
+      failOnce({ title: VIEWER_PDF_TOO_LARGE_TITLE, message: VIEWER_PDF_TOO_LARGE_MESSAGE });
+      return () => { active = false; };
+    }
+    if (!gate.eligible) {
+      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+      return () => { active = false; };
+    }
+    readStagedPdfForBridge(staged)
+      .then((payload) => {
+        if (!active || state.settled) return;
+        state.payload = payload;
+        sendDocument();
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        if (error instanceof PdfTooLargeError) {
+          failOnce({ title: VIEWER_PDF_TOO_LARGE_TITLE, message: VIEWER_PDF_TOO_LARGE_MESSAGE });
+          return;
+        }
+        void error;
+        failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+      });
+    return () => {
+      active = false;
+      // Best-effort DISPOSE: the WebView may already be gone, which is fine -
+      // unmounting the WebView itself releases the renderer either way.
+      try {
+        webviewRef.current?.postMessage(serializeRnMessage({ v: PDF_BRIDGE_PROTOCOL_VERSION, type: 'DISPOSE', docId: sessionKey }));
+      } catch {
+        // Best-effort.
+      }
+      if (state.readyTimer) clearTimeout(state.readyTimer);
+      if (state.loadTimer) clearTimeout(state.loadTimer);
+      state.payload = null;
+    };
+  }, [failOnce, sendDocument, sessionKey, timeouts, uri]);
+
+  const handleMessage = useCallback((event: { nativeEvent: { data: unknown } }) => {
+    const state = sessionState();
+    const message = parseViewerMessage(event.nativeEvent.data);
+    if (!message) return;
+    // READY means "the engine booted", not "a document is open": a fresh
+    // WebView announces itself with a boot token before it knows any session,
+    // so it is accepted regardless of docId. Everything else must belong to
+    // THIS session - stale or foreign messages are ignored, never acted on.
+    if (message.type === 'READY') {
+      // Idempotent: a renderer that announces itself twice must not cause a
+      // second transfer (`sent` guards it in sendDocument).
+      state.rendererReady = true;
+      if (state.readyTimer) clearTimeout(state.readyTimer);
+      sendDocument();
+      return;
+    }
+    // A hostile document cannot steer this surface with a crafted string.
+    if (message.docId !== sessionKey || state.session !== sessionKey) return;
+    switch (message.type) {
+      case 'DOCUMENT_LOADED':
+        if (state.loadTimer) clearTimeout(state.loadTimer);
+        setPage({ page: 1, pages: message.pages });
+        break;
+      case 'PAGE_CHANGED':
+        setPage({ page: message.page, pages: message.pages });
+        break;
+      case 'LOAD_ERROR':
+        if (message.code === 'password') {
+          failOnce({ title: VIEWER_PDF_PASSWORD_TITLE, message: VIEWER_PDF_PASSWORD_MESSAGE });
+        } else {
+          failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+        }
+        break;
+      case 'RENDER_ERROR':
+        // A single bad page must not nuke a readable document: the renderer
+        // keeps the rest, and only a total failure (LOAD_ERROR) escalates.
+        break;
+      case 'LINK_PRESSED':
+        // Explicit system handoff for document links: the viewer never
+        // navigates anywhere on its own.
+        Linking.openURL(message.url).catch(() => undefined);
+        break;
+    }
+  }, [failOnce, sendDocument, sessionKey, sessionState]);
+
   return (
     <View style={styles.pdfBox}>
-      <Pdf
-        source={{ uri }}
+      <WebView
+        key={sessionKey}
+        ref={webviewRef}
+        source={{ html, baseUrl: 'about:blank' }}
+        originWhitelist={['about:blank']}
         style={styles.pdf}
-        trustAllCerts={false}
-        enablePaging
-        enableDoubleTapZoom
-        spacing={12}
-        onError={() => {
-          // React can fire `onError` more than once for the same document. Reporting it
-          // once keeps the message honest instead of making the surface flap.
-          if (reported.current) return;
-          reported.current = true;
-          onRenderError();
-        }}
+        javaScriptEnabled
+        domStorageEnabled={false}
+        allowFileAccess={false}
+        allowFileAccessFromFileURLs={false}
+        allowUniversalAccessFromFileURLs={false}
+        allowingReadAccessToURL={undefined}
+        setSupportMultipleWindows={false}
+        javaScriptCanOpenWindowsAutomatically={false}
+        sharedCookiesEnabled={false}
+        thirdPartyCookiesEnabled={false}
+        mediaPlaybackRequiresUserAction
+        onShouldStartLoadWithRequest={() => false}
+        onMessage={handleMessage}
+        onError={() => failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE })}
+        onHttpError={() => failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE })}
       />
+      {page && page.pages > 1 ? (
+        <View style={styles.pdfPager}>
+          <AppText variant="caption" tone="secondary">{`${page.page} / ${page.pages}`}</AppText>
+        </View>
+      ) : null}
     </View>
   );
+}
+
+let pdfSessionCounter = 1;
+
+/** The viewer HTML is built ONCE: the ~320 KiB engine must not be re-inlined per open. */
+let cachedPdfViewerHtml: string | null = null;
+
+function getPdfViewerHtml(): string {
+  if (!cachedPdfViewerHtml) {
+    cachedPdfViewerHtml = buildPdfViewerHtml(PDFJS_ENGINE_SOURCE, {
+      background: colors.background.base,
+      surface: colors.surface.card,
+      text: colors.text.primary,
+      subtle: '#8A8178',
+    });
+  }
+  return cachedPdfViewerHtml;
 }
 
 /**
@@ -444,6 +701,7 @@ const styles = StyleSheet.create({
   inlineFailure: { alignItems: 'center', gap: spacing[2], paddingVertical: spacing[3] },
   pdfBox: { width: '100%', minHeight: 480, borderRadius: radius.lg, overflow: 'hidden' },
   pdf: { width: '100%', height: 560, backgroundColor: colors.surface.card },
+  pdfPager: { alignItems: 'center', paddingVertical: spacing[1] },
   media: { width: '100%', height: 320, borderRadius: radius.lg, backgroundColor: colors.surface.card },
   textBlock: { gap: spacing[2] },
   mono: { lineHeight: 20 },

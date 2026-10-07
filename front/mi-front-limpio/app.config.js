@@ -1,13 +1,12 @@
 ﻿module.exports = ({ config }) => ({
   ...config,
 
-  // `react-native-pdf` (+ its `react-native-blob-util` peer) are the Stage 2 Slice C
-  // inline PDF renderer. Both need their out-of-tree Expo config plugins so `expo
-  // prebuild` / `expo run:*` wires the native module; without them a fresh native
-  // build would not autolink and the Viewer would fall back to the system hand-off.
-  // The decision, its evidence and its honest limits are recorded in
-  // `docs/homecloud/HOMECLOUD_FILES_STAGE2_PDF_RENDERER_DECISION.md`.
-  plugins: [...(config.plugins || []), "expo-status-bar", "expo-video", "expo-sharing", "react-native-blob-util", "@config-plugins/react-native-pdf", ["expo-audio", {
+  // HomeCloud PDF Viewer is Expo-Go-compatible: a locally bundled pdf.js engine in
+  // a locked-down WebView (`react-native-webview`, which ships inside Expo Go),
+  // so NO custom native PDF module and NO out-of-tree config plugin is needed.
+  // `react-native-webview` needs no plugin entry: it autolinks and its native
+  // code is already present in Expo Go / the SDK 57 client.
+  plugins: [...(config.plugins || []), "expo-status-bar", "expo-video", "expo-sharing", ["expo-audio", {
     microphonePermission: "HomePlus necesita acceso al micrófono para grabar recuerdos de audio."
   }]],
 
