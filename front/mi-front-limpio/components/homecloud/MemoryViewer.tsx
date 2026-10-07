@@ -65,9 +65,9 @@ import type { MemoryViewerSource } from '../../services/homecloud/homecloudMemor
  * the previous scope.
  */
 
-export function MemoryViewer({ memories, activeContentId, accessToken, source, onClose, onActiveChange, onNearEnd }: {
+export function MemoryViewer({ memories, activeContentId, accessToken, source, onClose, onActiveChange, onNearEnd, onOpenInfo }: {
   memories: readonly HomeCloudMemoryListItem[]; activeContentId: string; accessToken: string | null; source: MemoryViewerSource;
-  onClose: () => void; onActiveChange: (contentId: string) => void; onNearEnd: () => void;
+  onClose: () => void; onActiveChange: (contentId: string) => void; onNearEnd: () => void; onOpenInfo?: (contentId: string) => void;
 }) {
   const { width } = useWindowDimensions();
   const list = useRef<FlatList<HomeCloudMemoryListItem>>(null);
@@ -204,7 +204,7 @@ export function MemoryViewer({ memories, activeContentId, accessToken, source, o
 
   if (memories.length === 0 || activeIndex < 0) return <Missing onClose={onClose} />;
   return <View style={styles.overlay} accessibilityViewIsModal>
-    {chrome ? <View style={styles.top}><AppButton variant="icon" size="sm" onPress={onClose} accessibilityLabel="Cerrar recuerdo"><HomePlusIcon name="close" size={24} color={colors.text.inverse} /></AppButton><AppText tone="inverse" variant="bodySmall" numberOfLines={1}>{memorySemanticLabel(memories[activeIndex])}</AppText><View style={styles.topSpacer} /></View> : null}
+    {chrome ? <View style={styles.top}><AppButton variant="icon" size="sm" onPress={onClose} accessibilityLabel="Cerrar recuerdo"><HomePlusIcon name="close" size={24} color={colors.text.inverse} /></AppButton><AppText tone="inverse" variant="bodySmall" numberOfLines={1}>{memorySemanticLabel(memories[activeIndex])}</AppText><View style={styles.topSpacer} />{onOpenInfo ? <AppButton variant="icon" size="sm" onPress={() => onOpenInfo(activeContentId)} accessibilityLabel="Información del recuerdo"><HomePlusIcon name="information-circle-outline" size={24} color={colors.text.inverse} /></AppButton> : null}</View> : null}
     <FlatList ref={list} data={memories} horizontal pagingEnabled showsHorizontalScrollIndicator={false} initialScrollIndex={activeIndex}
       keyExtractor={(memory) => memory.id} getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
       initialNumToRender={VIEWER_WINDOW} maxToRenderPerBatch={VIEWER_WINDOW} windowSize={VIEWER_WINDOW * 2 + 1}

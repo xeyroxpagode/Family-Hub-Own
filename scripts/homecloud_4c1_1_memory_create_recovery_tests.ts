@@ -415,8 +415,8 @@ test('30. the manual written date stays intact (exact / month_year / year / unkn
 test('31. the optional album stays intact on both forms', () => {
   assert.match(component, /const \[binaryAlbumId, setBinaryAlbumId\] = useState<string \| null>\(initialAlbumId \?\? null\);/);
   assert.match(component, /const \[writtenAlbumId, setWrittenAlbumId\] = useState<string \| null>\(initialAlbumId \?\? null\);/);
-  assert.match(component, /<MemoryAlbumSelector albums=\{albums\} value=\{binaryAlbumId\} onChange=\{setBinaryAlbumId\}/);
-  assert.match(component, /<MemoryAlbumSelector albums=\{albums\} value=\{writtenAlbumId\} onChange=\{setWrittenAlbumId\}/);
+  assert.match(component, /<MemoryAlbumSelector albums=\{albums\} value=\{binaryAlbumId\} onChange=\{handleSelectBinaryAlbum\}/);
+  assert.match(component, /<MemoryAlbumSelector albums=\{albums\} value=\{writtenAlbumId\} onChange=\{handleSelectWrittenAlbum\}/);
   assert.match(service, /initialAlbumId: metadata\.initialAlbumId/);
   // No album is a valid choice, and Create is never blocked by an empty list.
   assert.match(component, /albums\.length === 0 \? <FilterChip label="Sin álbum" selected disabled=\{disabled\} \/>/);

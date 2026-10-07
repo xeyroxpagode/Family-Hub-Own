@@ -109,8 +109,14 @@ export function setSemanticDatePrecision(
   suggestedDate: string,
 ): SemanticDateDraft {
   if (precision === 'unknown') return emptySemanticDateDraft();
-  const date = DATE_ONLY.test(draft.exactDate) ? draft.exactDate : suggestedDate;
-  const [year, month] = date.split('-').map(Number);
+  // WRIT-03: choosing "Fecha exacta" must NEVER silently stamp today. The
+  // draft keeps an empty exactDate until the user explicitly picks a day via
+  // DatePickerSheet; semanticDateDraftError then forces 'Elegí una fecha
+  // completa.' instead of claiming a capture time the user never supplied.
+  const date = precision === 'exact' && !DATE_ONLY.test(draft.exactDate)
+    ? ''
+    : DATE_ONLY.test(draft.exactDate) ? draft.exactDate : suggestedDate;
+  const [year, month] = (DATE_ONLY.test(date) ? date : suggestedDate).split('-').map(Number);
   return {
     ...draft,
     precision,

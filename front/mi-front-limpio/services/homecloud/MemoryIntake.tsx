@@ -327,6 +327,25 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
    * it, so no source can end up with a Save button the others do not have.
    */
   const saveDisabled = !binaryDraft || active || accepting || Boolean(semanticDateDraftError(binaryDate));
+  // INTAKE-09 — the JSX obeys the service's ONE destination authority instead
+  // of keeping a parallel local one: visibility comes from
+  // service.canShowDestinationSelector() (true only when a real choice
+  // exists and no inherited Album context already resolved it), and every
+  // selection flows through service.selectDestination so the service
+  // remains the only owner of destination state (invalid-album surfacing,
+  // albumName projection, "root" normalisation).
+  const showDestinationSelector = service.canShowDestinationSelector() || state.invalidAlbum === true;
+  // One authoritative destination selector: it only renders when the service
+  // says there is a real choice, and every change goes through the service
+  // authority while the local state mirrors what the submit already consumed.
+  const handleSelectBinaryAlbum = (albumId: string | null) => {
+    setBinaryAlbumId(albumId);
+    service.selectDestination(albumId, albumId ? albums.find((album) => album.id === albumId)?.name ?? null : 'Recuerdos');
+  };
+  const handleSelectWrittenAlbum = (albumId: string | null) => {
+    setWrittenAlbumId(albumId);
+    service.selectDestination(albumId, albumId ? albums.find((album) => album.id === albumId)?.name ?? null : 'Recuerdos');
+  };
 
   // The trigger depends on the LOCAL guard only. A remote status that could be
   // orphaned must never be able to disable the only entry point.
@@ -737,7 +756,7 @@ const openWritten = () => {
               returnKeyType="done"
               blurOnSubmit
             />
-            <MemoryAlbumSelector albums={albums} value={binaryAlbumId} onChange={setBinaryAlbumId} disabled={active} invalidAlbum={state.invalidAlbum === true} />
+            {showDestinationSelector ? <MemoryAlbumSelector albums={albums} value={binaryAlbumId} onChange={handleSelectBinaryAlbum} disabled={active} invalidAlbum={state.invalidAlbum === true} /> : null}
             {state.status === 'failed' || submitFailure ? (
               <View style={styles.error}>
                 <AppText variant="bodySmall" tone="danger">{submitFailure ?? state.error ?? 'No pudimos guardar este recuerdo.'}</AppText>
@@ -787,7 +806,7 @@ const openWritten = () => {
             onSubmitEditing={() => void submitWritten()}
           />
           <MemorySemanticDateFields value={writtenDate} onChange={setWrittenDate} disabled={writtenSubmitting} />
-          <MemoryAlbumSelector albums={albums} value={writtenAlbumId} onChange={setWrittenAlbumId} disabled={writtenSubmitting} invalidAlbum={state.invalidAlbum === true} />
+          {showDestinationSelector ? <MemoryAlbumSelector albums={albums} value={writtenAlbumId} onChange={handleSelectWrittenAlbum} disabled={writtenSubmitting} invalidAlbum={state.invalidAlbum === true} /> : null}
           {writtenError ? <AppText variant="bodySmall" tone="danger">{writtenError}</AppText> : null}
         </ScrollView>
       </ActionSheet>

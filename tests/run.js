@@ -271,7 +271,27 @@ const commands = {
     ['scripts/homecloud_s0_modal_host_contract_tests.js'],
   ),
 
-'homecloud-4c1-compile': () => runCommand(
+  'homecloud-p2-foundation': () => runCommand(
+    'HomeCloud P2 memories foundation tests',
+    'node',
+    ['scripts/compiled/scripts/homecloud_p2_memories_foundation_tests.js'],
+  ),
+  'homecloud-st3-patch-favorites': () => runCommand(
+    'HomeCloud ST-3 memory PATCH + favorites contract tests',
+    'node',
+    ['scripts/homecloud_st3_memory_patch_tests.js'],
+  ),
+  'homecloud-st3-semantic-date-compile': () => runCommand(
+    'Compile HomeCloud ST-3 semantic date focused tests',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st3_test.json'],
+  ),
+  'homecloud-st3-semantic-date': () => runCommand(
+    'HomeCloud ST-3 semantic date / written date tests',
+    'node',
+    ['scripts/compiled/scripts/homecloud_st3_semantic_date_tests.js'],
+  ),
+  'homecloud-4c1-compile': () => runCommand(
     'Compile HomeCloud 4C1 focused tests',
     'npm',
     ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_4c1_test.json'],
@@ -1062,6 +1082,15 @@ typecheck: ['frontend-typecheck', 'test-typecheck'],
     'homecloud-1d-frontend-projection',
     'homecloud-1d-new-household-capability-regression',
     'homecloud-1d-rls-bypass',
+  ],
+  'homecloud-st3': [
+    'homecloud-st3-patch-favorites',
+    'homecloud-st3-semantic-date-compile',
+    'homecloud-st3-semantic-date',
+    'homecloud-4c1-compile',
+    'homecloud-lifecycle-backend-contract',
+    'homecloud-p2-foundation',
+    'frontend-typecheck',
   ],
   lint: ['backend-syntax', 'backend-eslint', 'frontend-lint'],
   backend: ['testing-core', 'core-backend'],

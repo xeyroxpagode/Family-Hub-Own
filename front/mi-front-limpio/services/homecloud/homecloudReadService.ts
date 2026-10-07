@@ -3,6 +3,7 @@ import { plannerCache } from '../planner/plannerCache';
 import { plannerKeys } from '../planner/plannerKeys';
 import type {
   HomeCloudContent,
+  HomeCloudMemory,
   HomeCloudFolder,
   HomeCloudAlbum,
   HomeCloudAlbumItem,
@@ -489,6 +490,35 @@ export async function listMemories(
     `/api/homecloud/memories${memoriesQueryString(query)}`,
     { accessToken, signal: options?.signal, timeoutMs: options?.timeoutMs, operationKind: 'READ_ONLY' },
   );
+}
+
+// --- Memory metadata mutation (ST-3) ---
+
+export interface HomeCloudMemoryPatch {
+  readonly capturedAt?: string | null;
+  readonly capturedYear?: number | null;
+  readonly capturedMonth?: number | null;
+  readonly capturePrecision?: HomeCloudMemory['capturePrecision'];
+  readonly caption?: string | null;
+  readonly hiddenFromResurfacing?: boolean;
+  readonly favorite?: boolean;
+}
+
+/** PATCH a Memory's metadata (semantic date, caption, hiding, favorite).
+ *  Requires homecloud.organize server-side. Household identity is derived
+ *  from the authenticated context, never sent. */
+export async function updateMemory(
+  accessToken: string,
+  contentId: string,
+  patch: HomeCloudMemoryPatch,
+  scope?: HomeCloudScope,
+): Promise<HomeCloudMemory> {
+  const resp = await requestJson<{ memory: HomeCloudMemory }>(
+    `/api/homecloud/memories/${contentId}`,
+    { method: 'PATCH', accessToken, body: { ...patch } },
+  );
+  await invalidateAlbumReads(scope);
+  return resp.memory;
 }
 
 // --- Private Binary Access ---

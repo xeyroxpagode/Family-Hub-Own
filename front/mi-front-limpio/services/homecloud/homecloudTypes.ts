@@ -59,6 +59,8 @@ export interface HomeCloudContentBase {
   /** Persisted Memory-model contract for the future Resurfacing stage.
    *  Always false for Files; Memories may hide from resurfacing. */
   readonly hiddenFromResurfacing: boolean;
+  /** HOUSEHOLD_SHARED favorite. Same value for every household member. */
+  readonly favorite: boolean;
 }
 
 /** File-specific metadata (role = 'file').

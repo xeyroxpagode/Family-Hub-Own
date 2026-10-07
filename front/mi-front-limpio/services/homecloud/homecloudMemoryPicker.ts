@@ -122,7 +122,23 @@ export async function pickMemoryMedia(attempt?: MemoryAttempt): Promise<MemoryPi
 
     if (result.canceled) return { success: false, cancelled: true };
     return asset ? imageOutcome(asset, 'gallery', attempt) : { success: false, cancelled: false, error: 'No se seleccionó ninguna foto o video.' };
-  } catch (error) { return { success: false, cancelled: false, error: error instanceof Error ? error.message : 'Error al seleccionar foto o video.' }; }
+  } catch (error) {
+    // CRT-06: surface a permanent media-permission denial so the create sheet
+    // can render the "Abrir configuración" affordance instead of dead code.
+    try {
+      const permission = await ImagePicker.getMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        return {
+          success: false,
+          cancelled: false,
+          error: 'No tenemos permiso para acceder a tus fotos y videos.',
+          permissionDenied: true,
+          canAskAgain: permission.canAskAgain,
+        };
+      }
+    } catch { /* permission query is best-effort */ }
+    return { success: false, cancelled: false, error: error instanceof Error ? error.message : 'Error al seleccionar foto o video.' };
+  }
 }
 
 export async function pickAudioMemory(attempt?: MemoryAttempt): Promise<MemoryPickerOutcome> {

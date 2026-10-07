@@ -22,6 +22,7 @@ import { MemoryTypesSection } from '../components/homecloud/MemoryCollectionTile
 import { MemoryCollectionDetailView } from '../components/homecloud/MemoryCollectionDetailView';
 import { MemorySelectionHeader } from '../components/homecloud/MemorySelectionHeader';
 import { MemoryViewer } from '../components/homecloud/MemoryViewer';
+import { MemoryInfoSheet } from '../components/homecloud/MemoryInfoSheet';
 import { MemoryTimelineRow, type MemoryTimelineCell, type MemoryTimelineRowEntry } from '../components/homecloud/MemoryTimelineRow';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing } from '../constants/theme';
@@ -240,6 +241,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
   const memoriesRef = useRef(memories);
   memoriesRef.current = memories;
   const [viewer, setViewer] = useState<MemoryViewerSession | null>(null);
+  const [infoContentId, setInfoContentId] = useState<string | null>(null);
   const viewerRef = useRef<MemoryViewerSession | null>(viewer);
   viewerRef.current = viewer;
   const [nextOffset, setNextOffset] = useState<number | null>(null);
@@ -1895,8 +1897,25 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
             else if (viewer.source.kind === 'album') loadMoreDetail();
             else void collectionsControllerRef.current!.loadMore();
           }}
+          onOpenInfo={(contentId) => setInfoContentId(contentId)}
         />
       ) : null}
+
+      <MemoryInfoSheet
+        visible={infoContentId !== null}
+        memory={infoContentId ? viewerMemories.find((memory) => memory.id === infoContentId) ?? null : null}
+        accessToken={token}
+        canOrganize={canOrganize}
+        onClose={() => setInfoContentId(null)}
+        onUpdated={() => {
+          // Post-save refresh preserves the caller context: the same Viewer
+          // gets a re-read of ITS OWN source dataset, never a jump to root.
+          if (viewer?.source.kind === 'library') void refresh();
+          else if (viewer?.source.kind === 'album') void detailControllerRef.current?.refresh();
+          else void collectionsControllerRef.current?.refresh();
+          setInfoContentId(null);
+        }}
+      />
 
       <AlbumNameSheet
         visible={editor !== null}

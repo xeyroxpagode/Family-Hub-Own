@@ -71,6 +71,7 @@ function mapContentRowToDto(row) {
     uploadedAt: row.uploaded_at,
     hasPreview: row.preview_storage_path !== null && row.preview_storage_path !== undefined,
     hiddenFromResurfacing: row.hidden_from_resurfacing === true,
+    favorite: row.favorite === true,
   };
 
   if (row.role === 'file') {

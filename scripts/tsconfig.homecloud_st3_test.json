@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "outDir": "./compiled",
+    "rootDir": "..",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "../scripts/homecloud_st3_semantic_date_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudSemanticDate.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadTypes.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudTypes.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoriesTimeline.ts"
+  ]
+}

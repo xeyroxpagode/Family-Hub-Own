@@ -7,6 +7,7 @@ const intakeController = require('../controllers/homecloud.intake.controller')
 const filesController = require('../controllers/homecloud.files.controller')
 const albumsController = require('../controllers/homecloud.albums.controller')
 const lifecycleController = require('../controllers/homecloud.lifecycle.controller')
+const memoryController = require('../controllers/homecloud.memory.controller')
 
 const router = express.Router()
 
@@ -51,6 +52,10 @@ router.post('/memories/:contentId/trash', lifecycleController.trashMemoryControl
 router.post('/memories/:contentId/restore', lifecycleController.restoreMemoryController)
 router.delete('/memories/:contentId', lifecycleController.purgeMemoryController)
 router.post('/memories/purge-all', lifecycleController.purgeAllMemoriesController)
+
+// ST-3: Memory metadata corrections (semantic date, caption, resurfacing
+// hiding, HOUSEHOLD_SHARED favorite). Requires homecloud.organize.
+router.patch('/memories/:contentId', memoryController.updateMemoryController)
 
 // Folders: list and get by ID (protected, household-scoped)
 // No lifecycle on folders; stable ordering by name
