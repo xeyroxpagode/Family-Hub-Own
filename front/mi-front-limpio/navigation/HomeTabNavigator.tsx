@@ -299,25 +299,16 @@ export function HomeTabNavigator() {
   
   const [showHouseholdSwitcher, setShowHouseholdSwitcher] = useState(false);
   const [showAccountSheet, setShowAccountSheet] = useState(false);
-  const [activeTab, setActiveTab] = useState<string>('HomeTab');
   const [viewerOpen, setViewerOpen] = useState(isMemoryViewerOpen());
   useEffect(() => subscribeMemoryViewerOpen(() => setViewerOpen(isMemoryViewerOpen())), []);
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('state', (event: any) => {
-      const state = event?.data?.state ?? event?.state;
-      const homeTabs = state?.routes?.find((route: any) => route.name === 'HomeTabs');
-      const tabName = homeTabs?.state?.routes?.[homeTabs?.state?.index ?? 0]?.name;
-      if (typeof tabName === 'string') setActiveTab(tabName);
-    });
-    return unsubscribe;
-  }, [navigation]);
   /**
    * ST-4: global chrome UNMOUNTS while the Viewer is open inside MoreTab. The
-   * Viewer/tab state stays owned by Memories; this only mirrors the flag. If the
-   * user switches to a global tab, the navbar/AppTopBar come back on that tab;
-   * the Viewer session itself is untouched.
+   * Viewer/tab state stays owned by Memories; this only mirrors the flag. The
+   * previous extra `activeTab === 'MoreTab'` guard was fragile because this
+   * navigator's state listener can start stale when the More stack is already
+   * focused, leaving the physical bottom navbar mounted over the Viewer.
    */
-  const chromeHidden = viewerOpen && activeTab === 'MoreTab';
+  const chromeHidden = viewerOpen;
 
   const personName = authMe?.person?.display_name ?? 'Usuario';
   const personAvatarUrl = authMe?.person?.avatar_url ?? null;

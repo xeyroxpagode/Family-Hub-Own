@@ -22,12 +22,14 @@ export function HomeCloudScreen() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <AppButton variant="icon" size="sm" onPress={() => navigation.goBack()} accessibilityLabel="Volver">
-          <HomePlusIcon name="arrow-back" size={22} color={colors.text.primary} />
-        </AppButton>
-        <AppText variant="title2" weight="800" style={styles.title}>HomeCloud</AppText>
-      </View>
+      {viewerOpen ? null : (
+        <View style={styles.header}>
+          <AppButton variant="icon" size="sm" onPress={() => navigation.goBack()} accessibilityLabel="Volver">
+            <HomePlusIcon name="arrow-back" size={22} color={colors.text.primary} />
+          </AppButton>
+          <AppText variant="title2" weight="800" style={styles.title}>HomeCloud</AppText>
+        </View>
+      )}
       {viewerOpen ? null : (
         <SegmentedControl
           selectionMode="single"
@@ -38,7 +40,7 @@ export function HomeCloudScreen() {
           style={styles.selector}
         />
       )}
-      <HomeCloudUploadActivity householdId={currentHousehold?.id ?? null} />
+      {viewerOpen ? null : <HomeCloudUploadActivity householdId={currentHousehold?.id ?? null} />}
       <View style={styles.content}>
         <View style={[styles.pane, section !== 'files' && styles.hidden]} accessibilityElementsHidden={section !== 'files'}>
           <HomeCloudFilesView />

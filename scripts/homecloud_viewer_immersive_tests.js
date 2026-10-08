@@ -49,8 +49,9 @@ check(
   'the global AppTopBar and floating navbar unmount while the Viewer is open',
 );
 check(
-  tabNavigator.includes("activeTab === 'MoreTab'"),
-  'chrome hiding is scoped to the tab that hosts the Viewer',
+  tabNavigator.includes('const chromeHidden = viewerOpen;')
+    && !tabNavigator.includes("activeTab === 'MoreTab'"),
+  'chrome hiding follows the viewer-open flag without the stale activeTab guard',
 );
 check(
   memoriesScreen.includes('useEffect(() => () => publishMemoryViewerOpen(false), []);'),
