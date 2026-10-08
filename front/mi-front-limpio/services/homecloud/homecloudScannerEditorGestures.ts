@@ -24,16 +24,17 @@
 
 import {
   clampTranslation,
-  dragCropHandle,
-  hitTestHandles,
-  minEdgeNormalized,
+  dragQuadCorner,
+  hitTestQuadHandles,
   normalizedToViewport,
   orientedSize,
+  quadPoint,
   viewportToNormalizedExact,
   zoomAbout,
   type CropHandleKey,
   type DisplayGeometry,
   type Point,
+  type Quad,
   type Rect,
   type RotationSteps,
   type Size,
@@ -55,6 +56,8 @@ export interface TouchPoint {
 export interface GestureScene {
   /** Current normalized selection (oriented 0..1). */
   readonly cropRect: Rect;
+  /** Current normalized four-corner selection (oriented 0..1). */
+  readonly cropQuad: Quad;
   /** Letterboxed box + live zoom/pan. */
   readonly geometry: DisplayGeometry;
   /** Source image size, original pixels. */
@@ -103,6 +106,7 @@ export const IDLE_GESTURE_STATE: GestureState = {
 export type GestureEffect =
   | { readonly kind: 'none' }
   | { readonly kind: 'crop'; readonly cropRect: Rect }
+  | { readonly kind: 'quad'; readonly cropQuad: Quad }
   | { readonly kind: 'zoom'; readonly scale: number; readonly translate: Point };
 
 export interface GestureResolution {
@@ -152,11 +156,11 @@ export function gestureGrant(
   }
 
   const handle = scene.handlesEnabled
-    ? hitTestHandles(active, scene.cropRect, scene.geometry, scene.handleHitRadius)
+    ? hitTestQuadHandles(active, scene.cropQuad, scene.geometry, scene.handleHitRadius)
     : null;
   if (handle) {
     const handlePos = normalizedToViewport(
-      handlePointOf(scene.cropRect, handle),
+      quadPoint(scene.cropQuad, handle),
       scene.geometry,
     );
     return {
@@ -178,19 +182,6 @@ export function gestureGrant(
     state: { ...IDLE_GESTURE_STATE, mode: 'pending', trackedIds: [active.id] },
     effect: NO_EFFECT,
   };
-}
-
-function handlePointOf(rect: Rect, handle: CropHandleKey): Point {
-  switch (handle) {
-    case 'topLeft':
-      return { x: rect.x, y: rect.y };
-    case 'topRight':
-      return { x: rect.x + rect.width, y: rect.y };
-    case 'bottomRight':
-      return { x: rect.x + rect.width, y: rect.y + rect.height };
-    case 'bottomLeft':
-      return { x: rect.x, y: rect.y + rect.height };
-  }
 }
 
 function beginPinch(
@@ -304,15 +295,15 @@ export function gestureMove(
       const targetViewport = { x: active.x - state.grabOffset.x, y: active.y - state.grabOffset.y };
       const targetNormalized = viewportToNormalizedExact(targetViewport, scene.geometry);
       const oriented = orientedSize(scene.source, scene.rotationSteps);
-      const nextRect = dragCropHandle(
-        scene.cropRect,
+      const nextQuad = dragQuadCorner(
+        scene.cropQuad,
         state.handle,
         targetNormalized,
-        minEdgeNormalized(oriented),
+        oriented,
       );
       return {
         state,
-        effect: { kind: 'crop', cropRect: nextRect },
+        effect: { kind: 'quad', cropQuad: nextQuad },
       };
     }
   }

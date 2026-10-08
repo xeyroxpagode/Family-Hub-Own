@@ -196,6 +196,7 @@ function createHookHost(): HookHost {
     useCallback,
     useEffect,
     createElement: (type, props, ...children) => {
+      if (type === 'WebView') lastWebViewProps = props as Record<string, unknown>;
       const element = {
         type,
         props: { ...(props ?? {}), children: children.length <= 1 ? children[0] : children },
@@ -372,6 +373,39 @@ const manipulatorStub = {
   },
 };
 
+let perspectiveCounter = 0;
+const perspectiveCalls: { job: any }[] = [];
+const webViewDevice = {
+  postMessage: (raw: string) => {
+    const job = JSON.parse(raw);
+    perspectiveCalls.push({ job });
+    perspectiveCounter += 1;
+    const out = `file:///cache/homecloud-scanner-perspective-${job.id}.jpg`;
+    fsFiles.add(out);
+    setTimeout(() => {
+      const onMessage = lastWebViewProps?.onMessage as ((event: { nativeEvent: { data: string } }) => void) | undefined;
+      onMessage?.({
+        nativeEvent: {
+          data: JSON.stringify({
+            type: 'result',
+            id: job.id,
+            width: job.outputSize.width,
+            height: job.outputSize.height,
+            base64: `processed::${perspectiveCounter}`,
+          }),
+        },
+      });
+    }, 0);
+  },
+};
+let lastWebViewProps: Record<string, unknown> | null = null;
+const webViewStub = {
+  __esModule: true,
+  WebView: 'WebView',
+  default: 'WebView',
+};
+refTargets.set('WebView', webViewDevice);
+
 // Print: records the generated HTML, returns a PDF the FS stub can stat.
 const printCalls: string[] = [];
 const printStub = {
@@ -400,7 +434,10 @@ const legacyFileSystemStub = {
     fsCalls.push({ op: 'read', uri });
     return `base64::${uri}`;
   },
-  writeAsStringAsync: async (uri: string) => { fsFiles.add(uri); },
+  writeAsStringAsync: async (uri: string) => {
+    fsCalls.push({ op: 'write', uri });
+    fsFiles.add(uri);
+  },
   makeDirectoryAsync: async () => undefined,
   // The durable workspace copy FAILS deterministically: submitArtifact stops
   // BEFORE any network, projecting 'failed' through the real intake service
@@ -448,6 +485,8 @@ function installModuleStubs(): void {
     ['expo-haptics', hapticsExpoStub],
     ['@react-native-async-storage/async-storage', asyncStorageStub],
     ['react-native-safe-area-context', require('../../../tests/stubs/react-native-safe-area-context')],
+    ['react-native-webview', webViewStub],
+    ['react-native-svg', require('../../../tests/stubs/react-native-svg')],
   ];
   const byFragment: [string, unknown][] = [
     ['AuthContext', { useAuth: () => authState }],
@@ -670,12 +709,15 @@ function freshWorld(): void {
   goBacks.length = 0;
   setParamsCalls.length = 0;
   beforeRemoveListeners.length = 0;
-  manipCalls.length = 0;
+  perspectiveCalls.length = 0;
+  perspectiveCalls.length = 0;
   printCalls.length = 0;
   fsCalls.length = 0;
   fetchCalls.length = 0;
   captureCounter = 0;
   manipCounter = 0;
+  perspectiveCounter = 0;
+  lastWebViewProps = null;
   routeParams = undefined;
 }
 
@@ -779,19 +821,17 @@ async function main(): Promise<void> {
   if (applyButton) editorA.press(applyButton);
   await editorA.settle();
 
-  record(manipCalls.length === 1, 'RF-B1d. apply runs the image manipulator exactly once (a real processed file is generated)');
-  const manipA = manipCalls[0];
-  record(manipA?.uri === 'file:///tmp/capture_1.jpg', 'RF-B1e. processing always starts from the preserved ORIGINAL capture');
-  const actions = (manipA?.actions ?? []) as { rotate?: number; crop?: { originX: number; originY: number; width: number; height: number } }[];
-  record(actions.some((action) => action.rotate === 90), 'RF-B1f. the plan rotates 90° first (the applied rotation)');
-  const cropAction = actions.find((action) => action.crop);
+  record(perspectiveCalls.length === 1, 'RF-B1d. apply runs the WebView perspective engine exactly once (a real processed file is generated)');
+  const perspectiveA = perspectiveCalls[0]?.job;
+  record(readsOf().includes('file:///tmp/capture_1.jpg'), 'RF-B1e. processing always starts from the preserved ORIGINAL capture');
+  record(perspectiveA?.rotationSteps === 1, 'RF-B1f. the plan carries the applied 90° rotation to the oriented canvas');
+  const sourcePoints = (perspectiveA?.sourcePoints ?? []) as { x: number; y: number }[];
   record(
-    cropAction?.crop !== undefined
-      && cropAction.crop.originX > 0
-      && cropAction.crop.originY > 0
-      && cropAction.crop.width < oriented.width
-      && cropAction.crop.height < oriented.height,
-    'RF-B1g. the plan carries the REAL dragged crop (inward topLeft handle), validated against post-rotation pixels',
+    sourcePoints[0]?.x > 0
+      && sourcePoints[0]?.y > 0
+      && perspectiveA?.outputSize?.width > 0
+      && perspectiveA?.outputSize?.height > 0,
+    'RF-B1g. the plan carries the REAL dragged quad (inward topLeft handle), validated against post-rotation pixels',
   );
   record(buttonByTitle(editorA.tree(), 'Ver original') !== null, 'RF-B1h. the processed preview is installed (the surface offers going back to the original)');
 
@@ -814,7 +854,7 @@ async function main(): Promise<void> {
   record(handOff?.pop === true, 'RF-B2e. the hand-off carries pop:true — the router reuses the mounted Scanner instead of pushing a fresh one (the B1 fix)');
   const outcomeOne = handOff?.params?.scannerEditOutcome;
   record(outcomeOne?.pageId === 'scan_p1', 'RF-B2f. the outcome names the edited page');
-  record(outcomeOne?.processedUri !== undefined && String(outcomeOne.processedUri).startsWith('file:///tmp/processed_'),
+  record(outcomeOne?.processedUri !== undefined && String(outcomeOne.processedUri).startsWith('file:///cache/homecloud-scanner-perspective-'),
     'RF-B2g. the outcome carries the REAL processed file the preview showed');
   record(outcomeOne?.edit?.rotationSteps === 1, 'RF-B2h. the outcome carries the canonical edit (rotation applied)');
 
@@ -827,7 +867,7 @@ async function main(): Promise<void> {
     edit: outcomeOne?.edit ?? null,
     processedUri: String(outcomeOne?.processedUri),
   };
-  manipCalls.length = 0;
+  perspectiveCalls.length = 0;
   editorPage = editedSnapshot;
   const editorB = mountView(() => editorScreen.ScannerImageEditorScreen(), () => { routeParams = { page: editorPage }; });
   await editorB.settle();
@@ -837,15 +877,14 @@ async function main(): Promise<void> {
   if (applyAgain) editorB.press(applyAgain);
   await editorB.settle();
   record(
-    manipCalls.length === 1 && manipCalls[0]?.uri === 'file:///tmp/capture_1.jpg',
+    perspectiveCalls.length === 1 && readsOf().filter((uri) => uri === 'file:///tmp/capture_1.jpg').length >= 2,
     'RF-B3b. re-edit regenerates from the preserved ORIGINAL, never from the previous processed file',
   );
-  const reActions = (manipCalls[0]?.actions ?? []) as { rotate?: number }[];
-  record(reActions.some((action) => action.rotate === 90), 'RF-B3c. the saved canonical parameters (rotation) drive the regeneration');
+  record(perspectiveCalls[0]?.job?.rotationSteps === 1, 'RF-B3c. the saved canonical parameters (rotation) drive the regeneration');
 
   // ── RF-B4: cancel preserves the previous processed image ──
   const previousProcessed = String(outcomeOne?.processedUri);
-  const abandonedPreview = `file:///tmp/processed_${manipCounter}.jpg`;
+  const abandonedPreview = fsCalls.filter((call) => call.op === 'write').at(-1)?.uri ?? '';
   const cancelButton = buttonByLabel(editorB.tree(), 'Cancelar edición');
   record(cancelButton !== null, 'RF-B4a. cancel is offered');
   if (cancelButton) editorB.press(cancelButton);
@@ -925,7 +964,7 @@ async function main(): Promise<void> {
 
   // Run the REAL editor flow on the pushed snapshot: rotate + crop + apply +
   // confirm — the exact interaction sequence the physical QA performed.
-  manipCalls.length = 0;
+  perspectiveCalls.length = 0;
   let editorLivePage = pushedPage as ScannerPage;
   const editorC = mountView(() => editorScreen.ScannerImageEditorScreen(), () => { routeParams = { page: editorLivePage }; });
   await editorC.settle();
@@ -1003,7 +1042,7 @@ async function main(): Promise<void> {
   record(buttonByTitle(scanner.tree(), 'Restablecer') !== null, 'RF-C9l. the edited page offers Restablecer (reset to original)');
 
   // ── RF-C10: re-edit and reconfirm the same page ──
-  manipCalls.length = 0;
+  perspectiveCalls.length = 0;
   const reEdit = buttonByTitle(scanner.tree(), 'Editar página');
   if (reEdit) scanner.press(reEdit);
   await scanner.settle();
@@ -1023,7 +1062,7 @@ async function main(): Promise<void> {
     params?: { scannerEditOutcome?: ScannerPageEditOutcome }; pop?: boolean;
   };
   const outcomeD = handOffD?.params?.scannerEditOutcome;
-  record(manipCalls.length === 1 && manipCalls[0]?.uri === 'file:///tmp/capture_1.jpg',
+  record(perspectiveCalls.length === 1 && readsOf().includes('file:///tmp/capture_1.jpg'),
     'RF-C10b. re-edit applies to the ORIGINAL with the saved parameters');
   record(outcomeD?.processedUri !== undefined && outcomeD?.processedUri !== outcomeC?.processedUri,
     'RF-C10c. reconfirm hands off a freshly regenerated processed file');
@@ -1050,7 +1089,7 @@ async function main(): Promise<void> {
   record(pages.length === 2 && pages[1].processedUri === null, 'RF-C10f. the second page is still untouched');
 
   // ── RF-C11: cancel preserves the previous processed image (live session) ──
-  manipCalls.length = 0;
+  perspectiveCalls.length = 0;
   const cancelEdit = buttonByTitle(scanner.tree(), 'Editar página');
   if (cancelEdit) scanner.press(cancelEdit);
   await scanner.settle();
@@ -1061,7 +1100,7 @@ async function main(): Promise<void> {
   const applyE = buttonByLabel(editorE.tree(), 'Aplicar recorte y rotación');
   if (applyE) editorE.press(applyE);
   await editorE.settle();
-  const abandonedE = `file:///tmp/processed_${manipCounter}.jpg`;
+  const abandonedE = fsCalls.filter((call) => call.op === 'write').at(-1)?.uri ?? '';
   const cancelE = buttonByLabel(editorE.tree(), 'Cancelar edición');
   if (cancelE) editorE.press(cancelE);
   await editorE.settle();
@@ -1082,7 +1121,7 @@ async function main(): Promise<void> {
   await scanner.settle();
   previewEl = previewImage(scanner.tree());
   record((previewEl?.props?.source as { uri: string })?.uri === 'file:///tmp/capture_2.jpg', 'RF-C12a. the second page is selectable and unedited');
-  manipCalls.length = 0;
+  perspectiveCalls.length = 0;
   const editB = buttonByTitle(scanner.tree(), 'Editar página');
   if (editB) scanner.press(editB);
   await scanner.settle();
@@ -1142,7 +1181,8 @@ async function main(): Promise<void> {
   await scanner.settle(80);
 
   const readUris = readsOf();
-  record(readUris.length === 2 && readUris[0] === outcomeD?.processedUri && readUris[1] === outcomeF?.processedUri,
+  const pdfReadUris = readUris.slice(-2);
+  record(pdfReadUris.length === 2 && pdfReadUris[0] === outcomeD?.processedUri && pdfReadUris[1] === outcomeF?.processedUri,
     'RF-C13d. the PDF embeds BOTH effective processed images, in page order, never the originals');
   record(printCalls.length === 1, 'RF-C13e. exactly one PDF was generated (user-driven, after both edits)');
   const html = printCalls[0] ?? '';

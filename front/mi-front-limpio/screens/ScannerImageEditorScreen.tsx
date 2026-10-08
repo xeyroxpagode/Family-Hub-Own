@@ -29,9 +29,10 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { WebView } from 'react-native-webview';
+import Svg, { Circle, Path, Polygon } from 'react-native-svg';
 
 import { AppButton, AppText } from '../components/ui';
 import { HomePlusIcon } from '../constants/icons';
@@ -40,20 +41,29 @@ import { errorHaptic, lightHaptic, mediumHaptic, successHaptic } from '../utils/
 import {
   CROP_HANDLE_KEYS,
   applyRotationStep,
-  buildImageProcessingPlan,
   clampScale,
   coerceScannerPageEdit,
   computeBoxRect,
   defaultScannerPageEdit,
   isUsableSize,
   orientedSize,
+  quadBoundingRect,
+  quadPoint,
+  rectToQuad,
   rotatedImageSize,
   CANVAS_PADDING,
   type DisplayGeometry,
   type Point,
+  type Quad,
   type Rect,
+  type RotationSteps,
   type Size,
 } from '../services/homecloud/homecloudScannerGeometry';
+import {
+  DEFAULT_MAX_OUTPUT_SIDE,
+  buildPerspectivePlan,
+  buildScannerPerspectiveWebViewHtml,
+} from '../services/homecloud/homecloudScannerPerspective';
 import {
   IDLE_GESTURE_STATE,
   gestureEnd,
@@ -80,10 +90,25 @@ type EditorRouteParams = {
 
 const HANDLE_VISUAL_SIZE = 28;
 const HANDLE_HIT_RADIUS = touchTargets.normal; // 44px grab radius per corner
+const PERSPECTIVE_WEBVIEW_HTML = buildScannerPerspectiveWebViewHtml();
 
 type ProcessAttemptResult =
   | { readonly ok: true; readonly uri: string; readonly size: Size }
   | { readonly ok: false; readonly message: string };
+
+type PerspectiveWebViewJob = {
+  readonly id: string;
+  readonly dataUrl: string;
+  readonly sourcePoints: readonly Point[];
+  readonly outputSize: Size;
+  readonly rotationSteps: RotationSteps;
+  readonly quality: number;
+};
+
+type PerspectiveWebViewMessage =
+  | { readonly type: 'ready' }
+  | { readonly type: 'result'; readonly id: string; readonly width: number; readonly height: number; readonly base64: string }
+  | { readonly type: 'error'; readonly id: string; readonly message: string };
 
 async function deleteQuietly(uri: string | null | undefined): Promise<void> {
   if (!uri) return;
@@ -121,11 +146,21 @@ export function ScannerImageEditorScreen() {
   const geometryRef = useRef<DisplayGeometry | null>(null);
   const gestureRef = useRef<GestureState>(IDLE_GESTURE_STATE);
   const canvasPageOriginRef = useRef<Point>({ x: 0, y: 0 });
+  const webViewRef = useRef<any>(null);
+  const webViewReadyRef = useRef(false);
+  const queuedPerspectiveJobsRef = useRef<PerspectiveWebViewJob[]>([]);
+  const perspectiveJobsRef = useRef(new Map<string, {
+    resolve: (result: { uri: string; size: Size }) => void;
+    reject: (message: string) => void;
+  }>());
+  const perspectiveJobCounterRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      for (const [, job] of perspectiveJobsRef.current) job.reject('cancelled');
+      perspectiveJobsRef.current.clear();
       // Unmount cleanup: delete every temp file still owned here (B1 leak fix).
       for (const effect of editorSessionAbandonEffects(sessionRef.current)) {
         if (effect.kind === 'delete-file') void deleteQuietly(effect.uri);
@@ -243,6 +278,59 @@ export function ScannerImageEditorScreen() {
     [applySessionEffects],
   );
 
+  const flushPerspectiveJobs = useCallback(() => {
+    if (!webViewRef.current) return;
+    const jobs = queuedPerspectiveJobsRef.current.splice(0);
+    for (const job of jobs) {
+      webViewRef.current.postMessage(JSON.stringify(job));
+    }
+  }, []);
+
+  const handlePerspectiveWebViewMessage = useCallback(
+    async (event: { nativeEvent: { data?: string } }) => {
+      let message: PerspectiveWebViewMessage | null = null;
+      try {
+        message = JSON.parse(event.nativeEvent.data ?? '{}') as PerspectiveWebViewMessage;
+      } catch {
+        return;
+      }
+      if (message.type === 'ready') {
+        webViewReadyRef.current = true;
+        flushPerspectiveJobs();
+        return;
+      }
+      const pending = perspectiveJobsRef.current.get(message.id);
+      if (!pending) return;
+      perspectiveJobsRef.current.delete(message.id);
+      if (message.type === 'error') {
+        pending.reject(message.message);
+        return;
+      }
+      try {
+        const uri = `${FileSystem.cacheDirectory ?? ''}homecloud-scanner-perspective-${message.id}.jpg`;
+        await FileSystem.writeAsStringAsync(uri, message.base64, { encoding: FileSystem.EncodingType.Base64 });
+        pending.resolve({ uri, size: { width: message.width, height: message.height } });
+      } catch {
+        pending.reject('write');
+      }
+    },
+    [flushPerspectiveJobs],
+  );
+
+  const runPerspectiveWebViewJob = useCallback(
+    async (job: Omit<PerspectiveWebViewJob, 'id'>): Promise<{ uri: string; size: Size }> => {
+      const id = `${Date.now()}_${perspectiveJobCounterRef.current++}`;
+      const fullJob: PerspectiveWebViewJob = { ...job, id };
+      const result = new Promise<{ uri: string; size: Size }>((resolve, reject) => {
+        perspectiveJobsRef.current.set(id, { resolve, reject });
+      });
+      queuedPerspectiveJobsRef.current.push(fullJob);
+      flushPerspectiveJobs();
+      return result;
+    },
+    [flushPerspectiveJobs],
+  );
+
   // ---------------------------------------------------------------------
   // processing (F): explicit result, never a state read-back
   // ---------------------------------------------------------------------
@@ -252,40 +340,29 @@ export function ScannerImageEditorScreen() {
     if (!source) {
       return { ok: false, message: 'No pudimos leer las dimensiones de la imagen.' };
     }
-    // Validate against the REAL operation dimensions before touching native code.
-    const plan = buildImageProcessingPlan(source, editRef.current.cropRect, editRef.current.rotationSteps);
+    const plan = buildPerspectivePlan(
+      source,
+      editRef.current.cropQuad ?? rectToQuad(editRef.current.cropRect),
+      editRef.current.rotationSteps,
+      DEFAULT_MAX_OUTPUT_SIDE,
+    );
     if (plan.status !== 'ok') {
       return { ok: false, message: plan.message };
     }
     try {
-      // Order is exactly the plan's order: rotate first, then crop against the
-      // POST-rotation dimensions. The manipulator's crop action speaks
-      // originX/originY — the plan's rect is converted here, at the boundary.
-      const actions: ({ rotate: number } | { crop: { originX: number; originY: number; width: number; height: number } })[] = [];
-      for (const step of plan.steps) {
-        if (step.kind === 'rotate') {
-          actions.push({ rotate: step.degrees });
-        } else {
-          actions.push({
-            crop: {
-              originX: step.rect.x,
-              originY: step.rect.y,
-              width: step.rect.width,
-              height: step.rect.height,
-            },
-          });
-        }
-      }
-      const result = await manipulateAsync(
-        page.originalUri,
-        actions,
-        { compress: 0.9, format: SaveFormat.JPEG },
-      );
-      return { ok: true, uri: result.uri, size: { width: result.width, height: result.height } };
+      const base64 = await FileSystem.readAsStringAsync(page.originalUri, { encoding: FileSystem.EncodingType.Base64 });
+      const result = await runPerspectiveWebViewJob({
+        dataUrl: `data:image/jpeg;base64,${base64}`,
+        sourcePoints: [plan.sourceQuad.topLeft, plan.sourceQuad.topRight, plan.sourceQuad.bottomRight, plan.sourceQuad.bottomLeft],
+        outputSize: plan.outputSize,
+        rotationSteps: editRef.current.rotationSteps,
+        quality: 0.9,
+      });
+      return { ok: true, uri: result.uri, size: result.size };
     } catch {
       return { ok: false, message: 'No pudimos procesar la imagen. Probá de nuevo.' };
     }
-  }, [sourceSize, page]);
+  }, [sourceSize, page, runPerspectiveWebViewJob]);
 
   const startProcessing = useCallback(
     async (purpose: 'preview' | 'confirm') => {
@@ -369,6 +446,7 @@ export function ScannerImageEditorScreen() {
     const sessionNow = sessionRef.current;
     return {
       cropRect: editNow.cropRect,
+      cropQuad: editNow.cropQuad ?? rectToQuad(editNow.cropRect),
       geometry,
       source,
       rotationSteps: editNow.rotationSteps,
@@ -425,6 +503,10 @@ export function ScannerImageEditorScreen() {
           if (effect.kind === 'crop') {
             setEdit((prev) => ({ ...prev, cropRect: effect.cropRect }));
             editRef.current = { ...editRef.current, cropRect: effect.cropRect };
+          } else if (effect.kind === 'quad') {
+            const cropRect = quadBoundingRect(effect.cropQuad);
+            setEdit((prev) => ({ ...prev, cropQuad: effect.cropQuad, cropRect }));
+            editRef.current = { ...editRef.current, cropQuad: effect.cropQuad, cropRect };
           } else if (effect.kind === 'zoom') {
             setScale(effect.scale);
             setTranslate(effect.translate);
@@ -483,9 +565,32 @@ export function ScannerImageEditorScreen() {
 
   const processing = session.phase === 'processing';
   const imageElementSize = rotatedImageSize(box, displaySource.rotationSteps);
+  const quadPoints = CROP_HANDLE_KEYS.map((key) => {
+    const point = quadPoint(displaySource.cropQuad, key);
+    return { x: point.x * box.width, y: point.y * box.height };
+  });
+  const quadPolygon = quadPoints.map((point) => `${point.x},${point.y}`).join(' ');
+  const dimPath = [
+    `M0 0 H${box.width} V${box.height} H0 Z`,
+    `M${quadPoints[0].x} ${quadPoints[0].y}`,
+    `L${quadPoints[1].x} ${quadPoints[1].y}`,
+    `L${quadPoints[2].x} ${quadPoints[2].y}`,
+    `L${quadPoints[3].x} ${quadPoints[3].y} Z`,
+  ].join(' ');
 
   return (
     <View style={styles.screen}>
+      <WebView
+        ref={webViewRef as any}
+        pointerEvents="none"
+        source={{ html: PERSPECTIVE_WEBVIEW_HTML }}
+        originWhitelist={['*']}
+        javaScriptEnabled
+        allowFileAccess
+        allowUniversalAccessFromFileURLs
+        onMessage={handlePerspectiveWebViewMessage}
+        style={styles.hiddenWebView}
+      />
       <View style={[styles.header, { paddingTop: insets.top + spacing[2] }]}>
         <AppButton
           variant="icon"
@@ -550,86 +655,25 @@ export function ScannerImageEditorScreen() {
               resizeMode="cover"
               accessibilityLabel="Vista previa de la página"
             />
-            {/* Dimmed surroundings: four strips around the selected region. */}
             <View style={styles.overlayLayer}>
-              <View
-                style={[
-                  styles.dim,
-                  {
-                    left: 0,
-                    top: 0,
-                    width: box.width,
-                    height: displaySource.cropRect.y * box.height,
-                  },
-                ]}
-              />
-              <View
-                style={[
-                  styles.dim,
-                  {
-                    left: 0,
-                    top: (displaySource.cropRect.y + displaySource.cropRect.height) * box.height,
-                    width: box.width,
-                    height: (1 - displaySource.cropRect.y - displaySource.cropRect.height) * box.height,
-                  },
-                ]}
-              />
-              <View
-                style={[
-                  styles.dim,
-                  {
-                    left: 0,
-                    top: displaySource.cropRect.y * box.height,
-                    width: displaySource.cropRect.x * box.width,
-                    height: displaySource.cropRect.height * box.height,
-                  },
-                ]}
-              />
-              <View
-                style={[
-                  styles.dim,
-                  {
-                    left: (displaySource.cropRect.x + displaySource.cropRect.width) * box.width,
-                    top: displaySource.cropRect.y * box.height,
-                    width: (1 - displaySource.cropRect.x - displaySource.cropRect.width) * box.width,
-                    height: displaySource.cropRect.height * box.height,
-                  },
-                ]}
-              />
-              <View
-                style={[
-                  styles.cropBorder,
-                  {
-                    left: displaySource.cropRect.x * box.width,
-                    top: displaySource.cropRect.y * box.height,
-                    width: displaySource.cropRect.width * box.width,
-                    height: displaySource.cropRect.height * box.height,
-                  },
-                ]}
-              />
-              {CROP_HANDLE_KEYS.map((key) => {
-                // The overlay layer lives INSIDE the transformed box, so
-                // handle positions are plain box-local: normalized * boxSize.
-                const x =
-                  (displaySource.cropRect.x
-                    + (key === 'topRight' || key === 'bottomRight'
-                      ? displaySource.cropRect.width
-                      : 0))
-                  * box.width;
-                const y =
-                  (displaySource.cropRect.y
-                    + (key === 'bottomRight' || key === 'bottomLeft'
-                      ? displaySource.cropRect.height
-                      : 0))
-                  * box.height;
+              <Svg width={box.width} height={box.height} style={styles.svgOverlay}>
+                <Path d={dimPath} fill="rgba(0,0,0,0.55)" fillRule="evenodd" />
+                <Polygon points={quadPolygon} fill="transparent" stroke={colors.brand} strokeWidth={2} />
+                {CROP_HANDLE_KEYS.map((key, index) => {
+                  const point = quadPoints[index];
+                  return <Circle key={key} cx={point.x} cy={point.y} r={HANDLE_VISUAL_SIZE / 2} fill={colors.brand} stroke="#FFFFFF" strokeWidth={3} />;
+                })}
+              </Svg>
+              {CROP_HANDLE_KEYS.map((key, index) => {
+                const point = quadPoints[index];
                 return (
                   <View
                     key={key}
                     style={[
                       styles.handle,
                       {
-                        left: x - HANDLE_VISUAL_SIZE / 2,
-                        top: y - HANDLE_VISUAL_SIZE / 2,
+                        left: point.x - HANDLE_VISUAL_SIZE / 2,
+                        top: point.y - HANDLE_VISUAL_SIZE / 2,
                         width: HANDLE_VISUAL_SIZE,
                         height: HANDLE_VISUAL_SIZE,
                       },
@@ -700,6 +744,7 @@ export function ScannerImageEditorScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background.base },
+  hiddenWebView: { position: 'absolute', width: 1, height: 1, opacity: 0 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -714,6 +759,7 @@ const styles = StyleSheet.create({
   canvasMessage: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[6] },
   messageBody: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[6] },
   overlayLayer: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 },
+  svgOverlay: { position: 'absolute', left: 0, top: 0 },
   dim: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.55)' },
   cropBorder: {
     position: 'absolute',

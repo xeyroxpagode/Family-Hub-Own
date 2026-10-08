@@ -13,6 +13,7 @@
 
 import {
   CANVAS_PADDING,
+  FULL_CROP_QUAD,
   FULL_CROP_RECT,
   computeBoxRect,
   dragCropHandle,
@@ -20,6 +21,7 @@ import {
   hitTestHandles,
   normalizedToViewport,
   orientedSize,
+  rectToQuad,
   viewportToNormalizedExact,
   type CropHandleKey,
   type DisplayGeometry,
@@ -55,15 +57,20 @@ const HIT_RADIUS = 44;
 function makeScene(overrides: Partial<GestureScene> = {}): GestureScene {
   const box = computeBoxRect(VIEWPORT, orientedSize(SOURCE, 0), CANVAS_PADDING);
   const geometry: DisplayGeometry = { viewport: VIEWPORT, box, scale: 1, translate: { x: 0, y: 0 } };
-  return {
+  const base: GestureScene = {
     cropRect: FULL_CROP_RECT,
+    cropQuad: FULL_CROP_QUAD,
     geometry,
     source: SOURCE,
     rotationSteps: 0,
     handleHitRadius: HIT_RADIUS,
     handlesEnabled: true,
     zoomed: false,
+  };
+  return {
+    ...base,
     ...overrides,
+    cropQuad: overrides.cropQuad ?? (overrides.cropRect ? rectToQuad(overrides.cropRect) : base.cropQuad),
   };
 }
 
@@ -100,10 +107,10 @@ console.log('\n=== HC-3E SCANNER B1 GESTURE TESTS ===\n');
 
   // A handle drag must NEVER move the image (gesture ownership).
   const midDrag = gestureMove(grab.state, scene, [touch('t1', tlOnScreen.x + 30, tlOnScreen.y + 30)]);
-  record(midDrag.effect.kind === 'crop', 'handle moves emit crop effects only');
-  if (midDrag.effect.kind === 'crop') {
+  record(midDrag.effect.kind === 'quad', 'handle moves emit quad effects only');
+  if (midDrag.effect.kind === 'quad') {
     const expected = dragCropHandle(FULL_CROP_RECT, 'topLeft', viewportToNormalizedExact({ x: tlOnScreen.x + 30 - 5, y: tlOnScreen.y + 30 - 5 }, scene.geometry), 0);
-    record(approx(midDrag.effect.cropRect.x, expected.x, 1e-9) && approx(midDrag.effect.cropRect.y, expected.y, 1e-9), 'handle target crosses the exact inverse transform incl. grab offset');
+    record(approx(midDrag.effect.cropQuad.topLeft.x, expected.x, 1e-9) && approx(midDrag.effect.cropQuad.topLeft.y, expected.y, 1e-9), 'handle target crosses the exact inverse transform incl. grab offset');
   }
 
   // Tracked finger lifted mid-drag -> gesture ends cleanly.
@@ -256,6 +263,12 @@ console.log('\n=== HC-3E SCANNER B1 GESTURE TESTS ===\n');
     const onScreen = normalizedToViewport(handlePoint(cropRect, handle), geometry);
     const scene: GestureScene = {
       cropRect,
+      cropQuad: {
+        topLeft: handlePoint(cropRect, 'topLeft'),
+        topRight: handlePoint(cropRect, 'topRight'),
+        bottomRight: handlePoint(cropRect, 'bottomRight'),
+        bottomLeft: handlePoint(cropRect, 'bottomLeft'),
+      },
       geometry,
       source: SOURCE,
       rotationSteps: 0,
@@ -275,19 +288,19 @@ console.log('\n=== HC-3E SCANNER B1 GESTURE TESTS ===\n');
   const base = makeScene();
   const zoomGeometry: DisplayGeometry = { viewport: VIEWPORT, box: base.geometry.box, scale: 2, translate: { x: 15, y: -25 } };
   const cropRect: Rect = { x: 0.1, y: 0.1, width: 0.3, height: 0.3 };
-  const scene = { ...base, geometry: zoomGeometry, zoomed: true, cropRect, handlesEnabled: true };
+  const scene = { ...base, geometry: zoomGeometry, zoomed: true, cropRect, cropQuad: rectToQuad(cropRect), handlesEnabled: true };
   const brScreen = normalizedToViewport(handlePoint(cropRect, 'bottomRight'), zoomGeometry);
   const grant = gestureGrant(IDLE_GESTURE_STATE, scene, touch('t1', brScreen.x, brScreen.y), [touch('t1', brScreen.x, brScreen.y)]);
   record(grant.state.mode === 'handle' && grant.state.handle === 'bottomRight', 'handle hit-test works through zoom + pan');
 
   // Dragging through the zoomed transform lands on the right normalized target.
   const moved = gestureMove(grant.state, scene, [touch('t1', brScreen.x + 40, brScreen.y + 40)]);
-  record(moved.effect.kind === 'crop', 'zoomed handle drag emits crop');
-  if (moved.effect.kind === 'crop') {
+  record(moved.effect.kind === 'quad', 'zoomed handle drag emits quad');
+  if (moved.effect.kind === 'quad') {
     const expectedTarget = viewportToNormalizedExact({ x: brScreen.x + 40, y: brScreen.y + 40 }, zoomGeometry);
     const expectedRect = dragCropHandle(cropRect, 'bottomRight', expectedTarget, 0);
-    record(approx(moved.effect.cropRect.x, expectedRect.x, 1e-9) && approx(moved.effect.cropRect.width, expectedRect.width, 1e-9), 'zoomed handle drag inverts the transform correctly');
-    record(moved.effect.cropRect.x === cropRect.x && moved.effect.cropRect.y === cropRect.y, 'dragging bottomRight leaves the topLeft anchor untouched');
+    record(approx(moved.effect.cropQuad.bottomRight.x, expectedRect.x + expectedRect.width, 1e-9) && approx(moved.effect.cropQuad.bottomRight.y, expectedRect.y + expectedRect.height, 1e-9), 'zoomed handle drag inverts the transform correctly');
+    record(moved.effect.cropQuad.topLeft.x === cropRect.x && moved.effect.cropQuad.topLeft.y === cropRect.y, 'dragging bottomRight leaves the topLeft anchor untouched');
   }
 }
 

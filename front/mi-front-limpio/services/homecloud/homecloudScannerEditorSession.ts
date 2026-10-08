@@ -21,7 +21,7 @@
  *   reducer reacts to the explicit result, never to a React state snapshot.
  */
 
-import type { Rect, Size } from './homecloudScannerGeometry';
+import { FULL_CROP_QUAD, rectToQuad, type Quad, type Rect, type Size } from './homecloudScannerGeometry';
 import type { ScannerPageEdit } from './homecloudScanner';
 
 export type EditorSessionPhase = 'editing' | 'processing';
@@ -229,6 +229,7 @@ export interface EditorDisplaySource {
   readonly rotationSteps: 0 | 1 | 2 | 3;
   /** Selection the overlay must show; full frame while previewing. */
   readonly cropRect: Rect;
+  readonly cropQuad: Quad;
 }
 
 export interface EditorDisplayInputs {
@@ -251,6 +252,7 @@ export function editorDisplaySource(inputs: EditorDisplayInputs): EditorDisplayS
       size: session.previewSize,
       rotationSteps: 0,
       cropRect: { x: 0, y: 0, width: 1, height: 1 },
+      cropQuad: FULL_CROP_QUAD,
     };
   }
   return {
@@ -258,5 +260,6 @@ export function editorDisplaySource(inputs: EditorDisplayInputs): EditorDisplayS
     size: inputs.source,
     rotationSteps: edit.rotationSteps,
     cropRect: edit.cropRect,
+    cropQuad: edit.cropQuad ?? rectToQuad(edit.cropRect),
   };
 }

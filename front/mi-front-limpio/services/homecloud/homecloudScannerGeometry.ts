@@ -61,6 +61,16 @@ export type RotationSteps = 0 | 1 | 2 | 3;
 
 export const FULL_CROP_RECT: Rect = { x: 0, y: 0, width: 1, height: 1 };
 
+/** Four-corner document selection, normalized against the oriented image. */
+export type Quad = Readonly<Record<CropHandleKey, Point>>;
+
+export const FULL_CROP_QUAD: Quad = {
+  topLeft: { x: 0, y: 0 },
+  topRight: { x: 1, y: 0 },
+  bottomRight: { x: 1, y: 1 },
+  bottomLeft: { x: 0, y: 1 },
+};
+
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 6;
 
@@ -188,6 +198,170 @@ export function handlePoint(rect: Rect, handle: CropHandleKey): Point {
     case 'bottomLeft':
       return { x: rect.x, y: rectBottom(rect) };
   }
+}
+
+export function rectToQuad(rect: Rect): Quad {
+  const safe = normalizeCropRect(rect);
+  return {
+    topLeft: { x: safe.x, y: safe.y },
+    topRight: { x: rectRight(safe), y: safe.y },
+    bottomRight: { x: rectRight(safe), y: rectBottom(safe) },
+    bottomLeft: { x: safe.x, y: rectBottom(safe) },
+  };
+}
+
+export function quadToPoints(quad: Quad): readonly Point[] {
+  return [quad.topLeft, quad.topRight, quad.bottomRight, quad.bottomLeft];
+}
+
+export function quadBoundingRect(quad: Quad): Rect {
+  const points = quadToPoints(quad);
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  return normalizeCropRect({ x: left, y: top, width: right - left, height: bottom - top });
+}
+
+export function quadPoint(quad: Quad, handle: CropHandleKey): Point {
+  return quad[handle];
+}
+
+export function normalizedQuadToOrientedPixels(quad: Quad, oriented: Size): Quad {
+  if (!isUsableSize(oriented)) return FULL_CROP_QUAD;
+  return {
+    topLeft: { x: quad.topLeft.x * oriented.width, y: quad.topLeft.y * oriented.height },
+    topRight: { x: quad.topRight.x * oriented.width, y: quad.topRight.y * oriented.height },
+    bottomRight: { x: quad.bottomRight.x * oriented.width, y: quad.bottomRight.y * oriented.height },
+    bottomLeft: { x: quad.bottomLeft.x * oriented.width, y: quad.bottomLeft.y * oriented.height },
+  };
+}
+
+function signedQuadArea(quad: Quad): number {
+  const points = quadToPoints(quad);
+  let area = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    area += a.x * b.y - b.x * a.y;
+  }
+  return area / 2;
+}
+
+function cross(a: Point, b: Point, c: Point): number {
+  return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+}
+
+function segmentIntersects(a: Point, b: Point, c: Point, d: Point): boolean {
+  const abC = (c.y - a.y) * (b.x - a.x) - (c.x - a.x) * (b.y - a.y);
+  const abD = (d.y - a.y) * (b.x - a.x) - (d.x - a.x) * (b.y - a.y);
+  const cdA = (a.y - c.y) * (d.x - c.x) - (a.x - c.x) * (d.y - c.y);
+  const cdB = (b.y - c.y) * (d.x - c.x) - (b.x - c.x) * (d.y - c.y);
+  return abC * abD < 0 && cdA * cdB < 0;
+}
+
+export function isValidQuad(
+  quad: Quad,
+  oriented: Size,
+  minEdgePx: number = MIN_CROP_EDGE_PX,
+): boolean {
+  const points = quadToPoints(quad);
+  if (!isUsableSize(oriented)) return false;
+  if (points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return false;
+  if (points.some((point) => point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1)) return false;
+  if (segmentIntersects(quad.topLeft, quad.topRight, quad.bottomRight, quad.bottomLeft)) return false;
+  if (segmentIntersects(quad.topRight, quad.bottomRight, quad.bottomLeft, quad.topLeft)) return false;
+
+  const minEdge = minEdgeNormalized(oriented, minEdgePx);
+  const edges = [
+    Math.hypot(quad.topRight.x - quad.topLeft.x, quad.topRight.y - quad.topLeft.y),
+    Math.hypot(quad.bottomRight.x - quad.topRight.x, quad.bottomRight.y - quad.topRight.y),
+    Math.hypot(quad.bottomLeft.x - quad.bottomRight.x, quad.bottomLeft.y - quad.bottomRight.y),
+    Math.hypot(quad.topLeft.x - quad.bottomLeft.x, quad.topLeft.y - quad.bottomLeft.y),
+  ];
+  if (edges.some((edge) => edge < minEdge)) return false;
+
+  // In screen/image coordinates (y grows downward), TL->TR->BR->BL has a
+  // positive signed area. All local turns must agree for a convex polygon.
+  if (signedQuadArea(quad) <= minEdge * minEdge) return false;
+  const turns = [
+    cross(quad.topLeft, quad.topRight, quad.bottomRight),
+    cross(quad.topRight, quad.bottomRight, quad.bottomLeft),
+    cross(quad.bottomRight, quad.bottomLeft, quad.topLeft),
+    cross(quad.bottomLeft, quad.topLeft, quad.topRight),
+  ];
+  return turns.every((turn) => turn > 0);
+}
+
+export function orderQuadClockwise(points: readonly Point[]): Quad | null {
+  if (points.length !== 4) return null;
+  if (points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return null;
+  const center = {
+    x: points.reduce((sum, point) => sum + point.x, 0) / 4,
+    y: points.reduce((sum, point) => sum + point.y, 0) / 4,
+  };
+  const sorted = [...points].sort(
+    (a, b) => Math.atan2(a.y - center.y, a.x - center.x) - Math.atan2(b.y - center.y, b.x - center.x),
+  );
+  let topLeftIndex = 0;
+  for (let i = 1; i < sorted.length; i += 1) {
+    if (sorted[i].x + sorted[i].y < sorted[topLeftIndex].x + sorted[topLeftIndex].y) topLeftIndex = i;
+  }
+  const ordered = [
+    sorted[topLeftIndex],
+    sorted[(topLeftIndex + 1) % 4],
+    sorted[(topLeftIndex + 2) % 4],
+    sorted[(topLeftIndex + 3) % 4],
+  ];
+  return {
+    topLeft: ordered[0],
+    topRight: ordered[1],
+    bottomRight: ordered[2],
+    bottomLeft: ordered[3],
+  };
+}
+
+export function normalizeQuad(quad: Quad, oriented: Size): Quad {
+  const clamped = {
+    topLeft: { x: clamp(quad.topLeft.x, 0, 1), y: clamp(quad.topLeft.y, 0, 1) },
+    topRight: { x: clamp(quad.topRight.x, 0, 1), y: clamp(quad.topRight.y, 0, 1) },
+    bottomRight: { x: clamp(quad.bottomRight.x, 0, 1), y: clamp(quad.bottomRight.y, 0, 1) },
+    bottomLeft: { x: clamp(quad.bottomLeft.x, 0, 1), y: clamp(quad.bottomLeft.y, 0, 1) },
+  };
+  const ordered = orderQuadClockwise(quadToPoints(clamped));
+  return ordered && isValidQuad(ordered, oriented) ? ordered : FULL_CROP_QUAD;
+}
+
+export function rotateNormalizedQuadOnce(quad: Quad): Quad {
+  const rotate = (point: Point): Point => ({ x: 1 - point.y, y: point.x });
+  return {
+    topLeft: rotate(quad.bottomLeft),
+    topRight: rotate(quad.topLeft),
+    bottomRight: rotate(quad.topRight),
+    bottomLeft: rotate(quad.bottomRight),
+  };
+}
+
+export function rotateNormalizedQuad(quad: Quad, steps: RotationSteps): Quad {
+  let next = quad;
+  for (let i = 0; i < steps % 4; i += 1) next = rotateNormalizedQuadOnce(next);
+  return next;
+}
+
+export function dragQuadCorner(
+  quad: Quad,
+  handle: CropHandleKey,
+  target: Point,
+  oriented: Size,
+  minEdgePx: number = MIN_CROP_EDGE_PX,
+): Quad {
+  const next: Quad = {
+    ...quad,
+    [handle]: { x: clamp(target.x, 0, 1), y: clamp(target.y, 0, 1) },
+  };
+  return isValidQuad(next, oriented, minEdgePx) ? next : quad;
 }
 
 /**
@@ -454,6 +628,25 @@ export function hitTestHandles(
   return best;
 }
 
+export function hitTestQuadHandles(
+  viewportPoint: Point,
+  quad: Quad,
+  geometry: DisplayGeometry,
+  threshold: number,
+): CropHandleKey | null {
+  let best: CropHandleKey | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const key of CROP_HANDLE_KEYS) {
+    const onScreen = normalizedToViewport(quadPoint(quad, key), geometry);
+    const distance = Math.hypot(onScreen.x - viewportPoint.x, onScreen.y - viewportPoint.y);
+    if (distance <= threshold && distance < bestDistance) {
+      best = key;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 // ---------------------------------------------------------------------------
 // space 2 -> processing : the image manipulator plan
 // ---------------------------------------------------------------------------
@@ -558,11 +751,12 @@ export function isCropRectAcceptable(
 
 export interface ScannerPageEditLike {
   readonly cropRect: Rect;
+  readonly cropQuad?: Quad;
   readonly rotationSteps: RotationSteps;
 }
 
 export function defaultScannerPageEdit(): ScannerPageEditLike {
-  return { cropRect: FULL_CROP_RECT, rotationSteps: 0 };
+  return { cropRect: FULL_CROP_RECT, cropQuad: FULL_CROP_QUAD, rotationSteps: 0 };
 }
 
 /**
@@ -577,14 +771,31 @@ export function coerceScannerPageEdit(value: unknown): ScannerPageEditLike {
   const steps = (((rawSteps % 4) + 4) % 4) as RotationSteps;
   const rect = candidate.cropRect;
   if (typeof rect !== 'object' || rect === null) {
-    return { cropRect: FULL_CROP_RECT, rotationSteps: steps };
+    return { cropRect: FULL_CROP_RECT, cropQuad: FULL_CROP_QUAD, rotationSteps: steps };
   }
   const r = rect as Partial<Rect>;
   const hasAll =
     typeof r.x === 'number' && typeof r.y === 'number'
     && typeof r.width === 'number' && typeof r.height === 'number';
-  if (!hasAll) return { cropRect: FULL_CROP_RECT, rotationSteps: steps };
-  return { cropRect: normalizeCropRect({ x: r.x as number, y: r.y as number, width: r.width as number, height: r.height as number }), rotationSteps: steps };
+  if (!hasAll) return { cropRect: FULL_CROP_RECT, cropQuad: FULL_CROP_QUAD, rotationSteps: steps };
+  const cropRect = normalizeCropRect({ x: r.x as number, y: r.y as number, width: r.width as number, height: r.height as number });
+  const rawQuad = (candidate as { cropQuad?: unknown }).cropQuad;
+  let cropQuad = rectToQuad(cropRect);
+  if (typeof rawQuad === 'object' && rawQuad !== null) {
+    const q = rawQuad as Partial<Record<CropHandleKey, Partial<Point>>>;
+    const hasQuad = CROP_HANDLE_KEYS.every((key) =>
+      typeof q[key]?.x === 'number' && typeof q[key]?.y === 'number',
+    );
+    if (hasQuad) {
+      cropQuad = normalizeQuad({
+        topLeft: { x: q.topLeft?.x as number, y: q.topLeft?.y as number },
+        topRight: { x: q.topRight?.x as number, y: q.topRight?.y as number },
+        bottomRight: { x: q.bottomRight?.x as number, y: q.bottomRight?.y as number },
+        bottomLeft: { x: q.bottomLeft?.x as number, y: q.bottomLeft?.y as number },
+      }, { width: 1000, height: 1000 });
+    }
+  }
+  return { cropRect: quadBoundingRect(cropQuad), cropQuad, rotationSteps: steps };
 }
 
 /**
@@ -593,5 +804,6 @@ export function coerceScannerPageEdit(value: unknown): ScannerPageEditLike {
  */
 export function applyRotationStep(edit: ScannerPageEditLike): ScannerPageEditLike {
   const nextSteps = ((edit.rotationSteps + 1) % 4) as RotationSteps;
-  return { cropRect: rotateNormalizedRectOnce(edit.cropRect), rotationSteps: nextSteps };
+  const cropQuad = rotateNormalizedQuadOnce(edit.cropQuad ?? rectToQuad(edit.cropRect));
+  return { cropRect: quadBoundingRect(cropQuad), cropQuad, rotationSteps: nextSteps };
 }

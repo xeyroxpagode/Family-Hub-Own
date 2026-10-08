@@ -11,30 +11,29 @@
  */
 
 import type { UploadIntakeContext, UploadLocalArtifact } from './homecloudUploadTypes';
+import { DEFAULT_MAX_OUTPUT_SIDE, buildPerspectivePlan } from './homecloudScannerPerspective';
 import {
-  buildImageProcessingPlan,
   orientedSize,
+  rectToQuad,
   type Rect,
+  type Quad,
   type RotationSteps,
 } from './homecloudScannerGeometry';
 
-export type { Rect, RotationSteps } from './homecloudScannerGeometry';
+export type { Quad, Rect, RotationSteps } from './homecloudScannerGeometry';
 
 /**
  * Edit parameters applied to the ORIGINAL capture. Always reversible: the
  * original file is never mutated, so resetting is just dropping these.
  *
- * `cropRect` is normalized (0..1) against the ORIENTED image, which is the one
- * canonical selection authority shared by the overlay, the handles and the
- * image processing plan. See `homecloudScannerGeometry`.
- *
- * B1 is rectangular by contract, not by accident: four independent corners
- * would need a perspective transform and a polygon rasterizer, and pretending a
- * quad is a rectangle produces wrong crops. B2 adds quadrilaterals as a
- * separate, explicitly-typed model.
+ * `cropQuad` is normalized (0..1) against the ORIENTED image, which is the B2
+ * canonical selection authority shared by the overlay, handles and perspective
+ * processor. `cropRect` remains as a backward-compatible bounding projection
+ * for B1 tests and old route snapshots.
  */
 export interface ScannerPageEdit {
   readonly cropRect: Rect;
+  readonly cropQuad?: Quad;
   readonly rotationSteps: RotationSteps;
 }
 
@@ -151,8 +150,13 @@ export function getPageEffectiveDimensions(page: ScannerPage): { width: number; 
   if (!page.width || !page.height) return null;
   const source = { width: page.width, height: page.height };
   if (!page.edit) return source;
-  const plan = buildImageProcessingPlan(source, page.edit.cropRect, page.edit.rotationSteps);
-  return plan.status === 'ok' ? plan.resultSize : orientedSize(source, page.edit.rotationSteps);
+  const plan = buildPerspectivePlan(
+    source,
+    page.edit.cropQuad ?? rectToQuad(page.edit.cropRect),
+    page.edit.rotationSteps,
+    DEFAULT_MAX_OUTPUT_SIDE,
+  );
+  return plan.status === 'ok' ? plan.outputSize : orientedSize(source, page.edit.rotationSteps);
 }
 
 /**

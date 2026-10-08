@@ -86,6 +86,8 @@
     "../front/mi-front-limpio/storage/homecloudUploadJobStorage.ts",
     "../scripts/homecloud_3e_scanner_tests.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudScanner.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudScannerGeometry.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudScannerPerspective.ts",
     "../scripts/homecloud_4b2_memories_timeline_tests.ts",
     "../scripts/homecloud_4c1_memory_create_tests.ts",
     "../scripts/homecloud_4c1_1_memory_create_recovery_tests.ts",
