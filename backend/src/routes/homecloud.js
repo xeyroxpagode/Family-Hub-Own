@@ -76,6 +76,10 @@ router.post('/content/:contentId/restore', lifecycleController.restoreContent)
 // Papelera listing: Files of this household in lifecycle='trashed' only.
 // Query: limit, offset (same has-more probe pagination as /files).
 router.get('/files/trash', lifecycleController.listTrash)
+// PURGE: irreversible physical deletion. Requires body { confirm: true };
+// answers { contentId, operationId, status } and processes asynchronously
+// through the durable purge worker (Storage API only, crash-safe, retried).
+router.post('/content/:contentId/purge', lifecycleController.purgeContent)
 
 // Albums: list and get by ID (protected, household-scoped, active-only)
 // Stable ordering by name

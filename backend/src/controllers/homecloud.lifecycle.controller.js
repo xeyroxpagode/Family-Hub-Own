@@ -26,4 +26,6 @@ module.exports = {
   restoreContent: respond(req => lifecycle.restoreFileContent(req, req.params.contentId), 'file'),
   // LIST the household's trashed Files (has-more probe pagination).
   listTrash: respond(req => lifecycle.listTrashedFiles(req, req.query), 'trash'),
+  // PURGE one File (irreversible; requires confirm: true; asynchronous durable processing).
+  purgeContent: respond(req => lifecycle.purgeFileContent(req, req.params.contentId, req.body?.confirm), 'purge'),
 };

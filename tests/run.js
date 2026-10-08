@@ -92,6 +92,8 @@ const suiteClass = {
   'homecloud-files-hierarchy-migration': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-files-lifecycle-migration': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-files-lifecycle-service': 'DETERMINISTIC',
+  'homecloud-files-purge-worker': 'DETERMINISTIC',
+  'homecloud-files-purge-runtime': 'LOCAL_RUNTIME_REQUIRED (self-skips when the local stack is down)',
   'homecloud-stage2-integrated': 'LOCAL_RUNTIME_REQUIRED',
 };
 
@@ -566,6 +568,21 @@ const commands = {
     'HomeCloud Files lifecycle V1 service seam tests',
     'node',
     ['scripts/homecloud_files_lifecycle_service_tests.js'],
+  ),
+  // Lifecycle V1 purge worker, deterministic seam: real worker service against
+  // an in-memory Storage/RPC stub with failure injection. DETERMINISTIC.
+  'homecloud-files-purge-worker': () => runCommand(
+    'HomeCloud Files purge worker seam tests',
+    'node',
+    ['scripts/homecloud_files_purge_worker_tests.js'],
+  ),
+  // Lifecycle V1 purge runtime: the REAL local stack - physical byte deletion
+  // on disposable fixtures, crash recovery, fault injection, concurrency.
+  // LOCAL_RUNTIME_REQUIRED: the script self-skips when the stack is down.
+  'homecloud-files-purge-runtime': () => runCommand(
+    'HomeCloud Files purge runtime tests (real stack, disposable fixtures)',
+    'node',
+    ['scripts/homecloud_files_purge_runtime_tests.js'],
   ),
   'homecloud-files-favorites-runtime': {
     label: 'HomeCloud Files Core personal favorites (real PostgREST)',
@@ -1323,7 +1340,7 @@ const suites = {
     'homecloud-w1bc-pagination-reconciliation',
   ],
   'homecloud-files-hierarchy': ['homecloud-files-hierarchy-ui', 'homecloud-files-hierarchy-runtime', 'homecloud-files-hierarchy-migration'],
-  'homecloud-files-lifecycle': ['homecloud-files-lifecycle-service', 'homecloud-files-lifecycle-migration'],
+  'homecloud-files-lifecycle': ['homecloud-files-lifecycle-service', 'homecloud-files-lifecycle-migration', 'homecloud-files-purge-worker', 'homecloud-files-purge-runtime'],
   'homecloud-s4ii': ['homecloud-s4ii-search-contract', 'homecloud-s4ii-document-date'],
   'homecloud-s4iii': ['homecloud-s4iii-files-hasmore', 'homecloud-s4iii-files-surface'],
   'homecloud-3a-3d': ['homecloud-3a-3d-acceptance'],

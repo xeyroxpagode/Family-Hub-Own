@@ -30,6 +30,7 @@ const { resolveHomeCloudCapabilities, assertHomeCloudCapability } = require('../
 const { createHttpError } = require('../lib/httpErrors');
 const { mapContentRowToDto, mapTrashedFileRowToDto } = require('../lib/homecloudMappers');
 const { lifecycleFailure } = require('../lib/homecloudLifecycle');
+const { processPurgeBatch } = require('./homecloudPurgeWorker.service');
 
 const CONTENT_FIELDS = 'id, household_id, role, display_name, mime_type, extension, size_bytes, original_storage_path, preview_storage_path, uploaded_by_member_id, uploaded_at, document_date, note, caption, written_text, captured_at, captured_year, captured_month, capture_precision, hidden_from_resurfacing, folder_id, lifecycle';
 
@@ -149,4 +150,59 @@ async function listTrashedFiles(req, { limit = 100, offset = 0 } = {}) {
   };
 }
 
-module.exports = { trashFileContent, restoreFileContent, listTrashedFiles };
+/**
+ * PURGE one File: trashed -> purging -> physical, irreversible deletion.
+ *
+ * CONFIRMATION CONTRACT. The body must carry `confirm: true`. Purge is the
+ * only irreversible action in Files V1; a confirmation-less call is refused
+ * with its own typed 400 BEFORE any state changes, so no accidental DELETE
+ * verb, prefetch or retry can destroy bytes.
+ *
+ * DURABILITY. The database RPC `homecloud_start_purge` performs the whole
+ * irreversible handshake in ONE transaction: CAS trashed -> purging plus the
+ * durable operation snapshot. From that commit on, restore is structurally
+ * impossible and the operation survives the content row's own deletion (no
+ * FK). Processing is asynchronous: this endpoint answers
+ * { contentId, operationId, status } and NEVER waits for, or reports, the
+ * physical byte removal - the durable worker owns that.
+ *
+ * OPPORTUNISTIC KICK. After the durable record exists, one worker batch is
+ * started fire-and-forget so a single-command purge usually completes without
+ * waiting for the cron/script pass. The kick can never fail the request:
+ * if it errors or the process dies, the operation stays pending/running and
+ * `npm run purge:process` (or its interval mode) is the recovery path.
+ *
+ * PRIVACY. The response carries only ids and the operation status - never
+ * the snapshot (paths, buckets, member ids) the durable record holds.
+ */
+async function purgeFileContent(req, contentId, confirm) {
+  const context = await contextWithCapability(req, 'homecloud.delete');
+  if (confirm !== true) {
+    throw createHttpError(
+      400,
+      'La eliminación definitiva requiere confirmación explícita.',
+      'homecloud_purge_confirmation_required',
+    );
+  }
+  await resolveFileInHousehold(contentId, context.householdId);
+  const { data, error } = await supabaseAdmin.rpc('homecloud_start_purge', {
+    p_household_id: context.householdId,
+    p_content_id: contentId,
+    p_requested_by_member_id: context.membership.id,
+  });
+  if (error) throw lifecycleFailure(error, 'homecloud_purge_failed');
+  const operation = Array.isArray(data) ? data[0] : data;
+  if (!operation) throw createHttpError(404, 'Archivo no encontrado.', 'homecloud_content_not_found');
+
+  Promise.resolve()
+    .then(() => processPurgeBatch({ workerId: `purge-api-${operation.id.slice(0, 8)}` }))
+    .catch(() => {});
+
+  return {
+    contentId,
+    operationId: operation.id,
+    status: operation.status,
+  };
+}
+
+module.exports = { trashFileContent, restoreFileContent, listTrashedFiles, purgeFileContent };

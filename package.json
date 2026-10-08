@@ -47,6 +47,8 @@
     "outbox:process": "node backend/scripts/process-outbox.js",
     "outbox:inspect": "node backend/scripts/inspect-outbox.js",
     "outbox:retry": "node backend/scripts/retry-outbox.js",
+    "purge:process": "node backend/scripts/process-purges.js",
+    "purge:process:watch": "node backend/scripts/process-purges.js --interval=30",
     "seed:finance": "node backend/scripts/seed-finance-comprehensive.js"
   },
   "devDependencies": {
