@@ -5,6 +5,7 @@ const storageController = require('../controllers/homecloud.storage.controller')
 const readController = require('../controllers/homecloud.read.controller')
 const intakeController = require('../controllers/homecloud.intake.controller')
 const filesController = require('../controllers/homecloud.files.controller')
+const lifecycleController = require('../controllers/homecloud.lifecycle.controller')
 
 const router = express.Router()
 
@@ -64,6 +65,17 @@ router.patch('/content/:contentId/file', filesController.updateFile)
 // over ONE File. Requires homecloud.view (a personal retrieval preference is not
 // organization); the household and the person are always server-resolved.
 router.patch('/content/:contentId/favorite', filesController.setFavorite)
+
+// Files Lifecycle V1: Trash / Restore / Purge (Product Truth sections 49-51).
+// `homecloud.delete` covers destructive lifecycle actions; no new capability
+// identifier exists. Trash and Restore are reversible and idempotent; the
+// state machine authority is the database (20261007000000 lifecycle migration),
+// and these endpoints never accept household or lifecycle values from clients.
+router.post('/content/:contentId/trash', lifecycleController.trashContent)
+router.post('/content/:contentId/restore', lifecycleController.restoreContent)
+// Papelera listing: Files of this household in lifecycle='trashed' only.
+// Query: limit, offset (same has-more probe pagination as /files).
+router.get('/files/trash', lifecycleController.listTrash)
 
 // Albums: list and get by ID (protected, household-scoped, active-only)
 // Stable ordering by name

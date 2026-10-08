@@ -91,6 +91,7 @@ const suiteClass = {
   'homecloud-files-hierarchy-runtime': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-files-hierarchy-migration': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-files-lifecycle-migration': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-files-lifecycle-service': 'DETERMINISTIC',
   'homecloud-stage2-integrated': 'LOCAL_RUNTIME_REQUIRED',
 };
 
@@ -558,6 +559,14 @@ const commands = {
       ['scripts/homecloud_files_lifecycle_migration_tests.js'],
     ),
   },
+  // Lifecycle V1 deterministic seam: real services + real capability matrix +
+  // real mappers against an in-memory PostgREST/RPC stub that mirrors the
+  // database state machine. DETERMINISTIC: runs anywhere.
+  'homecloud-files-lifecycle-service': () => runCommand(
+    'HomeCloud Files lifecycle V1 service seam tests',
+    'node',
+    ['scripts/homecloud_files_lifecycle_service_tests.js'],
+  ),
   'homecloud-files-favorites-runtime': {
     label: 'HomeCloud Files Core personal favorites (real PostgREST)',
     run: () => runCommand(
@@ -1314,7 +1323,7 @@ const suites = {
     'homecloud-w1bc-pagination-reconciliation',
   ],
   'homecloud-files-hierarchy': ['homecloud-files-hierarchy-ui', 'homecloud-files-hierarchy-runtime', 'homecloud-files-hierarchy-migration'],
-  'homecloud-files-lifecycle': ['homecloud-files-lifecycle-migration'],
+  'homecloud-files-lifecycle': ['homecloud-files-lifecycle-service', 'homecloud-files-lifecycle-migration'],
   'homecloud-s4ii': ['homecloud-s4ii-search-contract', 'homecloud-s4ii-document-date'],
   'homecloud-s4iii': ['homecloud-s4iii-files-hasmore', 'homecloud-s4iii-files-surface'],
   'homecloud-3a-3d': ['homecloud-3a-3d-acceptance'],

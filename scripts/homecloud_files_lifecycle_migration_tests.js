@@ -37,10 +37,37 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { Client } = require('../backend/node_modules/pg');
 const { repositoryRoot } = require('../tests/helpers/process');
 
-const databaseUrl = process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
+/**
+ * Resolve the local database URL exactly the way the runtime suites do:
+ * explicit LOCAL_DATABASE_URL first, then the local stack's own
+ * `supabase status -o env` (so a stack on non-default ports is found), and
+ * only then the historical default. Loopback is asserted below regardless.
+ */
+function resolveDatabaseUrl() {
+  if (process.env.LOCAL_DATABASE_URL) return process.env.LOCAL_DATABASE_URL;
+  try {
+    const result = spawnSync('supabase', ['status', '-o', 'env'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    if (result.status === 0 && result.stdout) {
+      const dotenv = require('../backend/node_modules/dotenv');
+      const parsed = dotenv.parse(result.stdout);
+      if (parsed.DB_URL) return parsed.DB_URL;
+    }
+  } catch {
+    // Fall through to the default below.
+  }
+  return 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
+}
+
+const databaseUrl = resolveDatabaseUrl();
 
 const LIFECYCLE_MIGRATION = path.join(repositoryRoot, 'supabase', 'migrations', '20261007000000_homecloud_files_lifecycle_v1.sql');
 const CANONICAL_CONTENT_MIGRATION = path.join(repositoryRoot, 'supabase', 'migrations', '20260910000000_homecloud_canonical_content_v1_1.sql');

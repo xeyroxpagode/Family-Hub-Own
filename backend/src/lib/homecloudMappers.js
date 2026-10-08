@@ -167,6 +167,30 @@ function mapFolderRowToDto(row) {
 }
 
 /**
+ * Safe Trash listing mapper: DB row -> canonical HomeCloud trashed File DTO.
+ *
+ * FILES LIFECYCLE V1. Projects the canonical File DTO plus the trash audit
+ * fields the Papelera surface needs (when it was trashed, and by which
+ * member). The DTO boundary is inherited from mapContentRowToDto: no storage
+ * paths, no buckets, no signed URLs, no purge operation internals.
+ *
+ * The trash audit fields exist only on rows in the trash states (the DB CHECK
+ * pins trashed_at to lifecycle in ('trashed','purging')), so a row without
+ * them cannot be projected here.
+ */
+function mapTrashedFileRowToDto(row) {
+  const dto = mapContentRowToDto(row);
+  if (dto.role !== 'file') {
+    throw new Error('homecloud_trash_requires_file_role');
+  }
+  return {
+    ...dto,
+    trashedAt: row.trashed_at ?? null,
+    trashedByMemberId: row.trashed_by_member_id ?? null,
+  };
+}
+
+/**
  * Safe album mapper: DB row -> canonical HomeCloud Album DTO.
  * Minimal representation per HC-1F Product Truth (active only).
  */
@@ -187,4 +211,5 @@ module.exports = {
   HOME_CLOUD_MEMORY_KINDS,
   mapFolderRowToDto,
   mapAlbumRowToDto,
+  mapTrashedFileRowToDto,
 };
