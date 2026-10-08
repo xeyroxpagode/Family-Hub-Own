@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { AppText } from '../ui';
+import { AppButton, AppText } from '../ui';
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, spacing } from '../../constants/theme';
 import { getMemoryOriginalUrl } from '../../services/homecloud/homecloudMemoryOriginal';
@@ -81,6 +81,7 @@ function ActiveMemoryVideoPage({ memory, accessToken, authorized, width }: {
 }) {
   const [uri, setUri] = useState<string | null>(null);
   const [failure, setFailure] = useState<MemoryMediaFailure | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const access = useRef(new MemoryMediaAccess()).current;
 
   useEffect(() => {
@@ -102,13 +103,13 @@ function ActiveMemoryVideoPage({ memory, accessToken, authorized, width }: {
       setFailure('access');
     });
     return () => { mounted = false; access.invalidate(); };
-  }, [access, accessToken, memory.id]);
+  }, [access, accessToken, memory.id, attempt]);
 
   // HC2-C (A1): EVERY branch declares the pager's width, including the two
   // states the user actually saw at the moment of the reported jump.
-  if (failure !== null) return <MemoryVideoFailure failure={failure} width={width} />;
+  if (failure !== null) return <MemoryVideoFailure failure={failure} width={width} onRetry={() => setAttempt((value) => value + 1)} />;
   if (uri === null) return <MemoryVideoLoading width={width} />;
-  return <MemoryVideoPlayer key={memory.id} uri={uri} authorized={authorized} width={width} onFailure={setFailure} />;
+  return <MemoryVideoPlayer key={`${memory.id}:${attempt}`} uri={uri} authorized={authorized} width={width} onFailure={setFailure} />;
 }
 
 /**
@@ -178,7 +179,7 @@ function MemoryVideoLoading({ width }: { width: number }) {
  * offering one next to an unplayable file would be a promise the product does
  * not keep yet.
  */
-function MemoryVideoFailure({ failure, width }: { failure: MemoryMediaFailure; width: number }) {
+function MemoryVideoFailure({ failure, width, onRetry }: { failure: MemoryMediaFailure; width: number; onRetry: () => void }) {
   const copy = failure === 'access'
     ? 'No pudimos abrir este video.'
     : failure === 'unsupported'
@@ -187,6 +188,7 @@ function MemoryVideoFailure({ failure, width }: { failure: MemoryMediaFailure; w
   return <View style={[styles.failure, { width }]}>
     <HomePlusIcon name="alert-circle-outline" size={34} color={colors.text.inverse} />
     <AppText tone="inverse" align="center">{copy}</AppText>
+    <AppButton title="Reintentar" variant="secondary" size="sm" onPress={onRetry} accessibilityLabel="Reintentar cargar este video" />
   </View>;
 }
 

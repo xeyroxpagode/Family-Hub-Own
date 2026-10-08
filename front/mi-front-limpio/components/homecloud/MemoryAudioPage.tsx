@@ -76,6 +76,7 @@ function ActiveMemoryAudioPage({ memory, accessToken, authorized, width }: {
 }) {
   const [uri, setUri] = useState<string | null>(null);
   const [failure, setFailure] = useState<MemoryMediaFailure | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const access = useRef(new MemoryMediaAccess()).current;
 
   useEffect(() => {
@@ -95,12 +96,12 @@ function ActiveMemoryAudioPage({ memory, accessToken, authorized, width }: {
       setFailure('access');
     });
     return () => { mounted = false; access.invalidate(); };
-  }, [access, accessToken, memory.id]);
+  }, [access, accessToken, memory.id, attempt]);
 
   // HC2-C (A1): every branch declares the pager's width.
-  if (failure !== null) return <MemoryAudioFailure failure={failure} width={width} />;
+  if (failure !== null) return <MemoryAudioFailure failure={failure} width={width} onRetry={() => setAttempt((value) => value + 1)} />;
   if (uri === null) return <MemoryAudioLoading width={width} />;
-  return <MemoryAudioPlayer key={memory.id} uri={uri} authorized={authorized} width={width} onFailure={setFailure} />;
+  return <MemoryAudioPlayer key={`${memory.id}:${attempt}`} uri={uri} authorized={authorized} width={width} onFailure={setFailure} />;
 }
 
 /**
@@ -199,13 +200,14 @@ function MemoryAudioLoading({ width }: { width: number }) {
  * HC2-B, and offering one next to an unplayable file would be a promise the
  * product does not keep yet.
  */
-function MemoryAudioFailure({ failure, width }: { failure: MemoryMediaFailure; width: number }) {
+function MemoryAudioFailure({ failure, width, onRetry }: { failure: MemoryMediaFailure; width: number; onRetry: () => void }) {
   const copy = failure === 'access'
     ? 'No pudimos abrir este audio.'
     : 'No pudimos reproducir este audio.';
   return <View style={[styles.failure, { width }]}>
     <HomePlusIcon name="alert-circle-outline" size={34} color={colors.text.inverse} />
     <AppText tone="inverse" align="center">{copy}</AppText>
+    <AppButton title="Reintentar" variant="secondary" size="sm" onPress={onRetry} accessibilityLabel="Reintentar cargar este audio" />
   </View>;
 }
 
