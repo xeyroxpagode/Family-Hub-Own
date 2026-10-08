@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, AppState, FlatList, PanResponder, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { ActivityIndicator, Animated, AppState, FlatList, PanResponder, ScrollView, StyleSheet, View, useWindowDimensions, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppButton, AppText } from '../ui';
@@ -11,6 +11,23 @@ import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
 import { evictMemoryOriginalUrl, getMemoryOriginalUrl } from '../../services/homecloud/homecloudMemoryOriginal';
 import { evictMemoryPreviewUrl } from '../../services/homecloud/homecloudMemoryPreview';
 import { isMemoryMediaKind, mediaPlaybackAuthorized } from '../../services/homecloud/homecloudMemoryMediaPlayback';
+import {
+  IMAGE_DOUBLE_TAP_WINDOW_MS,
+  doubleTapTransform,
+  imageOwnsGesture,
+  isAtFitScale,
+  isDoubleTap,
+  isTapWithin,
+  panTransform,
+  pinchScale,
+  touchDistance,
+  touchMidpoint,
+  zoomAroundFocal,
+  zoomOwnsHorizontalGesture,
+  type Point,
+  type Size,
+  type ZoomTransform,
+} from '../../services/homecloud/homecloudImageZoom';
 import {
   beginMemoryViewerOpening,
   reportMemoryViewerDragBegin,
@@ -254,9 +271,19 @@ function ViewerPage({ memory, accessToken, width, active, authorized, onTap }: {
   return <ImagePage memory={memory} accessToken={accessToken} width={width} active={active} onTap={onTap} />;
 }
 
+/**
+ * WRITTEN page — the SAME Viewer, plain scrollable text (ST-10.A / WRIT-07).
+ *
+ * The chrome toggle is bound to a touch that produced NO user drag. Previously
+ * it was bound to `onTouchEnd`, so simply scrolling a long text toggled the
+ * chrome; a flick's `onTouchEnd` even fires before the momentum scroll, which
+ * made the toggle unavoidable. `onScrollBeginDrag` fires only for a real user
+ * drag, so it is the honest discriminator.
+ */
 function WrittenPage({ memory, width, onTap }: { memory: HomeCloudMemoryListItem; width: number; onTap: () => void }) {
   const insets = useSafeAreaInsets();
-  return <ScrollView style={{ width }} contentContainerStyle={[styles.written, { paddingTop: Math.max(insets.top, spacing[3]) + spacing[6], paddingBottom: Math.max(insets.bottom, spacing[3]) + spacing[4] }]} onTouchEnd={onTap}><AppText tone="inverse" variant="title2" weight="700">{memoryPrimaryText(memory) || 'Sin texto'}</AppText><AppText tone="inverse" variant="bodySmall">{memorySemanticLabel(memory)}</AppText>{memory.caption ? <AppText tone="inverse" variant="body">{memory.caption}</AppText> : null}</ScrollView>;
+  const draggedRef = useRef(false);
+  return <ScrollView style={{ width }} contentContainerStyle={[styles.written, { paddingTop: Math.max(insets.top, spacing[3]) + spacing[6], paddingBottom: Math.max(insets.bottom, spacing[3]) + spacing[4] }]} onScrollBeginDrag={() => { draggedRef.current = true; }} onTouchEnd={() => { const dragged = draggedRef.current; draggedRef.current = false; if (!dragged) onTap(); }}><AppText tone="inverse" variant="title2" weight="700">{memoryPrimaryText(memory) || 'Sin texto'}</AppText><AppText tone="inverse" variant="bodySmall">{memorySemanticLabel(memory)}</AppText>{memory.caption ? <AppText tone="inverse" variant="body">{memory.caption}</AppText> : null}</ScrollView>;
 }
 
 /**
@@ -275,23 +302,109 @@ function MediaPlaceholder({ width }: { width: number }) {
  * on is a correctness hole, not a missing feature, so the retry is part of the
  * frozen Run A surface.
  *
- * The gesture architecture is untouched: same pinch `PanResponder`, same 1..3
- * clamp, same pan clamp, same `onPanResponderTerminationRequest` arbitration and
- * the same `Pressable` chrome toggle. The retry only bumps a token that re-runs
- * the EXISTING original-request effect, which is what "retry" means here: ask the
- * existing seam again. No new dependency, no second request path, no cache.
+ * WHY `Pressable` IS NOT HERE (ST-10.A, proven statically)
+ * ------------------------------------------------------
+ * The previous page wrapped the image in `<Pressable>` and spread
+ * `PanResponder.create(...).panHandlers` on top of it. `Pressable` renders
+ * `<View {...restProps} {...eventHandlers} />`, and its own Pressability
+ * `eventHandlers` are spread LAST, so Pressability's
+ * `onStartShouldSetResponder: () => true` and
+ * `onResponderTerminationRequest: () => cancelable ?? true` SILENTLY REPLACED
+ * the PanResponder's `onStartShouldSetResponder` and its arbitration. The
+ * consequence is mechanical and not a matter of taste:
  *
- * A reset-on-change dependency is why the retry also restores the neutral zoom:
- * a retry is a fresh presentation of the same image, not a continuation of a
- * half-zoomed one.
+ *  1. Pressability claimed the responder on touch START, so
+ *     `onPanResponderGrant` never ran: `startDistance` was never populated and
+ *     `onPanResponderMove`'s pinch branch could never be entered.
+ *  2. Pressability's termination request was always `true`, so even a granted
+ *     responder would have been handed straight back to the pager.
+ *
+ * That is the static root cause behind the physical observation "the zoom is
+ * not usable": the pinch code was reachable but unreachable. Removing
+ * `Pressable` restores the one authority, and the arbitration
+ * `onPanResponderTerminationRequest` is now the only owner of the pager/zoom
+ * decision. This is exactly the zero-dependency repair the frozen architecture
+ * decision §5.2 chose; no gesture library is involved.
+ *
+ * Tap detection therefore does NOT rely on the responder: it uses raw touch
+ * events, which fire whether or not the responder system claimed the touch.
+ * A double tap is resolved against the same timing window the Video page
+ * already uses for its `±10s` zones, and a single tap's chrome toggle is
+ * deferred by that same window so the first tap of a double tap cannot flash
+ * the chrome.
+ *
+ * BOUNDS ARE DERIVED, NEVER ASSUMED: the pan clamp comes from the image's own
+ * reported dimensions and the real laid-out viewport
+ * (`homecloudImageZoom.panBoundsFor`). The previous vertical clamp was a
+ * hardcoded `±500`, which is not a bound derived from anything observable.
+ *
+ * `Animated.event` is deliberately absent: the pan target must be re-clamped to
+ * the derived bounds on every frame, and a raw `dx -> translate` mapping cannot
+ * express that clamp. Writing the already-clamped value is strictly stronger
+ * than animating the raw gesture delta.
+ *
+ * A retry bumps a token that re-runs the EXISTING original-request effect,
+ * which is what "retry" means here: ask the existing seam again. No new
+ * dependency, no second request path, no cache.
+ *
+ * Zoom state resets structurally whenever the request effect re-runs, and that
+ * effect is keyed on the page identity and its ACTIVE flag — so changing page
+ * and reopening the Viewer both reset the zoom even while the page stays
+ * mounted inside the Viewer's render window.
  */
 function ImagePage({ memory, accessToken, width, active, onTap }: { memory: HomeCloudMemoryListItem; accessToken: string | null; width: number; active: boolean; onTap: () => void }) {
   const preview = useMemoryPreviewUrl(accessToken, memory.id, memory.hasPreview);
   const [original, setOriginal] = useState<string | null>(null); const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const scale = useRef(new Animated.Value(1)).current; const translate = useRef(new Animated.ValueXY()).current; const scaleValue = useRef(1); const startDistance = useRef<number | null>(null); const startScale = useRef(1);
+  /** The page's REAL laid-out viewport. Bounds are meaningless without it. */
+  const [viewport, setViewport] = useState<Size>({ width, height: 0 });
+  /**
+   * The image's OWN natural size, taken from the render event. It costs no
+   * request: the bytes are already decoded for the visible image, so this is
+   * the difference between derived bounds and an assumed pixel size.
+   */
+  const imageSizeRef = useRef<Size | null>(null);
+  const [pinching, setPinching] = useState(false);
+  const tapOriginRef = useRef<Point | null>(null);
+  const lastTapAtRef = useRef(0);
+  const lastTapRef = useRef<Point | null>(null);
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tapRef = useRef<{ moved: boolean; touches: number } | null>(null);
+
+  const currentTransform = useCallback((): ZoomTransform => ({ scale: scaleValue.current, x: Number(translate.x) || 0, y: Number(translate.y) || 0 }), [translate]);
+  const clearSingleTap = useCallback(() => {
+    if (singleTapTimerRef.current === null) return;
+    clearTimeout(singleTapTimerRef.current);
+    singleTapTimerRef.current = null;
+  }, []);
+  const writeTransform = useCallback((next: ZoomTransform) => {
+    scale.stopAnimation(); translate.stopAnimation();
+    scaleValue.current = next.scale;
+    scale.setValue(next.scale);
+    translate.setValue({ x: next.x, y: next.y });
+  }, [scale, translate]);
+  /** Animate back to an exact transform (double-tap zoom and double-tap reset). */
+  const animateTransform = useCallback((next: ZoomTransform) => {
+    scale.stopAnimation(); translate.stopAnimation();
+    scaleValue.current = next.scale;
+    Animated.parallel([
+      Animated.spring(scale, { toValue: next.scale, useNativeDriver: true }),
+      Animated.spring(translate, { toValue: { x: next.x, y: next.y }, useNativeDriver: true }),
+    ]).start();
+  }, [scale, translate]);
+  const resetZoom = useCallback(() => {
+    clearSingleTap();
+    lastTapRef.current = null; lastTapAtRef.current = 0;
+    Animated.parallel([
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true }),
+      Animated.spring(translate, { toValue: { x: 0, y: 0 }, useNativeDriver: true }),
+    ]).start();
+    scaleValue.current = 1;
+  }, [clearSingleTap, scale, translate]);
+
   useEffect(() => {
-    setOriginal(null); setFailed(false); scale.setValue(1); translate.setValue({ x: 0, y: 0 }); scaleValue.current = 1;
+    setOriginal(null); setFailed(false); scaleValue.current = 1; scale.setValue(1); translate.setValue({ x: 0, y: 0 });
     if (!active) return;
     if (!accessToken) { setFailed(true); return; }
     const controller = new AbortController();
@@ -300,14 +413,103 @@ function ImagePage({ memory, accessToken, width, active, onTap }: { memory: Home
       setFailed(true);
     });
     return () => controller.abort();
+    // Zoom and pan are DELIBERATELY absent: they are presentation only and must
+    // never be able to re-issue a signed-original request.
   }, [accessToken, active, attempt, memory.id, scale, translate]);
-  const responder = useRef(PanResponder.create({ onStartShouldSetPanResponder: (event) => event.nativeEvent.touches.length > 1, onMoveShouldSetPanResponder: (event) => event.nativeEvent.touches.length > 1 || scaleValue.current > 1.01,
-    onPanResponderGrant: (event) => { const t=event.nativeEvent.touches; if(t.length>1){ startDistance.current=Math.hypot(t[0].pageX-t[1].pageX,t[0].pageY-t[1].pageY); startScale.current=scaleValue.current; } },
-    onPanResponderMove: (event, gesture) => { const t=event.nativeEvent.touches; if(t.length>1 && startDistance.current){ const next=Math.max(1,Math.min(3,startScale.current*Math.hypot(t[0].pageX-t[1].pageX,t[0].pageY-t[1].pageY)/startDistance.current)); scaleValue.current=next; scale.setValue(next); } else if(scaleValue.current>1.01) translate.setValue({x: Math.max(-width,Math.min(width,gesture.dx)),y:Math.max(-500,Math.min(500,gesture.dy))}); },
-    onPanResponderRelease: () => { startDistance.current=null; if(scaleValue.current<=1.01){ scaleValue.current=1; Animated.parallel([Animated.spring(scale,{toValue:1,useNativeDriver:true}),Animated.spring(translate,{toValue:{x:0,y:0},useNativeDriver:true})]).start(); } }, onPanResponderTerminationRequest: () => scaleValue.current <= 1.01 })).current;
+  useEffect(() => clearSingleTap, [clearSingleTap]);
+
+  const handleTap = useCallback((point: Point) => {
+    const now = Date.now();
+    if (isDoubleTap({ lastTapAt: lastTapAtRef.current, lastTap: lastTapRef.current, now, tap: point })) {
+      clearSingleTap();
+      lastTapRef.current = null; lastTapAtRef.current = 0;
+      animateTransform(doubleTapTransform(currentTransform(), point, viewport, imageSizeRef.current));
+      return;
+    }
+    lastTapRef.current = point; lastTapAtRef.current = now;
+    clearSingleTap();
+    singleTapTimerRef.current = setTimeout(() => {
+      singleTapTimerRef.current = null; lastTapRef.current = null; lastTapAtRef.current = 0;
+      onTap();
+    }, IMAGE_DOUBLE_TAP_WINDOW_MS);
+  }, [animateTransform, clearSingleTap, currentTransform, onTap, viewport]);
+
+  const responder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: (event) => event.nativeEvent.touches.length > 1,
+    onMoveShouldSetPanResponder: (event) => event.nativeEvent.touches.length > 1 || zoomOwnsHorizontalGesture(scaleValue.current),
+    // CAPTURE: this page never takes a touch away from the pager's own
+    // capture phase. Arbitration happens in the termination request below,
+    // where the real scale is known.
+    onStartShouldSetPanResponderCapture: () => false,
+    onMoveShouldSetPanResponderCapture: () => false,
+    onPanResponderGrant: (event) => {
+      const t = event.nativeEvent.touches;
+      if (t.length > 1) { startDistance.current = touchDistance(t[0], t[1]); startScale.current = scaleValue.current; }
+    },
+    onPanResponderMove: (event, gesture) => {
+      const t = event.nativeEvent.touches;
+      if (t.length > 1 && startDistance.current) {
+        if (!pinching) setPinching(true);
+        const next = pinchScale(startScale.current, startDistance.current, touchDistance(t[0], t[1]));
+        writeTransform(zoomAroundFocal(currentTransform(), next, touchMidpoint(t[0], t[1]), viewport, imageSizeRef.current));
+        return;
+      }
+      if (zoomOwnsHorizontalGesture(scaleValue.current)) {
+        writeTransform(panTransform(currentTransform(), gesture.dx, gesture.dy, viewport, imageSizeRef.current));
+      }
+    },
+    /**
+     * THE ONE ARBITRATION. At fit the horizontal swipe belongs to the pager; a
+     * two-finger gesture always belongs to the image, even at fit, so a pinch
+     * can never be read as a page turn.
+     */
+    onPanResponderTerminationRequest: () => !imageOwnsGesture(scaleValue.current, pinching),
+    onPanResponderRelease: () => {
+      startDistance.current = null;
+      if (pinching) setPinching(false);
+      if (isAtFitScale(scaleValue.current)) resetZoom();
+    },
+    /**
+     * TERMINATION. The platform can take the responder away mid-gesture. The
+     * pinch baseline must still be cleared, exactly as on release, or the next
+     * pinch would be measured from a stale finger distance.
+     */
+    onPanResponderTerminate: () => {
+      startDistance.current = null;
+      if (pinching) setPinching(false);
+      if (isAtFitScale(scaleValue.current)) resetZoom();
+    },
+  })).current;
+
   const uri = original ?? (preview.phase === 'ready' ? preview.url : null);
   if (!active && uri === null) return <View style={[styles.placeholder, { width }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />;
-  return <Pressable style={[styles.imagePage,{width}]} onPress={onTap} {...responder.panHandlers}>{uri ? <Animated.Image source={{ uri }} resizeMode="contain" style={[styles.image,{transform:[{translateX:translate.x},{translateY:translate.y},{scale}]}]} onError={() => { evictMemoryOriginalUrl(memory.id); evictMemoryPreviewUrl(memory.id); setOriginal(null); setFailed(true); }} /> : <View style={styles.state}>{failed ? null : <ActivityIndicator color={colors.text.inverse}/>}<AppText tone="inverse" align="center">{failed ? 'No pudimos mostrar este recuerdo.' : active ? 'Cargando recuerdo…' : 'Cargando vista previa…'}</AppText>{failed ? <AppButton title="Reintentar" variant="secondary" size="sm" onPress={() => setAttempt((value) => value + 1)} accessibilityLabel="Reintentar cargar este recuerdo" /> : null}</View>}</Pressable>;
+  return <View
+    style={[styles.imagePage,{width}]}
+    accessible
+    accessibilityRole="button"
+    accessibilityLabel="Recuerdo. Doble toque para acercar o alejar"
+    onLayout={(event) => setViewport({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
+    onTouchStart={(event) => {
+      const t = event.nativeEvent.touches[0];
+      tapOriginRef.current = t ? { x: t.pageX, y: t.pageY } : null;
+      tapRef.current = { moved: false, touches: event.nativeEvent.touches.length };
+    }}
+    onTouchMove={(event) => {
+      const origin = tapOriginRef.current; const state = tapRef.current; const t = event.nativeEvent.touches[0];
+      if (origin && state && t && !isTapWithin(origin, { x: t.pageX, y: t.pageY })) state.moved = true;
+    }}
+    onTouchCancel={() => { tapOriginRef.current = null; tapRef.current = null; }}
+    onTouchEnd={(event) => {
+      const state = tapRef.current; const changed = event.nativeEvent.changedTouches[0];
+      tapOriginRef.current = null; tapRef.current = null;
+      if (!state || state.moved || state.touches !== 1 || !changed) return;
+      handleTap({ x: changed.locationX, y: changed.locationY });
+    }}
+    {...responder.panHandlers}
+  >{uri ? <Animated.Image source={{ uri }} resizeMode="contain" style={[styles.image, { transform: [{ translateX: translate.x }, { translateY: translate.y }, { scale }] }]} onLoad={(event) => {
+      const source = event.nativeEvent.source;
+      if (source && source.width > 0 && source.height > 0) imageSizeRef.current = { width: source.width, height: source.height };
+    }} onError={() => { evictMemoryOriginalUrl(memory.id); evictMemoryPreviewUrl(memory.id); setOriginal(null); setFailed(true); }} /> : <View style={styles.state}>{failed ? null : <ActivityIndicator color={colors.text.inverse}/>}<AppText tone="inverse" align="center">{failed ? 'No pudimos mostrar este recuerdo.' : active ? 'Cargando recuerdo…' : 'Cargando vista previa…'}</AppText>{failed ? <AppButton title="Reintentar" variant="secondary" size="sm" onPress={() => setAttempt((value) => value + 1)} accessibilityLabel="Reintentar cargar este recuerdo" /> : null}</View>}</View>;
 }
 
 /**
