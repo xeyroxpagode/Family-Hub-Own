@@ -23,6 +23,7 @@ import {
   type FilesShowMode,
 } from '../services/homecloud/homecloudFilesFilters';
 import { createHomeCloudFolder, deleteHomeCloudFolder, fetchFilesBrowser, moveHomeCloudFolder, renameHomeCloudFolder, setHomeCloudFileFavorite, updateHomeCloudFile, FILES_BROWSER_MAX_LIMIT } from '../services/homecloud/homecloudFilesService';
+import { trashHomeCloudFile } from '../services/homecloud/homecloudTrashService';
 import { folderDisplayPath, folderTrail, folderWithDescendantIds, parentFolderIdOf, resolveNearestExistingFolderId } from '../services/homecloud/homecloudFolderTree';
 import { createFilesPagination, type FilesPaginationState } from '../services/homecloud/homecloudFilesPagination';
 import {
@@ -150,6 +151,10 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   // of the folder, query and sort they were in. See `toggleFileFavorite`.
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // LIFECYCLE V1 — the Papelera mutation's OWN busy state, same rule as the
+  // Favorite: one refused or slow Trash must not freeze the whole action
+  // surface, and its refusal is stated in the sheet, never as a list error.
+  const [trashBusy, setTrashBusy] = useState(false);
   // Selection belongs to the CURRENT browser context and is never persisted.
   const [selection, setSelection] = useState<FileSelection>(emptyFileSelection());
   // The ONE destination picker, serving a single File, the selection, or a Folder.
@@ -980,6 +985,41 @@ const handleFileTap = useCallback((fileId: string) => {
   };
 
   /**
+   * LIFECYCLE V1 — send ONE File to the household Papelera.
+   *
+   * Reversible by contract (Restore), so the danger row asks for NO dialog:
+   * the Papelera is the recovery path and the product's own answer to
+   * "accidental trash". The same three protections as the Favorite hold here:
+   * the outcome is stated INSIDE the File action host, the window-preserving
+   * reconciliation is the only read, and only the Papelera row is busy.
+   *
+   * SUCCESS. A trashed File leaves the active set, so no local patch can
+   * express it: `refresh()` — the SAME window-preserving authority pull-to-
+   * refresh uses — reconciles the row away in one read. Favorites, selection,
+   * the folder trail, the query and the loaded window all survive exactly as
+   * they are; the selection effect prunes the row if it was selected.
+   *
+   * FAILURE. Nothing changes: the refusal (staging, purging, cross-household,
+   * missing capability) is typed by the server, stated in the sheet, and the
+   * member stays exactly where they were.
+   */
+  const trashFile = async () => {
+    if (!token || !actionTarget || trashBusy) return;
+    const targetId = actionTarget.id;
+    setTrashBusy(true);
+    setActionError(null);
+    try {
+      await trashHomeCloudFile(token, targetId);
+      setActionTargetId(null);
+      // NOT awaited into the busy state: the sheet is already gone and the
+      // re-read is the same one a rename costs.
+      void refresh();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'No pudimos enviar el archivo a la papelera.');
+    } finally { setTrashBusy(false); }
+  };
+
+  /**
    * GUARDAR UNA COPIA — hand the original to the NATIVE system export UI.
    *
    * The defect this replaces: HomePlus said the file was saved while the only
@@ -1166,7 +1206,7 @@ const handleFileTap = useCallback((fileId: string) => {
         {filterIsNonDefault ? <View style={styles.headerFilterDot} accessible={false} /> : null}
       </InteractivePressable>
       {canAdd ? <InteractivePressable style={styles.headerIconButton} onPress={() => setAddOpen(true)} accessibilityRole="button" accessibilityLabel="Agregar" accessibilityHint="Subir archivos, escanear un documento o crear una carpeta" haptic="light"><HomePlusIcon name="add" size={22} color={colors.terracotta[600]} /></InteractivePressable> : null}
-<InteractivePressable style={styles.headerIconButton} onPress={() => setOverflowOpen(true)} accessibilityRole="button" accessibilityLabel="Más opciones de Archivos" accessibilityHint="Seleccionar archivos" haptic="light"><HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.secondary} /></InteractivePressable>
+<InteractivePressable style={styles.headerIconButton} onPress={() => setOverflowOpen(true)} accessibilityRole="button" accessibilityLabel="Más opciones de Archivos" accessibilityHint="Seleccionar archivos o abrir la papelera" haptic="light"><HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.secondary} /></InteractivePressable>
     </View></View>
     {capabilitiesNotice ? <View style={styles.notice}><AppText variant="caption" tone="secondary">{capabilitiesNotice}</AppText><AppButton title="Reintentar" size="sm" variant="ghost" onPress={capabilities.revalidate} accessibilityLabel="Reintentar verificación de permisos de HomeCloud" /></View> : null}
     {bulkFeedback ? <View style={styles.banner}><AppText variant="caption" tone={bulkFeedback.tone} align="center">{bulkFeedback.message}</AppText></View> : null}
@@ -1232,15 +1272,21 @@ const handleFileTap = useCallback((fileId: string) => {
     </View>}
     {selection.mode ? <FileSelectionBar count={selectionCount} summary={fileSelectionSummary(selection)} canOrganize={canOrganize} busy={saving} onMove={() => setMoveIntent({ kind: 'bulk' })} onCancel={leaveSelectionMode} /> : null}
     {/* STAGE 2 REOPEN — THE SCREEN-LEVEL OVERFLOW.
-        It carries exactly ONE screen-level action:
-          Seleccionar  the ONLY discoverable entry into selection mode. It is
-                       WITHDRAWN while the mode is active, so there is never a
-                       second way in and the selection bar is the only surface.
-        `Actualizar` is GONE. The product truth is ZERO visible Refresh controls:
-        pull-to-refresh is the primary manual path and the list container carries an
-        ACCESSIBILITY-ONLY `refresh-files` action for anyone who cannot pull. Both
-        doors reach the SAME window-preserving `refresh()`. */}
-    <ActionSheet visible={overflowOpen} title="Archivos" onRequestClose={() => setOverflowOpen(false)} size="content"><View style={styles.sheetList}>{!selection.mode ? <AppButton title="Seleccionar" variant="secondary" disabled={files.length === 0} onPress={() => { setOverflowOpen(false); enterSelectionMode(); }} accessibilityLabel="Seleccionar archivos" /> : null}</View></ActionSheet>
+         It carries TWO screen-level actions:
+           Seleccionar  the ONLY discoverable entry into selection mode. It is
+                        WITHDRAWN while the mode is active, so there is never a
+                        second way in and the selection bar is the only surface.
+           Papelera     the household Files Papelera, offered ONLY to members
+                        with homecloud.delete: the listing itself is gated by
+                        that capability server-side, so offering it to anyone
+                        else would be a dead door. Restore is reversible;
+                        Purge is the destructive confirmation INSIDE the
+                        Papelera, never a long-press away from the grid.
+         `Actualizar` is GONE. The product truth is ZERO visible Refresh controls:
+         pull-to-refresh is the primary manual path and the list container carries an
+         ACCESSIBILITY-ONLY `refresh-files` action for anyone who cannot pull. Both
+         doors reach the SAME window-preserving `refresh()`. */}
+    <ActionSheet visible={overflowOpen} title="Archivos" onRequestClose={() => setOverflowOpen(false)} size="content"><View style={styles.sheetList}>{!selection.mode ? <AppButton title="Seleccionar" variant="secondary" disabled={files.length === 0} onPress={() => { setOverflowOpen(false); enterSelectionMode(); }} accessibilityLabel="Seleccionar archivos" /> : null}{caps.delete ? <AppButton title="Papelera" variant="secondary" onPress={() => { setOverflowOpen(false); navigation.navigate('HomeCloudFilesTrash'); }} accessibilityLabel="Abrir la papelera de archivos" accessibilityHint="Archivos enviados a la papelera. Se pueden restaurar o eliminar definitivamente." /> : null}</View></ActionSheet>
     <FilesFilterMenu visible={filterMenuOpen} state={filterState} onChangeShow={(show: FilesShowMode) => setFilterState((previous) => ({ ...previous, show }))} onChangeSort={(nextSort) => setFilterState((previous) => ({ ...previous, sort: nextSort }))} onClose={() => setFilterMenuOpen(false)} />
     <ActionSheet visible={addOpen} title="Agregar" onRequestClose={() => setAddOpen(false)} size="content"><View style={styles.sheetList}><AppButton title="Elegir archivo" onPress={() => { setAddOpen(false); setUploadOpen(true); }} /><AppButton title="Escanear documento" variant="secondary" onPress={() => { setAddOpen(false); navigation.navigate('HomeCloudScanner', { folderId: folder?.id ?? null, folderName: folder?.name ?? null, capabilities: caps }); }} /><AppButton title="Nueva carpeta" variant="secondary" disabled={!canOrganize} onPress={() => { setAddOpen(false); setFolderName(''); setFolderEditor({ mode: 'create' }); }} />{folder ? <AppText variant="caption" tone="secondary">Se creará dentro de {folder.name}.</AppText> : null}</View></ActionSheet>
     <ActionSheet visible={uploadOpen} title="Elegir archivo" onRequestClose={() => setUploadOpen(false)} size="content"><FileIntake config={{ householdId: currentHousehold?.id ?? '', accessToken: token ?? '', capabilities: caps, initialFolderId: folder?.id ?? null, initialFolderName: folder?.name ?? null, intakeSource: 'homecloud:files' }} onComplete={() => { setUploadOpen(false); void refresh(); }} onDismiss={() => setUploadOpen(false)} /></ActionSheet>
@@ -1251,7 +1297,7 @@ const handleFileTap = useCallback((fileId: string) => {
         deleted by removing a folder. */}<AppText variant="caption" tone="secondary">Al eliminar la carpeta no se borra ningún archivo: su contenido directo pasa a {folderActions ? (folderDisplayPath(allFolders, folderActions.parentFolderId) ?? 'Archivos') : 'Archivos'}.</AppText></View></ActionSheet>
     {/* The canonical per-File action host. It is always mounted and decides its own
         visibility, so there is never a second place that can open a File menu. */}
-    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} favoriteBusy={favoriteBusy} actionError={actionError} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setDownloadFeedback(null); setActionError(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveIntent({ kind: 'file' })} onFavorite={(isFavorite) => void toggleFileFavorite(isFavorite)} onDownload={() => void saveCopyOfFile()} onShare={() => void shareFile()} />
+    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} favoriteBusy={favoriteBusy} trashBusy={trashBusy} actionError={actionError} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setDownloadFeedback(null); setActionError(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveIntent({ kind: 'file' })} onFavorite={(isFavorite) => void toggleFileFavorite(isFavorite)} onTrash={() => void trashFile()} onDownload={() => void saveCopyOfFile()} onShare={() => void shareFile()} />
     {/* THE ONE destination picker. A single File's Move, the selection's Move and a
         Folder's Move all resolve their destination here, so a move can never offer
         a destination the other move would not. It reads the same household catalogue

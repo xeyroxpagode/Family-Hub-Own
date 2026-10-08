@@ -94,6 +94,7 @@ const suiteClass = {
   'homecloud-files-lifecycle-service': 'DETERMINISTIC',
   'homecloud-files-purge-worker': 'DETERMINISTIC',
   'homecloud-files-purge-runtime': 'LOCAL_RUNTIME_REQUIRED (self-skips when the local stack is down)',
+  'homecloud-files-trash-ui': 'DETERMINISTIC',
   'homecloud-stage2-integrated': 'LOCAL_RUNTIME_REQUIRED',
 };
 
@@ -469,6 +470,27 @@ const commands = {
       'HomeCloud Files Core favorites UI + save/export native handoff tests',
       'node',
       ['scripts/compiled-files-favorites-ui/scripts/homecloud_files_favorites_ui_tests.js'],
+      { env },
+    );
+  },
+  // LIFECYCLE V1 — the Papelera UI: the real grammar, the real action host, the
+  // real trash client and the real Papelera + Files surfaces over a hook host and
+  // a transport that mirrors the backend lifecycle contracts (including the
+  // purge confirmation refusal). DETERMINISTIC: compiles and runs anywhere.
+  'homecloud-files-trash-ui': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+    };
+    runCommand(
+      'HomeCloud Files compile lifecycle V1 Papelera UI tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_files_trash_ui_test.json'],
+    );
+    return runCommand(
+      'HomeCloud Files lifecycle V1 Papelera UI tests',
+      'node',
+      ['scripts/compiled-files-trash/scripts/homecloud_files_trash_ui_tests.js'],
       { env },
     );
   },

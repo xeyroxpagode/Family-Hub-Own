@@ -70,6 +70,21 @@ export interface FileActionHostProps {
    * File; it never keeps its own copy of the preference.
    */
   onFavorite: (isFavorite: boolean) => void;
+  /**
+   * LIFECYCLE V1 — send this File to the household Papelera.
+   *
+   * Reversible by contract (Restore), so the danger row asks for NO dialog:
+   * the Papelera is the recovery path, and a confirmation here would only
+   * promise protection the product does not need while hiding the honest
+   * reversal. The surface owns the mutation and the refresh.
+   */
+  onTrash: () => void;
+  /**
+   * The Papelera mutation is in flight. PER ACTION, like favoriteBusy: sending
+   * one File to the Papelera must not freeze Renombrar or Cerrar, and no other
+   * row must look busy because of it.
+   */
+  trashBusy?: boolean;
   onDownload: () => void;
   onShare: () => void;
 }
@@ -94,12 +109,14 @@ export function FileActionHost({
   permissions,
   saving,
   favoriteBusy = false,
+  trashBusy = false,
   actionError = null,
   downloadFeedback,
   onClose,
   onSave,
   onMoveRequest,
   onFavorite,
+  onTrash,
   onDownload,
   onShare,
 }: FileActionHostProps) {
@@ -155,7 +172,7 @@ export function FileActionHost({
   const run = (id: HomeCloudFileActionId): void => {
     // One row, one guard. A row that is already busy does not re-dispatch: a
     // double tap on a slow connection used to send two identical PATCHes.
-    if (id === 'favorite' ? favoriteBusy : saving) return;
+    if (id === 'favorite' ? favoriteBusy : id === 'trash' ? trashBusy : saving) return;
     switch (id) {
       case 'info':
       case 'rename':
@@ -173,8 +190,11 @@ export function FileActionHost({
       case 'share':
         onShare();
         return;
+      case 'trash':
+        onTrash();
+        return;
       default:
-        // A seam (`open`, `trash`) can never reach here: the grammar filters
+        // A seam (`open`) can never reach here: the grammar filters
         // unimplemented actions out before the host renders them.
         return;
     }
@@ -240,14 +260,14 @@ export function FileActionHost({
                   title={action.label}
                   variant={action.intent === 'danger' ? 'danger' : action.intent}
                   // PER-ACTION BUSY. The Favorite is busy while ITS OWN mutation is
-                  // in flight; the other rows are disabled only by a mutation they
-                  // would actually conflict with. `favoriteBusy` therefore never
-                  // makes Renombrar or Cerrar look dead.
-                  disabled={!action.available || (action.id === 'favorite' ? favoriteBusy : saving)}
-                  loading={action.id === 'favorite' && favoriteBusy}
+                  // in flight, the Papelera row while ITS OWN is, and the other rows
+                  // are disabled only by a mutation they would actually conflict
+                  // with. Neither busy flag ever makes Renombrar or Cerrar look dead.
+                  disabled={!action.available || (action.id === 'favorite' ? favoriteBusy : action.id === 'trash' ? trashBusy : saving)}
+                  loading={(action.id === 'favorite' && favoriteBusy) || (action.id === 'trash' && trashBusy)}
                   accessibilityLabel={`${action.label} ${file.displayName}`}
                   accessibilityState={{
-                    busy: action.id === 'favorite' ? favoriteBusy : saving,
+                    busy: action.id === 'favorite' ? favoriteBusy : action.id === 'trash' ? trashBusy : saving,
                   }}
                   onPress={() => run(action.id)}
                 />

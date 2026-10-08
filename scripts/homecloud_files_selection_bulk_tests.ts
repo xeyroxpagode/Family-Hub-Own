@@ -18,9 +18,10 @@
  *     exposed as `checkbox` + `selected`. Scope clearing is observed on folder,
  *     query, sort and household changes, and pruning on a same-context re-read.
  *
- *  C. CANONICAL ACTIONS. The real grammar module and the real host: the five
- *     implemented actions, the three declared seams that are never rendered, and
+ *  C. CANONICAL ACTIONS. The real grammar module and the real host: the
+ *     implemented actions, the one declared seam that is never rendered, and
  *     exactly ONE destination picker instance that both Move intents use.
+ *     (LIFECYCLE V1 turned the `trash` seam into a real action.)
  *
  *  D. BULK MOVE. The real screen, the real `updateHomeCloudFile`, one
  *     `PATCH /api/homecloud/content/:contentId/file` per selected File. N
@@ -1113,13 +1114,13 @@ function testActionGrammar(): void {
   console.log('\n=== C1: the canonical File action grammar ===');
 
   const implemented = grammar.resolveFileActions({ view: true, organize: true, delete: true });
-  record(implemented.map((action) => action.id).join(',') === 'info,rename,move,download,share,favorite',
-    'C1. the grammar is exactly Información, Renombrar, Mover, Guardar una copia, Compartir, Favorito');
-  record(implemented.map((action) => action.label).join(',') === 'Información,Renombrar,Mover,Guardar una copia,Compartir,Agregar a favoritos',
+  record(implemented.map((action) => action.id).join(',') === 'info,rename,move,download,share,favorite,trash',
+    'C1. the grammar is exactly Información, Renombrar, Mover, Guardar una copia, Compartir, Favorito, Mover a la papelera');
+  record(implemented.map((action) => action.label).join(',') === 'Información,Renombrar,Mover,Guardar una copia,Compartir,Agregar a favoritos,Mover a la papelera',
     'C2. with the canonical labels, in canonical order');
-  record(grammar.HOMECLOUD_FILE_ACTION_SEAMS.join(',') === 'open,trash',
-    'C3. Abrir and Mover a la papelera are DECLARED extension seams');
-  record(!implemented.some((action) => ['open', 'trash'].includes(action.id)),
+  record(grammar.HOMECLOUD_FILE_ACTION_SEAMS.join(',') === 'open',
+    'C3. only Abrir remains a DECLARED extension seam (LIFECYCLE V1 made `Mover a la papelera` real)');
+  record(!implemented.some((action) => action.id === 'open'),
     'C4. and no seam is offered while it has no backend — no fake disabled row');
   record(grammar.HOMECLOUD_FILE_ACTION_GRAMMAR.length === implemented.length + grammar.HOMECLOUD_FILE_ACTION_SEAMS.length,
     'C5. the seams live in the same ordered vocabulary, so adding one is a declaration plus a handler');
@@ -1166,10 +1167,10 @@ async function testCanonicalHostOnTheSurface(): Promise<void> {
   // The host renders ONLY the implemented grammar, capability-gated.
   const renderedHost = actionHost.FileActionHost({ ...(host?.props ?? {}), file: { id: 'x', displayName: 'x.txt', mimeType: 'text/plain', folderId: null, note: null, documentDate: null, isFavorite: false } });
   const hostRows = renderText(renderedHost);
-  for (const label of ['Información', 'Renombrar', 'Mover', 'Guardar una copia', 'Compartir', 'Agregar a favoritos']) {
+  for (const label of ['Información', 'Renombrar', 'Mover', 'Guardar una copia', 'Compartir', 'Agregar a favoritos', 'Mover a la papelera']) {
     record(findAll(renderedHost, (element) => element.props?.title === label).length === 1, `C19. the host offers ${label} exactly once`);
   }
-  record(!hostRows.some((text) => /^(Abrir|Mover a la papelera)$/.test(text)), 'C20. and paints no row for a declared seam');
+  record(!hostRows.some((text) => /^Abrir$/.test(text)), 'C20. and paints no row for the remaining declared seam (`Abrir`)');
   record(hostRows.includes('Archivos'), 'C21. the current destination is stated without offering a second picker');
   const deniedHost = actionHost.FileActionHost({ ...(host?.props ?? {}), permissions: { view: true, organize: false, delete: false }, file: { id: 'x', displayName: 'x.txt', mimeType: 'text/plain', folderId: null, note: null, documentDate: null, isFavorite: false } });
   record(findOne(deniedHost, (element) => element.props?.title === 'Mover')?.props?.disabled === true,

@@ -1052,13 +1052,13 @@ function testFavoriteGrammar(): void {
   console.log('\n=== U-A: the Favorite is implemented, stateful, and view-gated ===');
 
   const implemented = grammar.resolveFileActions({ view: true, organize: true, delete: true });
-  record(implemented.map((action) => action.id).join(',') === 'info,rename,move,download,share,favorite',
-    'U-A1. the grammar is Información, Renombrar, Mover, Guardar una copia, Compartir, Favorito');
-  record(implemented.map((action) => action.label).join(',') === 'Información,Renombrar,Mover,Guardar una copia,Compartir,Agregar a favoritos',
+  record(implemented.map((action) => action.id).join(',') === 'info,rename,move,download,share,favorite,trash',
+    'U-A1. the grammar is Información, Renombrar, Mover, Guardar una copia, Compartir, Favorito, Mover a la papelera');
+  record(implemented.map((action) => action.label).join(',') === 'Información,Renombrar,Mover,Guardar una copia,Compartir,Agregar a favoritos,Mover a la papelera',
     'U-A2. with the canonical labels: the unfavorited state names the intent to ADD');
-  record(grammar.HOMECLOUD_FILE_ACTION_SEAMS.join(',') === 'open,trash',
-    'U-A3. only Abrir and Mover a la papelera remain DECLARED extension seams');
-  record(!implemented.some((action) => ['open', 'trash'].includes(action.id)),
+  record(grammar.HOMECLOUD_FILE_ACTION_SEAMS.join(',') === 'open',
+    'U-A3. only Abrir remains a DECLARED extension seam (LIFECYCLE V1 made `Mover a la papelera` real)');
+  record(!implemented.some((action) => action.id === 'open'),
     'U-A4. and no seam is offered while it has no backend — no fake disabled row');
 
   const favorited = grammar.resolveFileActions({ view: true, organize: true, delete: true }, { isFavorite: true });
@@ -1120,7 +1120,7 @@ async function testFavoriteHost(): Promise<void> {
   const renderedLoved = actionHost.FileActionHost({ ...base, file: loved });
   record(findAll(renderedLoved, (element) => element.type === 'AppButton' && element.props?.title === 'Quitar de favoritos').length === 1,
     'U-B2. a favorite File offers exactly one "Quitar de favoritos" row');
-  record(findAll(renderedPlain, (element) => element.type === 'AppButton' && /^(Abrir|Mover a la papelera)$/.test(element.props?.title ?? '')).length === 0,
+  record(findAll(renderedPlain, (element) => element.type === 'AppButton' && /^Abrir$/.test(element.props?.title ?? '')).length === 0,
     'U-B3. no seam row is painted beside it');
 
   let dispatched: boolean | null = null;
@@ -1368,15 +1368,15 @@ async function testFavoriteMutationOnSurface(): Promise<void> {
  *   2. THE FIX IS MOUNTED. The host is then executed against the REAL
  *      `ActionSheet`, `AppButton` and `ScrollView` at that same viewport, and the
  *      rendered tree is inspected: the sheet is asked for the SCROLLABLE content
- *      box, a scroll container is actually inside it, and all six rows — the
- *      Favorite included — are present in what a device would mount. No component
+ *      box, a scroll container is actually inside it, and all seven rows - the
+ *      Favorite included - are present in what a device would mount. No component
  *      is replaced by a string anywhere in this block.
  */
 function testActionSheetReachability(): void {
   console.log('\n=== U-I: the File action sheet scrolls, so every action is reachable ===');
 
   const rows = FILE_ACTION_RENDERED_ROW_COUNT;
-  record(rows === 6, `U-I1. the grammar renders six action rows, the Favorite among them (${rows})`);
+  record(rows === 7, `U-I1. the grammar renders seven action rows, the Favorite among them (${rows})`);
 
   // 1. THE OVERFLOW IS REAL (pure policy, real tokens).
   const small = { viewportHeightDp: 640, insetTopDp: 44, insetBottomDp: 34 };
@@ -1451,8 +1451,8 @@ function testActionSheetReachability(): void {
     // Every row, in canonical order, is present at this viewport and font scale.
     const titles = findAll(scroll as unknown, (element) => typeof element.props?.title === 'string')
       .map((element) => String(element.props.title));
-    record(titles.join('|') === 'Información|Renombrar|Mover|Guardar una copia|Compartir|Agregar a favoritos',
-      `U-I13. all six rows render in canonical order, the Favorite LAST but present (${titles.join('|')})`);
+    record(titles.join('|') === 'Información|Renombrar|Mover|Guardar una copia|Compartir|Agregar a favoritos|Mover a la papelera',
+      `U-I13. all seven rows render in canonical order, the Favorite present and the Papelera last (${titles.join('|')})`);
     record(titles.includes('Agregar a favoritos'),
       'U-I14. the Favorite the audit could not reach is in the mounted tree');
     record(titles.length === rows, 'U-I15. and no row was deleted to make the sheet fit');

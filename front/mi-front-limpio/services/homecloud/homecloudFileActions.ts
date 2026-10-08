@@ -5,19 +5,19 @@
  * The per-File action host renders what this resolves to, so there is exactly
  * ONE place where a File operation is named, ordered and capability-gated.
  *
- * SEAMS. `Abrir` and `Mover a la papelera` are declared here, in their canonical
- * position, and they are NOT rendered: they have no backend, no persistence and
- * no behaviour in this slice. Declaring them here is what makes the later
- * addition a one-line change plus a handler, instead of a redesign of the action
- * surface — and marking them unimplemented is what keeps a fake disabled row
- * from ever being painted for an action that cannot work.
+ * FILES CORE — `Favorito` is the ONE stateful action in the grammar: its label
+ * states the intent the tap will perform, so the row always reads
+ * `Quitar de favoritos` on a File that already is one and `Agregar a favoritos`
+ * on one that is not. It needs only `view`, because a personal favorite is a
+ * retrieval preference of one person, not organization of the Household
+ * library.
  *
- * FILES CORE — `Favorito` is no longer a seam. It is the ONE stateful action in
- * the grammar: its label states the intent the tap will perform, so the row
- * always reads `Quitar de favoritos` on a File that already is one and
- * `Agregar a favoritos` on one that is not. It needs only `view`, because a
- * personal favorite is a retrieval preference of one person, not organization of
- * the Household library.
+ * LIFECYCLE V1 — `Mover a la papelera` is now real: it needs `delete` (Product
+ * Truth 49: homecloud.delete covers destructive lifecycle actions), it is the
+ * grammar's danger row, and its confirmation is REVERSIBILITY itself — the
+ * action sheet stays open while the mutation lands and the surface refreshes,
+ * because the Papelera (not a dialog) is the recovery path. `Abrir` remains the
+ * one declared seam.
  */
 
 /** `view` = the member may read this File; `organize` = may change where it lives. */
@@ -69,9 +69,9 @@ export const HOMECLOUD_FILE_ACTION_GRAMMAR: readonly HomeCloudFileActionDefiniti
   { id: 'download', label: 'Guardar una copia', intent: 'secondary', requires: 'view', implemented: true },
   { id: 'share', label: 'Compartir', intent: 'secondary', requires: 'view', implemented: true },
   { id: 'favorite', label: 'Agregar a favoritos', activeLabel: 'Quitar de favoritos', stateKey: 'isFavorite', intent: 'secondary', requires: 'view', implemented: true },
+  { id: 'trash', label: 'Mover a la papelera', intent: 'danger', requires: 'delete', implemented: true },
   // ── EXTENSION SEAMS ── declared and ordered, never rendered ──
   { id: 'open', label: 'Abrir', intent: 'secondary', requires: 'view', implemented: false },
-  { id: 'trash', label: 'Mover a la papelera', intent: 'danger', requires: 'delete', implemented: false },
 ];
 
 export interface HomeCloudFileActionPermissions {

@@ -32,6 +32,7 @@ export type MoreStackParamList = {
   Inventory: undefined;
   Family: undefined;
   HomeCloud: undefined;
+  HomeCloudFilesTrash: undefined;
   HomeCloudScanner: {
     folderId: string | null;
     folderName: string | null;

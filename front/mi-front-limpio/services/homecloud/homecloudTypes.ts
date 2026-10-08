@@ -92,6 +92,32 @@ export interface HomeCloudFileFavorite {
   readonly isFavorite: boolean;
 }
 
+/**
+ * FILES LIFECYCLE V1 — one row of the household Papelera.
+ *
+ * A trashed File is the same shared File plus the trash audit fields the
+ * Papelera needs (when it was trashed, and by which member). It inherits the
+ * safe DTO boundary: no storage paths, no buckets, no purge operation
+ * internals ever reach the client.
+ */
+export interface HomeCloudTrashedFile extends HomeCloudFile {
+  readonly trashedAt: string;
+  readonly trashedByMemberId: string | null;
+}
+
+/** One page of the Papelera listing (has-more probe pagination). */
+export interface HomeCloudFilesTrashPage {
+  readonly files: HomeCloudTrashedFile[];
+  readonly nextOffset: number | null;
+}
+
+/** The answer of a confirmed purge: ids + operation status, nothing else. */
+export interface HomeCloudPurgeResponse {
+  readonly contentId: string;
+  readonly operationId: string;
+  readonly status: string;
+}
+
 /** Memory-specific metadata (role = 'memory').
  * Binary Memories have writtenText = null and MIME image/*, video/* or audio/*.
  * Written Memories carry their principal content in writtenText with all
