@@ -84,6 +84,7 @@ import {
   type MemoryViewerSession,
 } from '../services/homecloud/homecloudMemoryViewerSource';
 import { reuseMemoryViewerDataset } from '../services/homecloud/homecloudMemoryViewerOpening';
+import { publishMemoryViewerOpen } from '../services/homecloud/homecloudViewerVisibility';
 import {
   createMemoryExitGestureLock,
   scrollMemoryListToOffset,
@@ -242,6 +243,16 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
   memoriesRef.current = memories;
   const [viewer, setViewer] = useState<MemoryViewerSession | null>(null);
   const [infoContentId, setInfoContentId] = useState<string | null>(null);
+
+  /**
+   * ST-4: the Viewer session remains the single authority; this only mirrors
+   * the boolean upwards so global chrome can unmount. Leaving the Memories tab
+   * already clears `viewer` (P1), which flips the mirror back to false.
+   */
+  useEffect(() => {
+    publishMemoryViewerOpen(viewer !== null);
+  }, [viewer]);
+  useEffect(() => () => publishMemoryViewerOpen(false), []);
   const viewerRef = useRef<MemoryViewerSession | null>(viewer);
   viewerRef.current = viewer;
   const [nextOffset, setNextOffset] = useState<number | null>(null);

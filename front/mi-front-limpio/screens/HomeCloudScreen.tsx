@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
@@ -9,6 +9,7 @@ import { HomeCloudFilesView } from './HomeCloudFilesScreen';
 import { HomeCloudMemoriesView } from './HomeCloudMemoriesScreen';
 import { HomeCloudUploadActivity } from '../components/homecloud/HomeCloudUploadActivity';
 import { useHousehold } from '../context/HouseholdContext';
+import { isMemoryViewerOpen, subscribeMemoryViewerOpen } from '../services/homecloud/homecloudViewerVisibility';
 
 type HomeCloudSection = 'files' | 'memories';
 
@@ -16,6 +17,8 @@ export function HomeCloudScreen() {
   const navigation = useNavigation<any>();
   const { currentHousehold } = useHousehold();
   const [section, setSection] = useState<HomeCloudSection>('files');
+  const [viewerOpen, setViewerOpen] = useState(isMemoryViewerOpen());
+  useEffect(() => subscribeMemoryViewerOpen(() => setViewerOpen(isMemoryViewerOpen())), []);
 
   return (
     <View style={styles.screen}>
@@ -25,14 +28,16 @@ export function HomeCloudScreen() {
         </AppButton>
         <AppText variant="title2" weight="800" style={styles.title}>HomeCloud</AppText>
       </View>
-      <SegmentedControl
-        selectionMode="single"
-        value={section}
-        options={[{ value: 'files', label: 'Archivos' }, { value: 'memories', label: 'Recuerdos' }]}
-        onChange={setSection}
-        accessibilityLabel="Vista de HomeCloud"
-        style={styles.selector}
-      />
+      {viewerOpen ? null : (
+        <SegmentedControl
+          selectionMode="single"
+          value={section}
+          options={[{ value: 'files', label: 'Archivos' }, { value: 'memories', label: 'Recuerdos' }]}
+          onChange={setSection}
+          accessibilityLabel="Vista de HomeCloud"
+          style={styles.selector}
+        />
+      )}
       <HomeCloudUploadActivity householdId={currentHousehold?.id ?? null} />
       <View style={styles.content}>
         <View style={[styles.pane, section !== 'files' && styles.hidden]} accessibilityElementsHidden={section !== 'files'}>

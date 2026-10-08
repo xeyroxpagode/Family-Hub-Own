@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, AppState, FlatList, PanResponder, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppButton, AppText } from '../ui';
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, spacing } from '../../constants/theme';
+import { colors, spacing, touchTargets } from '../../constants/theme';
 import type { HomeCloudMemoryListItem } from '../../services/homecloud/homecloudTypes';
 import { memoryPrimaryText, memorySemanticLabel } from '../../services/homecloud/homecloudMemoriesTimeline';
 import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
@@ -70,6 +71,7 @@ export function MemoryViewer({ memories, activeContentId, accessToken, source, o
   onClose: () => void; onActiveChange: (contentId: string) => void; onNearEnd: () => void; onOpenInfo?: (contentId: string) => void;
 }) {
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const list = useRef<FlatList<HomeCloudMemoryListItem>>(null);
   // RAW index. `-1` is the honest "not found"; there is deliberately no
   // `Math.max(0, ...)` fallback, which used to open the first Memory as if it
@@ -204,7 +206,7 @@ export function MemoryViewer({ memories, activeContentId, accessToken, source, o
 
   if (memories.length === 0 || activeIndex < 0) return <Missing onClose={onClose} />;
   return <View style={styles.overlay} accessibilityViewIsModal>
-    {chrome ? <View style={styles.top}><AppButton variant="icon" size="sm" onPress={onClose} accessibilityLabel="Cerrar recuerdo"><HomePlusIcon name="close" size={24} color={colors.text.inverse} /></AppButton><AppText tone="inverse" variant="bodySmall" numberOfLines={1}>{memorySemanticLabel(memories[activeIndex])}</AppText><View style={styles.topSpacer} />{onOpenInfo ? <AppButton variant="icon" size="sm" onPress={() => onOpenInfo(activeContentId)} accessibilityLabel="Información del recuerdo"><HomePlusIcon name="information-circle-outline" size={24} color={colors.text.inverse} /></AppButton> : null}</View> : null}
+    {chrome ? <View style={[styles.top, { paddingTop: Math.max(insets.top, spacing[3]) }]}><AppButton variant="icon" size="sm" onPress={onClose} accessibilityLabel="Cerrar recuerdo" style={styles.closeTarget}><HomePlusIcon name="close" size={24} color={colors.text.inverse} /></AppButton><AppText tone="inverse" variant="bodySmall" numberOfLines={1}>{memorySemanticLabel(memories[activeIndex])}</AppText><View style={styles.topSpacer} />{onOpenInfo ? <AppButton variant="icon" size="sm" onPress={() => onOpenInfo(activeContentId)} accessibilityLabel="Información del recuerdo" style={styles.closeTarget}><HomePlusIcon name="information-circle-outline" size={24} color={colors.text.inverse} /></AppButton> : null}</View> : null}
     <FlatList ref={list} data={memories} horizontal pagingEnabled showsHorizontalScrollIndicator={false} initialScrollIndex={activeIndex}
       keyExtractor={(memory) => memory.id} getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
       initialNumToRender={VIEWER_WINDOW} maxToRenderPerBatch={VIEWER_WINDOW} windowSize={VIEWER_WINDOW * 2 + 1}
@@ -214,7 +216,7 @@ export function MemoryViewer({ memories, activeContentId, accessToken, source, o
       onMomentumScrollEnd={settleAt}
       renderItem={({ item }) => <ViewerPage memory={item} accessToken={accessToken} width={width} active={item.id === activeContentId} authorized={authorized} onTap={() => setChrome((value) => !value)} />}
     />
-    {chrome ? <View style={styles.bottom}><AppText tone="inverse" variant="caption">{source.label}</AppText></View> : null}
+    {chrome ? <View style={[styles.bottom, { paddingBottom: Math.max(insets.bottom, spacing[3]) }]}><AppText tone="inverse" variant="caption">{source.label}</AppText></View> : null}
   </View>;
 }
 
@@ -229,7 +231,7 @@ const VIEWER_WINDOW = 3;
 function ViewerPage({ memory, accessToken, width, active, authorized, onTap }: {
   memory: HomeCloudMemoryListItem; accessToken: string | null; width: number; active: boolean; authorized: boolean; onTap: () => void;
 }) {
-  if (memory.kind === 'written') return <ScrollView style={{ width }} contentContainerStyle={styles.written} onTouchEnd={onTap}><AppText tone="inverse" variant="title2" weight="700">{memoryPrimaryText(memory) || 'Sin texto'}</AppText><AppText tone="inverse" variant="bodySmall">{memorySemanticLabel(memory)}</AppText>{memory.caption ? <AppText tone="inverse" variant="body">{memory.caption}</AppText> : null}</ScrollView>;
+  if (memory.kind === 'written') return <WrittenPage memory={memory} width={width} onTap={onTap} />;
   // Media pages own their own surface. `active` is the ONLY authorization to
   // instantiate a native player, and `authorized` is the global lifecycle
   // intent that revokes playback on blur, background and swipe.
@@ -237,6 +239,11 @@ function ViewerPage({ memory, accessToken, width, active, authorized, onTap }: {
   if (memory.kind === 'audio') return <MemoryAudioPage memory={memory} accessToken={accessToken} active={active} authorized={authorized} width={width} />;
   if (isMemoryMediaKind(memory.kind)) return <MediaPlaceholder width={width} />;
   return <ImagePage memory={memory} accessToken={accessToken} width={width} onTap={onTap} />;
+}
+
+function WrittenPage({ memory, width, onTap }: { memory: HomeCloudMemoryListItem; width: number; onTap: () => void }) {
+  const insets = useSafeAreaInsets();
+  return <ScrollView style={{ width }} contentContainerStyle={[styles.written, { paddingTop: Math.max(insets.top, spacing[3]) + spacing[6], paddingBottom: Math.max(insets.bottom, spacing[3]) + spacing[4] }]} onTouchEnd={onTap}><AppText tone="inverse" variant="title2" weight="700">{memoryPrimaryText(memory) || 'Sin texto'}</AppText><AppText tone="inverse" variant="bodySmall">{memorySemanticLabel(memory)}</AppText>{memory.caption ? <AppText tone="inverse" variant="body">{memory.caption}</AppText> : null}</ScrollView>;
 }
 
 /**
@@ -270,7 +277,7 @@ function ImagePage({ memory, accessToken, width, onTap }: { memory: HomeCloudMem
   const [original, setOriginal] = useState<string | null>(null); const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const scale = useRef(new Animated.Value(1)).current; const translate = useRef(new Animated.ValueXY()).current; const scaleValue = useRef(1); const startDistance = useRef<number | null>(null); const startScale = useRef(1);
-  useEffect(() => { setOriginal(null); setFailed(false); scale.setValue(1); translate.setValue({ x: 0, y: 0 }); scaleValue.current = 1; if (accessToken) void getMemoryOriginalUrl(accessToken, memory.id).then(setOriginal).catch(() => setFailed(true)); }, [accessToken, attempt, memory.id, scale, translate]);
+  useEffect(() => { setOriginal(null); setFailed(false); scale.setValue(1); translate.setValue({ x: 0, y: 0 }); scaleValue.current = 1; if (!accessToken) { setFailed(true); return; } void getMemoryOriginalUrl(accessToken, memory.id).then(setOriginal).catch(() => setFailed(true)); }, [accessToken, attempt, memory.id, scale, translate]);
   const responder = useRef(PanResponder.create({ onStartShouldSetPanResponder: (event) => event.nativeEvent.touches.length > 1, onMoveShouldSetPanResponder: (event) => event.nativeEvent.touches.length > 1 || scaleValue.current > 1.01,
     onPanResponderGrant: (event) => { const t=event.nativeEvent.touches; if(t.length>1){ startDistance.current=Math.hypot(t[0].pageX-t[1].pageX,t[0].pageY-t[1].pageY); startScale.current=scaleValue.current; } },
     onPanResponderMove: (event, gesture) => { const t=event.nativeEvent.touches; if(t.length>1 && startDistance.current){ const next=Math.max(1,Math.min(3,startScale.current*Math.hypot(t[0].pageX-t[1].pageX,t[0].pageY-t[1].pageY)/startDistance.current)); scaleValue.current=next; scale.setValue(next); } else if(scaleValue.current>1.01) translate.setValue({x: Math.max(-width,Math.min(width,gesture.dx)),y:Math.max(-500,Math.min(500,gesture.dy))}); },
@@ -288,4 +295,4 @@ function ImagePage({ memory, accessToken, width, onTap }: { memory: HomeCloudMem
  * forbids.
  */
 function Missing({ onClose }: { onClose: () => void }) { return <View style={styles.overlay}><View style={styles.state}><AppText tone="inverse" align="center">Este recuerdo ya no está disponible.</AppText><AppButton title="Volver" variant="secondary" onPress={onClose} /></View></View>; }
-const styles=StyleSheet.create({overlay:{...StyleSheet.absoluteFill,zIndex:20,backgroundColor:'#000'},top:{position:'absolute',zIndex:2,top:spacing[5],left:spacing[3],right:spacing[3],flexDirection:'row',alignItems:'center',justifyContent:'space-between'},topSpacer:{width:36},bottom:{position:'absolute',zIndex:2,bottom:spacing[5],left:spacing[4]},imagePage:{height:'100%',alignItems:'center',justifyContent:'center'},image:{width:'100%',height:'100%'},state:{flex:1,alignItems:'center',justifyContent:'center',gap:spacing[3],padding:spacing[5]},written:{paddingTop:90,paddingHorizontal:spacing[5],paddingBottom:spacing[6],gap:spacing[4]},placeholder:{height:'100%',backgroundColor:'#000'}});
+const styles=StyleSheet.create({overlay:{...StyleSheet.absoluteFill,backgroundColor:'#000'},top:{position:'absolute',zIndex:2,top:0,left:spacing[3],right:spacing[3],flexDirection:'row',alignItems:'center',justifyContent:'space-between'},topSpacer:{width:36},closeTarget:{minWidth:touchTargets.normal,minHeight:touchTargets.normal,alignItems:'center',justifyContent:'center'},bottom:{position:'absolute',zIndex:2,bottom:0,left:spacing[4],right:spacing[4]},imagePage:{height:'100%',alignItems:'center',justifyContent:'center'},image:{width:'100%',height:'100%'},state:{flex:1,alignItems:'center',justifyContent:'center',gap:spacing[3],padding:spacing[5]},written:{paddingHorizontal:spacing[5],gap:spacing[4]},placeholder:{height:'100%',backgroundColor:'#000'}});
