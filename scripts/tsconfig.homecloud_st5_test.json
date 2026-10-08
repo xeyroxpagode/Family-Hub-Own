@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "outDir": "./compiled-st5",
+    "rootDir": "..",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "../scripts/homecloud_memory_action_authority_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryActions.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryFavorites.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudTypes.ts"
+  ]
+}

@@ -1063,6 +1063,41 @@ const commands = {
   coverage: () => runCommand('Core coverage baseline', 'npm', ['run', 'test:coverage']),
   'ci-syntax': () => runCommand('CI workflow syntax', 'node', ['tests/static/workflow-syntax.js']),
   whitespace: () => runCommand('Whitespace check', 'git', ['diff', '--check']),
+  'homecloud-st5-action-authority-compile': () => runCommand(
+    'HomeCloud ST-5 compile action authority tests',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st5_test.json'],
+  ),
+  'homecloud-st5-action-authority': () => runCommand(
+    'HomeCloud ST-5 action authority tests',
+    'node',
+    ['scripts/compiled-st5/scripts/homecloud_memory_action_authority_tests.js'],
+  ),
+  'homecloud-st5-viewer-action-menu': () => runCommand(
+    'HomeCloud ST-5 viewer action menu tests',
+    'node',
+    ['scripts/homecloud_viewer_action_menu_tests.js'],
+  ),
+  'homecloud-st5-favorite-actions': () => runCommand(
+    'HomeCloud ST-5 favorite action tests',
+    'node',
+    ['scripts/homecloud_favorite_action_tests.js'],
+  ),
+  'homecloud-st5-written-share': () => runCommand(
+    'HomeCloud ST-5 written memory share tests',
+    'node',
+    ['scripts/homecloud_written_memory_share_tests.js'],
+  ),
+  'homecloud-st5-share-temp-cleanup': () => runCommand(
+    'HomeCloud ST-5 share temp cleanup tests',
+    'node',
+    ['scripts/homecloud_share_temp_cleanup_tests.js'],
+  ),
+  'homecloud-st5-multishare-contract': () => runCommand(
+    'HomeCloud ST-5 multishare platform contract tests',
+    'node',
+    ['scripts/homecloud_multishare_contract_tests.js'],
+  ),
 };
 
 const suites = {
@@ -1115,6 +1150,16 @@ typecheck: ['frontend-typecheck', 'test-typecheck'],
     'homecloud-viewer-android-back',
     'homecloud-global-tab-switch',
     'homecloud-selection-caller-context',
+    'frontend-typecheck',
+  ],
+  'homecloud-st5': [
+    'homecloud-st5-action-authority-compile',
+    'homecloud-st5-action-authority',
+    'homecloud-st5-viewer-action-menu',
+    'homecloud-st5-favorite-actions',
+    'homecloud-st5-written-share',
+    'homecloud-st5-share-temp-cleanup',
+    'homecloud-st5-multishare-contract',
     'frontend-typecheck',
   ],
   lint: ['backend-syntax', 'backend-eslint', 'frontend-lint'],
