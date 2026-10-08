@@ -21,21 +21,28 @@ import { useHousehold } from '../context/HouseholdContext';
 import { ActionSheet, AppButton, AppInput, AppText, floatingNavigationMetrics } from '../components/ui';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing, touchTargets } from '../constants/theme';
-import { errorHaptic, mediumHaptic, successHaptic } from '../utils/haptics';
+import { errorHaptic, lightHaptic, mediumHaptic, successHaptic } from '../utils/haptics';
 import { createFileIntakeService } from '../services/homecloud/homecloudFileIntakeService';
 import type { FileIntakeState } from '../services/homecloud/homecloudFileIntakeTypes';
 import type { HomeCloudCapabilityDescriptor } from '../services/homecloud/homecloudCapabilitiesAdapter';
 import {
   appendPage,
+  adoptPageEditOutcome,
+  buildScanPdfCacheKey,
   buildScanPdfHtml,
   buildScannerArtifact,
   buildScannerIntakeContext,
   canCreatePdf,
+  createScannerPage,
   defaultScanFileName,
   deletePage,
+  getPageEffectiveDimensions,
+  getPageEffectiveUri,
   normalizeScanFileName,
   replacePage,
+  resetPageEdit,
   type ScannerPage,
+  type ScannerPageEditOutcome,
   type ScanPdfPageInput,
 } from '../services/homecloud/homecloudScanner';
 import {
@@ -48,6 +55,8 @@ type ScannerRoute = {
   folderId?: string | null;
   folderName?: string | null;
   capabilities?: HomeCloudCapabilityDescriptor;
+  /** Serializable editor result, adopted exactly once and cleared right after. */
+  scannerEditOutcome?: ScannerPageEditOutcome;
 };
 
 type GeneratedPdf = {
@@ -158,12 +167,14 @@ export function HomeCloudScannerScreen() {
   }, [service]);
 
   const cleanupTempFiles = useCallback(() => {
-    const captured = pagesRef.current.map((page) => page.uri);
+    const capturedOriginal = pagesRef.current.map((page) => page.originalUri);
+    const capturedProcessed = pagesRef.current.map((page) => page.processedUri).filter((u): u is string => !!u);
     const pdfUri = pdfRef.current?.uri;
     pagesRef.current = [];
     setPages([]);
     pdfRef.current = null;
-    captured.forEach((uri) => void deleteQuietly(uri));
+    capturedOriginal.forEach((uri) => void deleteQuietly(uri));
+    capturedProcessed.forEach((uri) => void deleteQuietly(uri));
     void deleteQuietly(pdfUri);
   }, []);
 
@@ -189,14 +200,17 @@ export function HomeCloudScannerScreen() {
     // Only LOCAL, ALREADY-REDUNDANT state: the temporary captures and the
     // source PDF. The plan carries no handle to the durable workspace copy and
     // no way to cancel the job, so detaching can never destroy or abort them.
+    const originalUris = pagesRef.current.map((page) => page.originalUri);
+    const processedUris = pagesRef.current.map((page) => page.processedUri).filter((u): u is string => !!u);
     const plan = planScannerCleanupAfterAcceptance({
-      captureUris: pagesRef.current.map((page) => page.uri),
+      captureUris: originalUris,
       generatedPdfUri: pdfRef.current?.uri ?? null,
     });
     pagesRef.current = [];
     setPages([]);
     pdfRef.current = null;
     plan.deleteTempCaptureUris.forEach((uri) => void deleteQuietly(uri));
+    processedUris.forEach((uri) => void deleteQuietly(uri));
     void deleteQuietly(plan.deleteGeneratedPdfUri);
     // Accepted: leaving is no longer a discard, so the back guard must not
     // intercept this very navigation.
@@ -251,13 +265,15 @@ export function HomeCloudScannerScreen() {
       // No skipProcessing: default processing keeps correct orientation.
       const photo = await camera.takePictureAsync({ quality: 1 });
       const replaced = retakeId;
-      const page: ScannerPage = {
-        id: `scan_${Date.now()}_${captureCounterRef.current++}`,
-        uri: photo.uri,
-        width: photo.width,
-        height: photo.height,
-      };
-      if (replaced) void deleteQuietly(pagesRef.current.find((item) => item.id === replaced)?.uri);
+      const pageId = `scan_${Date.now()}_${captureCounterRef.current++}`;
+      const page = createScannerPage(pageId, photo.uri, photo.width, photo.height);
+      if (replaced) {
+        const replacedPage = pagesRef.current.find((item) => item.id === replaced);
+        // A retake destroys the page's whole temp family: original and any
+        // previously adopted processed file (both Scanner-owned).
+        void deleteQuietly(replacedPage?.originalUri);
+        void deleteQuietly(replacedPage?.processedUri ?? null);
+      }
       const nextPages = replaced ? replacePage(pagesRef.current, replaced, page) : appendPage(pagesRef.current, page);
       pdfRef.current = null; // pages changed: any generated PDF is stale
       setPages(nextPages);
@@ -276,7 +292,8 @@ export function HomeCloudScannerScreen() {
     const prev = pagesRef.current;
     const removedIndex = prev.findIndex((page) => page.id === selectedId);
     if (removedIndex < 0) return;
-    void deleteQuietly(prev[removedIndex]?.uri);
+    void deleteQuietly(prev[removedIndex]?.originalUri);
+    void deleteQuietly(prev[removedIndex]?.processedUri ?? null);
     const next = deletePage(prev, selectedId);
     pdfRef.current = null;
     setPages(next);
@@ -296,12 +313,16 @@ export function HomeCloudScannerScreen() {
 
   const generatePdf = useCallback(async (name: string): Promise<GeneratedPdf> => {
     const snapshot = pagesRef.current;
-    const key = `${snapshot.map((page) => `${page.id}:${page.uri}`).join('|')}#${name}`;
+    // Content identity: effective image per page + name. Any adoption, retake,
+    // reset, deletion or reorder changes it, so a stale PDF is never reused.
+    const key = buildScanPdfCacheKey(snapshot, name);
     if (pdfRef.current && pdfRef.current.key === key) return pdfRef.current;
     const images: ScanPdfPageInput[] = [];
     for (const page of snapshot) {
-      const base64 = await FileSystem.readAsStringAsync(page.uri, { encoding: FileSystem.EncodingType.Base64 });
-      images.push({ base64, width: page.width, height: page.height });
+      const effectiveUri = getPageEffectiveUri(page);
+      const base64 = await FileSystem.readAsStringAsync(effectiveUri, { encoding: FileSystem.EncodingType.Base64 });
+      const dims = getPageEffectiveDimensions(page);
+      images.push({ base64, width: dims?.width, height: dims?.height });
     }
     const html = buildScanPdfHtml(images);
     const printed = await Print.printToFileAsync({ html });
@@ -369,6 +390,51 @@ export function HomeCloudScannerScreen() {
   const openSettings = useCallback(() => { void Linking.openSettings().catch(() => {}); }, []);
 
   const selectedPage = pages.find((page) => page.id === selectedId) ?? pages[pages.length - 1] ?? null;
+
+  /**
+   * Editor result boundary (B1). The editor hands back a SERIALIZABLE outcome
+   * via navigation params — no callbacks ever lived in navigation state, so
+   * there is nothing to leak and nothing to clean up on unmount.
+   *
+   * Adoption is parent-owned and one-shot: delete the page's PREVIOUS
+   * processed file (the Scanner owned it), install the new one, invalidate the
+   * generated PDF and clear the param so it can never be applied twice.
+   */
+  useEffect(() => {
+    const outcome = params.scannerEditOutcome;
+    if (!outcome) return;
+    const previous = pagesRef.current.find((page) => page.id === outcome.pageId);
+    if (previous?.processedUri && previous.processedUri !== outcome.processedUri) {
+      void deleteQuietly(previous.processedUri);
+    }
+    const nextPages = adoptPageEditOutcome(pagesRef.current, outcome);
+    const stalePdf = pdfRef.current?.uri ?? null;
+    pdfRef.current = null; // effective image changed: the generated PDF is stale
+    void deleteQuietly(stalePdf);
+    setPages(nextPages);
+    setSelectedId(outcome.pageId);
+    navigation.setParams({ scannerEditOutcome: undefined });
+  }, [params.scannerEditOutcome, navigation]);
+
+  const handleEditPage = useCallback(() => {
+    if (!selectedPage) return;
+    // Serializable navigation contract: the page snapshot only (id, uris,
+    // dims, canonical edit params). React Navigation 7 checks serializability.
+    navigation.navigate('ScannerImageEditor', { page: selectedPage });
+  }, [navigation, selectedPage]);
+
+  const handleResetPageEdit = useCallback(() => {
+    if (!selectedPage) return;
+    const page = pagesRef.current.find((p) => p.id === selectedPage.id);
+    if (page?.processedUri) {
+      void deleteQuietly(page.processedUri);
+    }
+    const nextPages = resetPageEdit(pagesRef.current, selectedPage.id);
+    pdfRef.current = null;
+    setPages(nextPages);
+    lightHaptic();
+  }, [selectedPage]);
+
   const intakeActive = ACTIVE_INTAKE_STATUSES.has(intake.status);
   const intakeFailed = intake.status === 'failed';
 
@@ -489,7 +555,7 @@ export function HomeCloudScannerScreen() {
           </View>
           {selectedPage ? (
             <View style={styles.previewWrap}>
-              <Image source={{ uri: selectedPage.uri }} style={styles.preview} resizeMode="contain" accessibilityLabel={`Página ${pages.findIndex((p) => p.id === selectedPage.id) + 1}`} />
+              <Image source={{ uri: getPageEffectiveUri(selectedPage) }} style={styles.preview} resizeMode="contain" accessibilityLabel={`Página ${pages.findIndex((p) => p.id === selectedPage.id) + 1}`} />
             </View>
           ) : null}
           <FlatList
@@ -505,7 +571,7 @@ export function HomeCloudScannerScreen() {
                 accessibilityLabel={`Página ${index + 1}${item.id === selectedPage?.id ? ', seleccionada' : ''}`}
                 style={[styles.thumbButton, item.id === selectedPage?.id && styles.thumbButtonSelected]}
               >
-                <Image source={{ uri: item.uri }} style={styles.thumb} resizeMode="cover" />
+                <Image source={{ uri: getPageEffectiveUri(item) }} style={styles.thumb} resizeMode="cover" />
                 <AppText variant="caption" tone={item.id === selectedPage?.id ? 'brand' : 'secondary'} weight="700">{index + 1}</AppText>
               </AppButton>
             )}
@@ -513,6 +579,10 @@ export function HomeCloudScannerScreen() {
           <View style={styles.reviewActions}>
             <AppButton title="Agregar página" variant="secondary" size="sm" onPress={() => { setRetakeId(null); setPhase('camera'); }} accessibilityLabel="Agregar página" style={styles.reviewAction} />
             <AppButton title="Repetir página" variant="secondary" size="sm" disabled={!selectedPage} onPress={() => { if (selectedPage) { setRetakeId(selectedPage.id); setPhase('camera'); } }} accessibilityLabel="Repetir página" style={styles.reviewAction} />
+            <AppButton title="Editar página" variant="primary" size="sm" disabled={!selectedPage} onPress={handleEditPage} accessibilityLabel="Editar página" style={styles.reviewAction} />
+            {selectedPage?.edit ? (
+              <AppButton title="Restablecer" variant="secondary" size="sm" onPress={handleResetPageEdit} accessibilityLabel="Restablecer edición" style={styles.reviewAction} />
+            ) : null}
             <AppButton title="Eliminar página" variant="danger" size="sm" disabled={!selectedPage} onPress={handleDeleteSelected} accessibilityLabel="Eliminar página" style={styles.reviewAction} />
           </View>
           <View style={[styles.reviewFooter, { paddingBottom: bottomNavOverlayPadding }]}>

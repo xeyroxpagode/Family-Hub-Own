@@ -37,6 +37,19 @@ export type MoreStackParamList = {
     folderId: string | null;
     folderName: string | null;
     capabilities: import('../services/homecloud/homecloudCapabilitiesAdapter').HomeCloudCapabilityDescriptor;
+    /**
+     * Serializable editor result (B1). Arrives via navigate+merge when the
+     * editor confirms; the Scanner adopts it once and clears it.
+     */
+    scannerEditOutcome?: import('../services/homecloud/homecloudScanner').ScannerPageEditOutcome;
+  } | undefined;
+  /**
+   * Scanner image editor (B1). Pushed from HomeCloudScanner; params are fully
+   * serializable (the page snapshot). The result returns through the parent's
+   * `scannerEditOutcome` param — never through functions.
+   */
+  ScannerImageEditor: {
+    page: import('../services/homecloud/homecloudScanner').ScannerPage;
   } | undefined;
   Finance: import('./financeNavigation').FinanceEntryParams | undefined;
   FinanceAccounts: {

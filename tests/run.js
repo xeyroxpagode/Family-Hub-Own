@@ -286,6 +286,31 @@ const commands = {
     'node',
     ['scripts/compiled/scripts/homecloud_3e_scanner_tests.js'],
   ),
+  'homecloud-scanner-b1-compile': () => runCommand(
+    'HomeCloud Scanner B1 compile geometry/gesture/session tests',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_scanner_b1_test.json'],
+  ),
+  'homecloud-scanner-b1-geometry': () => runCommand(
+    'HomeCloud Scanner B1 geometry authority tests',
+    'node',
+    ['scripts/compiled-scannerb1/scripts/homecloud_scanner_b1_geometry_tests.js'],
+  ),
+  'homecloud-scanner-b1-gestures': () => runCommand(
+    'HomeCloud Scanner B1 gesture machine tests',
+    'node',
+    ['scripts/compiled-scannerb1/scripts/homecloud_scanner_b1_gesture_tests.js'],
+  ),
+  'homecloud-scanner-b1-session': () => runCommand(
+    'HomeCloud Scanner B1 session/navigation/PDF tests',
+    'node',
+    ['scripts/compiled-scannerb1/scripts/homecloud_scanner_b1_session_tests.js'],
+  ),
+  'homecloud-scanner-b1-scanner3e': () => runCommand(
+    'HomeCloud 3E scanner logic tests (B1 compiled set)',
+    'node',
+    ['scripts/compiled-scannerb1/scripts/homecloud_3e_scanner_tests.js'],
+  ),
   'homecloud-4a2-written-validation': () => runCommand(
     'HomeCloud 4A2 written register validation tests',
     'node',
@@ -1248,6 +1273,15 @@ const suites = {
   'homecloud-t2-d1': ['homecloud-t2-d1-native-upload'],
   'homecloud-2c': ['homecloud-2c-intake-validation', 'homecloud-2c-runtime-intake', 'homecloud-2c-frontend-structure', 'compile-frontend-tests'],
   'homecloud-3e': ['compile-frontend-tests', 'homecloud-3e-scanner'],
+  'homecloud-scanner-b1': [
+    'homecloud-scanner-b1-compile',
+    'homecloud-scanner-b1-geometry',
+    'homecloud-scanner-b1-gestures',
+    'homecloud-scanner-b1-session',
+    'homecloud-scanner-b1-scanner3e',
+    'homecloud-w1c-scanner-acceptance',
+    'frontend-typecheck',
+  ],
   'homecloud-4a2': ['homecloud-4a2-written-validation', 'homecloud-4a2-schema', 'homecloud-4a2-written-runtime'],
   'homecloud-4b1': [
     'homecloud-4b1-memories-read-model',

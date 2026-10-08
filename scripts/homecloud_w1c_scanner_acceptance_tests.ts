@@ -341,12 +341,20 @@ async function testFailureAfterAcceptance(): Promise<void> {
   // the Scanner itself may only ever leave: it must contain no `navigate(`.
   const screen = readFront('screens/HomeCloudScannerScreen.tsx');
   const filesScreen = readFront('screens/HomeCloudFilesScreen.tsx');
-  record(!/\bnavigate\(/.test(screen),
-    '5.5. the Scanner never navigates anywhere, so no failure can push it back on screen');
+  // B1: the Scanner gained ONE navigation — the explicit, user-driven push to
+  // the image editor ("Editar página"). It is outbound, synchronous and
+  // triggered only by a user tap, so no job outcome can traverse it. Every
+  // OTHER navigate( stays forbidden exactly as before.
+  const allPushes = (screen.match(/\bnavigate\(/g) ?? []).length;
+  const editorPushes = (screen.match(/navigate\('ScannerImageEditor'/g) ?? []).length;
+  record(allPushes === editorPushes,
+    '5.5. the Scanner only navigates via the explicit user-driven editor push (B1); no failure can push it back on screen');
+  const acceptedBody = between(screen, 'const handleAccepted = useCallback', '// Refresh the permission snapshot');
+  record(!/\bnavigate\(/.test(acceptedBody),
+    '5.5b. the acceptance/detach path itself still navigates nowhere');
   const entries = (filesScreen.match(/navigate\('HomeCloudScanner'/g) ?? []).length;
   record(entries === 1,
     '5.6. the only way into the Scanner is the single explicit user action in Files');
-  const acceptedBody = between(screen, 'const handleAccepted = useCallback', '// Refresh the permission snapshot');
   record(!/intake|retry|status/.test(acceptedBody),
     '5.7. the detach handler owns no intake status, so a later failure cannot reopen it');
 
