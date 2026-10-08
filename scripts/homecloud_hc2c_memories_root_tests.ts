@@ -54,6 +54,7 @@ function memory(id: string): HomeCloudMemoryListItem {
     sizeBytes: null, uploadedByMemberId: null, uploadedAt: null, hasPreview: false,
     hiddenFromResurfacing: false, caption: null, writtenText: null, capturedAt: null,
     capturedYear: null, capturedMonth: null, capturePrecision: 'unknown', albumIds: [],
+    favorite: false,
   } as unknown as HomeCloudMemoryListItem;
 }
 
@@ -238,7 +239,7 @@ const detailCode = code('front/mi-front-limpio/components/homecloud/AlbumDetailV
   check(screen.includes('Reintentar los que fallaron') === false && header.includes('Reintentar los que fallaron'), 'the partial-failure retry of ONLY the failed ids is preserved');
 
   // ONE action host, never a stacked sheet.
-  check(/visible=\{selectionSheetOpen\}/.test(screen), 'the action sheet and the destination picker are ONE host');
+  check(/visible=\{selectionSheetOpen \|\| viewerActionsContentId !== null\}/.test(screen), 'the action sheet and the destination picker are ONE host (ST-5: viewer actions ride the SAME host)');
   check(screen.includes('const selectionSheetOpen = selectionActionsOpen || destinationPickerOpen;'), 'their visibility is a single derived value, so they cannot stack');
   check((screen.match(/<ActionSheet/g) ?? []).length === 1, 'exactly ONE ActionSheet is rendered in Memories');
 
@@ -246,7 +247,7 @@ const detailCode = code('front/mi-front-limpio/components/homecloud/AlbumDetailV
   check(screen.includes('Agregar a un álbum'), 'the root/collection action is Agregar a un álbum');
   check(screen.includes('memorySelectionRemoveLabel(selection.selectedIds.size)'), 'the Album action is Quitar N del álbum, from the same frozen copy');
   check(screen.includes('runAlbumMemberships') && screen.includes('runKnownDestinationSelection'), 'both run through the ONE existing membership composer');
-  check(!/Compartir|Share\.share|shareAsync/.test(screen), 'multi-select OS Share stays DEFER and is NOT rendered');
+  check(screen.includes('Compartir') && screen.includes('Compartir varios recuerdos aún no está disponible') && !screen.includes('Sharing.shareAsync'), 'ST-5: Compartir exists in selection; multi OS sheet is honest-blocked, never faked');
 
   // BUG D — the permanent X.
   check(!cardsCode.includes('AlbumScopeRemove') && !cardsCode.includes('albumScopeAction'), 'the per-card remove affordance is gone from MemoryCards');

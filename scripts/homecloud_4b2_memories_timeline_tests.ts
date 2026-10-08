@@ -78,6 +78,7 @@ function mem(overrides: Partial<HomeCloudMemoryListItem> & { id?: string }): Hom
     capturedMonth: null,
     capturePrecision: 'unknown',
     albumIds: [],
+    favorite: false,
     ...overrides,
   } as HomeCloudMemoryListItem;
 }

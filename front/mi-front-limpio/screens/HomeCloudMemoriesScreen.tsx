@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppState,
   BackHandler,
+  Clipboard,
   RefreshControl,
   SectionList,
+  Share,
   StyleSheet,
   View,
   type LayoutChangeEvent,
@@ -13,7 +15,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
-import { AppButton, AppText, ErrorState, Skeleton } from '../components/ui';
+import { AppButton, AppText, ErrorState, Skeleton, UndoToast } from '../components/ui';
 import { ActionSheet } from '../components/ui/ActionSheet';
 import { AlbumDetailView } from '../components/homecloud/AlbumDetailView';
 import { AlbumsRail } from '../components/homecloud/AlbumsRail';
@@ -35,6 +37,7 @@ import {
   listMemories,
   removeMemoryFromAlbum,
   renameAlbum,
+  updateMemory,
   type HomeCloudScope,
 } from '../services/homecloud/homecloudReadService';
 import {
@@ -114,9 +117,14 @@ import {
 import { subscribeHomeCloudReadReconciliation } from '../services/homecloud/homecloudReadReconciliation';
 import { MemoryIntake } from '../services/homecloud/MemoryIntake';
 import { useHomeCloudCapabilities } from '../services/homecloud/useHomeCloudCapabilities';
+import { availableMemoryActions } from '../services/homecloud/homecloudMemoryActions';
+import { favoriteTargetsFor, runMemoryFavoriteUpdate, type FavoriteDirection } from '../services/homecloud/homecloudMemoryFavorites';
+import { installShareTempLifecycle, shareMemoryBinary } from '../services/homecloud/homecloudMemoryShare';
+import { removeMemoryFromOpenAlbum } from '../services/homecloud/homecloudMemoryAlbumRemoval';
 import { homeCloudCapabilitiesNotice } from '../services/homecloud/homecloudCapabilitiesNotice';
 import type {
   HomeCloudAlbum,
+  HomeCloudMemoryKind,
   HomeCloudMemoryListItem,
 } from '../services/homecloud/homecloudTypes';
 import {
@@ -243,6 +251,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
   memoriesRef.current = memories;
   const [viewer, setViewer] = useState<MemoryViewerSession | null>(null);
   const [infoContentId, setInfoContentId] = useState<string | null>(null);
+
 
   /**
    * ST-4: the Viewer session remains the single authority; this only mirrors
@@ -1115,6 +1124,172 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
     [finishSelection, runAlbumMemberships],
   );
 
+  const [viewerActionsContentId, setViewerActionsContentId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
+  const pendingFavoriteIdsRef = useRef<Set<string>>(new Set());
+  const [selectionFavoriteBusy, setSelectionFavoriteBusy] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+
+  /**
+   * SHARE TEMP lifecycle: sweep leftovers on scope mount and whenever the app
+   * leaves the foreground. Strictly scoped to the share temp directory.
+   */
+  useEffect(() => installShareTempLifecycle(), []);
+
+  /** Optimistic local favorite write across every live dataset. */
+  const setFavoriteEverywhere = useCallback((contentId: string, favorite: boolean) => {
+    setMemories((previous) => previous.map((memory) => (memory.id === contentId ? { ...memory, favorite } : memory)));
+    setDetail((previous) => ({
+      ...previous,
+      memories: previous.memories.map((memory) => (memory.id === contentId ? { ...memory, favorite } : memory)),
+    }));
+    setCollections((previous) => ({
+      ...previous,
+      memories: previous.memories.map((memory) => (memory.id === contentId ? { ...memory, favorite } : memory)),
+    }));
+  }, []);
+
+  const favoriteOf = useCallback((contentId: string): boolean | null => {
+    const found = memoriesRef.current.find((memory) => memory.id === contentId)
+      ?? detail.memories.find((memory) => memory.id === contentId)
+      ?? collections.memories.find((memory) => memory.id === contentId);
+    return found ? found.favorite === true : null;
+  }, [collections.memories, detail.memories]);
+
+  const toggleFavorite = useCallback((contentId: string) => {
+    if (!token || pendingFavoriteIdsRef.current.has(contentId)) return;
+    const current = favoriteOf(contentId);
+    if (current === null) return;
+    pendingFavoriteIdsRef.current.add(contentId);
+    setFavoriteEverywhere(contentId, !current);
+    updateMemory(token, contentId, { favorite: !current })
+      .then(() => { setToast({ message: !current ? 'Agregado a favoritos' : 'Quitado de favoritos', tone: 'success' }); })
+      .catch(() => {
+        setFavoriteEverywhere(contentId, current);
+        setToast({ message: 'No se pudo actualizar favorito.', tone: 'error' });
+      })
+      .finally(() => { pendingFavoriteIdsRef.current.delete(contentId); });
+  }, [favoriteOf, setFavoriteEverywhere, token]);
+
+  const runSelectionFavorites = useCallback(async (direction: FavoriteDirection) => {
+    const current = selectionRef.current;
+    if (selectionFavoriteBusy || !canConfirmMemorySelection(current)) return;
+    const result = confirmMemorySelection(current);
+    if (result === null) return;
+    const selected = result.contentIds
+      .map((contentId) => {
+        const memory = memoriesRef.current.find((item) => item.id === contentId)
+          ?? detail.memories.find((item) => item.id === contentId)
+          ?? collections.memories.find((item) => item.id === contentId);
+        return memory ? { id: memory.id, favorite: memory.favorite === true } : null;
+      })
+      .filter((item): item is { id: string; favorite: boolean } => item !== null);
+    const targets = favoriteTargetsFor(direction, selected);
+    if (targets.length === 0) return;
+    setSelectionFavoriteBusy(true);
+    setSelectionFailure(null);
+    // Optimistic: apply, then roll back only the failed ones.
+    for (const id of targets) setFavoriteEverywhere(id, direction === 'mark');
+    try {
+      const outcome = await runMemoryFavoriteUpdate({
+        direction,
+        contentIds: targets,
+        mutate: (id, favorite) => updateMemory(token as string, id, { favorite }).then(() => undefined),
+        labelFor: (id) => {
+          const found = memoriesRef.current.find((memory) => memory.id === id)
+            ?? detail.memories.find((memory) => memory.id === id)
+            ?? collections.memories.find((memory) => memory.id === id);
+          return found ? memoryFailureLabel(found) : 'Un recuerdo';
+        },
+      });
+      if (outcome.failures.length > 0) {
+        for (const failure of outcome.failures) setFavoriteEverywhere(failure.contentId, direction !== 'mark');
+        setSelectionFailure({
+          direction,
+          committed: outcome.committed,
+          destinationMissing: false,
+          failures: outcome.failures,
+          summary: outcome.failures.length === targets.length
+            ? 'No se pudo actualizar favorito.'
+            : `${outcome.committed.length} actualizados · ${outcome.failures.length} no se pudieron actualizar.`,
+        } as unknown as MemorySelectionFailure);
+        setSelection((previous) => ({
+          ...previous,
+          selectedIds: new Set(outcome.failures.map((failure) => failure.contentId)),
+        }));
+        return;
+      }
+      setToast({ message: direction === 'mark' ? 'Agregado a favoritos' : 'Quitado de favoritos', tone: 'success' });
+      finishSelection();
+    } finally {
+      setSelectionFavoriteBusy(false);
+    }
+  }, [collections.memories, detail.memories, finishSelection, runMemoryFavoriteUpdate, selectionFavoriteBusy, token]);
+
+  const shareMemories = useCallback(async (contentIds: readonly string[]) => {
+    if (!token) return;
+    const listing = contentIds
+      .map((contentId) => memoriesRef.current.find((item) => item.id === contentId)
+        ?? detail.memories.find((item) => item.id === contentId)
+        ?? collections.memories.find((item) => item.id === contentId))
+      .filter((item): item is HomeCloudMemoryListItem => item !== undefined);
+    if (listing.length === 0) return;
+    setShareBusy(true);
+    try {
+      if (listing.length === 1) {
+        const memory = listing[0];
+        if (memory.kind === 'written') {
+          const text = memory.writtenText ?? '';
+          if (!text.trim()) { setToast({ message: 'Este recuerdo no tiene texto.', tone: 'error' }); return; }
+          await Share.share({ message: text, title: 'Compartir recuerdo' });
+        } else {
+          await shareMemoryBinary(token, memory);
+        }
+        setToast({ message: 'Compartir', tone: 'success' });
+      } else {
+        // MULTI_SHARE_PLATFORM_BLOCKER: expo-sharing ships a single-URL
+        // shareAsync only, and RN Share has no files array — the OS cannot
+        // express N attachments in one sheet with the installed APIs. We do
+        // NOT fake it with N sequential sheets.
+        setToast({ message: 'Compartir varios recuerdos aún no está disponible.', tone: 'error' });
+      }
+    } catch {
+      setToast({ message: 'No se pudo compartir.', tone: 'error' });
+    } finally {
+      setShareBusy(false);
+    }
+  }, [collections.memories, detail.memories, token]);
+
+  const copyWrittenMemory = useCallback(async (contentId: string) => {
+    const memory = memoriesRef.current.find((item) => item.id === contentId)
+      ?? detail.memories.find((item) => item.id === contentId)
+      ?? collections.memories.find((item) => item.id === contentId);
+    if (!memory || memory.kind !== 'written') return;
+    const text = memory.writtenText ?? '';
+    if (!text.trim()) { setToast({ message: 'Este recuerdo no tiene texto.', tone: 'error' }); return; }
+    try {
+      Clipboard.setString(text);
+      setToast({ message: 'Copiado', tone: 'success' });
+    } catch {
+      setToast({ message: 'No se pudo copiar.', tone: 'error' });
+    }
+  }, [collections.memories, detail.memories]);
+
+  const removeSingleFromAlbum = useCallback(async (contentId: string) => {
+    if (!token || !householdId) return;
+    const ok = await removeMemoryFromOpenAlbum({
+      accessToken: token,
+      scope: householdId ? { householdId } : null,
+      openAlbumId: viewer?.source.kind === 'album' ? viewer.source.sourceId : openAlbumId,
+      memoryId: contentId,
+      refreshAlbumDetail: () => detailControllerRef.current ? detailControllerRef.current.refresh() : Promise.resolve(),
+      reloadAlbums: () => reloadRail(),
+      reloadTimeline: () => readFirstPage(),
+    });
+    if (ok) setToast({ message: 'Quitado del álbum', tone: 'success' });
+    else setToast({ message: 'No pudimos quitarlo del álbum.', tone: 'error' });
+  }, [householdId, openAlbumId, reloadRail, token, viewer]);
+
   /**
    * HC2-C §11 — the ONE action host, rendered ONCE.
    *
@@ -1202,6 +1377,10 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
     return reuseMemoryViewerDataset(previousViewerMemoriesRef.current, resolved, (memory) => memory.id);
   }, [collections.collectionId, collections.memories, detail.memories, memories, openAlbumId, viewer]);
   previousViewerMemoriesRef.current = viewerMemories;
+  const activeViewerMemory = useMemo(
+    () => (viewer ? viewerMemories.find((memory) => memory.id === viewer.activeContentId) ?? null : null),
+    [viewer, viewerMemories],
+  );
 
   /**
    * The Timeline grouping, with NO mode argument: the global Timeline keeps the
@@ -1507,6 +1686,33 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
    * action asks for nothing. Everywhere else the destination must be chosen.
    */
   const canRemoveFromOpenAlbum = purposeKind === 'removeFromAlbum' && purposeAlbumId !== null;
+
+  /**
+   * ST-5 — the SAME action authority that drives the Viewer menu also drives
+   * the selection sheet, so both surfaces can never offer different actions
+   * for the same caller/selection.
+   */
+  const selectionActionItems = useMemo(() => {
+    const selectedIds = [...selection.selectedIds];
+    return availableMemoryActions({
+      surface: 'selection',
+      caller: (openAlbumId !== null || purposeKind === 'removeFromAlbum') ? 'album' : 'root',
+      selectionCount: selectedIds.length,
+      selectedKinds: selectedIds
+        .map((id) => {
+          const memory = memoriesRef.current.find((item) => item.id === id)
+            ?? detail.memories.find((item) => item.id === id)
+            ?? collections.memories.find((item) => item.id === id);
+          return memory ? memory.kind : null;
+        })
+        .filter((kind): kind is HomeCloudMemoryKind => kind !== null),
+      albumIdentity: purposeAlbumId !== null ? { id: purposeAlbumId }
+        : openAlbumId !== null ? { id: openAlbumId }
+        : null,
+      favoriteStates: selectedIds.map((id) => favoriteOf(id) === true),
+      capabilities: capabilities.descriptor,
+    });
+  }, [collections.memories, detail.memories, favoriteOf, openAlbumId, purposeAlbumId, purposeKind, selection.selectedIds]);
 
   /**
    * HC2-C C1 — THE COMPOSED ROOT HEADER.
@@ -1901,6 +2107,10 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
           activeContentId={viewer.activeContentId}
           accessToken={token}
           source={viewer.source}
+          canOrganize={canOrganize}
+          activeFavorite={favoriteOf(viewer.activeContentId) === true}
+          onToggleFavorite={() => toggleFavorite(viewer.activeContentId)}
+          onOpenActions={(contentId) => setViewerActionsContentId(contentId)}
           onClose={() => setViewer(null)}
           onActiveChange={(activeContentId) => setViewer((current) => current ? { ...current, activeContentId } : current)}
           onNearEnd={() => {
@@ -1972,17 +2182,69 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
        * Album IS the destination, so that action runs immediately.
        */}
       <ActionSheet
-        visible={selectionSheetOpen}
-        title={selectionSheetTitle ?? undefined}
+        visible={selectionSheetOpen || viewerActionsContentId !== null}
+        title={viewerActionsContentId !== null ? 'Acciones' : selectionSheetTitle ?? undefined}
         onRequestClose={() => {
           setSelectionActionsOpen(false);
           setDestinationPickerOpen(false);
+          setViewerActionsContentId(null);
         }}
-        closeDisabled={selectionBusy}
+        closeDisabled={selectionBusy || selectionFavoriteBusy || shareBusy}
         size="content"
       >
         <View style={styles.destination}>
-          {destinationPickerOpen ? (
+          {viewerActionsContentId !== null ? (
+            <>
+              {availableMemoryActions({
+                surface: 'viewer',
+                caller: viewer?.source.kind === 'album' ? 'album' : 'root',
+                selectionCount: 1,
+                selectedKinds: [activeViewerMemory?.kind ?? 'image'],
+                albumIdentity: viewer?.source.kind === 'album' ? { id: viewer.source.sourceId } : null,
+                favoriteStates: [favoriteOf(viewerActionsContentId) === true],
+                capabilities: capabilities.descriptor,
+              }).map((action) => (
+                <AppButton
+                  key={action.id}
+                  title={action.id === 'removeFromAlbum' && viewer
+                    ? 'Quitar del álbum'
+                    : action.label}
+                  variant="secondary"
+                  disabled={shareBusy}
+                  onPress={() => {
+                    const contentId = viewerActionsContentId;
+                    setViewerActionsContentId(null);
+                    if (action.id === 'addToAlbum') {
+                      setSelection((previous) => enterMemorySelection(previous, {
+                        purpose: { kind: 'generic' },
+                        initialContentIds: [contentId],
+                      }));
+                      setSelectionActionsOpen(false);
+                      setDestinationPickerOpen(true);
+                    } else if (action.id === 'removeFromAlbum') {
+                      void removeSingleFromAlbum(contentId);
+                    } else if (action.id === 'info') {
+                      setInfoContentId(contentId);
+                    } else if (action.id === 'share') {
+                      void shareMemories([contentId]);
+                    } else if (action.id === 'copy') {
+                      void copyWrittenMemory(contentId);
+                    } else if (action.id === 'markFavorite') {
+                      toggleFavorite(contentId);
+                    } else if (action.id === 'unmarkFavorite') {
+                      toggleFavorite(contentId);
+                    }
+                  }}
+                />
+              ))}
+              <AppButton
+                title="Cancelar"
+                variant="ghost"
+                disabled={shareBusy}
+                onPress={() => setViewerActionsContentId(null)}
+              />
+            </>
+          ) : destinationPickerOpen ? (
             rail.albums.length === 0 ? (
               <>
                 <AppText variant="bodySmall" weight="700">
@@ -2029,6 +2291,61 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
                   accessibilityLabel={`${memorySelectionRemoveLabel(selection.selectedIds.size)} de ${destinationName ?? 'este álbum'}`}
                 />
               ) : null}
+              {!canRemoveFromOpenAlbum && openAlbumId !== null && selectionActionItems.some((action) => action.id === 'removeFromAlbum') ? (
+                <AppButton
+                  title={memorySelectionRemoveLabel(selection.selectedIds.size)}
+                  variant="secondary"
+                  disabled={selectionBusy}
+                  onPress={() => {
+                    setSelectionActionsOpen(false);
+                    setDestinationPickerOpen(false);
+                    const contentIds = [...selectionRef.current.selectedIds];
+                    setSelectionBusy(true);
+                    void runAlbumMemberships('remove', openAlbumId, contentIds)
+                      .then((failure) => {
+                        if (failure.failures.length > 0) {
+                          setSelectionFailure(failure);
+                          setSelection((previous) => ({ ...previous, selectedIds: new Set(failure.failures.map((item) => item.contentId)) }));
+                          return;
+                        }
+                        finishSelection();
+                      })
+                      .finally(() => setSelectionBusy(false));
+                  }}
+                  accessibilityLabel={`${memorySelectionRemoveLabel(selection.selectedIds.size)} del álbum abierto`}
+                />
+              ) : null}
+              {selectionActionItems.some((action) => action.id === 'share') ? (
+                <AppButton
+                  title="Compartir"
+                  variant="secondary"
+                  disabled={selectionBusy || shareBusy || selectionFavoriteBusy}
+                  onPress={() => {
+                    setSelectionActionsOpen(false);
+                    setDestinationPickerOpen(false);
+                    void shareMemories([...selection.selectedIds]);
+                  }}
+                  accessibilityLabel={`Compartir ${selection.selectedIds.size} recuerdos`}
+                />
+              ) : null}
+              {selectionActionItems.some((action) => action.id === 'markFavorite') ? (
+                <AppButton
+                  title="Marcar como favorito"
+                  variant="secondary"
+                  disabled={selectionBusy || shareBusy || selectionFavoriteBusy}
+                  onPress={() => void runSelectionFavorites('mark')}
+                  accessibilityLabel={`Marcar como favorito ${selection.selectedIds.size} recuerdos`}
+                />
+              ) : null}
+              {selectionActionItems.some((action) => action.id === 'unmarkFavorite') ? (
+                <AppButton
+                  title="Quitar de favoritos"
+                  variant="secondary"
+                  disabled={selectionBusy || shareBusy || selectionFavoriteBusy}
+                  onPress={() => void runSelectionFavorites('unmark')}
+                  accessibilityLabel={`Quitar de favoritos ${selection.selectedIds.size} recuerdos`}
+                />
+              ) : null}
               {/*
                * Multi-select OS Share is DEFER on purpose and deliberately NOT
                * rendered: sharing N binaries would need N downloads, N temporary
@@ -2048,6 +2365,13 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
           />
         </View>
       </ActionSheet>
+
+      <UndoToast
+        visible={toast !== null}
+        message={toast?.message ?? ''}
+        tone={toast?.tone ?? 'success'}
+        onDismiss={() => setToast(null)}
+      />
     </View>
   );
 }

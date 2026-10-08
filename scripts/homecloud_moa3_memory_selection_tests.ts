@@ -135,6 +135,7 @@ function memory(id: string, over: Partial<HomeCloudMemoryListItem> = {}): HomeCl
     capturePrecision: 'exact',
     kind: 'image',
     albumIds: [],
+    favorite: false,
     ...over,
   };
 }
@@ -1166,8 +1167,8 @@ record(
   'no Memory delete, trash, restore, purge or hidden affordance exists',
 );
 record(
-  !/Favorit|favorit|favorite/i.test(SCREEN_CODE + HEADER_CODE + TILE_CODE + COLLECTIONS_CODE),
-  'Favorites is NOT part of MO-A3',
+  /Marcar como favorito|Quitar de favoritos/.test(SCREEN_CODE) && !/Favorit|favorit|favorite/i.test(HEADER_CODE + TILE_CODE + COLLECTIONS_CODE),
+  'Favorites appears exactly once in the screen selection sheet (ST-5), never in header/tiles/collections',
 );
 record(
   !/Resurfac|resurfac/i.test(SCREEN_CODE + COLLECTIONS_CODE)

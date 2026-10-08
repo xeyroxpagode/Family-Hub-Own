@@ -116,6 +116,7 @@ function memory(id: string, over: Partial<HomeCloudMemoryListItem> = {}): HomeCl
     capturePrecision: 'exact',
     kind: 'image',
     albumIds: [],
+    favorite: false,
     ...over,
   };
 }

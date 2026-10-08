@@ -44,6 +44,7 @@ function memory(id: string, kind: HomeCloudMemoryKind): HomeCloudMemoryListItem 
     extension: null, sizeBytes: null, uploadedByMemberId: null, uploadedAt: null, hasPreview: false,
     hiddenFromResurfacing: false, caption: null, writtenText: kind === 'written' ? id : null,
     capturedAt: null, capturedYear: null, capturedMonth: null, capturePrecision: 'unknown', albumIds: [],
+    favorite: false,
   };
 }
 

@@ -88,6 +88,7 @@ const mem = (over: Partial<HomeCloudMemoryListItem>): HomeCloudMemoryListItem =>
   capturedMonth: null,
   capturePrecision: 'unknown',
   albumIds: [],
+    favorite: false,
   ...over,
 } as HomeCloudMemoryListItem);
 
