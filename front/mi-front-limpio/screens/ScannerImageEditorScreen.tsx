@@ -11,10 +11,11 @@
  *
  * Navigation contract (A): route params are fully serializable (the page
  * snapshot only). The result returns to the Scanner as a serializable
- * `scannerEditOutcome` navigation param (navigate + merge), so there are no
- * callbacks in navigation state and no `.remove()`-on-unsubscribe bug: this
- * screen registers NO beforeRemove listener at all — cancel/close is pure
- * unmount cleanup, which the session reducer owns.
+ * `scannerEditOutcome` navigation param (navigate + merge + pop, so the
+ * router reuses the mounted Scanner instead of pushing a fresh instance),
+ * so there are no callbacks in navigation state and no `.remove()`-on-
+ * unsubscribe bug: this screen registers NO beforeRemove listener at all —
+ * cancel/close is pure unmount cleanup, which the session reducer owns.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -211,10 +212,19 @@ export function ScannerImageEditorScreen() {
             edit: effect.edit,
             processedUri: effect.uri,
           };
+          // `pop: true` is load-bearing: a plain NAVIGATE to a route that is
+          // NOT the current one (we are on ScannerImageEditor) does not reuse
+          // the Scanner sitting below in the stack — the StackRouter would
+          // PUSH a fresh HomeCloudScanner instance (camera phase, zero pages),
+          // which is exactly the physical B1 defect. With `pop` the router
+          // finds the existing Scanner by name, pops the editor off and
+          // MERGES the outcome param onto the SAME mounted instance, so the
+          // review session (phase, pages, selectedId) survives intact.
           navigation.navigate({
             name: 'HomeCloudScanner',
             params: { scannerEditOutcome: outcome },
             merge: true,
+            pop: true,
           });
         }
       }

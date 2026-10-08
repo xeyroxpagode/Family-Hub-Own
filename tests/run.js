@@ -306,6 +306,18 @@ const commands = {
     'node',
     ['scripts/compiled-scannerb1/scripts/homecloud_scanner_b1_session_tests.js'],
   ),
+  'homecloud-scanner-b1-review-flow': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+    };
+    return runCommand(
+      'HomeCloud Scanner B1 review flow tests (real router + real screens)',
+      'node',
+      ['scripts/compiled-scannerb1/scripts/homecloud_scanner_b1_review_flow_tests.js'],
+      { env },
+    );
+  },
   'homecloud-scanner-b1-scanner3e': () => runCommand(
     'HomeCloud 3E scanner logic tests (B1 compiled set)',
     'node',
@@ -1278,6 +1290,7 @@ const suites = {
     'homecloud-scanner-b1-geometry',
     'homecloud-scanner-b1-gestures',
     'homecloud-scanner-b1-session',
+    'homecloud-scanner-b1-review-flow',
     'homecloud-scanner-b1-scanner3e',
     'homecloud-w1c-scanner-acceptance',
     'frontend-typecheck',
