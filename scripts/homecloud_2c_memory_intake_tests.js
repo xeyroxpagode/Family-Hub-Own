@@ -46,7 +46,16 @@ const engine = read('homecloudUploadEngine.ts');
 // Picker adapter
 record(picker.includes('launchImageLibraryAsync'), 'picker uses the native image library picker');
 record(picker.includes("'images'") && picker.includes("'videos'"), 'picker scoped to photos + videos only');
-record(picker.includes('allowsMultipleSelection: false'), 'picker single selection (no batch)');
+// RETARGET (ST-10.D) — `allowsMultipleSelection: false` encoded the ABSENCE of
+// batch intake. Product Truth §6.7 makes batch obligatory ("batch es
+// obligatorio y NO puede convertirse en N formularios"), so the old assertion
+// now contradicts the frozen contract and is replaced by the current one.
+record(
+  picker.includes('allowsMultipleSelection: multiple') && picker.includes('for (const asset of assets)'),
+  'picker keeps every selected asset (batch is obligatory per §6.7)',
+);
+const pickerCode = picker.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/gm, '$1');
+record(!pickerCode.includes('assets?.[0]'), 'nothing reduces the selection to assets[0]');
 record(picker.includes('exif') || captureMetadata.includes('DateTimeOriginal'), 'picker reads reliable EXIF capture metadata');
 record(
   captureMetadata.includes('capturedAt')

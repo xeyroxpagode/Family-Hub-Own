@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": { "module": "CommonJS", "moduleResolution": "Bundler", "outDir": "./compiled-st10-batch" },
+  "include": [
+    "../scripts/homecloud_st10_batch_intake_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryBatch.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudSemanticDate.ts"
+  ],
+  "exclude": ["node_modules"]
+}

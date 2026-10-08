@@ -76,4 +76,37 @@ export interface MemoryIntakeActions {
  * empty recording needs that measurement — but it no longer publishes it.
  */
 
+export interface MemoryBatchSubmissionItem {
+  readonly draftId: string;
+  readonly draft: BinaryMemoryDraft;
+  readonly metadata: BinaryMemoryMetadata;
+}
+
+/**
+ * ST-10.E — what ONE user action produced. Each accepted item carries its OWN
+ * job id, so a result can never be attributed to the wrong draft, and a job that
+ * could not even be enqueued is reported as a failure instead of disappearing.
+ */
+export interface MemoryBatchAcceptedItem {
+  readonly draftId: string;
+  readonly jobId: string | null;
+  readonly error?: string;
+}
+
+/**
+ * ST-10.E — the per-item result, read from the DURABLE store.
+ *
+ * `state` is the upload engine's own `UploadJobState`, never an invented batch
+ * lifecycle: a batch must not teach the user a vocabulary the engine does not
+ * have.
+ */
+export interface MemoryBatchJobState {
+  readonly jobId: string;
+  readonly displayName: string;
+  readonly state: 'pending' | 'registering' | 'registered' | 'uploading' | 'verifying' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
+  readonly contentId: string | null;
+  readonly retryable: boolean;
+  readonly error: string | null;
+}
+
 export type { HomeCloudAlbum };

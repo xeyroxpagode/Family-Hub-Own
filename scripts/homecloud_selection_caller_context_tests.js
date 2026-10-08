@@ -53,9 +53,21 @@ check(
     && !/const sourceKey[^;\n]*selecting/.test(code),
   'selection state is not part of the scroll/source key',
 );
+// RETARGET (ST-1/ST-6): this used to assert that NO lifecycle vocabulary
+// appeared anywhere in the Memories screen, because at ST-2 time Lifecycle did
+// not exist yet. Product Truth §19/§20 froze Lifecycle as IN and ST-1/ST-6
+// implemented it, so "no lifecycle anywhere" now contradicts the contract. The
+// invariant that still matters is that lifecycle actions are REACHED through the
+// one action authority rather than re-derived per surface.
 check(
-  !/trashMemory|restoreMemory|purgeMemory|purge-all|Papelera|Eliminar recuerdo/.test(code),
-  'P1 lifecycle actions are not exposed in the Memories UI',
+  code.includes('memoryActions') || code.includes('resolveMemoryActions') || code.includes('homecloudMemoryActions'),
+  'the screen reaches lifecycle through the ONE action authority',
+);
+check(
+  /const restoreIds = useCallback\(async \(contentIds: readonly string\[\]\)/.test(code)
+    && /const trashIds = useCallback\(async \(contentIds: readonly string\[\]\)/.test(code)
+    && /const purgeIds = useCallback\(\(contentIds: readonly string\[\]\)/.test(code),
+  'trash, restore and purge each have exactly ONE screen-level handler that takes the selected ids',
 );
 
 if (failed > 0) {

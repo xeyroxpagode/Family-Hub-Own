@@ -17,7 +17,36 @@ import {
   semanticDateValueFromDraft,
   type SemanticDateDraft,
 } from './homecloudSemanticDate';
-import type { BinaryMemoryDraft, MemoryIntakeConfig, MemoryIntakeDestination, MemoryIntakeState } from './homecloudMemoryIntakeTypes';
+import {
+  batchActiveItem,
+  batchCount,
+  batchDateError,
+  batchEffectiveAlbumId,
+  batchEffectiveCaption,
+  batchHasAlbumOverride,
+  batchHasCaptionOverride,
+  batchHasNext,
+  batchHasPrevious,
+  batchIsEmpty,
+  batchLabel,
+  batchNextIndex,
+  batchPreviousIndex,
+  batchResolvedItems,
+  batchSeedFromArtifact,
+  clearItemAlbumOverride,
+  clearItemCaptionOverride,
+  createBatchFromArtifacts,
+  resetItemDate,
+  setBatchActiveIndex,
+  setBatchAlbum,
+  setBatchCaption,
+  setItemAlbumOverride,
+  setItemCaptionOverride,
+  setItemDate,
+  type BatchSession,
+} from './homecloudMemoryBatch';
+import type { BinaryMemoryDraft, MemoryBatchAcceptedItem, MemoryBatchJobState, MemoryIntakeConfig, MemoryIntakeDestination, MemoryIntakeState } from './homecloudMemoryIntakeTypes';
+import type { MemoryBatchSeed } from './homecloudMemoryIntakeService';
 import { MemoryMediaReview } from './MemoryMediaReview';
 import { MemoryAudioRecorder, type MemoryAudioRecorderHandle } from './MemoryAudioRecorder';
 import { memoryAttemptTrace, memoryDevTrace } from './homecloudMemoryDiagnostics';
@@ -40,7 +69,7 @@ export interface MemoryIntakeProps {
   destinationsRevision?: number;
 }
 
-type Sheet = 'create' | 'camera' | 'binary' | 'recorder' | 'audio-handoff' | 'written' | null;
+type Sheet = 'create' | 'camera' | 'binary' | 'batch' | 'recorder' | 'audio-handoff' | 'written' | null;
 
 /**
  * HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION
@@ -131,6 +160,12 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
   const pendingAudioDraftRef = useRef<{ draft: BinaryMemoryDraft; attempt: MemoryAttempt } | null>(null);
   const [albums, setAlbums] = useState<MemoryIntakeDestination[]>([]);
   const [binaryDraft, setBinaryDraft] = useState<BinaryMemoryDraft | null>(null);
+  // ST-10.D — ONE batch session holds N INDEPENDENT drafts. It is a single value
+  // so that navigating between items cannot rebuild or reset the others.
+  const [batch, setBatch] = useState<BatchSession | null>(null);
+  const [batchSummary, setBatchSummary] = useState<MemoryBatchJobState[] | null>(null);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
+  const [batchFailure, setBatchFailure] = useState<string | null>(null);
   const [reviewAttempt, setReviewAttempt] = useState<MemoryAttempt | null>(null);
 const [binaryCaption, setBinaryCaption] = useState('');
   const [binaryAlbumId, setBinaryAlbumId] = useState<string | null>(initialAlbumId ?? null);
@@ -187,6 +222,10 @@ const [binaryCaption, setBinaryCaption] = useState('');
   const serviceRef = useRef(service);
   const stateRef = useRef(state);
   const binaryDraftRef = useRef<BinaryMemoryDraft | null>(binaryDraft);
+  const batchRef = useRef<BatchSession | null>(batch);
+  const batchSummaryRef = useRef<MemoryBatchJobState[] | null>(batchSummary);
+  /** Maps every batch job id back to the draft identity that produced it. */
+  const batchAcceptedRef = useRef<MemoryBatchAcceptedItem[]>([]);
   const reviewAttemptRef = useRef<MemoryAttempt | null>(reviewAttempt);
   const configRef = useRef<MemoryIntakeConfig>(config);
   // HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION — identity of this
@@ -203,6 +242,8 @@ const [binaryCaption, setBinaryCaption] = useState('');
     serviceRef.current = service;
     stateRef.current = state;
     binaryDraftRef.current = binaryDraft;
+    batchRef.current = batch;
+    batchSummaryRef.current = batchSummary;
     reviewAttemptRef.current = reviewAttempt;
     // Declared BEFORE the `[service]` effect on purpose: the diagnostic there
     // must read the config that PRODUCED this service instance, and it must
@@ -297,6 +338,28 @@ const [binaryCaption, setBinaryCaption] = useState('');
       });
   }, []);
 
+  /**
+   * ST-10.D — CANCEL THE WHOLE UNSUBMITTED BATCH.
+   *
+   * Before submission every artifact still belongs to this sheet, so cancelling
+   * releases all of them. Once a durable job exists for any item, the durable job
+   * owns that artifact and closing must NOT delete it: recovery still needs those
+   * bytes, and deleting them would destroy a recoverable upload.
+   */
+  const clearBatch = useCallback((reason: string) => {
+    const current = batchRef.current;
+    if (!current) return;
+    const hasDurableJobs = batchAcceptedRef.current.length > 0;
+    memoryDevTrace('draft_clear', { reason, batchSize: current.items.length, hasDurableJobs });
+    if (!hasDurableJobs) current.items.forEach((item) => discardDraftArtifact(item.draft));
+    batchAcceptedRef.current = [];
+    setBatch(null);
+    setBatchSummary(null);
+    setBatchFailure(null);
+    setBatchSubmitting(false);
+    service.dismissBatch();
+  }, [discardDraftArtifact, service]);
+
   /** SUCCESS contract: draft + picker transient state cleared, Create reusable. */
   const clearBinaryDraft = useCallback((reason: BinaryDraftClearReason) => {
     const draft = binaryDraftRef.current;
@@ -375,7 +438,21 @@ const active = ['preparing', 'uploading', 'verifying', 'finalizing'].includes(st
   // (the create sheet) and can never leak into the next Review.
   const pickingError = pickerFailure ?? (state.status === 'failed' ? state.error ?? 'No pudimos seleccionar la foto o el video.' : null);
 
-  const runPicker = useCallback(async (source: 'gallery' | 'audio-import', pick: (attempt: MemoryAttempt) => Promise<BinaryMemoryDraft | null>) => {
+/**
+   * THE ONE NATIVE PICKER FLOW, shared by the single-item and the batch paths.
+   *
+   * Only the COMMIT differs: gallery multi-selection hands N seeds to a batch
+   * session, while audio keeps a single draft (the audio pickers are
+   * single-selection by product). Every lifecycle guarantee — the synchronous
+   * guard, the generation counter, attempt ownership, and the `finally` release
+   * on every exit path — is therefore identical for both, which is what stops a
+   * batch from being a second, weaker picker.
+   */
+  const runPicker = useCallback(async <T,>(
+    source: 'gallery' | 'audio-import',
+    pick: (attempt: MemoryAttempt) => Promise<T | null>,
+    commit: (value: T) => void,
+  ) => {
     // TEMPORARY D6: a ref without lifecycle ownership is stale by definition.
     if (pickingRef.current && !pickerLifecycleRef.current.isBusy()) pickingRef.current = false;
     const ticket = pickerLifecycleRef.current.begin(source);
@@ -395,21 +472,12 @@ const active = ['preparing', 'uploading', 'verifying', 'finalizing'].includes(st
     // The create sheet deliberately STAYS presented while the native picker is
     // up: dismissing it first is what made the presentation illegal on iOS.
     try {
-      const draft = await pick(mediaAttempt);
-      if (!draft) return;
+      const picked = await pick(mediaAttempt);
+      if (picked === null) return;
       if (!mountedRef.current || pickerAttemptRef.current !== attempt || !attemptAuthorityRef.current.owns(mediaAttempt)) return;
-      setBinaryDraft(draft);
       acceptedDraftRef.current = null;
       setReviewAttempt(mediaAttempt);
-      setBinaryCaption('');
-      setBinaryAlbumId(initialAlbumId ?? null);
-      setBinaryDate(semanticDateDraftFromCapture(
-        draft.capture.capturedAt,
-        draft.capture.capturePrecision,
-        draft.capture.capturedYear,
-        draft.capture.capturedMonth,
-      ));
-      setSheet('binary');
+      commit(picked);
     } catch (error) {
       if (pickerAttemptRef.current === attempt && attemptAuthorityRef.current.owns(mediaAttempt)) {
         setPickerFailure('No pudimos abrir el selector. Podés volver a intentarlo o cerrar esta ventana.');
@@ -434,10 +502,55 @@ const active = ['preparing', 'uploading', 'verifying', 'finalizing'].includes(st
         if (mountedRef.current) setPicking(false);
       }
     }
-  }, [initialAlbumId, picking]);
+  }, [picking]);
 
-  const chooseMedia = useCallback(() => runPicker('gallery', (attempt) => service.pickMemory(attempt, (candidate) => attemptAuthorityRef.current.owns(candidate))), [runPicker, service]);
-  const chooseAudio = useCallback(() => runPicker('audio-import', (attempt) => service.pickAudio(attempt, (candidate) => attemptAuthorityRef.current.owns(candidate))), [runPicker, service]);
+  /** Commit a single draft into the shared single-item review. */
+  const commitSingleDraft = useCallback((draft: BinaryMemoryDraft) => {
+    setBinaryDraft(draft);
+    setBinaryCaption('');
+    setBinaryAlbumId(initialAlbumId ?? null);
+    setBinaryDate(semanticDateDraftFromCapture(
+      draft.capture.capturedAt,
+      draft.capture.capturePrecision,
+      draft.capture.capturedYear,
+      draft.capture.capturedMonth,
+    ));
+    setSheet('binary');
+  }, [initialAlbumId]);
+
+  /**
+   * ST-10.D — commit N picked assets into ONE batch session.
+   *
+   * `dedupeBatchSeeds` is applied HERE, while the source asset identity is still
+   * known, so the same file can never be submitted twice. An empty or fully
+   * duplicate selection is refused instead of opening an empty review.
+   */
+const commitBatch = useCallback((picked: readonly MemoryBatchSeed[]) => {
+    const session = createBatchFromArtifacts(picked, initialAlbumId ?? null, `batch-${Date.now()}`);
+    if (batchIsEmpty(session)) {
+      picked.forEach((seed) => discardDraftArtifact(batchSeedFromArtifact(seed).draft));
+      setPickerFailure('No pudimos preparar lo que seleccionaste. Probá de nuevo.');
+      return;
+    }
+    batchAcceptedRef.current = [];
+    service.selectDestination(initialAlbumId ?? null, initialAlbumName ?? null);
+    setBatchSummary(null);
+    setBatchFailure(null);
+    setBatch(session);
+    setSheet('batch');
+  }, [discardDraftArtifact, initialAlbumId, initialAlbumName, service]);
+
+  const chooseMedia = useCallback(() => runPicker(
+    'gallery',
+    (attempt) => service.pickMemoryBatch(attempt, (candidate) => attemptAuthorityRef.current.owns(candidate)),
+    commitBatch,
+  ), [commitBatch, runPicker, service]);
+
+  const chooseAudio = useCallback(() => runPicker(
+    'audio-import',
+    (attempt) => service.pickAudio(attempt, (candidate) => attemptAuthorityRef.current.owns(candidate)),
+    commitSingleDraft,
+  ), [commitSingleDraft, runPicker, service]);
 
 const acceptRecordedAudio = useCallback((draft: BinaryMemoryDraft, attempt: MemoryAttempt) => {
     if (!attemptAuthorityRef.current.owns(attempt)) return;
@@ -528,6 +641,77 @@ const acceptRecordedAudio = useCallback((draft: BinaryMemoryDraft, attempt: Memo
     setSheet(null);
   }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, reviewAttempt, service]);
 
+  /**
+   * ST-10.E — ONE USER ACTION, N AUTHORIZED SUBMISSIONS.
+   *
+   * `createBinaryMemories` enqueues one durable job per item through the SAME
+   * shared queue the single-item path uses, so each item keeps its own register
+   * idempotency key, its own recovery and its own real state. The guard refuses a
+   * second press of the same batch outright, so a double tap cannot enqueue the
+   * batch twice.
+   */
+  const submitBatch = useCallback(async () => {
+    const current = batchRef.current;
+    if (!current || batchSubmitting) return;
+    const dateError = batchDateError(current);
+    if (dateError) { setBatchFailure(dateError); return; }
+    setBatchSubmitting(true);
+    setBatchFailure(null);
+    try {
+      Keyboard.dismiss();
+      const accepted = await service.createBinaryMemories(batchResolvedItems(current), current.sessionId);
+      batchAcceptedRef.current = accepted;
+      // The summary is read from the DURABLE store, so it reflects real job
+      // states rather than the optimism of the moment the user pressed Save.
+      setBatchSummary(service.batchJobStates(accepted.flatMap((item) => item.jobId ? [item.jobId] : [])));
+    } catch (error) {
+      setBatchFailure(error instanceof Error ? error.message : 'No pudimos guardar estos recuerdos.');
+    } finally {
+      if (mountedRef.current) setBatchSubmitting(false);
+    }
+  }, [batchSubmitting, service]);
+
+  /** FAILED-ONLY RETRY: only the ids that actually failed are retried. */
+  const retryFailedBatchItems = useCallback(async () => {
+    const summary = batchSummaryRef.current;
+    if (!summary) return;
+    const failedIds = summary.filter((job) => job.state === 'failed').map((job) => job.jobId);
+    if (failedIds.length === 0) return;
+    setBatchSubmitting(true);
+    try {
+      await service.retryBatchJobs(failedIds);
+      setBatchSummary(service.batchJobStates(service.getBatchJobIds()));
+    } finally {
+      if (mountedRef.current) setBatchSubmitting(false);
+    }
+  }, [service]);
+
+  /**
+   * ST-10.E — HONEST CANCELLATION.
+   *
+   * Only jobs that are not yet `completed` are asked to cancel; the coordinator
+   * refuses the rest. Already-finalized items therefore stay ACTIVE and are
+   * counted as such, never reported as undone.
+   */
+  const cancelUnfinishedBatchItems = useCallback(async () => {
+    const ids = service.getBatchJobIds();
+    if (ids.length === 0) return;
+    setBatchSubmitting(true);
+    try {
+      await service.cancelBatchJobs(ids);
+      setBatchSummary(service.batchJobStates(ids));
+    } finally {
+      if (mountedRef.current) setBatchSubmitting(false);
+    }
+  }, [service]);
+
+  const closeBatch = useCallback(() => {
+    memoryDevTrace('review_close_requested', { reason: 'user_close', sheet: 'batch', hasDurableJobs: batchAcceptedRef.current.length > 0 });
+    clearBatch('review_close');
+    attemptAuthorityRef.current.invalidate(reviewAttempt ?? undefined);
+    setSheet(null);
+  }, [clearBatch, reviewAttempt]);
+
   const openRecorder = useCallback(() => {
     const attempt = attemptAuthorityRef.current.begin('audio-record', 'audio');
     recorderAttemptRef.current = attempt;
@@ -598,9 +782,9 @@ pickerAttemptRef.current += 1; pickerLifecycleRef.current.invalidate(); pickingR
     // household's context.
     const pending = pendingAudioDraftRef.current;
     if (pending) { pendingAudioDraftRef.current = null; discardDraftArtifact(pending.draft); }
-    if (!service.hasActiveJob() && !acceptingRef.current) discardDraftArtifact(binaryDraft);
-    clearBinaryDraft('focus_lost'); service.dismiss(); setSheet(null);
-  }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, isFocused, service]);
+if (!service.hasActiveJob() && !acceptingRef.current) discardDraftArtifact(binaryDraft);
+    clearBinaryDraft('focus_lost'); clearBatch('focus_lost'); service.dismiss(); setSheet(null);
+  }, [binaryDraft, clearBatch, clearBinaryDraft, discardDraftArtifact, isFocused, service]);
 
   const reRecordAudio = useCallback(() => {
     if (!binaryDraft || binaryDraft.source !== 'audio-recorder' || service.hasActiveJob()) return;
@@ -842,6 +1026,98 @@ closeDisabled={active || accepting}
        * so the recorder finished a recording and the app showed nothing at all
        * while ownership moved to the Review.
        */}
+      {/*
+       * ST-10.D — ONE batch review for the whole selection.
+       *
+       * It reuses the SAME review primitive and the SAME date editor as the
+       * single-item review: there is no second metadata engine and no second
+       * form. What is batch-specific is only the navigation between items and
+       * the explicit per-item override affordances, both of which write into the
+       * ONE session so an edit can never leak into a different item.
+       */}
+      <ActionSheet
+        visible={sheet === 'batch' && batch !== null}
+        title="Revisar recuerdos"
+        onRequestClose={closeBatch}
+        closeDisabled={batchSubmitting}
+        size="scrollable-content"
+        keyboardAware
+        footer={(
+          <View style={styles.footerActions}>
+            <AppButton
+              title={batchSubmitting ? 'Guardando…' : `Guardar ${batch === null ? 0 : batchCount(batch)} recuerdos`}
+              loading={batchSubmitting}
+              disabled={batchSubmitting || batch === null || Boolean(batch !== null && batchDateError(batch))}
+              onPress={() => void submitBatch()}
+            />
+            {batchSummary && batchUnfinishedCount(batchSummary) > 0 ? (
+              <AppButton title="Cancelar los que siguen pendientes" size="sm" variant="secondary" onPress={() => void cancelUnfinishedBatchItems()} accessibilityLabel="Cancelar los recuerdos que todavía no se guardaron" />
+            ) : null}
+          </View>
+        )}
+      >
+        {batch ? (
+          <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.form}>
+            <View style={styles.batchNav}>
+              <AppButton title="Anterior" size="sm" variant="secondary" disabled={!batchHasPrevious(batch)} onPress={() => setBatch((value) => value ? setBatchActiveIndex(value, batchPreviousIndex(value)) : value)} accessibilityLabel="Ver el recuerdo anterior" />
+              <AppText variant="caption" tone="secondary" weight="700">{batchLabel(batch)}</AppText>
+              <AppButton title="Siguiente" size="sm" variant="secondary" disabled={!batchHasNext(batch)} onPress={() => setBatch((value) => value ? setBatchActiveIndex(value, batchNextIndex(value)) : value)} accessibilityLabel="Ver el recuerdo siguiente" />
+            </View>
+            <MemoryMediaReview draft={batchActiveItem(batch)?.draft ?? batch.items[0].draft} attempt={reviewAttempt ?? undefined} />
+            <AppText variant="caption" tone="secondary">{`Este elemento: ${batchItemKindLabel(batchActiveItem(batch))}`}</AppText>
+            <MemorySemanticDateFields
+              value={batchActiveItem(batch)?.date ?? emptySemanticDateDraft()}
+              onChange={(date) => setBatch((value) => value ? setItemDate(value, value.activeIndex, date) : value)}
+              disabled={batchSubmitting}
+            />
+            <AppButton
+              title="Usar la fecha del archivo otra vez"
+              size="sm"
+              variant="secondary"
+              disabled={batchSubmitting}
+              onPress={() => setBatch((value) => value ? resetItemDate(value, value.activeIndex) : value)}
+              accessibilityLabel="Descartar la corrección de fecha de este recuerdo"
+            />
+
+            <AppInput
+              label="Texto para todos (opcional)"
+              value={batch.caption}
+              onChangeText={(text) => setBatch((value) => value ? setBatchCaption(value, text) : value)}
+              editable={!batchSubmitting}
+              placeholder="Contá algo sobre este momento…"
+              variant="multiline"
+              returnKeyType="done"
+              blurOnSubmit
+            />
+            {batchActiveItem(batch) ? (
+              <MemoryBatchOverrideRow
+                label="Texto de este recuerdo"
+                overridden={batchHasCaptionOverride(batchActiveItem(batch)!)}
+                effective={batchEffectiveCaption(batch, batchActiveItem(batch)!)}
+                onFollow={() => setBatch((value) => value ? clearItemCaptionOverride(value, value.activeIndex) : value)}
+                onOverride={(text) => setBatch((value) => value ? setItemCaptionOverride(value, value.activeIndex, text || null) : value)}
+                disabled={batchSubmitting}
+              />
+            ) : null}
+
+            {showDestinationSelector ? <MemoryAlbumSelector albums={albums} value={batch.albumId} onChange={(albumId) => { setBatch((value) => value ? setBatchAlbum(value, albumId) : value); service.selectDestination(albumId, albumId ? albums.find((album) => album.id === albumId)?.name ?? null : 'Recuerdos'); }} disabled={batchSubmitting} invalidAlbum={state.invalidAlbum === true} /> : null}
+            {batchActiveItem(batch) && showDestinationSelector ? (
+              <MemoryBatchOverrideRow
+                label="Álbum de este recuerdo"
+                overridden={batchHasAlbumOverride(batchActiveItem(batch)!)}
+                effective={batchAlbumLabel(batch, batchActiveItem(batch)!)}
+                onFollow={() => setBatch((value) => value ? clearItemAlbumOverride(value, value.activeIndex) : value)}
+                onOverride={(albumId) => setBatch((value) => value ? setItemAlbumOverride(value, value.activeIndex, albumId) : value)}
+                disabled={batchSubmitting}
+              />
+            ) : null}
+
+            {batchSummary ? <MemoryBatchSummary summary={batchSummary} accepted={batchAcceptedRef.current} onRetryFailed={() => void retryFailedBatchItems()} onClose={closeBatch} /> : null}
+            {batchFailure ? <AppText variant="bodySmall" tone="danger">{batchFailure}</AppText> : null}
+          </ScrollView>
+        ) : null}
+      </ActionSheet>
+
       <ActionSheet visible={sheet === 'audio-handoff'} title="Abrir la grabación" onRequestClose={closeCreate} size="content">
         <MemoryAudioHandoff onReady={commitPendingAudio} />
       </ActionSheet>
@@ -888,6 +1164,100 @@ closeDisabled={active || accepting}
       </ActionSheet>
     </>
   );
+}
+
+/**
+ * ST-10.D — AN EXPLICIT PER-ITEM OVERRIDE, VISIBLE AS ONE.
+ *
+ * The row always states what the item will actually use, so "common value" and
+ * "explicit exception" are never indistinguishable. Following the common value
+ * is an explicit action, which is what makes "editing the common Album must not
+ * silently erase this exception" observable rather than merely intended.
+ */
+function MemoryBatchOverrideRow({ label, overridden, effective, onFollow, onOverride, disabled }: {
+  label: string;
+  overridden: boolean;
+  effective: string | null;
+  onFollow: () => void;
+  onOverride: (value: string) => void;
+  disabled: boolean;
+}) {
+  const [own, setOwn] = useState('');
+  return (
+    <View style={styles.overrideSection}>
+      <View style={styles.overrideHeader}>
+        <AppText variant="caption" tone="secondary" weight="700">{label}</AppText>
+        <FilterChip label={overridden ? 'Distinto' : 'Igual para todos'} selected={overridden} disabled={disabled} onPress={overridden ? onFollow : () => onOverride(own)} />
+      </View>
+      <AppText variant="caption" tone="secondary">{overridden ? `Este: ${effective ?? 'Sin valor'}` : `Usa el valor común: ${effective ?? 'Sin valor'}`}</AppText>
+      {overridden ? (
+        <AppInput
+          label="Valor de este recuerdo"
+          value={own}
+          onChangeText={(text) => { setOwn(text); onOverride(text); }}
+          editable={!disabled}
+          placeholder="Vacío para dejar este recuerdo sin valor"
+          returnKeyType="done"
+          blurOnSubmit
+        />
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * ST-10.E — ONE HONEST SUMMARY, NEVER N SUCCESS ALERTS.
+ *
+ * The counts are the engine's real job states. A completed item is ACTIVE; a
+ * failed item stays NAMED and retryable; a cancelled item is reported as
+ * cancelled, not as saved. There is no path here that can report "N recuerdos
+ * guardados" while some are still failing.
+ */
+function MemoryBatchSummary({ summary, accepted, onRetryFailed, onClose }: {
+  summary: readonly MemoryBatchJobState[];
+  accepted: readonly MemoryBatchAcceptedItem[];
+  onRetryFailed: () => void;
+  onClose: () => void;
+}) {
+  const saved = summary.filter((job) => job.state === 'completed').length;
+  const failed = summary.filter((job) => job.state === 'failed');
+  const cancelled = summary.filter((job) => job.state === 'cancelled').length;
+  const refused = accepted.filter((item) => item.jobId === null);
+  const pending = summary.length - saved - failed.length - cancelled;
+  const failedNames = failed.map((job) => job.displayName);
+  return (
+    <View style={styles.summarySection}>
+      <AppText variant="bodySmall" weight="700">{`${saved} de ${summary.length + refused.length} guardados`}</AppText>
+      {pending > 0 ? <AppText variant="caption" tone="secondary">{`${pending} todavía en proceso`}</AppText> : null}
+      {cancelled > 0 ? <AppText variant="caption" tone="secondary">{`${cancelled} cancelados: no se guardaron`}</AppText> : null}
+      {failed.length > 0 ? (
+        <>
+          <AppText variant="caption" tone="danger">{`No se pudieron guardar ${failed.length}: ${failedNames.join(', ')}`}</AppText>
+          <AppButton title="Reintentar los que fallaron" size="sm" variant="secondary" onPress={onRetryFailed} accessibilityLabel="Reintentar solo los recuerdos que fallaron" />
+        </>
+      ) : null}
+      {refused.length > 0 ? <AppText variant="caption" tone="danger">{`No pudimos preparar ${refused.length}. Volvé a elegirlos para intentarlo otra vez.`}</AppText> : null}
+      {saved > 0 && failed.length === 0 && refused.length === 0 && pending === 0 ? <AppButton title="Listo" onPress={onClose} /> : null}
+      {failed.length > 0 || refused.length > 0 ? <AppButton title="Cerrar y volver" variant="secondary" onPress={onClose} /> : null}
+    </View>
+  );
+}
+
+/** How many jobs have not reached a terminal state yet. */
+function batchUnfinishedCount(summary: readonly MemoryBatchJobState[]): number {
+  return summary.filter((job) => job.state !== 'completed' && job.state !== 'cancelled').length;
+}
+
+/** The media kind of the item currently being edited, in honest words. */
+function batchItemKindLabel(item: { draft: BinaryMemoryDraft } | null): string {
+  return item !== null && item.draft.artifact.mimeType.startsWith('video/') ? 'Video' : 'Foto';
+}
+
+/** The Album an item will actually be saved into, by name. */
+function batchAlbumLabel(session: BatchSession, item: BatchSession['items'][number]): string {
+  const albumId = batchEffectiveAlbumId(session, item);
+  if (albumId === null) return 'Sin álbum';
+  return albumId;
 }
 
 /**
@@ -982,4 +1352,8 @@ const styles = StyleSheet.create({
 error: { gap: spacing[2], alignItems: 'flex-start' },
   handoff: { gap: spacing[3], alignItems: 'center', paddingVertical: spacing[4] },
   footerActions: { gap: spacing[2] },
+  batchNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[2] },
+  overrideSection: { gap: spacing[2] },
+  overrideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[2] },
+  summarySection: { gap: spacing[2], alignItems: 'flex-start' },
 });
