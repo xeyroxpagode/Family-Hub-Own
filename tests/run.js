@@ -52,6 +52,9 @@ const RUNTIME_ENVIRONMENT = {
   'homecloud-files-hierarchy-migration': [
     'LOCAL_DATABASE_URL',
   ],
+  'homecloud-files-lifecycle-migration': [
+    'LOCAL_DATABASE_URL',
+  ],
   // STAGE 2 REOPEN — the integrated suite is now part of a canonical gate, so it must
   // degrade the same way every other LOCAL_RUNTIME_REQUIRED step does: reported as
   // SKIPPED when the stack is absent, and actually RUN when it is present. Without this
@@ -87,6 +90,7 @@ const suiteClass = {
   'homecloud-s4ii-search-runtime': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-files-hierarchy-runtime': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-files-hierarchy-migration': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-files-lifecycle-migration': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-stage2-integrated': 'LOCAL_RUNTIME_REQUIRED',
 };
 
@@ -541,6 +545,17 @@ const commands = {
       'HomeCloud Files nested folder hierarchy migration safety (isolated local DBs)',
       'node',
       ['scripts/homecloud_files_hierarchy_migration_tests.js'],
+    ),
+  },
+  // Lifecycle V1 (Trash / Restore / Purge). LOCAL_RUNTIME_REQUIRED: it proves
+  // the migration, the state machine and the worker primitives against real
+  // PostgreSQL, inside throwaway databases it creates and drops itself.
+  'homecloud-files-lifecycle-migration': {
+    label: 'HomeCloud Files lifecycle V1 migration + state machine safety (isolated local DBs)',
+    run: () => runCommand(
+      'HomeCloud Files lifecycle V1 migration + state machine safety (isolated local DBs)',
+      'node',
+      ['scripts/homecloud_files_lifecycle_migration_tests.js'],
     ),
   },
   'homecloud-files-favorites-runtime': {
@@ -1299,6 +1314,7 @@ const suites = {
     'homecloud-w1bc-pagination-reconciliation',
   ],
   'homecloud-files-hierarchy': ['homecloud-files-hierarchy-ui', 'homecloud-files-hierarchy-runtime', 'homecloud-files-hierarchy-migration'],
+  'homecloud-files-lifecycle': ['homecloud-files-lifecycle-migration'],
   'homecloud-s4ii': ['homecloud-s4ii-search-contract', 'homecloud-s4ii-document-date'],
   'homecloud-s4iii': ['homecloud-s4iii-files-hasmore', 'homecloud-s4iii-files-surface'],
   'homecloud-3a-3d': ['homecloud-3a-3d-acceptance'],
