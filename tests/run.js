@@ -462,6 +462,10 @@ const commands = {
     runCommand('HomeCloud HC2-B Slice 0 compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2b_test.json']);
     return runCommand('HomeCloud HC2-B Slice 0 tests', 'node', ['scripts/compiled-hc2b/scripts/homecloud_hc2b_media_viewer_tests.js']);
   },
+  'homecloud-st9-media-reliability': () => {
+    runCommand('HomeCloud ST-9 media reliability compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2b_test.json']);
+    return runCommand('HomeCloud ST-9 media reliability tests', 'node', ['scripts/compiled-hc2b/scripts/homecloud_st9_media_reliability_tests.js']);
+  },
   'homecloud-1f-dto-leak': () => runCommand(
     'HomeCloud 1F DTO leak regression tests',
     'node',
@@ -1160,6 +1164,14 @@ typecheck: ['frontend-typecheck', 'test-typecheck'],
     'homecloud-st5-written-share',
     'homecloud-st5-share-temp-cleanup',
     'homecloud-st5-multishare-contract',
+    'frontend-typecheck',
+  ],
+  'homecloud-st9': [
+    'homecloud-hc2b-media-viewer-contract',
+    'homecloud-st9-media-reliability',
+    'homecloud-viewer-immersive',
+    'homecloud-viewer-loading-states',
+    'homecloud-viewer-no-nested-modal',
     'frontend-typecheck',
   ],
   lint: ['backend-syntax', 'backend-eslint', 'frontend-lint'],

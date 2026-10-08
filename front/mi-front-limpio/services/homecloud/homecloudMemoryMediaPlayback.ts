@@ -135,6 +135,37 @@ export function audioSeekTarget(ratio: unknown, duration: unknown): number | nul
   return Math.min(total, Math.max(0, clampedRatio * total));
 }
 
+export function mediaSeekByTarget(currentTime: unknown, duration: unknown, deltaSeconds: number): number | null {
+  const position = validMediaDuration(currentTime);
+  const total = validMediaDuration(duration);
+  if (position === null || total === null || total <= 0 || !Number.isFinite(deltaSeconds)) return null;
+  return Math.min(total, Math.max(0, position + deltaSeconds));
+}
+
+export const AUDIO_PLAYBACK_RATES = [0.5, 1, 1.5, 2] as const;
+export type AudioPlaybackRate = typeof AUDIO_PLAYBACK_RATES[number];
+
+export function isAudioPlaybackRate(value: unknown): value is AudioPlaybackRate {
+  return typeof value === 'number' && AUDIO_PLAYBACK_RATES.includes(value as AudioPlaybackRate);
+}
+
+export function audioSampleAmplitudes(
+  channels: readonly { readonly frames: readonly number[] }[],
+  buckets = 24,
+): number[] {
+  const width = Number.isInteger(buckets) && buckets > 0 ? buckets : 24;
+  const frames = channels.flatMap((channel) => channel.frames);
+  if (frames.length === 0) return [];
+  const bucketSize = Math.max(1, Math.floor(frames.length / width));
+  const amplitudes: number[] = [];
+  for (let index = 0; index < frames.length && amplitudes.length < width; index += bucketSize) {
+    const slice = frames.slice(index, index + bucketSize);
+    const peak = slice.reduce((max, frame) => Math.max(max, Math.abs(frame)), 0);
+    amplitudes.push(Math.min(1, Math.max(0, peak)));
+  }
+  return amplitudes;
+}
+
 /**
  * How a media failure is described to the user.
  *

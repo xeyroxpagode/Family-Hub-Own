@@ -8,7 +8,8 @@ import { colors, spacing, touchTargets } from '../../constants/theme';
 import type { HomeCloudMemoryListItem } from '../../services/homecloud/homecloudTypes';
 import { memoryPrimaryText, memorySemanticLabel } from '../../services/homecloud/homecloudMemoriesTimeline';
 import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
-import { getMemoryOriginalUrl } from '../../services/homecloud/homecloudMemoryOriginal';
+import { evictMemoryOriginalUrl, getMemoryOriginalUrl } from '../../services/homecloud/homecloudMemoryOriginal';
+import { evictMemoryPreviewUrl } from '../../services/homecloud/homecloudMemoryPreview';
 import { isMemoryMediaKind, mediaPlaybackAuthorized } from '../../services/homecloud/homecloudMemoryMediaPlayback';
 import {
   beginMemoryViewerOpening,
@@ -250,7 +251,7 @@ function ViewerPage({ memory, accessToken, width, active, authorized, onTap }: {
   if (memory.kind === 'video') return <MemoryVideoPage memory={memory} accessToken={accessToken} active={active} authorized={authorized} width={width} />;
   if (memory.kind === 'audio') return <MemoryAudioPage memory={memory} accessToken={accessToken} active={active} authorized={authorized} width={width} />;
   if (isMemoryMediaKind(memory.kind)) return <MediaPlaceholder width={width} />;
-  return <ImagePage memory={memory} accessToken={accessToken} width={width} onTap={onTap} />;
+  return <ImagePage memory={memory} accessToken={accessToken} width={width} active={active} onTap={onTap} />;
 }
 
 function WrittenPage({ memory, width, onTap }: { memory: HomeCloudMemoryListItem; width: number; onTap: () => void }) {
@@ -284,18 +285,29 @@ function MediaPlaceholder({ width }: { width: number }) {
  * a retry is a fresh presentation of the same image, not a continuation of a
  * half-zoomed one.
  */
-function ImagePage({ memory, accessToken, width, onTap }: { memory: HomeCloudMemoryListItem; accessToken: string | null; width: number; onTap: () => void }) {
+function ImagePage({ memory, accessToken, width, active, onTap }: { memory: HomeCloudMemoryListItem; accessToken: string | null; width: number; active: boolean; onTap: () => void }) {
   const preview = useMemoryPreviewUrl(accessToken, memory.id, memory.hasPreview);
   const [original, setOriginal] = useState<string | null>(null); const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const scale = useRef(new Animated.Value(1)).current; const translate = useRef(new Animated.ValueXY()).current; const scaleValue = useRef(1); const startDistance = useRef<number | null>(null); const startScale = useRef(1);
-  useEffect(() => { setOriginal(null); setFailed(false); scale.setValue(1); translate.setValue({ x: 0, y: 0 }); scaleValue.current = 1; if (!accessToken) { setFailed(true); return; } void getMemoryOriginalUrl(accessToken, memory.id).then(setOriginal).catch(() => setFailed(true)); }, [accessToken, attempt, memory.id, scale, translate]);
+  useEffect(() => {
+    setOriginal(null); setFailed(false); scale.setValue(1); translate.setValue({ x: 0, y: 0 }); scaleValue.current = 1;
+    if (!active) return;
+    if (!accessToken) { setFailed(true); return; }
+    const controller = new AbortController();
+    void getMemoryOriginalUrl(accessToken, memory.id, { signal: controller.signal, forceRefresh: attempt > 0 }).then(setOriginal).catch((error: unknown) => {
+      if (error instanceof Error && error.name === 'AbortError') return;
+      setFailed(true);
+    });
+    return () => controller.abort();
+  }, [accessToken, active, attempt, memory.id, scale, translate]);
   const responder = useRef(PanResponder.create({ onStartShouldSetPanResponder: (event) => event.nativeEvent.touches.length > 1, onMoveShouldSetPanResponder: (event) => event.nativeEvent.touches.length > 1 || scaleValue.current > 1.01,
     onPanResponderGrant: (event) => { const t=event.nativeEvent.touches; if(t.length>1){ startDistance.current=Math.hypot(t[0].pageX-t[1].pageX,t[0].pageY-t[1].pageY); startScale.current=scaleValue.current; } },
     onPanResponderMove: (event, gesture) => { const t=event.nativeEvent.touches; if(t.length>1 && startDistance.current){ const next=Math.max(1,Math.min(3,startScale.current*Math.hypot(t[0].pageX-t[1].pageX,t[0].pageY-t[1].pageY)/startDistance.current)); scaleValue.current=next; scale.setValue(next); } else if(scaleValue.current>1.01) translate.setValue({x: Math.max(-width,Math.min(width,gesture.dx)),y:Math.max(-500,Math.min(500,gesture.dy))}); },
     onPanResponderRelease: () => { startDistance.current=null; if(scaleValue.current<=1.01){ scaleValue.current=1; Animated.parallel([Animated.spring(scale,{toValue:1,useNativeDriver:true}),Animated.spring(translate,{toValue:{x:0,y:0},useNativeDriver:true})]).start(); } }, onPanResponderTerminationRequest: () => scaleValue.current <= 1.01 })).current;
   const uri = original ?? (preview.phase === 'ready' ? preview.url : null);
-  return <Pressable style={[styles.imagePage,{width}]} onPress={onTap} {...responder.panHandlers}>{uri ? <Animated.Image source={{ uri }} resizeMode="contain" style={[styles.image,{transform:[{translateX:translate.x},{translateY:translate.y},{scale}]}]} onError={() => setFailed(true)} /> : <View style={styles.state}>{failed ? null : <ActivityIndicator color={colors.text.inverse}/>}<AppText tone="inverse" align="center">{failed ? 'No pudimos mostrar este recuerdo.' : 'Cargando recuerdo…'}</AppText>{failed ? <AppButton title="Reintentar" variant="secondary" size="sm" onPress={() => setAttempt((value) => value + 1)} accessibilityLabel="Reintentar cargar este recuerdo" /> : null}</View>}</Pressable>;
+  if (!active && uri === null) return <View style={[styles.placeholder, { width }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />;
+  return <Pressable style={[styles.imagePage,{width}]} onPress={onTap} {...responder.panHandlers}>{uri ? <Animated.Image source={{ uri }} resizeMode="contain" style={[styles.image,{transform:[{translateX:translate.x},{translateY:translate.y},{scale}]}]} onError={() => { evictMemoryOriginalUrl(memory.id); evictMemoryPreviewUrl(memory.id); setOriginal(null); setFailed(true); }} /> : <View style={styles.state}>{failed ? null : <ActivityIndicator color={colors.text.inverse}/>}<AppText tone="inverse" align="center">{failed ? 'No pudimos mostrar este recuerdo.' : active ? 'Cargando recuerdo…' : 'Cargando vista previa…'}</AppText>{failed ? <AppButton title="Reintentar" variant="secondary" size="sm" onPress={() => setAttempt((value) => value + 1)} accessibilityLabel="Reintentar cargar este recuerdo" /> : null}</View>}</Pressable>;
 }
 
 /**

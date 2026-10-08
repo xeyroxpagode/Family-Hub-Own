@@ -20,9 +20,11 @@ import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
  * - image:   real thumbnail via ephemeral signed preview (variant=preview).
  *            Expired / failed / unavailable previews fall back to a neutral
  *            visual. Never the original, never a fabricated image.
- * - video:   NO poster is fabricated (backend has no video decoder). Neutral
- *            surface + play affordance + honest caption/date metadata. A
- *            future hasPreview=true video reuses the same generic contract.
+ * - video:   real poster via ephemeral signed preview (variant=preview) when
+ *            `hasPreview` is true. The backend never generates video posters
+ *            today, so the tile normally shows the neutral surface + play
+ *            affordance; a future `hasPreview=true` video reuses this same
+ *            contract. No poster is ever fabricated.
  * - audio:   NO waveform is fabricated. Neutral surface + audio icon +
  *            caption/date. No playback in this slice.
  * - written: writtenText IS the content (visually truncated, canonically
@@ -67,7 +69,7 @@ export function MemoryCard({
     case 'image':
       return <MemoryImageTile memory={memory} accessToken={accessToken} />;
     case 'video':
-      return <MemoryVideoTile memory={memory} />;
+      return <MemoryVideoTile memory={memory} accessToken={accessToken} />;
     case 'audio':
       return <MemoryAudioTile memory={memory} />;
     case 'written':
@@ -162,19 +164,38 @@ function MemoryImageTile({
 
 function MemoryVideoTile({
   memory,
+  accessToken,
 }: {
   memory: HomeCloudMemoryListItem;
+  accessToken: string | null;
 }) {
   const label = tileAccessibilityLabel(memory, 'Video');
+  const preview = useMemoryPreviewUrl(accessToken, memory.id, memory.hasPreview);
+  const [imageFailed, setImageFailed] = React.useState(false);
+  React.useEffect(() => {
+    setImageFailed(false);
+  }, [memory.id]);
+  const showPoster = preview.phase === 'ready' && !imageFailed;
   return (
     <View style={styles.tile}>
-      <View style={[styles.visual, styles.videoVisual]}>
-        <View accessibilityRole="image" accessibilityLabel={label} style={styles.videoIcon}>
-          <HomePlusIcon name="videocam" size={30} color={colors.text.tertiary} />
+      {showPoster ? (
+        <Image
+          source={{ uri: preview.phase === 'ready' ? preview.url : '' }}
+          resizeMode="cover"
+          onError={() => setImageFailed(true)}
+          accessibilityRole="image"
+          accessibilityLabel={label}
+          style={styles.visual}
+        />
+      ) : (
+        <View style={[styles.visual, styles.videoVisual]}>
+          <View accessibilityRole="image" accessibilityLabel={label} style={styles.videoIcon}>
+            <HomePlusIcon name="videocam" size={30} color={colors.text.tertiary} />
+          </View>
         </View>
-        <View style={styles.playBadge}>
-          <HomePlusIcon name="play" size={12} color={colors.text.inverse} />
-        </View>
+      )}
+      <View style={styles.playBadge}>
+        <HomePlusIcon name="play" size={12} color={colors.text.inverse} />
       </View>
       <TileCaption memory={memory} />
     </View>

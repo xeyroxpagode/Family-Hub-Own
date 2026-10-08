@@ -209,7 +209,13 @@ check((videoCode.match(/getMemoryOriginalUrl\(/g) ?? []).length === 1 && /functi
 // non-releasing `createVideoPlayer` factory.
 check(!/player\.(remove|release)\(/.test(videoCode) && !/createVideoPlayer/.test(videoCode), 'the Video page adds no manual release on top of the hook-owned one');
 check(/player\.pause\(\)/.test(videoCode) && /if \(authorized\) return;/.test(videoCode), 'a revoked lifecycle intent pauses the player that is still mounted');
-check(!/transcod|poster|Poster|saveToFiles|Sharing|shareAsync|expo-sharing/.test(videoCode), 'HC2-B video invents no poster, no transcode and no Save/Share action');
+// ST-9 RETARGET (FINAL_PRODUCT_TRUTH §15.4, PLAN ST-9 slice VID-02): the poster
+// is IN. The page consumes the real signed preview when `hasPreview` exists
+// and names the honest no-poster state otherwise. Still no transcode and no
+// Save/Share fabrication.
+check(/useMemoryPreviewUrl/.test(videoCode) && /posterUrl/.test(videoCode), 'ST-9 video consumes the real signed preview as a poster when one exists');
+check(/posterLoading/.test(videoCode) && /Preparando video/.test(videoCode), 'ST-9 video names the honest no-poster state instead of a black square');
+check(!/transcod|saveToFiles|Sharing|shareAsync|expo-sharing/.test(videoCode), 'ST-9 video still invents no transcode and no Save/Share action');
 
 // PAGER + LIFECYCLE, as code-level integration.
 check(/onScrollBeginDrag=\{beginPagerDrag\}/.test(viewer), 'a pager drag immediately revokes playback authorization');
@@ -258,7 +264,13 @@ check(!/currentTime/.test(codeOf(viewer)), 'the Viewer does not lift high-freque
 check(/catch\(\(\) => setSeekFailed\(true\)\)/.test(audioCode) && /No pudimos mover la posición/.test(audioCode), 'a failed seek becomes an honest message instead of being swallowed');
 check(!/\{status\.error\}/.test(audioCode) && !/\{error\}/.test(audioCode), 'the raw native error string is never rendered');
 check(/Posición no disponible/.test(audioCode), 'an unknown duration renders an honest position, not a fake one');
-check(!/waveform|Waveform|sampleListener|useAudioSampleListener/.test(audioCode), 'HC2-B audio fabricates no waveform');
+// ST-9 RETARGET (FINAL_PRODUCT_TRUTH §16.3): a fake waveform stays forbidden,
+// and the real audio-derived waveform is IN. The page may draw ONLY native
+// sampler frames, gated on `isAudioSamplingSupported`, with an honest
+// fallback otherwise.
+check(/useAudioSampleListener/.test(audioCode) && /isAudioSamplingSupported/.test(audioCode), 'ST-9 audio derives its waveform exclusively from the native sampler');
+check(!/Math\.random/.test(audioCode), 'ST-9 audio generates no synthetic waveform data');
+check(/no disponible en este dispositivo/.test(audioCode) && /al reproducir/.test(audioCode), 'ST-9 audio states the honest fallback when sampling is unsupported or silent');
 
 // CAPTURE BOUNDARY (§56): the Viewer must not touch recording configuration.
 check(!/setAudioModeAsync|useAudioRecorder|RecordingPresets|requestRecordingPermissions|allowsRecording|stopAndDiscard/.test(audioCode), 'the Viewer playback page never reopens recording or audio-session configuration');
