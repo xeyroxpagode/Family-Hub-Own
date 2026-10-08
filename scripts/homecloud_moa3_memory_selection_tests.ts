@@ -1167,13 +1167,14 @@ record(
   'no Memory delete, trash, restore, purge or hidden affordance exists',
 );
 record(
-  /Marcar como favorito|Quitar de favoritos/.test(SCREEN_CODE) && !/Favorit|favorit|favorite/i.test(HEADER_CODE + TILE_CODE + COLLECTIONS_CODE),
-  'Favorites appears exactly once in the screen selection sheet (ST-5), never in header/tiles/collections',
+  /Marcar como favorito|Quitar de favoritos/.test(SCREEN_CODE)
+    && /FavoritesTile|Abrir Favoritos|kind: 'favorites'/.test(TILE_CODE + COLLECTIONS_CODE),
+  'Favorites is now both a selection action and the P3 smart collection tile',
 );
 record(
-  !/Resurfac|resurfac/i.test(SCREEN_CODE + COLLECTIONS_CODE)
+  /resurfacing|Para volver a ver/.test(SCREEN_CODE + COLLECTIONS_CODE)
     && !('query' in buildMemoryCollectionQuery({ kind: 'type', memoryKind: 'image' }, 50, 0)),
-  'neither Resurfacing nor a Search filter is introduced',
+  'P3 introduces exact-only resurfacing without introducing a Search filter into type collections',
 );
 record(
   !/People|Pets|Trips|Places|Faces|Objects|OCR|Homi|homi/i.test(COLLECTIONS_CODE + TILE_CODE),
@@ -1534,8 +1535,8 @@ record(
   'the destination sheet is built from the Albums the owner already loaded',
 );
 record(
-  !/createAlbum\(/.test(SCREEN_CODE.split('destinationPickerOpen')[2] ?? ''),
-  'creating an Album from inside the destination sheet is NOT required and NOT implemented',
+  /createAlbumForSelection/.test(SCREEN_CODE) && /addMemoryToAlbum\(token, album\.id/.test(SCREEN_CODE),
+  'creating an Album from inside the destination sheet attaches the current selection to it',
 );
 
 // ===========================================================================

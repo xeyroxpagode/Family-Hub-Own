@@ -102,7 +102,8 @@ await check('purge-all reuses the single-memory purge primitive', () => {
 });
 
 await check('normal reads exclude trashed memories SQL-side', () => {
-  assert.match(readServiceSource, /function applyMemoryFilters[\s\S]*\.eq\('lifecycle', 'active'\)/);
+  assert.match(readServiceSource, /function normalizeMemoryLifecycle[\s\S]*return 'active'/);
+  assert.match(readServiceSource, /function applyMemoryFilters[\s\S]*\.eq\('lifecycle', lifecycle\)/);
   assert.match(readServiceSource, /aggregateAlbums[\s\S]*\.eq\('homecloud_contents\.lifecycle', 'active'\)/);
   assert.match(readServiceSource, /assertMemoryAlbumFilter[\s\S]*\.eq\('lifecycle', 'active'\)/);
   assert.match(readServiceSource, /getContentById[\s\S]*\.eq\('lifecycle', 'active'\)/);

@@ -261,9 +261,15 @@ const detailCode = code('front/mi-front-limpio/components/homecloud/AlbumDetailV
     'the single-Memory removal OPERATION is preserved for Run B as an exported seam',
   );
 
-  // C3 — Album create CTA and cover states.
-  check(/\+ Nuevo/.test(rail) && rail.includes('accessibilityLabel="Nuevo álbum"'), 'the section header offers a labelled + Nuevo');
-  check(!/variant="icon"[\s\S]{0,120}accessibilityLabel="Nuevo álbum"/.test(rail), 'the + Nuevo is NOT an icon-circle button');
+  // C3 — Album rail smart collections, final create tile, and cover states.
+  check(
+    rail.includes('function FavoritesTile') && rail.includes('accessibilityLabel="Abrir Favoritos"') && rail.includes('onOpenFavorites'),
+    'the rail starts with the Favoritos smart collection tile',
+  );
+  check(
+    /<FavoritesTile[\s\S]*?\{albums\.map[\s\S]*?<AlbumTile[\s\S]*?\{canOrganize \? <CreateAlbumTile/.test(rail),
+    'the album creation affordance is the final rail tile after real Albums',
+  );
   check(read('front/mi-front-limpio/components/homecloud/AlbumTile.tsx').includes('AlbumCoverLoading'), 'a resolving cover has its own loading state');
   check(read('front/mi-front-limpio/components/homecloud/AlbumTile.tsx').includes("preview.phase === 'idle' || preview.phase === 'loading'"), 'only idle/loading are treated as loading: an error is not a skeleton');
   check(read('front/mi-front-limpio/components/homecloud/AlbumTile.tsx').includes('albumItemCountLabel(album.itemCount)'), 'the exact Album aggregate stays verbatim');
@@ -293,7 +299,11 @@ const detailCode = code('front/mi-front-limpio/components/homecloud/AlbumDetailV
   check(scopeCode.includes('ALBUM_DELETE_MEMORIES_SURVIVE_COPY'), 'that copy is still an exported constant');
   check(scopeCode.includes('albumRemoveSelectionLabel'), 'the membership removal label is still owned here');
   check(!/trash|papelera|\brestore\b|purge/i.test(scopeCode), 'no Trash / restore / purge surface exists in the Album scope module');
-  check(!/trash|papelera|purge/i.test(screenCode + cardsCode + detailCode), 'and none is rendered anywhere in the Memories surfaces');
+  check(
+    screenCode.includes("action.id === 'trash'") && screenCode.includes("action.id === 'purge'")
+      && !cardsCode.includes('papelera') && !detailCode.includes('papelera'),
+    'P3 lifecycle actions are routed by the Memories screen, never by Album cards or detail membership UI',
+  );
 }
 
 console.log(failed === 0 ? '\nHC2C_MEMORIES_ROOT_TESTS=PASS' : `\nHC2C_MEMORIES_ROOT_TESTS=FAIL fail=${failed}`);

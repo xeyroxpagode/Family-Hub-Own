@@ -138,6 +138,12 @@ export interface HomeCloudMemoriesQuery {
    *   the server rejects 'album' without it instead of guessing.
    */
   readonly order?: HomeCloudMemoriesOrder;
+  /** Explicit lifecycle read mode. Defaults to active; trash surface asks for trashed. */
+  readonly lifecycle?: 'active' | 'trashed';
+  /** Smart collection filter for household-shared favorites. */
+  readonly favorite?: boolean;
+  /** Exact, active, not-hidden resurfacing candidates. */
+  readonly resurfacing?: boolean;
 }
 
 /** Canonical Memories read modes. */

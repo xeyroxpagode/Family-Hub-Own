@@ -61,6 +61,7 @@ export function MemoryCollectionDetailView({
   onToggle,
   onOpenMemory,
   onLongPressMemory,
+  headerRight,
 }: {
   /** The collection's own name (Fotos / Videos / Audios / Notas, or an Album). */
   title: string;
@@ -74,6 +75,7 @@ export function MemoryCollectionDetailView({
   onToggle: (contentId: string) => void;
   onOpenMemory: (memory: HomeCloudMemoryListItem) => void;
   onLongPressMemory: (contentId: string) => void;
+  headerRight?: React.ReactNode;
 }) {
   /**
    * A type collection is read with `order: 'timeline'` and keeps the DEFAULT
@@ -91,8 +93,8 @@ export function MemoryCollectionDetailView({
   // to retry and nothing to empty out.
   if (state.missing) {
     return (
-      <View style={styles.screen} accessibilityViewIsModal>
-        <Header title={title} onBack={onBack} />
+        <View style={styles.screen} accessibilityViewIsModal>
+        <Header title={title} onBack={onBack} right={headerRight} />
         <View style={styles.center}>
           <AppText variant="title3" weight="800" align="center">
             {'Este álbum ya no está disponible'}
@@ -108,7 +110,7 @@ export function MemoryCollectionDetailView({
 
   return (
     <View style={styles.screen} accessibilityViewIsModal>
-      <Header title={title} onBack={onBack} />
+      <Header title={title} onBack={onBack} right={headerRight} />
       {state.loading && state.memories.length === 0 ? (
         <View style={styles.body}>
           <Skeleton variant="card" height={128} />
@@ -211,7 +213,7 @@ export function MemoryCollectionDetailView({
   );
 }
 
-function Header({ title, onBack }: { title: string; onBack: () => void }) {
+function Header({ title, onBack, right }: { title: string; onBack: () => void; right?: React.ReactNode }) {
   return (
     <View style={styles.header}>
       <AppButton variant="icon" size="sm" onPress={onBack} accessibilityLabel="Volver a los recuerdos">
@@ -220,7 +222,7 @@ function Header({ title, onBack }: { title: string; onBack: () => void }) {
       <AppText variant="title3" weight="800" style={styles.headerTitle} numberOfLines={1}>
         {title}
       </AppText>
-      <View style={styles.headerSpacer} />
+      {right ?? <View style={styles.headerSpacer} />}
     </View>
   );
 }

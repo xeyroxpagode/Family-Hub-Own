@@ -63,7 +63,9 @@ async function check(label, fn) {
 
   await check('Viewer actions are computed by the ONE authority with surface viewer', () => {
     assert.match(screen, /surface: 'viewer'/);
-    assert.match(screen, /caller: viewer\?\.source\.kind === 'album' \? 'album' : 'root'/);
+    assert.match(screen, /caller: viewer\?\.source\.kind === 'album' \? 'album'/);
+    assert.match(screen, /viewer\.source\.collection\.kind === 'trash' \? 'trash'/);
+    assert.match(screen, /viewer\.source\.collection\.kind === 'resurfacing' \? 'resurfacing'/);
   });
 
   await check('Agregar a un álbum from the Viewer enters the SAME destination picker (N:M preserved)', () => {
@@ -97,9 +99,11 @@ async function check(label, fn) {
     assert.doesNotMatch(window, /Quitar de favoritos/);
   });
 
-  await check('no future action is exposed prematurely', () => {
-    assert.doesNotMatch(screen, /Mover a papelera/);
-    assert.doesNotMatch(screen, /No mostrar este recuerdo/);
+  await check('P3 lifecycle actions stay in the authority-driven screen host', () => {
+    assert.match(screen, /action\.id === 'trash'/);
+    assert.match(screen, /action\.id === 'restore'/);
+    assert.match(screen, /action\.id === 'purge'/);
+    assert.match(screen, /action\.id === 'hideFromResurfacing'/);
     assert.doesNotMatch(viewer, /Mover a papelera/);
     assert.doesNotMatch(viewer, /No mostrar este recuerdo/);
   });

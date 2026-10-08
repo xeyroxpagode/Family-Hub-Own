@@ -189,8 +189,19 @@ const getAlbumItemsController = async (req, res) => {
  */
 const listMemoriesController = async (req, res) => {
   try {
-    const { limit, offset, year, albumId, query, kind, order } = req.query ?? {};
-    const result = await listMemories(req, { limit, offset, year, albumId, query, kind, order });
+    const { limit, offset, year, albumId, query, kind, order, lifecycle, favorite, resurfacing } = req.query ?? {};
+    const result = await listMemories(req, {
+      limit,
+      offset,
+      year,
+      albumId,
+      query,
+      kind,
+      order,
+      lifecycle,
+      favorite,
+      resurfacing,
+    });
 
     await telemetry.track('homecloud_memories_list', {
       result: 'success',

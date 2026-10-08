@@ -102,7 +102,7 @@ async function check(label, fn) {
     const i = screen.indexOf('<MemoryViewer\n');
     assert.ok(i !== -1, 'the Viewer JSX invocation must exist');
     const window = screen.slice(i, i + 900);
-    assert.match(window, /canOrganize=\{canOrganize\}/);
+    assert.match(window, /canOrganize=\{canOrganize && !\(viewer\.source\.kind === 'collection' && viewer\.source\.collection\.kind === 'trash'\)\}/);
     assert.match(window, /onToggleFavorite=\{\(\) => toggleFavorite\(viewer\.activeContentId\)\}/);
   });
 
@@ -112,9 +112,11 @@ async function check(label, fn) {
     assert.match(types, /HOUSEHOLD_SHARED favorite/);
   });
 
-  await check('no Favorites smart collection is implemented in ST-5 (P3 scope)', () => {
-    assert.doesNotMatch(screen, /Favoritos/);
-    assert.doesNotMatch(read('front/mi-front-limpio/components/homecloud/AlbumsRail.tsx'), /Favoritos/);
+  await check('P3 implements Favorites as the first smart collection tile in the Albums rail', () => {
+    const rail = read('front/mi-front-limpio/components/homecloud/AlbumsRail.tsx');
+    assert.match(rail, /<FavoritesTile onPress=\{onOpenFavorites\} \/>[\s\S]*albums\.map/);
+    assert.match(rail, />Favoritos</);
+    assert.match(screen, /openFavorites/);
   });
 
   console.log(`\nST5_FAVORITE_ACTIONS_RESULT fail=${failed}`);

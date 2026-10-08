@@ -982,15 +982,15 @@ record(
 record(
   solveAlbumsRailPhase({ albums: [], loading: false, refreshing: false, error: null }) === 'ready-empty'
     && !RAIL_CODE.includes('if (!canOrganize) return null;')
-    && /phase === 'ready-empty'[\s\S]*?canOrganize \? <AppButton title="Crear álbum"/.test(RAIL_CODE),
+    && /phase === 'ready-empty'[\s\S]*?\{canOrganize \? <CreateAlbumTile/.test(RAIL_CODE),
   'the zero-Album state stays visible to every member and only organizers see create',
 );
 record(
-  RAIL.includes('Crear álbum') && RAIL_CODE.includes('{canOrganize ? ('),
+  RAIL.includes('Nuevo álbum') && RAIL_CODE.includes('{canOrganize ? <CreateAlbumTile'),
   'the create affordance (rail + and empty state) is organize-only',
 );
 record(
-  RAIL_CODE.includes('{canOrganize ? (') && RAIL.includes('onAlbumActions'),
+  RAIL_CODE.includes('canOrganize={canOrganize}') && RAIL.includes('onAlbumActions'),
   'the per-tile ellipsis is organize-only',
 );
 record(

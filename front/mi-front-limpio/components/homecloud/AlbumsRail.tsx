@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { colors, radius, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
-import { ALBUMS_EMPTY_BODY, ALBUMS_EMPTY_TITLE, ALBUMS_RAIL_TITLE } from '../../services/homecloud/homecloudAlbumScope';
+import { ALBUMS_EMPTY_BODY, ALBUMS_RAIL_TITLE } from '../../services/homecloud/homecloudAlbumScope';
 import { solveAlbumsRailPhase, type AlbumsRailState } from '../../services/homecloud/homecloudAlbumsPagination';
 import type { HomeCloudAlbum } from '../../services/homecloud/homecloudTypes';
 import { AppButton, AppText, ErrorState, Skeleton } from '../ui';
@@ -40,6 +40,7 @@ export function AlbumsRail({
   onOpenAlbum,
   onAlbumActions,
   onCreateAlbum,
+  onOpenFavorites,
   onRetry,
 }: {
   albums: readonly HomeCloudAlbum[];
@@ -51,6 +52,7 @@ export function AlbumsRail({
   onOpenAlbum: (album: HomeCloudAlbum) => void;
   onAlbumActions: (album: HomeCloudAlbum) => void;
   onCreateAlbum: () => void;
+  onOpenFavorites: () => void;
   onRetry: () => void;
 }) {
   const phase = solveAlbumsRailPhase(state);
@@ -60,7 +62,7 @@ export function AlbumsRail({
   if (phase === 'error') {
     return (
       <View style={styles.container}>
-        <Header canOrganize={canOrganize} onCreateAlbum={onCreateAlbum} />
+        <Header />
         <ErrorState
           title="No pudimos cargar tus álbumes"
           description={state.error ?? ''}
@@ -77,7 +79,7 @@ export function AlbumsRail({
   if (phase === 'loading') {
     return (
       <View style={styles.container}>
-        <Header canOrganize={canOrganize} onCreateAlbum={onCreateAlbum} />
+        <Header />
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -93,17 +95,12 @@ export function AlbumsRail({
   if (phase === 'ready-empty') {
     return (
       <View style={styles.container}>
-        <Header canOrganize={canOrganize} onCreateAlbum={onCreateAlbum} />
-        <View style={styles.empty}>
-          <HomePlusIcon name="albums-outline" size={30} color={colors.text.tertiary} />
-          <AppText variant="bodySmall" weight="700">
-            {ALBUMS_EMPTY_TITLE}
-          </AppText>
-          <AppText variant="caption" tone="secondary">
-            {ALBUMS_EMPTY_BODY}
-          </AppText>
-          {canOrganize ? <AppButton title="Crear álbum" size="sm" variant="secondary" onPress={onCreateAlbum} /> : null}
-        </View>
+        <Header />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
+          <FavoritesTile onPress={onOpenFavorites} />
+          {canOrganize ? <CreateAlbumTile onPress={onCreateAlbum} /> : null}
+        </ScrollView>
+        <AppText variant="caption" tone="secondary">{ALBUMS_EMPTY_BODY}</AppText>
       </View>
     );
   }
@@ -112,13 +109,14 @@ export function AlbumsRail({
   // preserves the already-valid Albums, so a refresh is never a skeleton flash.
   return (
     <View style={styles.container}>
-      <Header canOrganize={canOrganize} onCreateAlbum={onCreateAlbum} />
+      <Header />
       {state.error !== null ? (
         <AppText variant="caption" tone="danger">
           {state.error}
         </AppText>
       ) : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
+        <FavoritesTile onPress={onOpenFavorites} />
         {albums.map((album) => (
           <AlbumTile
             key={album.id}
@@ -129,41 +127,42 @@ export function AlbumsRail({
             onMore={() => onAlbumActions(album)}
           />
         ))}
+        {canOrganize ? <CreateAlbumTile onPress={onCreateAlbum} /> : null}
       </ScrollView>
     </View>
   );
 }
 
-/**
- * HC2-C §8 — THE SECTION HEADER, WITH A DISCOVERABLE `+ Nuevo`.
- *
- * The loose `+` ICON that used to sit here was, in practice, only reachable by
- * scrolling the horizontal rail to its far end on a narrow screen — and it was
- * the ONLY way to create an Album that did not require an empty rail. Creation is
- * now a labelled action in the section header itself, so it is discoverable
- * regardless of the rail's scroll position.
- *
- * `AppButton size="sm"` is used on purpose: it is the app's own small-button
- * grammar, and it is NOT `variant="icon"`, so it does not become a filled
- * circle. `capabilities.organize` still gates it exactly as before, and the
- * accessibility name is preserved.
- */
-function Header({ canOrganize, onCreateAlbum }: { canOrganize: boolean; onCreateAlbum: () => void }) {
+function Header() {
   return (
     <View style={styles.header}>
       <AppText variant="bodySmall" weight="800" style={styles.headerTitle}>
         {ALBUMS_RAIL_TITLE}
       </AppText>
-      {canOrganize ? (
-        <AppButton
-          size="sm"
-          variant="secondary"
-          onPress={onCreateAlbum}
-          accessibilityLabel="Nuevo álbum"
-        >
-          + Nuevo
-        </AppButton>
-      ) : null}
+    </View>
+  );
+}
+
+function FavoritesTile({ onPress }: { onPress: () => void }) {
+  return (
+    <View style={styles.tile}>
+      <AppButton variant="secondary" onPress={onPress} style={styles.visual} accessibilityLabel="Abrir Favoritos">
+        <HomePlusIcon name="star" size={32} color={colors.warning.base} />
+      </AppButton>
+      <AppText variant="bodySmall" weight="700" numberOfLines={2}>Favoritos</AppText>
+      <AppText variant="caption" tone="secondary" numberOfLines={1}>Colección</AppText>
+    </View>
+  );
+}
+
+function CreateAlbumTile({ onPress }: { onPress: () => void }) {
+  return (
+    <View style={styles.tile}>
+      <AppButton variant="secondary" onPress={onPress} style={[styles.visual, styles.createVisual]} accessibilityLabel="Nuevo álbum">
+        <HomePlusIcon name="add" size={34} color={colors.brand} />
+      </AppButton>
+      <AppText variant="bodySmall" weight="700" numberOfLines={2}>Nuevo álbum</AppText>
+      <AppText variant="caption" tone="secondary" numberOfLines={1}>Crear</AppText>
     </View>
   );
 }
@@ -173,7 +172,22 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] },
   headerTitle: { flex: 1 },
   rail: { gap: spacing[3], paddingRight: spacing[4] },
+  tile: { width: 132, gap: spacing[1], position: 'relative' },
+  visual: {
+    aspectRatio: 1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    backgroundColor: colors.surface.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    padding: 0,
+  },
+  createVisual: {
+    borderStyle: 'dashed',
+    backgroundColor: colors.background.alt,
+  },
   skeletonTile: { width: 132, height: 124, borderRadius: radius.lg },
-  empty: { gap: spacing[2], alignItems: 'flex-start' },
   error: { marginTop: spacing[2] },
 });

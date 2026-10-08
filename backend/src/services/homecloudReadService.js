@@ -668,16 +668,36 @@ function normalizeMemoriesOrder(value, albumId) {
   return mode;
 }
 
+function normalizeMemoryLifecycle(value) {
+  if (value === undefined || value === null || value === '') return 'active';
+  const lifecycle = String(value).trim().toLowerCase();
+  if (lifecycle !== 'active' && lifecycle !== 'trashed') {
+    throw createHttpError(400, 'lifecycle inválido.', 'homecloud_invalid_lifecycle', {
+      allowed: ['active', 'trashed'],
+    });
+  }
+  return lifecycle;
+}
+
+function normalizeBooleanFilter(value, fieldName) {
+  if (value === undefined || value === null || value === '') return null;
+  if (value === true || value === 'true' || value === '1') return true;
+  if (value === false || value === 'false' || value === '0') return false;
+  throw createHttpError(400, `${fieldName} inválido.`, 'homecloud_invalid_boolean_filter', {
+    field: fieldName,
+  });
+}
+
 /**
  * Apply the Memories V1 filters to a content query.
  * Every filter is a SQL predicate: nothing is post-filtered in JS, so a page
  * can never be silently short because of a discarded row.
  */
-function applyMemoryFilters(query, { householdId, year, kind, search, albumId }) {
+function applyMemoryFilters(query, { householdId, year, kind, search, albumId, lifecycle, favorite, resurfacing }) {
   let filtered = query
     .eq('household_id', householdId)
     .eq('role', 'memory')
-    .eq('lifecycle', 'active');
+    .eq('lifecycle', lifecycle);
 
   if (albumId) {
     // `!inner` turns the embedded relation into a join, so the Album filter
@@ -698,6 +718,15 @@ function applyMemoryFilters(query, { householdId, year, kind, search, albumId })
     filtered = filtered.or(
       `caption.ilike.%${search}%,written_text.ilike.%${search}%,display_name.ilike.%${search}%`,
     );
+  }
+  if (favorite !== null) {
+    filtered = filtered.eq('favorite', favorite);
+  }
+  if (resurfacing) {
+    filtered = filtered
+      .eq('capture_precision', 'exact')
+      .eq('hidden_from_resurfacing', false)
+      .not('captured_at', 'is', null);
   }
   return filtered;
 }
@@ -729,6 +758,9 @@ function applyMemoryFilters(query, { householdId, year, kind, search, albumId })
  * @param {string} [params.query] textual query
  * @param {string} [params.kind] written|image|video|audio
  * @param {string} [params.order] timeline (default) | album
+ * @param {string} [params.lifecycle] active (default) | trashed
+ * @param {string|boolean} [params.favorite]
+ * @param {string|boolean} [params.resurfacing] exact, active, not hidden
  * @returns {Promise<{memories: Object[], nextOffset: number|null}>}
  */
 async function listMemories(req, params = {}) {
@@ -745,6 +777,9 @@ async function listMemories(req, params = {}) {
   const kind = normalizeMemoryKind(params.kind);
   const search = normalizeMemorySearch(params.query);
   const albumId = params.albumId ? String(params.albumId) : null;
+  const lifecycle = normalizeMemoryLifecycle(params.lifecycle);
+  const favorite = normalizeBooleanFilter(params.favorite, 'favorite');
+  const resurfacing = normalizeBooleanFilter(params.resurfacing, 'resurfacing') === true;
   const orderMode = normalizeMemoriesOrder(params.order, albumId);
 
   if (albumId) {
@@ -762,6 +797,9 @@ async function listMemories(req, params = {}) {
     kind,
     search,
     albumId,
+    lifecycle,
+    favorite,
+    resurfacing,
   });
   for (const order of MEMORIES_ORDER_SPECS[orderMode]) {
     query = query.order(order.column, {

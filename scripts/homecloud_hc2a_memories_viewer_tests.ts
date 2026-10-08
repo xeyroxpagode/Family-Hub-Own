@@ -19,7 +19,7 @@ check(ids([...applyMemoryVisualRange(new Set(['6']), ['1','2','3','4','5'], 'sel
 check(ids([...applyMemoryVisualRange(new Set(visualOrder), ['2','3','4','5'], 'deselect')]) === '1,6', 'D4 deselect removes current range from baseline');
 const root = process.cwd(); const read=(file:string)=>fs.readFileSync(path.join(root,file),'utf8'); const code=(file:string)=>read(file).replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/[^\n]*/g,'');
 const rail=code('front/mi-front-limpio/components/homecloud/AlbumsRail.tsx'); const albumCopy=read('front/mi-front-limpio/services/homecloud/homecloudAlbumScope.ts'); const selectable=read('front/mi-front-limpio/components/homecloud/MemorySelectableCard.tsx'); const viewer=read('front/mi-front-limpio/components/homecloud/MemoryViewer.tsx');
-check(rail.includes('Crear álbum') && albumCopy.includes('Todavía no hay álbumes') && !rail.includes('if (!canOrganize) return null'), 'D5 keeps honest organizer and view-only empty states');
+check(rail.includes('Nuevo álbum') && rail.includes('FavoritesTile') && albumCopy.includes('Todavía no hay álbumes') && !rail.includes('if (!canOrganize) return null'), 'D5 keeps honest organizer and view-only empty states');
 check(selectable.includes('onOpen') && selectable.includes('if (!selecting)'), 'normal tap opens only outside selection');
 check(viewer.includes('pagingEnabled') && viewer.includes('getMemoryOriginalUrl') && viewer.includes('written'), 'Viewer has pager, original image access and written detail');
 if (failed) process.exitCode = 1;

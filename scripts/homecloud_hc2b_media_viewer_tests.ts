@@ -318,7 +318,11 @@ check(viewer.includes('{source.label}'), 'the chrome still names the ACTUAL sour
 
 // WRITTEN + IMAGE ARE REGRESSION-FROZEN (§65/§66): the existing branches must
 // still be the untouched implementations.
-check(/memory\.kind === 'written'[\s\S]{0,80}<ScrollView/.test(viewerCode), 'Written remains a plain scrollable text page in the same Viewer');
+check(
+  /memory\.kind === 'written'[\s\S]{0,120}<WrittenPage/.test(viewerCode)
+    && /function WrittenPage[\s\S]{0,500}<ScrollView/.test(viewerCode),
+  'Written remains a plain scrollable text page in the same Viewer',
+);
 check(/return <ImagePage memory=\{memory\}/.test(viewerCode), 'Image keeps its existing page implementation');
 
 if (failed) process.exitCode = 1;

@@ -460,6 +460,9 @@ function memoriesQueryString(query?: HomeCloudMemoriesQuery): string {
   if (query?.query !== undefined) params.set('query', query.query);
   if (query?.kind !== undefined) params.set('kind', query.kind);
   if (query?.order !== undefined) params.set('order', query.order);
+  if (query?.lifecycle !== undefined) params.set('lifecycle', query.lifecycle);
+  if (query?.favorite !== undefined) params.set('favorite', String(query.favorite));
+  if (query?.resurfacing !== undefined) params.set('resurfacing', String(query.resurfacing));
   const encoded = params.toString();
   return encoded ? `?${encoded}` : '';
 }
@@ -519,6 +522,53 @@ export async function updateMemory(
   );
   await invalidateAlbumReads(scope);
   return resp.memory;
+}
+
+export async function trashMemory(
+  accessToken: string,
+  contentId: string,
+  scope?: HomeCloudScope,
+): Promise<HomeCloudMemory> {
+  const resp = await requestJson<{ memory: HomeCloudMemory }>(
+    `/api/homecloud/memories/${contentId}/trash`,
+    { method: 'POST', accessToken },
+  );
+  await invalidateAlbumReads(scope);
+  return resp.memory;
+}
+
+export async function restoreMemory(
+  accessToken: string,
+  contentId: string,
+  scope?: HomeCloudScope,
+): Promise<HomeCloudMemory> {
+  const resp = await requestJson<{ memory: HomeCloudMemory }>(
+    `/api/homecloud/memories/${contentId}/restore`,
+    { method: 'POST', accessToken },
+  );
+  await invalidateAlbumReads(scope);
+  return resp.memory;
+}
+
+export async function purgeMemory(
+  accessToken: string,
+  contentId: string,
+  scope?: HomeCloudScope,
+): Promise<void> {
+  await requestJson<void>(`/api/homecloud/memories/${contentId}`, { method: 'DELETE', accessToken });
+  await invalidateAlbumReads(scope);
+}
+
+export async function purgeAllMemories(
+  accessToken: string,
+  scope?: HomeCloudScope,
+): Promise<{ requested: number; purged: number; failed: number; failures: readonly unknown[] }> {
+  const result = await requestJson<{ requested: number; purged: number; failed: number; failures: readonly unknown[] }>(
+    '/api/homecloud/memories/purge-all',
+    { method: 'POST', accessToken },
+  );
+  await invalidateAlbumReads(scope);
+  return result;
 }
 
 // --- Private Binary Access ---

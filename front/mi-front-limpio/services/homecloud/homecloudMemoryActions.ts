@@ -50,7 +50,11 @@ export type MemoryActionId =
   | 'share'
   | 'copy'
   | 'markFavorite'
-  | 'unmarkFavorite';
+  | 'unmarkFavorite'
+  | 'trash'
+  | 'restore'
+  | 'purge'
+  | 'hideFromResurfacing';
 
 export interface MemoryAction {
   readonly id: MemoryActionId;
@@ -68,6 +72,12 @@ export function availableMemoryActions(input: MemoryActionInput): MemoryAction[]
     && input.selectedKinds.every((kind) => kind === 'written');
 
   const actions: MemoryAction[] = [];
+
+  if (input.caller === 'trash') {
+    if (input.capabilities.contribute) actions.push({ id: 'restore', label: 'Restaurar' });
+    if (input.capabilities.delete) actions.push({ id: 'purge', label: 'Eliminar definitivamente' });
+    return actions;
+  }
 
   if (organize) {
     actions.push({ id: 'addToAlbum', label: 'Agregar a un álbum' });
@@ -94,6 +104,13 @@ export function availableMemoryActions(input: MemoryActionInput): MemoryAction[]
     if (hasFavorites) actions.push({ id: 'unmarkFavorite', label: 'Quitar de favoritos' });
   }
 
+  if (input.capabilities.contribute) {
+    actions.push({ id: 'trash', label: 'Mover a papelera' });
+  }
+  if (organize && input.caller === 'resurfacing') {
+    actions.push({ id: 'hideFromResurfacing', label: 'No mostrar este recuerdo acá' });
+  }
+
   return actions;
 }
 
@@ -110,4 +127,8 @@ export const MEMORY_ACTION_LABELS: Record<MemoryActionId, string> = {
   copy: 'Copiar',
   markFavorite: 'Marcar como favorito',
   unmarkFavorite: 'Quitar de favoritos',
+  trash: 'Mover a papelera',
+  restore: 'Restaurar',
+  purge: 'Eliminar definitivamente',
+  hideFromResurfacing: 'No mostrar este recuerdo acá',
 };

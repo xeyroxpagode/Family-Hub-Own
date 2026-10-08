@@ -47,7 +47,10 @@ import type { HomeCloudMemoriesQuery, HomeCloudMemoryKind, HomeCloudMemoryListIt
  */
 export type MemoryCollectionRef =
   | { readonly kind: 'type'; readonly memoryKind: HomeCloudMemoryKind }
-  | { readonly kind: 'album'; readonly albumId: string };
+  | { readonly kind: 'album'; readonly albumId: string }
+  | { readonly kind: 'favorites' }
+  | { readonly kind: 'trash' }
+  | { readonly kind: 'resurfacing'; readonly groupId: string; readonly month: number; readonly day: number; readonly year: number };
 
 /** A `type` collection ref, narrowed out of the union by construction. */
 export type MemoryTypeCollectionRef = { readonly kind: 'type'; readonly memoryKind: HomeCloudMemoryKind };
@@ -71,7 +74,10 @@ export const MEMORY_TYPE_COLLECTIONS: readonly MemoryTypeCollectionRef[] = [
 
 /** Stable, opaque id. Local source state — NOT a route and NOT a nav param. */
 export function memoryCollectionId(ref: MemoryCollectionRef): string {
-  return ref.kind === 'album' ? `album:${ref.albumId}` : `type:${ref.memoryKind}`;
+  if (ref.kind === 'album') return `album:${ref.albumId}`;
+  if (ref.kind === 'type') return `type:${ref.memoryKind}`;
+  if (ref.kind === 'resurfacing') return `resurfacing:${ref.groupId}`;
+  return ref.kind;
 }
 
 export function parseMemoryCollectionId(collectionId: string): MemoryCollectionRef | null {
@@ -87,6 +93,18 @@ export function parseMemoryCollectionId(collectionId: string): MemoryCollectionR
     );
     return known ?? null;
   }
+  if (collectionId === 'favorites') return { kind: 'favorites' };
+  if (collectionId === 'trash') return { kind: 'trash' };
+  if (collectionId.startsWith('resurfacing:')) {
+    const groupId = collectionId.slice('resurfacing:'.length);
+    const [yearText, monthText, dayText] = groupId.split('-');
+    const year = Number(yearText);
+    const month = Number(monthText);
+    const day = Number(dayText);
+    if (Number.isInteger(year) && Number.isInteger(month) && Number.isInteger(day)) {
+      return { kind: 'resurfacing', groupId, year, month, day };
+    }
+  }
   return null;
 }
 
@@ -100,6 +118,9 @@ const TYPE_COLLECTION_TITLES: Readonly<Record<string, string>> = {
 /** The content-level header of a collection detail. An Album uses its own name. */
 export function memoryCollectionTitle(ref: MemoryCollectionRef, albumName?: string | null): string {
   if (ref.kind === 'album') return albumName ?? 'Álbum';
+  if (ref.kind === 'favorites') return 'Favoritos';
+  if (ref.kind === 'trash') return 'Papelera';
+  if (ref.kind === 'resurfacing') return `Para volver a ver`;
   return TYPE_COLLECTION_TITLES[ref.memoryKind] ?? 'Colección';
 }
 
@@ -119,6 +140,15 @@ export function buildMemoryCollectionQuery(
     // The Album presentation order is the server's; `order: 'album'` REQUIRES
     // `albumId` and the backend rejects it without one instead of guessing.
     return { albumId: ref.albumId, order: 'album', limit, offset };
+  }
+  if (ref.kind === 'favorites') {
+    return { favorite: true, order: 'timeline', limit, offset };
+  }
+  if (ref.kind === 'trash') {
+    return { lifecycle: 'trashed', order: 'timeline', limit, offset };
+  }
+  if (ref.kind === 'resurfacing') {
+    return { resurfacing: true, year: ref.year, order: 'timeline', limit, offset };
   }
   return { kind: ref.memoryKind, order: 'timeline', limit, offset };
 }

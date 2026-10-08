@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppState,
+  Alert,
   BackHandler,
   Clipboard,
   RefreshControl,
@@ -35,8 +36,12 @@ import {
   fetchHomeCloudAlbums,
   fetchHomeCloudAlbumsCached,
   listMemories,
+  purgeAllMemories,
+  purgeMemory,
   removeMemoryFromAlbum,
+  restoreMemory,
   renameAlbum,
+  trashMemory,
   updateMemory,
   type HomeCloudScope,
 } from '../services/homecloud/homecloudReadService';
@@ -156,6 +161,16 @@ const NO_ALBUMS_DESTINATION_BODY =
 const EMPTY_EXCLUSIONS: ReadonlySet<string> = new Set<string>();
 /** Stable empty dataset identity, so a closed Viewer never re-renders the list. */
 const EMPTY_MEMORIES: readonly HomeCloudMemoryListItem[] = [];
+
+type ResurfacingGroup = {
+  readonly id: string;
+  readonly month: number;
+  readonly day: number;
+  readonly year: number;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly count: number;
+};
 
 /*
  * MO-A3 DEVICE FIX (D1) — THE GRID HOST REF IS THE PUBLISHED SECTIONLIST TYPE.
@@ -408,6 +423,20 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
     });
   }
   const reloadRail = useCallback(() => railControllerRef.current!.reload(), []);
+  const [trashHasItems, setTrashHasItems] = useState(false);
+
+  const refreshTrashHint = useCallback(async () => {
+    if (!token || !householdId) {
+      setTrashHasItems(false);
+      return;
+    }
+    try {
+      const page = await listMemories(token, { lifecycle: 'trashed', limit: 1 });
+      setTrashHasItems(page.memories.length > 0);
+    } catch {
+      setTrashHasItems(false);
+    }
+  }, [householdId, token]);
 
   /**
    * HC2-C (B2) — the FIRST-PAINT rail read has no effect of its own any more.
@@ -426,7 +455,8 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
       // Focus is an authoritative Albums re-read, so an Album created on
       // another device is visible without waiting for the TTL.
       void reloadRail();
-    }, [loadFirstPage, reloadRail]),
+      void refreshTrashHint();
+    }, [loadFirstPage, refreshTrashHint, reloadRail]),
   );
 
   // =========================================================================
@@ -484,10 +514,30 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
   );
 
   // =========================================================================
+  // MO-A3 — the SELECTION SESSION
+  // =========================================================================
+
+  const [selection, setSelection] = useState<MemorySelectionState>(createMemorySelectionSession);
+  const [selectionBusy, setSelectionBusy] = useState(false);
+  const [selectionFailure, setSelectionFailure] = useState<MemorySelectionFailure | null>(null);
+  /**
+   * HC2-C: the contextual action sheet is open FROM THE FIRST FRAME of a
+   * selection. There is no `✓` in front of it any more, so this is the only
+   * thing standing between "something is selected" and "the available actions".
+   */
+  const [selectionActionsOpen, setSelectionActionsOpen] = useState(false);
+  /** The destination content INSIDE the same sheet. Never a second sheet. */
+  const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
+
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+
+  // =========================================================================
   // MO-A2 — Sheet ownership + mutations
   // =========================================================================
 
   const [editor, setEditor] = useState<{ mode: AlbumEditorMode; album: HomeCloudAlbum | null } | null>(null);
+  const [createAlbumForSelection, setCreateAlbumForSelection] = useState(false);
   const [actionsAlbum, setActionsAlbum] = useState<HomeCloudAlbum | null>(null);
   const [sheetError, setSheetError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -510,6 +560,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
 
   const openCreateAlbum = useCallback(() => {
     setSheetError(null);
+    setCreateAlbumForSelection(false);
     setEditor({ mode: 'create', album: null });
   }, []);
 
@@ -532,7 +583,39 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
       if (editor.mode === 'create') {
         // `scope` is MANDATORY: without it the shared invalidation is a no-op and
         // the rail would keep showing the pre-mutation truth.
-        await createAlbum(token, name, scope);
+        const album = await createAlbum(token, name, scope);
+        if (createAlbumForSelection) {
+          const contentIds = [...selectionRef.current.selectedIds].filter((id) => !selectionRef.current.excludedIds.has(id));
+          const failures: { contentId: string; label: string; message: string }[] = [];
+          for (const contentId of contentIds) {
+            try {
+              await addMemoryToAlbum(token, album.id, contentId, scope);
+            } catch (error) {
+              failures.push({
+                contentId,
+                label: 'Un recuerdo',
+                message: error instanceof Error ? error.message : 'No se pudo agregar.',
+              });
+            }
+          }
+          if (failures.length > 0) {
+            setSelectionFailure({
+              direction: 'add',
+              committed: contentIds.filter((id) => !failures.some((failure) => failure.contentId === id)),
+              destinationMissing: false,
+              failures,
+              summary: `${contentIds.length - failures.length} agregados · ${failures.length} no se pudieron agregar.`,
+            });
+            setSelection((previous) => ({
+              ...previous,
+              selectedIds: new Set(failures.map((item) => item.contentId)),
+            }));
+          } else {
+            setSelectionFailure(null);
+            setSelectionActionsOpen(false);
+            setSelection((previous) => cancelMemorySelection(previous));
+          }
+        }
         await reloadRail();
         bumpDestinations();
       } else if (editor.album) {
@@ -540,13 +623,14 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
         await reloadRail();
         bumpDestinations();
       }
+      setCreateAlbumForSelection(false);
       setEditor(null);
     } catch (error) {
       setSheetError(error instanceof Error ? error.message : 'No pudimos guardar el álbum.');
     } finally {
       setSaving(false);
     }
-  }, [bumpDestinations, editor, reloadRail, saving, scope, token]);
+  }, [bumpDestinations, createAlbumForSelection, editor, reloadRail, saving, scope, token]);
 
   const confirmDeleteAlbum = useCallback(async () => {
     if (!token || !scope || !actionsAlbum || deleting) return;
@@ -636,27 +720,9 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
  * has its own authority: `runAlbumMemberships`, the one shared composer.
  */
 
-  // =========================================================================
-  // MO-A3 — the SELECTION SESSION
-  // =========================================================================
-
-  const [selection, setSelection] = useState<MemorySelectionState>(createMemorySelectionSession);
-  const [selectionBusy, setSelectionBusy] = useState(false);
-  const [selectionFailure, setSelectionFailure] = useState<MemorySelectionFailure | null>(null);
-  /**
-   * HC2-C: the contextual action sheet is open FROM THE FIRST FRAME of a
-   * selection. There is no `✓` in front of it any more, so this is the only
-   * thing standing between "something is selected" and "the available actions".
-   */
-  const [selectionActionsOpen, setSelectionActionsOpen] = useState(false);
-  /** The destination content INSIDE the same sheet. Never a second sheet. */
-  const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
-
   // Latest-value mirrors. Every gesture seam below is a STABLE callback that
   // reads these, which is what makes the memoized rows safe: their interaction
   // props never change identity.
-  const selectionRef = useRef(selection);
-  selectionRef.current = selection;
   const openAlbumIdRef = useRef(openAlbumId);
   openAlbumIdRef.current = openAlbumId;
   const railRef = useRef(rail);
@@ -685,6 +751,16 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
         // THE EXISTING READ MODEL. A type collection filters by `kind` in
         // Timeline order; an Album collection reads `albumId` in Album order.
         const page = await listMemories(currentToken, buildMemoryCollectionQuery(ref, limit, offset));
+        if (ref.kind === 'resurfacing') {
+          return {
+            memories: page.memories.filter((memory) => {
+              if (memory.capturePrecision !== 'exact' || !memory.capturedAt || memory.hiddenFromResurfacing) return false;
+              const date = new Date(memory.capturedAt);
+              return date.getUTCMonth() + 1 === ref.month && date.getUTCDate() === ref.day;
+            }),
+            nextOffset: page.nextOffset,
+          };
+        }
         return { memories: page.memories, nextOffset: page.nextOffset };
       },
     });
@@ -968,6 +1044,24 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
     void collectionsControllerRef.current!.open(ref);
   }, [activeCollectionId]);
 
+  const openFavorites = useCallback(() => {
+    openCollection({ kind: 'favorites' });
+  }, [openCollection]);
+
+  const openTrash = useCallback(() => {
+    openCollection({ kind: 'trash' });
+  }, [openCollection]);
+
+  const openResurfacingGroup = useCallback((group: ResurfacingGroup) => {
+    openCollection({
+      kind: 'resurfacing',
+      groupId: group.id,
+      month: group.month,
+      day: group.day,
+      year: group.year,
+    });
+  }, [openCollection]);
+
   const closeCollection = useCallback(() => {
     setActiveCollectionId(null);
     collectionsControllerRef.current!.reset();
@@ -1125,7 +1219,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
   );
 
   const [viewerActionsContentId, setViewerActionsContentId] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error'; onUndo?: () => void } | null>(null);
   const pendingFavoriteIdsRef = useRef<Set<string>>(new Set());
   const [selectionFavoriteBusy, setSelectionFavoriteBusy] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
@@ -1145,7 +1239,9 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
     }));
     setCollections((previous) => ({
       ...previous,
-      memories: previous.memories.map((memory) => (memory.id === contentId ? { ...memory, favorite } : memory)),
+      memories: previous.memories
+        .map((memory) => (memory.id === contentId ? { ...memory, favorite } : memory))
+        .filter((memory) => previous.collectionId !== 'favorites' || memory.favorite === true),
     }));
   }, []);
 
@@ -1290,6 +1386,133 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
     else setToast({ message: 'No pudimos quitarlo del álbum.', tone: 'error' });
   }, [householdId, openAlbumId, reloadRail, token, viewer]);
 
+  const removeMemoriesFromActiveSurfaces = useCallback((contentIds: readonly string[]) => {
+    const ids = new Set(contentIds);
+    setMemories((previous) => previous.filter((memory) => !ids.has(memory.id)));
+    setDetail((previous) => ({ ...previous, memories: previous.memories.filter((memory) => !ids.has(memory.id)) }));
+    setCollections((previous) => (
+      previous.collectionId === 'trash'
+        ? previous
+        : { ...previous, memories: previous.memories.filter((memory) => !ids.has(memory.id)) }
+    ));
+  }, []);
+
+  const reloadCurrentSurfaces = useCallback(async () => {
+    await readFirstPage().catch(() => undefined);
+    await detailControllerRef.current?.refresh().catch(() => undefined);
+    await collectionsControllerRef.current?.refresh().catch(() => undefined);
+    await reloadRail().catch(() => undefined);
+    await refreshTrashHint().catch(() => undefined);
+  }, [readFirstPage, refreshTrashHint, reloadRail]);
+
+  const restoreIds = useCallback(async (contentIds: readonly string[]) => {
+    if (!token || contentIds.length === 0) return;
+    try {
+      for (const contentId of contentIds) {
+        await restoreMemory(token, contentId, scope ?? undefined);
+      }
+      setToast({ message: contentIds.length === 1 ? 'Recuerdo restaurado' : 'Recuerdos restaurados', tone: 'success' });
+      await reloadCurrentSurfaces();
+    } catch {
+      setToast({ message: 'No se pudo restaurar.', tone: 'error' });
+    }
+  }, [reloadCurrentSurfaces, scope, token]);
+
+  const trashIds = useCallback(async (contentIds: readonly string[]) => {
+    if (!token || contentIds.length === 0) return;
+    try {
+      for (const contentId of contentIds) {
+        await trashMemory(token, contentId, scope ?? undefined);
+      }
+      removeMemoriesFromActiveSurfaces(contentIds);
+      setViewer((current) => current && contentIds.includes(current.activeContentId) ? null : current);
+      setToast({
+        message: contentIds.length === 1 ? 'Movido a papelera' : 'Movidos a papelera',
+        tone: 'success',
+        onUndo: () => { void restoreIds(contentIds); },
+      });
+      setTrashHasItems(true);
+      await reloadRail().catch(() => undefined);
+    } catch {
+      setToast({ message: 'No se pudo mover a papelera.', tone: 'error' });
+    }
+  }, [reloadRail, removeMemoriesFromActiveSurfaces, restoreIds, scope, token]);
+
+  const purgeIds = useCallback((contentIds: readonly string[]) => {
+    if (!token || contentIds.length === 0) return;
+    Alert.alert(
+      'Eliminar definitivamente',
+      contentIds.length === 1
+        ? 'Este recuerdo se va a borrar para siempre.'
+        : `${contentIds.length} recuerdos se van a borrar para siempre.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                for (const contentId of contentIds) {
+                  await purgeMemory(token, contentId, scope ?? undefined);
+                }
+                setCollections((previous) => ({ ...previous, memories: previous.memories.filter((memory) => !contentIds.includes(memory.id)) }));
+                setViewer((current) => current && contentIds.includes(current.activeContentId) ? null : current);
+                setToast({ message: 'Eliminado definitivamente', tone: 'success' });
+                await refreshTrashHint();
+              } catch {
+                setToast({ message: 'No se pudo eliminar definitivamente.', tone: 'error' });
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [refreshTrashHint, scope, token]);
+
+  const emptyTrash = useCallback(() => {
+    if (!token) return;
+    const count = collections.memories.length;
+    Alert.alert(
+      'Vaciar papelera',
+      count > 0 ? `${count} recuerdos cargados se van a borrar para siempre.` : 'Todos los recuerdos de la papelera se van a borrar para siempre.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Vaciar',
+          style: 'destructive',
+          onPress: () => {
+            void purgeAllMemories(token, scope ?? undefined)
+              .then(() => {
+                setCollections((previous) => ({ ...previous, memories: [], nextOffset: null }));
+                setTrashHasItems(false);
+                setViewer(null);
+                setToast({ message: 'Papelera vaciada', tone: 'success' });
+              })
+              .catch(() => setToast({ message: 'No se pudo vaciar la papelera.', tone: 'error' }));
+          },
+        },
+      ],
+    );
+  }, [collections.memories.length, scope, token]);
+
+  const hideFromResurfacing = useCallback(async (contentId: string) => {
+    if (!token) return;
+    try {
+      await updateMemory(token, contentId, { hiddenFromResurfacing: true }, scope ?? undefined);
+      setCollections((previous) => previous.collectionId?.startsWith('resurfacing:')
+        ? { ...previous, memories: previous.memories.filter((memory) => memory.id !== contentId) }
+        : previous);
+      setMemories((previous) => previous.map((memory) => (
+        memory.id === contentId ? { ...memory, hiddenFromResurfacing: true } : memory
+      )));
+      setViewer((current) => current && current.activeContentId === contentId ? null : current);
+      setToast({ message: 'No se va a mostrar acá', tone: 'success' });
+    } catch {
+      setToast({ message: 'No se pudo ocultar de Para volver a ver.', tone: 'error' });
+    }
+  }, [scope, token]);
+
   /**
    * HC2-C §11 — the ONE action host, rendered ONCE.
    *
@@ -1390,6 +1613,36 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
     () => flattenTimelineForSectionList(groupMemoriesForTimeline(memories), TIMELINE_COLUMNS),
     [memories],
   );
+
+  const resurfacingGroups = useMemo<readonly ResurfacingGroup[]>(() => {
+    const today = new Date();
+    const todayKey = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+    const byGroup = new Map<string, { month: number; day: number; year: number; count: number }>();
+    for (const memory of memories) {
+      if (memory.capturePrecision !== 'exact' || !memory.capturedAt || memory.hiddenFromResurfacing) continue;
+      const date = new Date(memory.capturedAt);
+      const memoryDay = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+      if (memoryDay >= todayKey) continue;
+      const month = date.getUTCMonth() + 1;
+      const day = date.getUTCDate();
+      const year = date.getUTCFullYear();
+      const id = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const existing = byGroup.get(id);
+      if (existing) existing.count += 1;
+      else byGroup.set(id, { month, day, year, count: 1 });
+    }
+    return [...byGroup.entries()]
+      .map(([id, group]) => ({
+        id,
+        month: group.month,
+        day: group.day,
+        year: group.year,
+        count: group.count,
+        title: `${group.day}/${group.month}/${group.year}`,
+        subtitle: group.count === 1 ? '1 recuerdo' : `${group.count} recuerdos`,
+      }))
+      .sort((a, b) => b.year - a.year || a.month - b.month || a.day - b.day);
+  }, [memories]);
 
   const gridSections = useMemo<TimelineListSection[]>(() => {
     if (activeCollection === null) return sections;
@@ -1615,6 +1868,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
   useEffect(() => {
     setOpenAlbumId(null);
     setMemories([]);
+    setTrashHasItems(false);
     memoriesRef.current = [];
     setNextOffset(null);
     setLoading(Boolean(token && householdId));
@@ -1694,9 +1948,16 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
    */
   const selectionActionItems = useMemo(() => {
     const selectedIds = [...selection.selectedIds];
+    const caller =
+      activeCollection?.kind === 'favorites' ? 'favorites'
+        : activeCollection?.kind === 'resurfacing' ? 'resurfacing'
+        : activeCollection?.kind === 'trash' ? 'trash'
+        : activeCollection?.kind === 'type' ? 'type'
+        : (openAlbumId !== null || purposeKind === 'removeFromAlbum') ? 'album'
+        : 'root';
     return availableMemoryActions({
       surface: 'selection',
-      caller: (openAlbumId !== null || purposeKind === 'removeFromAlbum') ? 'album' : 'root',
+      caller,
       selectionCount: selectedIds.length,
       selectedKinds: selectedIds
         .map((id) => {
@@ -1712,7 +1973,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
       favoriteStates: selectedIds.map((id) => favoriteOf(id) === true),
       capabilities: capabilities.descriptor,
     });
-  }, [collections.memories, detail.memories, favoriteOf, openAlbumId, purposeAlbumId, purposeKind, selection.selectedIds]);
+  }, [activeCollection, collections.memories, detail.memories, favoriteOf, openAlbumId, purposeAlbumId, purposeKind, selection.selectedIds]);
 
   /**
    * HC2-C C1 — THE COMPOSED ROOT HEADER.
@@ -1730,6 +1991,30 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
    */
   const rootHeader = (
     <View style={styles.rootHeader}>
+      {resurfacingGroups.length > 0 ? (
+        <View style={styles.resurfacingBand}>
+          <View style={styles.sectionTitleRow}>
+            <AppText variant="bodySmall" weight="800">Para volver a ver</AppText>
+          </View>
+          <View style={styles.resurfacingItems}>
+            {resurfacingGroups.slice(0, 6).map((group) => (
+              <AppButton
+                key={group.id}
+                variant="secondary"
+                style={styles.resurfacingChip}
+                onPress={() => openResurfacingGroup(group)}
+                accessibilityLabel={`Abrir recuerdos del ${group.title}`}
+              >
+                <HomePlusIcon name="time-outline" size={20} color={colors.brand} />
+                <View style={styles.resurfacingText}>
+                  <AppText variant="bodySmall" weight="700" numberOfLines={1}>{group.title}</AppText>
+                  <AppText variant="caption" tone="secondary" numberOfLines={1}>{group.subtitle}</AppText>
+                </View>
+              </AppButton>
+            ))}
+          </View>
+        </View>
+      ) : null}
       <AlbumsRail
         albums={rail.albums}
         state={rail}
@@ -1738,8 +2023,17 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
         onOpenAlbum={openAlbum}
         onAlbumActions={openAlbumActions}
         onCreateAlbum={openCreateAlbum}
+        onOpenFavorites={openFavorites}
         onRetry={() => void reloadRail()}
       />
+      {trashHasItems ? (
+        <AppButton
+          title="Papelera"
+          variant="secondary"
+          onPress={openTrash}
+          accessibilityLabel="Abrir Papelera de recuerdos"
+        />
+      ) : null}
       <MemoryTypesSection
         collections={MEMORY_TYPE_COLLECTIONS}
         onOpenCollection={openTypeCollection}
@@ -2076,6 +2370,15 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
             accessToken={token}
             selecting={selecting}
             selectedMemoryIds={selection.selectedIds}
+            headerRight={activeCollection?.kind === 'trash' && capabilities.descriptor.delete ? (
+              <AppButton
+                title="Vaciar"
+                size="sm"
+                variant="danger"
+                onPress={emptyTrash}
+                accessibilityLabel="Vaciar papelera de recuerdos"
+              />
+            ) : undefined}
             onBack={closeCollection}
             onRefresh={() => void collectionsControllerRef.current!.refresh()}
             onLoadMore={() => void collectionsControllerRef.current!.loadMore()}
@@ -2107,7 +2410,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
           activeContentId={viewer.activeContentId}
           accessToken={token}
           source={viewer.source}
-          canOrganize={canOrganize}
+          canOrganize={canOrganize && !(viewer.source.kind === 'collection' && viewer.source.collection.kind === 'trash')}
           activeFavorite={favoriteOf(viewer.activeContentId) === true}
           onToggleFavorite={() => toggleFavorite(viewer.activeContentId)}
           onOpenActions={(contentId) => setViewerActionsContentId(contentId)}
@@ -2144,7 +2447,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
         initialName={editor?.album?.name ?? ''}
         saving={saving}
         error={sheetError}
-        onClose={() => { if (!saving) { setEditor(null); setSheetError(null); } }}
+        onClose={() => { if (!saving) { setEditor(null); setCreateAlbumForSelection(false); setSheetError(null); } }}
         onSubmit={(name) => void submitAlbumName(name)}
       />
       <AlbumActionsSheet
@@ -2160,7 +2463,17 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
           setActionsAlbum(null);
           enterAddToAlbum(target);
         }}
-        onDelete={() => void confirmDeleteAlbum()}
+        onDelete={() => {
+          if (!actionsAlbum) return;
+          Alert.alert(
+            'Eliminar álbum',
+            'Los recuerdos sobreviven y van a seguir en Recuerdos.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Eliminar', style: 'destructive', onPress: () => void confirmDeleteAlbum() },
+            ],
+          );
+        }}
       />
 
       {/*
@@ -2197,7 +2510,12 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
             <>
               {availableMemoryActions({
                 surface: 'viewer',
-                caller: viewer?.source.kind === 'album' ? 'album' : 'root',
+                caller: viewer?.source.kind === 'album' ? 'album'
+                  : viewer?.source.kind === 'collection' && viewer.source.collection.kind === 'favorites' ? 'favorites'
+                  : viewer?.source.kind === 'collection' && viewer.source.collection.kind === 'trash' ? 'trash'
+                  : viewer?.source.kind === 'collection' && viewer.source.collection.kind === 'resurfacing' ? 'resurfacing'
+                  : viewer?.source.kind === 'collection' && viewer.source.collection.kind === 'type' ? 'type'
+                  : 'root',
                 selectionCount: 1,
                 selectedKinds: [activeViewerMemory?.kind ?? 'image'],
                 albumIdentity: viewer?.source.kind === 'album' ? { id: viewer.source.sourceId } : null,
@@ -2233,6 +2551,14 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
                       toggleFavorite(contentId);
                     } else if (action.id === 'unmarkFavorite') {
                       toggleFavorite(contentId);
+                    } else if (action.id === 'trash') {
+                      void trashIds([contentId]);
+                    } else if (action.id === 'restore') {
+                      void restoreIds([contentId]);
+                    } else if (action.id === 'purge') {
+                      purgeIds([contentId]);
+                    } else if (action.id === 'hideFromResurfacing') {
+                      void hideFromResurfacing(contentId);
                     }
                   }}
                 />
@@ -2245,7 +2571,23 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
               />
             </>
           ) : destinationPickerOpen ? (
-            rail.albums.length === 0 ? (
+            <>
+              {canOrganize ? (
+                <AppButton
+                  title="Nuevo álbum"
+                  variant="secondary"
+                  disabled={selectionBusy}
+                  onPress={() => {
+                    setDestinationPickerOpen(false);
+                    setSelectionActionsOpen(false);
+                    setCreateAlbumForSelection(true);
+                    setSheetError(null);
+                    setEditor({ mode: 'create', album: null });
+                  }}
+                  accessibilityLabel="Crear un álbum nuevo para esta selección"
+                />
+              ) : null}
+              {rail.albums.length === 0 ? (
               <>
                 <AppText variant="bodySmall" weight="700">
                   {NO_ALBUMS_DESTINATION_TITLE}
@@ -2254,7 +2596,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
                   {NO_ALBUMS_DESTINATION_BODY}
                 </AppText>
               </>
-            ) : (
+              ) : (
               rail.albums.map((album) => (
                 <AppButton
                   key={album.id}
@@ -2265,7 +2607,8 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
                   accessibilityLabel={`Agregar la selección al álbum ${album.name}`}
                 />
               ))
-            )
+              )}
+            </>
           ) : (
             <>
               {/*
@@ -2273,7 +2616,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
                * without it the affordance is not advertised at all, because the
                * action could only fail.
                */}
-              {canOrganize ? (
+              {canOrganize && activeCollection?.kind !== 'trash' ? (
                 <AppButton
                   title="Agregar a un álbum"
                   variant="secondary"
@@ -2346,6 +2689,58 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
                   accessibilityLabel={`Quitar de favoritos ${selection.selectedIds.size} recuerdos`}
                 />
               ) : null}
+              {selectionActionItems.some((action) => action.id === 'trash') ? (
+                <AppButton
+                  title="Mover a papelera"
+                  variant="secondary"
+                  disabled={selectionBusy || shareBusy || selectionFavoriteBusy}
+                  onPress={() => {
+                    const ids = [...selection.selectedIds];
+                    finishSelection();
+                    void trashIds(ids);
+                  }}
+                  accessibilityLabel={`Mover a papelera ${selection.selectedIds.size} recuerdos`}
+                />
+              ) : null}
+              {selectionActionItems.some((action) => action.id === 'restore') ? (
+                <AppButton
+                  title="Restaurar"
+                  variant="secondary"
+                  disabled={selectionBusy || shareBusy || selectionFavoriteBusy}
+                  onPress={() => {
+                    const ids = [...selection.selectedIds];
+                    finishSelection();
+                    void restoreIds(ids);
+                  }}
+                  accessibilityLabel={`Restaurar ${selection.selectedIds.size} recuerdos`}
+                />
+              ) : null}
+              {selectionActionItems.some((action) => action.id === 'purge') ? (
+                <AppButton
+                  title="Eliminar definitivamente"
+                  variant="danger"
+                  disabled={selectionBusy || shareBusy || selectionFavoriteBusy}
+                  onPress={() => {
+                    const ids = [...selection.selectedIds];
+                    finishSelection();
+                    purgeIds(ids);
+                  }}
+                  accessibilityLabel={`Eliminar definitivamente ${selection.selectedIds.size} recuerdos`}
+                />
+              ) : null}
+              {selectionActionItems.some((action) => action.id === 'hideFromResurfacing') ? (
+                <AppButton
+                  title="No mostrar este recuerdo acá"
+                  variant="secondary"
+                  disabled={selectionBusy || shareBusy || selectionFavoriteBusy || selection.selectedIds.size !== 1}
+                  onPress={() => {
+                    const [id] = [...selection.selectedIds];
+                    finishSelection();
+                    if (id) void hideFromResurfacing(id);
+                  }}
+                  accessibilityLabel="No mostrar este recuerdo acá"
+                />
+              ) : null}
               {/*
                * Multi-select OS Share is DEFER on purpose and deliberately NOT
                * rendered: sharing N binaries would need N downloads, N temporary
@@ -2370,6 +2765,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
         visible={toast !== null}
         message={toast?.message ?? ''}
         tone={toast?.tone ?? 'success'}
+        onUndo={toast?.onUndo}
         onDismiss={() => setToast(null)}
       />
     </View>
@@ -2432,5 +2828,16 @@ const styles = StyleSheet.create({
    * `Tipos` and a future section cannot be inserted between them by accident.
    */
   rootHeader: { gap: spacing[2], paddingBottom: spacing[2] },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  resurfacingBand: { gap: spacing[2], paddingBottom: spacing[2] },
+  resurfacingItems: { gap: spacing[2] },
+  resurfacingChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: spacing[2],
+    paddingHorizontal: spacing[3],
+  },
+  resurfacingText: { flex: 1, alignItems: 'flex-start' },
   destination: { gap: spacing[2], paddingBottom: spacing[3] },
 });

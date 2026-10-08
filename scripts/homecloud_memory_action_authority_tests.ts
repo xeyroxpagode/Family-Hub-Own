@@ -154,32 +154,49 @@ check(MEMORY_ACTION_LABELS.share === 'Compartir', 'frozen label: Compartir');
 check(MEMORY_ACTION_LABELS.copy === 'Copiar', 'frozen label: Copiar');
 check(MEMORY_ACTION_LABELS.markFavorite === 'Marcar como favorito', 'frozen label: Marcar como favorito');
 check(MEMORY_ACTION_LABELS.unmarkFavorite === 'Quitar de favoritos', 'frozen label: Quitar de favoritos');
+check(MEMORY_ACTION_LABELS.trash === 'Mover a papelera', 'frozen label: Mover a papelera');
+check(MEMORY_ACTION_LABELS.restore === 'Restaurar', 'frozen label: Restaurar');
+check(MEMORY_ACTION_LABELS.purge === 'Eliminar definitivamente', 'frozen label: Eliminar definitivamente');
+check(MEMORY_ACTION_LABELS.hideFromResurfacing === 'No mostrar este recuerdo acá', 'frozen label: No mostrar este recuerdo acá');
 check(
   availableMemoryActions(input({ surface: 'selection', caller: 'album', albumIdentity: { id: 'a1' }, selectionCount: 2 }))[1]?.label === 'Quitar 2 del álbum'
     && availableMemoryActions(input({ surface: 'selection', caller: 'album', albumIdentity: { id: 'a1' }, selectionCount: 1 }))[1]?.label === 'Quitar del álbum',
   'frozen plural/singular remove labels',
 );
 
-// --- Future actions are NOT in the catalog yet ---
+// --- P3 lifecycle/resurfacing actions are in the single authority ---
 const authoritySource = read('front/mi-front-limpio/services/homecloud/homecloudMemoryActions.ts');
 const screenSource = read('front/mi-front-limpio/screens/HomeCloudMemoriesScreen.tsx');
-const viewerSource = read('front/mi-front-limpio/components/homecloud/MemoryViewer.tsx');
 const CATALOG_IDS: MemoryActionId[] = [
   'addToAlbum', 'removeFromAlbum', 'info', 'share', 'copy', 'markFavorite', 'unmarkFavorite',
+  'trash', 'restore', 'purge', 'hideFromResurfacing',
 ];
 check(
-  !CATALOG_IDS.includes('trash' as MemoryActionId)
-    && !authoritySource.includes('papelera') && !authoritySource.includes('hiddenFromResurfacing')
-    && !authoritySource.includes("'moveToTrash'") && !authoritySource.includes("'hideFromResurfacing'"),
-  'no lifecycle/destructive action is reachable from the authority yet (ST-6/ST-8 deferred)',
+  CATALOG_IDS.includes('trash')
+    && CATALOG_IDS.includes('restore')
+    && CATALOG_IDS.includes('purge')
+    && CATALOG_IDS.includes('hideFromResurfacing'),
+  'lifecycle/destructive/resurfacing actions are catalogued in the one authority',
 );
 check(
-  !screenSource.includes('Mover a papelera') && !screenSource.includes('No mostrar este recuerdo'),
-  'no premature lifecycle/resurfacing action in the Memories screen',
+  ids(availableMemoryActions(input({ caller: 'root', capabilities: { view: true, contribute: false, organize: true, delete: true } }))).includes('trash') === false
+    && ids(availableMemoryActions(input({ caller: 'root', capabilities: { view: true, contribute: true, organize: false, delete: false } }))).includes('trash'),
+  'Mover a papelera is gated by contribute, not by organize/delete',
 );
 check(
-  !viewerSource.includes('Mover a papelera') && !viewerSource.includes('No mostrar este recuerdo'),
-  'no premature lifecycle/resurfacing action in the Viewer',
+  ids(availableMemoryActions(input({ caller: 'trash', capabilities: { view: true, contribute: true, organize: false, delete: false } }))).join(',') === 'restore'
+    && ids(availableMemoryActions(input({ caller: 'trash', capabilities: { view: true, contribute: false, organize: false, delete: true } }))).join(',') === 'purge',
+  'Trash actions are scoped to Trash and split restore/purge by capability',
+);
+check(
+  ids(availableMemoryActions(input({ caller: 'resurfacing', capabilities: ALL_CAPS }))).includes('hideFromResurfacing')
+    && !ids(availableMemoryActions(input({ caller: 'root', capabilities: ALL_CAPS }))).includes('hideFromResurfacing'),
+  'No mostrar este recuerdo acá is only offered from the resurfacing collection',
+);
+check(
+  screenSource.includes("action.id === 'trash'") && screenSource.includes("action.id === 'restore'")
+    && screenSource.includes("action.id === 'purge'") && screenSource.includes("action.id === 'hideFromResurfacing'"),
+  'the Memories screen routes every P3 authority action through the shared handlers',
 );
 
 // --- No role-name hardcoding ---
