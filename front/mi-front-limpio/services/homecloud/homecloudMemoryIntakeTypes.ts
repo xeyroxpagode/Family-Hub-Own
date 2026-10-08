@@ -35,7 +35,6 @@ export interface MemoryIntakeState {
 export interface BinaryMemoryDraft {
   artifact: UploadLocalArtifact;
   source: 'gallery' | 'camera' | 'audio-import' | 'audio-recorder';
-  durationMillis?: number | null;
   /**
    * Honest semantic date derived from the asset's own temporal metadata. The
    * Review shows it; the user never grades it. See
@@ -62,5 +61,19 @@ export interface MemoryIntakeActions {
   cancel: () => void;
   dismiss: () => void;
 }
+
+/**
+ * INTAKE-10 — there is deliberately NO `durationMillis` anywhere in the intake
+ * contract.
+ *
+ * It used to travel from the recorder through `BinaryMemoryDraft`, and it died:
+ * it was not in `BinaryMemoryMetadata`, not in the register payload, and no
+ * column exists for it. A captured value that can neither be persisted nor
+ * honestly displayed is dead code, and Product Truth §6.1 forbids showing a
+ * field HomeCloud does not own. A media length is DERIVED at playback from the
+ * file itself (see `MemoryAudioPage`), so the capture-side measurement was
+ * redundant as well. The recorder still measures locally, because rejecting an
+ * empty recording needs that measurement — but it no longer publishes it.
+ */
 
 export type { HomeCloudAlbum };

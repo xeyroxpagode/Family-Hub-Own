@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Keyboard, Linking, ScrollView, StyleSheet, View, type AppStateStatus } from 'react-native';
+import { ActivityIndicator, AppState, Keyboard, Linking, ScrollView, StyleSheet, View, type AppStateStatus } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 
 import { ActionSheet, AppButton, AppInput, AppText, FilterChip } from '../../components/ui';
@@ -122,11 +122,17 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
   const getAccessToken = useCallback(() => accessTokenRef.current || null, []);
   const [state, setState] = useState<MemoryIntakeState>({ status: 'idle' });
   const [sheet, setSheet] = useState<Sheet>(null);
+  /**
+   * CAM-08: the recording waiting to enter the Review. It is a REF, not state:
+   * the handoff commit must be idempotent across renders, and it is read by
+   * callbacks that can run before the next commit. The render that shows the
+   * handoff is produced by `setSheet('audio-handoff')`, never by this value.
+   */
+  const pendingAudioDraftRef = useRef<{ draft: BinaryMemoryDraft; attempt: MemoryAttempt } | null>(null);
   const [albums, setAlbums] = useState<MemoryIntakeDestination[]>([]);
   const [binaryDraft, setBinaryDraft] = useState<BinaryMemoryDraft | null>(null);
   const [reviewAttempt, setReviewAttempt] = useState<MemoryAttempt | null>(null);
-  const [pendingAudioDraft, setPendingAudioDraft] = useState<{ draft: BinaryMemoryDraft; attempt: MemoryAttempt } | null>(null);
-  const [binaryCaption, setBinaryCaption] = useState('');
+const [binaryCaption, setBinaryCaption] = useState('');
   const [binaryAlbumId, setBinaryAlbumId] = useState<string | null>(initialAlbumId ?? null);
   const [binaryDate, setBinaryDate] = useState<SemanticDateDraft>(emptySemanticDateDraft);
   const [picking, setPicking] = useState(false);
@@ -319,14 +325,28 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
     clearBinaryDraft('completed');
   }, [clearBinaryDraft, onComplete, state.contentId, state.status]);
 
-  const active = ['preparing', 'uploading', 'verifying', 'finalizing'].includes(state.status);
+const active = ['preparing', 'uploading', 'verifying', 'finalizing'].includes(state.status);
+  /**
+   * A cancelled job is TERMINAL: `coordinator.cancel` persists `cancelled` and
+   * `coordinator.retry` refuses it, so re-submitting the same draft would only
+   * create a SECOND job for the same intent. The honest consequence is that the
+   * review stops offering Save and says plainly that nothing was saved, leaving
+   * the user the explicit choice of picking the media again.
+   */
+  const cancelled = state.status === 'cancelled';
   /**
    * REVIEW_READY — the ONE save-enable contract for every binary source
    * (gallery image, gallery video, camera, recorder): a durable draft exists and
    * no submit is in flight. Source, kind and MIME are deliberately NOT part of
    * it, so no source can end up with a Save button the others do not have.
    */
-  const saveDisabled = !binaryDraft || active || accepting || Boolean(semanticDateDraftError(binaryDate));
+  const saveDisabled = !binaryDraft || active || accepting || cancelled || Boolean(semanticDateDraftError(binaryDate));
+  /**
+   * PERF-08 — the durable job this Review owns, not "any household job". A
+   * cancelled or completed one is deliberately NOT reported as cancellable, so
+   * the affordance can never offer to undo a finalized upload.
+   */
+  const cancellable = service.hasActiveJob() && !cancelled;
   // INTAKE-09 — the JSX obeys the service's ONE destination authority instead
   // of keeping a parallel local one: visibility comes from
   // service.canShowDestinationSelector() (true only when a real choice
@@ -419,24 +439,41 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
   const chooseMedia = useCallback(() => runPicker('gallery', (attempt) => service.pickMemory(attempt, (candidate) => attemptAuthorityRef.current.owns(candidate))), [runPicker, service]);
   const chooseAudio = useCallback(() => runPicker('audio-import', (attempt) => service.pickAudio(attempt, (candidate) => attemptAuthorityRef.current.owns(candidate))), [runPicker, service]);
 
-  const acceptRecordedAudio = useCallback((draft: BinaryMemoryDraft, attempt: MemoryAttempt) => {
+const acceptRecordedAudio = useCallback((draft: BinaryMemoryDraft, attempt: MemoryAttempt) => {
     if (!attemptAuthorityRef.current.owns(attempt)) return;
-    // Deliberate empty handoff render: the recorder's ownership ends BEFORE the
-    // playback hook is mounted, so the Review never coexists with a recorder.
+    // Deliberate, VISIBLE handoff (CAM-08): the recorder's ownership ends
+    // BEFORE the playback hook is mounted, so the Review never coexists with a
+    // recorder. This used to be a sheet state with NO JSX at all, advanced by a
+    // `useEffect` that set two states in the same tick: invisible to the user
+    // and fragile. It is now a rendered, honest intermediate panel whose own
+    // mount commits the draft exactly once.
     memoryAttemptTrace(attempt, 'recorder_ownership_released', { uri: draft.artifact.localUri.split(':', 1)[0] });
-    setPendingAudioDraft({ draft, attempt }); setSheet('audio-handoff');
+    pendingAudioDraftRef.current = { draft, attempt }; setSheet('audio-handoff');
   }, []);
 
-  useEffect(() => {
-    if (sheet !== 'audio-handoff' || !pendingAudioDraft) return;
-    if (!attemptAuthorityRef.current.owns(pendingAudioDraft.attempt)) {
-      memoryDevTrace('review_close_requested', { reason: 'audio_handoff_attempt_lost', source: pendingAudioDraft.draft.source });
-      setPendingAudioDraft(null); setSheet('create'); return;
+  /**
+   * CAM-08 — the ONE commit point out of the audio handoff.
+   *
+   * It is idempotent by construction: it consumes the pending draft from a ref,
+   * so a re-run (a changed callback identity, a second mount) is a no-op rather
+   * than a second commit.
+   */
+  const commitPendingAudio = useCallback(() => {
+    const pending = pendingAudioDraftRef.current;
+    if (!pending) return;
+    if (!attemptAuthorityRef.current.owns(pending.attempt)) {
+      memoryDevTrace('review_close_requested', { reason: 'audio_handoff_attempt_lost', source: pending.draft.source });
+      discardDraftArtifact(pending.draft);
+      pendingAudioDraftRef.current = null; setSheet('create');
+      return;
     }
-    setBinaryDraft(pendingAudioDraft.draft); setReviewAttempt(pendingAudioDraft.attempt); setBinaryCaption(''); setBinaryAlbumId(initialAlbumId ?? null); setBinaryDate(semanticDateDraftFromCapture(pendingAudioDraft.draft.capture.capturedAt, pendingAudioDraft.draft.capture.capturePrecision, pendingAudioDraft.draft.capture.capturedYear, pendingAudioDraft.draft.capture.capturedMonth)); setPendingAudioDraft(null); setSheet('binary');
-  }, [initialAlbumId, pendingAudioDraft, sheet]);
+    pendingAudioDraftRef.current = null;
+    setBinaryDraft(pending.draft); setReviewAttempt(pending.attempt); setBinaryCaption(''); setBinaryAlbumId(initialAlbumId ?? null);
+    setBinaryDate(semanticDateDraftFromCapture(pending.draft.capture.capturedAt, pending.draft.capture.capturePrecision, pending.draft.capture.capturedYear, pending.draft.capture.capturedMonth));
+    setSheet('binary');
+  }, [discardDraftArtifact, initialAlbumId]);
 
-  /** CLOSE contract: nothing transient survives, Create is ready to reopen. */
+/** CLOSE contract: nothing transient survives, Create is ready to reopen. */
   const closeCreate = useCallback(() => {
     memoryDevTrace('review_close_requested', { reason: 'create_sheet_close', sheet: 'create' });
     pickerAttemptRef.current += 1;
@@ -446,9 +483,13 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
     pickingRef.current = false;
     setPicking(false);
     setPickerFailure(null);
+    // CAM-08: closing during the handoff must release the recorded artifact it
+    // was carrying. It has no durable job yet, so this sheet still owns it.
+    const pending = pendingAudioDraftRef.current;
+    if (pending) { pendingAudioDraftRef.current = null; discardDraftArtifact(pending.draft); }
     service.dismiss();
-setSheet(null);
-  }, [service]);
+    setSheet(null);
+  }, [discardDraftArtifact, service]);
 
   // TEMPORARY D6 MONITORING. An AppState transition ALONE is not evidence that
   // a native picker is stale: presenting an iOS/native picker legitimately moves
@@ -493,7 +534,11 @@ setSheet(null);
     setSheet('recorder');
   }, []);
 
-  const openCamera = useCallback(() => { setSheet('camera'); }, []);
+  // CAM-09: the camera is an INTAKE entry point exactly like `Fotos y videos`,
+  // so its review must offer the same FRESH Album list. It reloaded nothing,
+  // which let the camera review offer an Album that had been renamed or
+  // deleted elsewhere while `Importar audio` would not.
+  const openCamera = useCallback(() => { reloadDestinations(); setSheet('camera'); }, [reloadDestinations]);
 
   const acceptCamera = useCallback((draft: BinaryMemoryDraft, attempt: MemoryAttempt) => {
     if (!attemptAuthorityRef.current.owns(attempt)) return;
@@ -545,9 +590,14 @@ setSheet(null);
       source: binaryDraft?.source ?? null,
       status: stateRef.current.status,
     });
-    pickerAttemptRef.current += 1; pickerLifecycleRef.current.invalidate(); pickingRef.current = false; attemptAuthorityRef.current.invalidate();
+pickerAttemptRef.current += 1; pickerLifecycleRef.current.invalidate(); pickingRef.current = false; attemptAuthorityRef.current.invalidate();
     activePickerMediaAttemptRef.current = null;
-    setPicking(false); setPendingAudioDraft(null);
+    setPicking(false);
+    // CAM-08 + T-05: a household switch or a navigation away must not leave a
+    // recorded artifact owned by nobody, and must never carry it into the next
+    // household's context.
+    const pending = pendingAudioDraftRef.current;
+    if (pending) { pendingAudioDraftRef.current = null; discardDraftArtifact(pending.draft); }
     if (!service.hasActiveJob() && !acceptingRef.current) discardDraftArtifact(binaryDraft);
     clearBinaryDraft('focus_lost'); service.dismiss(); setSheet(null);
   }, [binaryDraft, clearBinaryDraft, discardDraftArtifact, isFocused, service]);
@@ -725,16 +775,27 @@ const openWritten = () => {
         visible={sheet === 'binary'}
         title="Revisar recuerdo"
         onRequestClose={handleSourceBinaryRequestClose}
-        closeDisabled={active || accepting}
+closeDisabled={active || accepting}
         size="scrollable-content"
         keyboardAware
         footer={(
-          <AppButton
-            title={accepting ? 'Guardando…' : binarySubmitLabel(state.status)}
-            loading={active || accepting}
-            disabled={saveDisabled}
-            onPress={() => { Keyboard.dismiss(); void submitBinary(); }}
-          />
+          <View style={styles.footerActions}>
+            <AppButton
+              title={accepting || cancelled ? 'Cerrar' : binarySubmitLabel(state.status)}
+              loading={active || accepting}
+              disabled={cancelled ? false : saveDisabled}
+              onPress={() => { if (cancelled) { closeReview(); return; } Keyboard.dismiss(); void submitBinary(); }}
+            />
+            {/*
+             * PERF-08 — cancellation from the intake surface itself. The close
+             * `X` is disabled while a job is live precisely so an accidental
+             * dismissal cannot orphan a durable upload, which left the upload
+             * with no reachable stop from here. `service.cancel()` targets THIS
+             * Review's job only, aborts the transfer, persists `cancelled` and
+             * cleans that job's artifact: it never claims an upload was undone.
+             */}
+            {cancellable ? <AppButton title={binaryCancelLabel(state.status)} size="sm" variant="secondary" onPress={() => service.cancel()} accessibilityLabel="Cancelar la subida de este recuerdo" /> : null}
+          </View>
         )}
       >
         {(
@@ -745,6 +806,11 @@ const openWritten = () => {
           >
             {binaryDraft ? <MemoryMediaReview draft={binaryDraft} attempt={reviewAttempt ?? undefined} /> : null}
             <MemorySemanticDateFields value={binaryDate} onChange={setBinaryDate} disabled={active || accepting} />
+            {cancelled ? (
+              <View style={styles.error}>
+                <AppText variant="bodySmall" tone="danger">No se guardó este recuerdo. Podés elegirlo de nuevo para intentarlo otra vez.</AppText>
+              </View>
+            ) : null}
             {binaryDraft?.source === 'audio-recorder' && state.status !== 'failed' ? <AppButton title="Volver a grabar" size="sm" variant="secondary" disabled={active} onPress={reRecordAudio} /> : null}
             <AppInput
               label="Texto (opcional)"
@@ -768,6 +834,16 @@ const openWritten = () => {
 
       <ActionSheet visible={sheet === 'recorder'} title="Grabar audio" onRequestClose={() => abandonRecorder('recorder_sheet_dismissed')} size="content">
         {sheet === 'recorder' && recorderAttemptRef.current ? <MemoryAudioRecorder attempt={recorderAttemptRef.current} ownsAttempt={(attempt) => attemptAuthorityRef.current.owns(attempt)} abandonRef={setRecorderHandle} onReady={acceptRecordedAudio} onCancel={() => { attemptAuthorityRef.current.invalidate(recorderAttemptRef.current ?? undefined); setSheet('create'); }} /> : <View />}
+      </ActionSheet>
+
+      {/*
+       * CAM-08 — the audio handoff is a REAL, rendered, understandable
+       * intermediate surface. It used to be a sheet state with no JSX at all,
+       * so the recorder finished a recording and the app showed nothing at all
+       * while ownership moved to the Review.
+       */}
+      <ActionSheet visible={sheet === 'audio-handoff'} title="Abrir la grabación" onRequestClose={closeCreate} size="content">
+        <MemoryAudioHandoff onReady={commitPendingAudio} />
       </ActionSheet>
 
       {sheet === 'camera' ? <MemoryCameraSurface onClose={closeCamera} beginAttempt={(kind) => attemptAuthorityRef.current.begin('camera', kind)} ownsAttempt={(attempt) => attemptAuthorityRef.current.owns(attempt)} onUse={acceptCamera} /> : null}
@@ -814,6 +890,23 @@ const openWritten = () => {
   );
 }
 
+/**
+ * CAM-08 — the audio handoff surface. It renders honest, understandable copy and
+ * commits the pending draft from its OWN mount, exactly once. It exists because
+ * `useAudioRecorder` must release its native object before the audio Review
+ * mounts `useAudioPlayer`, and the handoff is that ordering made visible rather
+ * than implicit.
+ */
+function MemoryAudioHandoff({ onReady }: { onReady: () => void }) {
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  useEffect(() => { onReadyRef.current(); }, []);
+  return <View style={styles.handoff}>
+    <ActivityIndicator color={colors.brand} />
+    <AppText variant="bodySmall" tone="secondary" align="center">Abriendo la grabación para revisarla…</AppText>
+  </View>;
+}
+
 function MemoryAlbumSelector({ albums, value, onChange, disabled, invalidAlbum }: {
   albums: MemoryIntakeDestination[];
   value: string | null;
@@ -852,7 +945,18 @@ function binarySubmitLabel(status: MemoryIntakeState['status']): string {
   if (status === 'verifying') return 'Procesando…';
   if (status === 'finalizing') return 'Guardando…';
   if (status === 'failed') return 'Reintentar';
+  if (status === 'cancelled') return 'Cerrar';
   return 'Guardar recuerdo';
+}
+
+/**
+ * PERF-08 — the cancel affordance names the state it would actually stop. It
+ * never offers to cancel something already finalized or already cancelled,
+ * because neither can be undone by the queue.
+ */
+function binaryCancelLabel(status: MemoryIntakeState['status']): string {
+  if (status === 'verifying' || status === 'finalizing') return 'Cancelar el envío';
+  return 'Cancelar la subida';
 }
 
 const styles = StyleSheet.create({
@@ -875,5 +979,7 @@ const styles = StyleSheet.create({
   form: { gap: spacing[4], paddingBottom: spacing[4] },
   albumSection: { gap: spacing[2] },
   albumList: { gap: spacing[2], paddingRight: spacing[4] },
-  error: { gap: spacing[2], alignItems: 'flex-start' },
+error: { gap: spacing[2], alignItems: 'flex-start' },
+  handoff: { gap: spacing[3], alignItems: 'center', paddingVertical: spacing[4] },
+  footerActions: { gap: spacing[2] },
 });

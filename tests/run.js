@@ -476,6 +476,26 @@ const commands = {
     'node',
     ['scripts/compiled-st10-zoom/scripts/homecloud_st10_image_zoom_tests.js'],
   ),
+  'homecloud-st10-intake-debt-compile': () => runCommand(
+    'HomeCloud ST-10 intake debt compile',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st10_debt_test.json'],
+  ),
+  'homecloud-st10-intake-debt': () => runCommand(
+    'HomeCloud ST-10 intake debt tests',
+    'node',
+    ['scripts/compiled-st10-debt/scripts/homecloud_st10_intake_debt_tests.js'],
+  ),
+  'homecloud-st10-camera-compile': () => runCommand(
+    'HomeCloud ST-10 camera convergence compile',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st10_camera_test.json'],
+  ),
+  'homecloud-st10-camera': () => runCommand(
+    'HomeCloud ST-10 camera convergence tests',
+    'node',
+    ['scripts/compiled-st10-camera/scripts/homecloud_st10_camera_convergence_tests.js'],
+  ),
   'homecloud-1f-dto-leak': () => runCommand(
     'HomeCloud 1F DTO leak regression tests',
     'node',
@@ -1187,6 +1207,10 @@ typecheck: ['frontend-typecheck', 'test-typecheck'],
   'homecloud-st10': [
     'homecloud-st10-image-zoom-compile',
     'homecloud-st10-image-zoom',
+    'homecloud-st10-camera-compile',
+    'homecloud-st10-camera',
+    'homecloud-st10-intake-debt-compile',
+    'homecloud-st10-intake-debt',
     'homecloud-hc2b-media-viewer-contract',
     'homecloud-st9-media-reliability',
     'homecloud-viewer-immersive',

@@ -232,7 +232,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
       }
 
       emitState({ status: 'idle', error: undefined });
-      return { artifact: outcome.artifact, capture: outcome.capture, source: outcome.source, durationMillis: outcome.durationMillis };
+      return { artifact: outcome.artifact, capture: outcome.capture, source: outcome.source };
     } catch (error) {
       if (attempt && !owns(attempt)) return null;
       emitState({

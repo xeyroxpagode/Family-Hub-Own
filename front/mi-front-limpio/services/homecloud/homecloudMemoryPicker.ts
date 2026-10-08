@@ -16,7 +16,6 @@ export interface MemoryPickerResult {
   artifact: UploadLocalArtifact;
   capture: MediaCaptureMetadata;
   source: 'gallery' | 'camera' | 'audio-import' | 'audio-recorder';
-  durationMillis?: number | null;
 }
 export interface MemoryPickerCancelled { success: false; cancelled: true; }
 export interface MemoryPickerError { success: false; cancelled: false; error: string; permissionDenied?: boolean; canAskAgain?: boolean; }
@@ -93,7 +92,7 @@ async function imageOutcome(asset: ImagePicker.ImagePickerAsset, source: 'galler
   if (attempt) memoryAttemptTrace(attempt, 'artifact_copy_end', { sizeBytes: durable.sizeBytes });
   const capture = deriveMediaCaptureMetadata({ exif: asset.exif, type: asset.type, duration: asset.duration, fileName: asset.fileName });
   memoryDevTrace('draft_ready', { source, mimeType, sizeBytes: durable.sizeBytes });
-  return { success: true, artifact: durable, capture, source, durationMillis: asset.duration ?? null };
+  return { success: true, artifact: durable, capture, source };
 }
 
 export async function pickMemoryMedia(attempt?: MemoryAttempt): Promise<MemoryPickerOutcome> {
@@ -166,7 +165,6 @@ export async function persistCameraCapture(input: {
   uri: string;
   kind: 'image' | 'video';
   capturedAt: string;
-  durationMillis?: number | null;
   attempt: MemoryAttempt;
 }): Promise<MemoryPickerResult> {
   const format = await resolveCapturedArtifactFormat(input.uri, input.kind);
@@ -182,16 +180,17 @@ export async function persistCameraCapture(input: {
   });
   memoryAttemptTrace(input.attempt, 'artifact_ready', { sizeBytes: artifact.sizeBytes });
   const date = new Date(input.capturedAt);
+  // The camera's semantic date is the REAL HomeCloud capture instant, not an
+  // import clock reading and not an EXIF field the SDK never delivered.
   return {
     success: true,
     artifact,
     capture: { capturedAt: input.capturedAt, capturedYear: date.getUTCFullYear(), capturedMonth: date.getUTCMonth() + 1, capturePrecision: 'exact' },
     source: 'camera',
-    durationMillis: input.durationMillis ?? null,
   };
 }
 
-export async function persistRecordedAudio(uri: string, capturedAt: string, durationMillis: number, attempt?: MemoryAttempt): Promise<MemoryPickerResult> {
+export async function persistRecordedAudio(uri: string, capturedAt: string, attempt?: MemoryAttempt): Promise<MemoryPickerResult> {
   const stamp = capturedAt.replace(/[:.]/g, '-');
   if (attempt) memoryAttemptTrace(attempt, 'artifact_copy_start', { mimeType: 'audio/mp4' });
   const artifact = await copyArtifactToDurableWorkspace({ localUri: uri, displayName: `grabacion-${stamp}.m4a`, mimeType: 'audio/mp4', sizeBytes: 0, extension: 'm4a' });
@@ -200,7 +199,10 @@ export async function persistRecordedAudio(uri: string, capturedAt: string, dura
   // original exists. This never targets the durable workspace copy.
   void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
   const date = new Date(capturedAt);
-  return { success: true, artifact, capture: { capturedAt, capturedYear: date.getUTCFullYear(), capturedMonth: date.getUTCMonth() + 1, capturePrecision: 'exact' }, source: 'audio-recorder', durationMillis };
+  // The semantic date is the real recording START instant, taken before
+  // `record()`. It is never replaced by the stop instant, the import time or the
+  // upload time (Product Truth §7.2).
+  return { success: true, artifact, capture: { capturedAt, capturedYear: date.getUTCFullYear(), capturedMonth: date.getUTCMonth() + 1, capturePrecision: 'exact' }, source: 'audio-recorder' };
 }
 
 export async function discardMemoryMedia(artifact: UploadLocalArtifact): Promise<void> { await discardDurableArtifact(artifact); }
