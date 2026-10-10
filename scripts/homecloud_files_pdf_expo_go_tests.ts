@@ -20,8 +20,11 @@
  */
 
 import * as crypto from 'node:crypto';
+import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import * as vm from 'node:vm';
 
 import {
   INLINE_PDF_PREVIEW_MAX_BYTES,
@@ -51,7 +54,7 @@ import {
   readStagedPdfForBridge,
   type PdfStagedFile,
 } from '../front/mi-front-limpio/services/homecloud/homecloudPdfTransport';
-import { PDFJS_ENGINE_SHA256, PDFJS_ENGINE_SOURCE, PDFJS_ENGINE_VERSION } from '../front/mi-front-limpio/services/homecloud/pdfJsEngine.generated';
+import { PDFJS_ENGINE_SHA256, PDFJS_ENGINE_SOURCE, PDFJS_ENGINE_VERSION, PDFJS_WORKER_SHA256 } from '../front/mi-front-limpio/services/homecloud/pdfJsEngine.generated';
 
 export type PdfGoRecorder = (ok: boolean, message: string) => void;
 
@@ -89,6 +92,101 @@ function twoPagePdf(): Buffer {
 /** A PDF cut mid-header: unparseable by any engine, honest `corrupt` fixture. */
 function corruptPdf(): Buffer {
   return onePagePdf().subarray(0, 40);
+}
+
+function paddedPdf(targetBytes: number): Buffer {
+  const base = onePagePdf();
+  const trailer = Buffer.from('\n%%EOF\n', 'utf8');
+  const fillBytes = Math.max(0, targetBytes - base.length - trailer.length);
+  return Buffer.concat([base, Buffer.alloc(fillBytes, 0x20), trailer]);
+}
+
+async function loadWithRealPdfjs(frontDir: string, body: Buffer): Promise<{ pages: number; ops: number; textItems: number }> {
+  const pdfjs = require(path.join(frontDir, 'node_modules', 'pdfjs-dist', 'build', 'pdf.js')) as {
+    GlobalWorkerOptions: { workerSrc: string | null };
+    getDocument: (params: Record<string, unknown>) => { promise: Promise<any> };
+  };
+  pdfjs.GlobalWorkerOptions.workerSrc = null;
+  const task = pdfjs.getDocument({
+    data: new Uint8Array(body),
+    disableWorker: true,
+    isEvalSupported: false,
+    isOffscreenCanvasSupported: false,
+    useWorkerFetch: false,
+  });
+  const doc = await task.promise;
+  try {
+    const page = await doc.getPage(1);
+    const ops = await page.getOperatorList();
+    const text = await page.getTextContent();
+    return { pages: doc.numPages, ops: ops.fnArray.length, textItems: text.items.length };
+  } finally {
+    await doc.destroy();
+  }
+}
+
+async function rejectsWithRealPdfjs(frontDir: string, body: Buffer): Promise<string> {
+  try {
+    await loadWithRealPdfjs(frontDir, body);
+    return 'loaded';
+  } catch (error) {
+    return error && typeof error === 'object' && 'name' in error ? String((error as { name?: unknown }).name) : 'unknown';
+  }
+}
+
+async function loadWithInlinedBrowserEngine(body: Buffer): Promise<{ pages?: number; ops?: number; error?: string }> {
+  const context: Record<string, unknown> = {
+    console,
+    window: null,
+    document: { currentScript: null, createElement: () => ({}) },
+    navigator: { userAgent: 'iPhone', platform: 'iPhone' },
+    globalThis: null,
+    setTimeout,
+    clearTimeout,
+    Promise,
+    URL,
+    Blob,
+    Worker: function workerBlocked() { throw new Error('worker not allowed'); },
+    Uint8Array,
+    ArrayBuffer,
+    TextDecoder,
+    ReadableStream,
+    structuredClone,
+    crypto: {},
+    atob: (value: string) => Buffer.from(value, 'base64').toString('binary'),
+    btoa: (value: string) => Buffer.from(value, 'binary').toString('base64'),
+    bytes: new Uint8Array(body),
+  };
+  context.window = context;
+  context.globalThis = context;
+  vm.createContext(context);
+  vm.runInContext(PDFJS_ENGINE_SOURCE, context, { timeout: 5000 });
+  vm.runInContext(
+    "pdfjsLib.GlobalWorkerOptions.workerSrc=null; var task=pdfjsLib.getDocument({data: bytes, disableWorker:true, isEvalSupported:false, isOffscreenCanvasSupported:false, useWorkerFetch:false}); task.promise.then(async function(doc){ var page=await doc.getPage(1); var ops=await page.getOperatorList(); globalThis.__result={pages:doc.numPages, ops:ops.fnArray.length}; await doc.destroy(); }).catch(function(e){ globalThis.__result={error:e && e.name ? e.name : 'unknown'}; });",
+    context,
+    { timeout: 5000 },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  return (context.__result ?? { error: 'timeout' }) as { pages?: number; ops?: number; error?: string };
+}
+
+function renderFirstPageWithPoppler(body: Buffer, label: string): { ok: boolean; reason: string } {
+  const probe = spawnSync('pdftoppm', ['-h'], { stdio: 'ignore' });
+  if (probe.error) return { ok: true, reason: 'Poppler unavailable in this environment; PDF.js parse evidence still ran' };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'homeplus-pdf-'));
+  try {
+    const input = path.join(dir, `${label}.pdf`);
+    const output = path.join(dir, 'page');
+    fs.writeFileSync(input, body);
+    execFileSync('pdftoppm', ['-png', '-f', '1', '-singlefile', input, output], { stdio: 'ignore' });
+    const png = `${output}.png`;
+    const stat = fs.statSync(png);
+    return { ok: stat.size > 100, reason: `rasterized first page to ${stat.size} PNG bytes` };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : 'unknown render failure' };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /** Minimal structural fake of expo-file-system's File for the transport. */
@@ -151,9 +249,10 @@ export async function runPdfExpoGoTests(options: { readonly record: PdfGoRecorde
     record(mapPdfEngineErrorName('PasswordException') === 'password', 'X-Aj. engine password failures map to the password state');
     record(mapPdfEngineErrorName('InvalidPDFException') === 'corrupt', 'X-Ak. InvalidPDF maps to corrupt');
     record(mapPdfEngineErrorName('MissingPDFException') === 'corrupt', 'X-Al. MissingPDF maps to corrupt');
-    record(mapPdfEngineErrorName('AnythingElse') === 'unsupported', 'X-Am. unknown engine failures map to unsupported, never to a crash');
-    record(VIEWER_PDF_TOO_LARGE_TITLE.length > 0 && VIEWER_PDF_TOO_LARGE_MESSAGE.length > 0, 'X-An. the too-large state has intentional product copy');
-    record(VIEWER_PDF_PASSWORD_TITLE.length > 0 && VIEWER_PDF_PASSWORD_MESSAGE.length > 0, 'X-Ao. and so does the password state');
+    record(mapPdfEngineErrorName('FormatError') === 'corrupt', 'X-Am. FormatError maps to corrupt instead of a false unsupported verdict');
+    record(mapPdfEngineErrorName('AnythingElse') === 'engine_failed', 'X-An. unknown engine failures map to engine_failed, never to a false unsupported verdict');
+    record(VIEWER_PDF_TOO_LARGE_TITLE.length > 0 && VIEWER_PDF_TOO_LARGE_MESSAGE.length > 0, 'X-Ao. the too-large state has intentional product copy');
+    record(VIEWER_PDF_PASSWORD_TITLE.length > 0 && VIEWER_PDF_PASSWORD_MESSAGE.length > 0, 'X-Ap. and so does the password state');
   }
 
   console.log('\n--- X-B: the bridge protocol is versioned, typed and hostile-input-proof ---');
@@ -170,7 +269,20 @@ export async function runPdfExpoGoTests(options: { readonly record: PdfGoRecorde
     record(parseViewerMessage(JSON.stringify({ v: 1, type: 'DOCUMENT_LOADED', docId: 'd1', pages: 12 }))?.type === 'DOCUMENT_LOADED', 'X-Bf. DOCUMENT_LOADED parses with page count');
     const pageChanged = parseViewerMessage(JSON.stringify({ v: 1, type: 'PAGE_CHANGED', docId: 'd1', page: 99, pages: 3 }));
     record(pageChanged?.type === 'PAGE_CHANGED' && (pageChanged as { page: number }).page === 3, 'X-Bg. PAGE_CHANGED clamps a lying page number to the page count');
-    record(parseViewerMessage(JSON.stringify({ v: 1, type: 'LOAD_ERROR', docId: 'd1', code: 'password' }))?.type === 'LOAD_ERROR', 'X-Bh. LOAD_ERROR password parses');
+    const loadError = parseViewerMessage(JSON.stringify({
+      v: 1,
+      type: 'LOAD_ERROR',
+      docId: 'd1',
+      code: 'engine_failed',
+      stage: 'get_document_promise',
+      engineName: 'TypeError',
+      byteLength: 1186947,
+      totalChunks: 5,
+      receivedChunks: 5,
+      durationMs: 321,
+      engineReady: true,
+    }));
+    record(loadError?.type === 'LOAD_ERROR' && loadError.code === 'engine_failed' && loadError.stage === 'get_document_promise' && loadError.engineName === 'TypeError', 'X-Bh. LOAD_ERROR parses sanitized stage/error telemetry');
     record(parseViewerMessage(JSON.stringify({ v: 1, type: 'RENDER_ERROR', docId: 'd1', page: 2 }))?.type === 'RENDER_ERROR', 'X-Bi. RENDER_ERROR parses');
     record(parseViewerMessage(JSON.stringify({ v: 1, type: 'LINK_PRESSED', docId: 'd1', url: 'https://ejemplo.org/doc' }))?.type === 'LINK_PRESSED', 'X-Bj. an https link parses for explicit handoff');
     // Hostile / malformed input: every one of these must be IGNORED (null).
@@ -183,6 +295,7 @@ export async function runPdfExpoGoTests(options: { readonly record: PdfGoRecorde
       ['X-Bp. missing docId', JSON.stringify({ v: 1, type: 'READY' })],
       ['X-Bq. empty docId', JSON.stringify({ v: 1, type: 'READY', docId: '' })],
       ['X-Br. LOAD_ERROR with invented code', JSON.stringify({ v: 1, type: 'LOAD_ERROR', docId: 'd1', code: 'rm -rf' })],
+      ['X-Br2. old broad unsupported LOAD_ERROR code', JSON.stringify({ v: 1, type: 'LOAD_ERROR', docId: 'd1', code: 'unsupported' })],
       ['X-Bs. DOCUMENT_LOADED with zero pages', JSON.stringify({ v: 1, type: 'DOCUMENT_LOADED', docId: 'd1', pages: 0 })],
       ['X-Bt. javascript: link', JSON.stringify({ v: 1, type: 'LINK_PRESSED', docId: 'd1', url: 'javascript:alert(1)' })],
       ['X-Bu. data: link', JSON.stringify({ v: 1, type: 'LINK_PRESSED', docId: 'd1', url: 'data:text/html,<script>alert(1)</script>' })],
@@ -195,6 +308,8 @@ export async function runPdfExpoGoTests(options: { readonly record: PdfGoRecorde
     record(isAllowedViewerLinkUrl('http://intranet.local/x') === true, 'X-Bx. plain http intranet links are allowed to handoff');
     record(isAllowedViewerLinkUrl('  https://ejemplo.org/ ') === true, 'X-By. surrounding whitespace does not smuggle a scheme past the check');
     record(escapeHtml('<script>"&\'') === '&lt;script&gt;&quot;&amp;&#39;', 'X-Bz. HTML escaping covers all five metacharacters');
+    const scrubbed = parseViewerMessage(JSON.stringify({ v: 1, type: 'LOAD_ERROR', docId: 'd1', code: 'engine_failed', stage: 'file:///secret.pdf', engineName: 'Error: token=secret', byteLength: 10 }));
+    record(scrubbed?.type === 'LOAD_ERROR' && scrubbed.stage === undefined && scrubbed.engineName === undefined && scrubbed.byteLength === 10, 'X-Baa. telemetry keeps bounded numbers but drops raw paths, URLs and exception strings');
   }
 
   console.log('\n--- X-C: chunked base64 is lossless ---');
@@ -249,13 +364,19 @@ export async function runPdfExpoGoTests(options: { readonly record: PdfGoRecorde
     record(corruptPdf().length < single.length && corruptPdf().length > 0, 'X-Dd. the corrupt fixture is a genuine truncation, not an empty file');
     const corruptPayload = await readStagedPdfForBridge(fakeStagedFile(corruptPdf()));
     record(Buffer.from(corruptPayload.chunks.join(''), 'base64').equals(corruptPdf()), 'X-De. corrupt bytes still CROSS the bridge exactly (corruption is an engine verdict, not a transport verdict)');
+    const problem12 = paddedPdf(Math.round(1.2 * 1024 * 1024));
+    const problem12Payload = await readStagedPdfForBridge(fakeStagedFile(problem12));
+    record(Buffer.from(problem12Payload.chunks.join(''), 'base64').equals(problem12), `X-Df. the previously problematic ~1.2 MB PDF size crosses the bridge byte-exact (${problem12Payload.byteLength} bytes)`);
+    const problem48 = paddedPdf(Math.round(4.8 * 1024 * 1024));
+    const problem48Payload = await readStagedPdfForBridge(fakeStagedFile(problem48));
+    record(Buffer.from(problem48Payload.chunks.join(''), 'base64').equals(problem48), `X-Dg. the previously problematic ~4.8 MB PDF size crosses the bridge byte-exact (${problem48Payload.byteLength} bytes)`);
     for (const chunk of first.chunks) {
       if (chunk.length > PDF_BRIDGE_MAX_CHUNK_CHARS) {
-        record(false, 'X-Df. every chunk respects the message bound');
+        record(false, 'X-Dh. every chunk respects the message bound');
         break;
       }
     }
-    record(first.chunks.every((chunk) => chunk.length <= PDF_BRIDGE_MAX_CHUNK_CHARS), 'X-Df. every chunk respects the message bound');
+    record([...first.chunks, ...problem12Payload.chunks, ...problem48Payload.chunks].every((chunk) => chunk.length <= PDF_BRIDGE_MAX_CHUNK_CHARS), 'X-Dh. every chunk respects the message bound');
     // Refusals must not touch the stream.
     const oversizedReads: string[] = [];
     let oversizedError: unknown = null;
@@ -264,8 +385,8 @@ export async function runPdfExpoGoTests(options: { readonly record: PdfGoRecorde
     } catch (error) {
       oversizedError = error;
     }
-    record(oversizedError instanceof PdfTooLargeError, 'X-Dg. an oversized file throws PdfTooLargeError');
-    record(oversizedReads.length === 0, 'X-Dh. and NOTHING was read for it at all');
+    record(oversizedError instanceof PdfTooLargeError, 'X-Di. an oversized file throws PdfTooLargeError');
+    record(oversizedReads.length === 0, 'X-Dj. and NOTHING was read for it at all');
     const emptyReads: string[] = [];
     let emptyError: unknown = null;
     try {
@@ -273,15 +394,35 @@ export async function runPdfExpoGoTests(options: { readonly record: PdfGoRecorde
     } catch (error) {
       emptyError = error;
     }
-    record(emptyError instanceof PdfEmptyError, 'X-Di. an empty staging throws PdfEmptyError');
-    record(emptyReads.length === 0, 'X-Dj. without touching the stream either');
+    record(emptyError instanceof PdfEmptyError, 'X-Dk. an empty staging throws PdfEmptyError');
+    record(emptyReads.length === 0, 'X-Dl. without touching the stream either');
     let growthError: unknown = null;
     try {
       await readStagedPdfForBridge(fakeStagedFile(Buffer.from('%PDF-1.4 tiny'), { size: 64, growAfterReads: 0 }));
     } catch (error) {
       growthError = error;
     }
-    record(growthError instanceof PdfTooLargeError, 'X-Dk. a file that grows past the ceiling mid-read aborts instead of following it');
+    record(growthError instanceof PdfTooLargeError, 'X-Dm. a file that grows past the ceiling mid-read aborts instead of following it');
+  }
+
+  console.log('\n--- X-D2: real pdf.js opens the fixture classes, and corrupt stays corrupt ---');
+  {
+    const fixtures = [
+      ['minimal valid PDF', onePagePdf(), 1],
+      ['HomePlus scanner-style multipage PDF', twoPagePdf(), 2],
+      ['previous failing ~1.2 MB class', paddedPdf(Math.round(1.2 * 1024 * 1024)), 1],
+      ['valid multipage ~4.8 MB class', Buffer.concat([twoPagePdf(), Buffer.alloc(Math.round(4.8 * 1024 * 1024) - twoPagePdf().length - 6, 0x20), Buffer.from('\n%%EOF')]), 2],
+    ] as const;
+    for (const [label, body, expectedPages] of fixtures) {
+      const parsed = await loadWithRealPdfjs(frontDir, body);
+      record(parsed.pages === expectedPages && parsed.ops > 0, `X-D2. ${label} parsed with real pdf.js (${parsed.pages} page(s), ${parsed.ops} first-page operator(s), ${parsed.textItems} text item(s))`);
+      const raster = renderFirstPageWithPoppler(body, label.replace(/[^a-z0-9]+/gi, '-'));
+      record(raster.ok, `X-D2. ${label} ${raster.reason}`);
+    }
+    const inlined = await loadWithInlinedBrowserEngine(onePagePdf());
+    record(inlined.pages === 1 && typeof inlined.ops === 'number' && inlined.ops > 0, `X-D2. inlined browser-like engine uses the local fake-worker handler without a worker URL (${inlined.error ?? `${inlined.ops} ops`})`);
+    const corruptName = await rejectsWithRealPdfjs(frontDir, corruptPdf());
+    record(corruptName !== 'loaded', `X-D2. corrupt control is rejected by real pdf.js (${corruptName})`);
   }
 
   console.log('\n--- X-E: the viewer page is local-only HomePlus chrome ---');
@@ -301,7 +442,7 @@ export async function runPdfExpoGoTests(options: { readonly record: PdfGoRecorde
     record(!/id="toolbar"/i.test(html) && !/id="sidebar"/i.test(html), 'X-Ee. no stock PDF.js toolbar or sidebar markup');
     record(!/openFile|download-button|print-button/i.test(html), 'X-Ef. no open/print/download chrome');
     record(['READY', 'DOCUMENT_LOADED', 'PAGE_CHANGED', 'LOAD_ERROR', 'RENDER_ERROR', 'LINK_PRESSED', 'INIT_DOCUMENT', 'LOAD_CHUNK', 'DISPOSE', 'docId'].every((token) => html.includes(token)), 'X-Eh. the runtime speaks exactly the versioned protocol tokens');
-    record(['PasswordException', 'InvalidPDFException', 'MissingPDFException', 'disableWorker', 'isEvalSupported'].every((token) => html.includes(token)), 'X-Ei. the runtime pins engine safety (worker off, no eval, named failure mapping)');
+    record(['PasswordException', 'InvalidPDFException', 'MissingPDFException', 'FormatError', 'engine_failed', 'isEvalSupported'].every((token) => html.includes(token)), 'X-Ei. the runtime pins engine safety and named failure mapping without false unsupported buckets');
     record(html.includes(palette.background) && html.includes(palette.surface), 'X-Ej. the page opens on HomePlus colors, so there is no white flash');
     record((html.match(/<\/script/gi) || []).length === 2, 'X-Ek. exactly two script closers exist, so nothing in our code can break out of its element');
     let threwPalette = false;
@@ -321,6 +462,7 @@ export async function runPdfExpoGoTests(options: { readonly record: PdfGoRecorde
     // The REAL engine: provenance + buildability.
     record(PDFJS_ENGINE_VERSION === '3.11.174', `X-En. the vendored engine version is the pinned one (${PDFJS_ENGINE_VERSION})`);
     const distBuild = path.join(frontDir, 'node_modules', 'pdfjs-dist', 'build', 'pdf.min.js');
+    const workerBuild = path.join(frontDir, 'node_modules', 'pdfjs-dist', 'build', 'pdf.worker.min.js');
     if (fs.existsSync(distBuild)) {
       const bytes = fs.readFileSync(distBuild, 'utf8');
       const sha = crypto.createHash('sha256').update(bytes, 'utf8').digest('hex');
@@ -328,8 +470,15 @@ export async function runPdfExpoGoTests(options: { readonly record: PdfGoRecorde
     } else {
       record(false, 'X-Eo. the pinned pdfjs-dist build is installed (skipped: node_modules absent)');
     }
+    if (fs.existsSync(workerBuild)) {
+      const bytes = fs.readFileSync(workerBuild, 'utf8');
+      const sha = crypto.createHash('sha256').update(bytes, 'utf8').digest('hex');
+      record(sha === PDFJS_WORKER_SHA256, 'X-Eo2. the inlined worker handler hash-matches the installed pinned worker build');
+    } else {
+      record(false, 'X-Eo2. the pinned pdfjs-dist worker build is installed (skipped: node_modules absent)');
+    }
     const realHtml = buildPdfViewerHtml(PDFJS_ENGINE_SOURCE, palette);
-    record(realHtml.length > 300 * 1024 && (realHtml.match(/<\/script/gi) || []).length === 2, 'X-Ep. the real engine inlines into one self-contained page');
+    record(realHtml.length > 1300 * 1024 && realHtml.includes('pdfjsWorker') && realHtml.includes('WorkerMessageHandler') && (realHtml.match(/<\/script/gi) || []).length === 2, 'X-Ep. the real engine plus worker handler inline into one self-contained page');
     record(!/<script\s+src/i.test(realHtml), 'X-Eq. with still no external script reference');
   }
 
@@ -365,12 +514,15 @@ export async function runPdfExpoGoTests(options: { readonly record: PdfGoRecorde
     record(/originWhitelist/.test(viewerCode) && /onShouldStartLoadWithRequest/.test(viewerCode), 'X-Fi. and the WebView is nailed down (origin whitelist + navigation blocked)');
     record(/allowFileAccess=\{false\}/.test(viewerCode), 'X-Fj. with file access explicitly off');
     record(!/trustAllCerts/.test(viewerCode), 'X-Fk. and no leftover native-renderer props');
+    record(!/onShouldStartLoadWithRequest=\{\(\) => false\}/.test(viewerCode), 'X-Fl. the navigation guard is not the old unconditional denial that can block the iOS bootstrap document');
+    record(/allowPdfViewerNavigation/.test(viewerCode) && /about:blank/.test(viewerCode), 'X-Fm. the local about:blank bootstrap load is explicitly allowed');
+    record(/Código de diagnóstico/.test(viewerSource) && /pdf_ready_timeout/.test(viewerSource) && /pdf_get_document_rejected/.test(viewerSource) && !/pdf_engine_unsupported/.test(viewerSource), 'X-Fn. renderer failures expose sanitized stage diagnostics and no longer emit the false unsupported bucket');
     // The suite must not mock away a module Expo Go lacks: every natively-backed
     // module the Viewer tests stub must either be an Expo SDK module (present in
     // Go) or the WebView at the exact Go-pinned version proven in X-Fd.
     const expoGoNative = new Set([...Object.keys(bundledNative), 'expo-video', 'expo-audio', 'expo-file-system', 'expo-sharing', 'expo-asset', 'react', 'react-native', 'react-native-safe-area-context']);
     const stubbedModules = ['expo-video', 'expo-audio', 'expo-file-system', 'expo-sharing', 'react-native-safe-area-context', 'react-native-webview'];
-    record(stubbedModules.every((name) => expoGoNative.has(name)), 'X-Fl. every stubbed native module is present in Expo Go (nothing mocked away that Go lacks)');
-    record(!fs.existsSync(path.join(repoRoot, 'tests', 'stubs', 'react-native-pdf')), 'X-Fm. the obsolete native-PDF mock is deleted, not left to rot');
+    record(stubbedModules.every((name) => expoGoNative.has(name)), 'X-Fo. every stubbed native module is present in Expo Go (nothing mocked away that Go lacks)');
+    record(!fs.existsSync(path.join(repoRoot, 'tests', 'stubs', 'react-native-pdf')), 'X-Fp. the obsolete native-PDF mock is deleted, not left to rot');
   }
 }

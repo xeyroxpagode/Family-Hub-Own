@@ -34,6 +34,8 @@ import {
   PDF_BRIDGE_PROTOCOL_VERSION,
   parseViewerMessage,
   serializeRnMessage,
+  type PdfLoadErrorTelemetry,
+  type ViewerToRnMessage,
 } from '../services/homecloud/homecloudPdfBridge';
 import { buildPdfViewerHtml } from '../services/homecloud/homecloudPdfViewerHtml';
 import { PdfTooLargeError, readStagedPdfForBridge } from '../services/homecloud/homecloudPdfTransport';
@@ -372,6 +374,58 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
 export const VIEWER_PDF_RENDER_MESSAGE =
   'El archivo se descargó bien pero este dispositivo no pudo abrirlo. Puede estar protegido con contraseña o dañado.';
 
+export type PdfViewerDiagnosticCode =
+  | 'pdf_ready_timeout'
+  | 'pdf_load_timeout'
+  | 'pdf_staging_unreadable'
+  | 'pdf_transport_error'
+  | 'pdf_webview_error'
+  | 'pdf_webview_http_error'
+  | 'pdf_engine_corrupt'
+  | 'pdf_engine_missing'
+  | 'pdf_get_document_exception'
+  | 'pdf_get_document_rejected'
+  | 'pdf_page_setup_failed';
+
+function pdfFailure(
+  title: string,
+  message: string,
+  diagnosticCode: PdfViewerDiagnosticCode,
+  telemetry?: PdfLoadErrorTelemetry,
+): { title: string; message: string } {
+  const details = pdfDiagnosticDetails(diagnosticCode, telemetry);
+  return { title, message: `${message}\n\n${details}` };
+}
+
+function pdfDiagnosticDetails(diagnosticCode: PdfViewerDiagnosticCode, telemetry?: PdfLoadErrorTelemetry): string {
+  const details = [`Código de diagnóstico: ${diagnosticCode}.`];
+  if (telemetry?.stage) details.push(`Etapa: ${telemetry.stage}.`);
+  if (telemetry?.engineName) details.push(`Clase: ${telemetry.engineName}.`);
+  if (typeof telemetry?.byteLength === 'number') details.push(`Bytes: ${telemetry.byteLength}.`);
+  if (typeof telemetry?.receivedChunks === 'number' || typeof telemetry?.totalChunks === 'number') {
+    details.push(`Chunks: ${telemetry.receivedChunks ?? 0}/${telemetry.totalChunks ?? 0}.`);
+  }
+  if (typeof telemetry?.pages === 'number') details.push(`Páginas: ${telemetry.pages}.`);
+  if (typeof telemetry?.durationMs === 'number') details.push(`Duración: ${telemetry.durationMs} ms.`);
+  if (typeof telemetry?.engineReady === 'boolean') details.push(`Motor listo: ${telemetry.engineReady ? 'sí' : 'no'}.`);
+  return details.join(' ');
+}
+
+function pdfDiagnosticForLoadError(message: Extract<ViewerToRnMessage, { type: 'LOAD_ERROR' }>): PdfViewerDiagnosticCode {
+  if (message.code === 'corrupt') return 'pdf_engine_corrupt';
+  if (message.stage === 'engine_missing' || message.code === 'engine_unavailable') return 'pdf_engine_missing';
+  if (message.stage === 'get_document_call') return 'pdf_get_document_exception';
+  if (message.stage === 'page_setup') return 'pdf_page_setup_failed';
+  return 'pdf_get_document_rejected';
+}
+
+export function allowPdfViewerNavigation(request: unknown): boolean {
+  const url = typeof (request as { url?: unknown } | null)?.url === 'string'
+    ? (request as { url: string }).url
+    : '';
+  return url === 'about:blank' || url.startsWith('about:blank#') || url === 'about:srcdoc';
+}
+
 /** The honest reason a video could not be DECODED on this device. */
 export const VIEWER_VIDEO_RENDER_MESSAGE =
   'No pudimos reproducir este video aquí. Podés abrirlo o compartirlo con otra app.';
@@ -476,7 +530,7 @@ export function ViewerPdfSurface({
     const loadMs = timeouts?.loadMs ?? PDF_VIEWER_LOAD_TIMEOUT_MS;
     if (state.loadTimer) clearTimeout(state.loadTimer);
     state.loadTimer = setTimeout(() => {
-      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+      failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_load_timeout'));
     }, loadMs);
   }, [failOnce, sessionKey, sessionState, timeouts]);
 
@@ -487,7 +541,7 @@ export function ViewerPdfSurface({
     const readyMs = timeouts?.readyMs ?? PDF_VIEWER_READY_TIMEOUT_MS;
     state.readyTimer = setTimeout(() => {
       if (!active) return;
-      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+      failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_ready_timeout'));
     }, readyMs);
     // The gate runs on the REAL staged size: metadata can be stale, the file
     // on disk cannot. Oversized documents never reach the bridge at all.
@@ -495,7 +549,7 @@ export function ViewerPdfSurface({
     try {
       staged = new File(uri);
     } catch {
-      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+      failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_staging_unreadable'));
       return () => { active = false; };
     }
     const gate = pdfInlineEligibility(staged.size ?? null);
@@ -504,7 +558,7 @@ export function ViewerPdfSurface({
       return () => { active = false; };
     }
     if (!gate.eligible) {
-      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+      failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_staging_unreadable'));
       return () => { active = false; };
     }
     readStagedPdfForBridge(staged)
@@ -520,7 +574,7 @@ export function ViewerPdfSurface({
           return;
         }
         void error;
-        failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+        failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_transport_error'));
       });
     return () => {
       active = false;
@@ -567,7 +621,12 @@ export function ViewerPdfSurface({
         if (message.code === 'password') {
           failOnce({ title: VIEWER_PDF_PASSWORD_TITLE, message: VIEWER_PDF_PASSWORD_MESSAGE });
         } else {
-          failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+          failOnce(pdfFailure(
+            'No pudimos abrir este PDF',
+            VIEWER_PDF_RENDER_MESSAGE,
+            pdfDiagnosticForLoadError(message),
+            message,
+          ));
         }
         break;
       case 'RENDER_ERROR':
@@ -601,10 +660,10 @@ export function ViewerPdfSurface({
         sharedCookiesEnabled={false}
         thirdPartyCookiesEnabled={false}
         mediaPlaybackRequiresUserAction
-        onShouldStartLoadWithRequest={() => false}
+        onShouldStartLoadWithRequest={allowPdfViewerNavigation}
         onMessage={handleMessage}
-        onError={() => failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE })}
-        onHttpError={() => failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE })}
+        onError={() => failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_webview_error'))}
+        onHttpError={() => failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_webview_http_error'))}
       />
       {page && page.pages > 1 ? (
         <View style={styles.pdfPager}>

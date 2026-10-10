@@ -19,7 +19,8 @@
  *
  * SECURITY NOTES (mirrored in the runtime below):
  * - `isEvalSupported: false` - pdf.js never evals font programs;
- * - worker disabled - no blob-worker / file-origin handshake to get wrong;
+ * - the pdf.js worker handler is inlined before the main engine, so the fake
+ *   worker path is local and never needs a blob-worker / file-origin handshake;
  * - `window.open` is neutralized; every link tap becomes an explicit
  *   LINK_PRESSED message so React Native decides the handoff;
  * - document-level clicks are captured and default-prevented;
@@ -98,8 +99,8 @@ export function buildPdfViewerHtml(engineSource: string, palette: PdfViewerPalet
  * - renders lazily (visible pages + neighbours), fit-to-width, DPR-aware with a
  *   hard cap, releases far canvases, re-renders crisply on double-tap zoom and
  *   on container-width changes;
- * - maps engine failures to password/corrupt/unsupported codes, never leaks an
- *   exception string to the UI.
+ * - maps engine failures to stable, sanitized stage codes and allowlisted error
+ *   classes, never leaking an exception string to the UI.
  *
  * Written WITHOUT template literals and WITHOUT the byte sequence `</script`
  * (the closing tags above are split for exactly that reason), so this constant
@@ -151,8 +152,59 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
   function engineFailureCode(error) {
     var name = error && error.name ? String(error.name) : '';
     if (name === 'PasswordException') return 'password';
-    if (name === 'InvalidPDFException' || name === 'MissingPDFException') return 'corrupt';
-    return 'unsupported';
+    if (name === 'InvalidPDFException' || name === 'MissingPDFException' || name === 'FormatError') return 'corrupt';
+    return 'engine_failed';
+  }
+
+  function safeEngineName(error) {
+    var name = error && error.name ? String(error.name) : '';
+    if (
+      name === 'Error' ||
+      name === 'TypeError' ||
+      name === 'RangeError' ||
+      name === 'ReferenceError' ||
+      name === 'SyntaxError' ||
+      name === 'PasswordException' ||
+      name === 'InvalidPDFException' ||
+      name === 'MissingPDFException' ||
+      name === 'UnexpectedResponseException' ||
+      name === 'UnknownErrorException' ||
+      name === 'FormatError' ||
+      name === 'AbortException' ||
+      name === 'RenderingCancelledException'
+    ) return name;
+    return error ? 'unknown' : 'none';
+  }
+
+  function elapsedMs(active) {
+    var started = active && Number.isFinite(active.startedAt) ? active.startedAt : Date.now();
+    return Math.max(0, Math.min(100000000, Date.now() - started));
+  }
+
+  function telemetry(active, stage, error, extra) {
+    var out = {
+      stage: stage,
+      engineName: safeEngineName(error),
+      byteLength: active && Number.isFinite(active.byteLength) ? active.byteLength : 0,
+      totalChunks: active && Number.isFinite(active.totalChunks) ? active.totalChunks : 0,
+      receivedChunks: active && Number.isFinite(active.received) ? active.received : 0,
+      durationMs: elapsedMs(active),
+      engineReady: !!window.pdfjsLib
+    };
+    if (extra) {
+      for (var key in extra) {
+        if (Object.prototype.hasOwnProperty.call(extra, key)) out[key] = extra[key];
+      }
+    }
+    return out;
+  }
+
+  function postLoadError(active, code, stage, error, extra) {
+    var message = telemetry(active, stage, error, extra);
+    message.type = 'LOAD_ERROR';
+    message.docId = active.docId;
+    message.code = code;
+    post(message);
   }
 
   function validDocId(value) {
@@ -175,7 +227,7 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
       if (!Number.isInteger(msg.totalChunks) || msg.totalChunks < 1 || msg.totalChunks > 4096) return;
       if (!Number.isInteger(msg.byteLength) || msg.byteLength < 1) return;
       disposeSession();
-      session = { docId: msg.docId, byteLength: msg.byteLength, totalChunks: msg.totalChunks, parts: new Array(msg.totalChunks), received: 0 };
+      session = { docId: msg.docId, byteLength: msg.byteLength, totalChunks: msg.totalChunks, parts: new Array(msg.totalChunks), received: 0, startedAt: Date.now() };
       setStatus('');
       return;
     }
@@ -239,17 +291,17 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
     try {
       bytes = decodeSessionBytes(active.parts);
     } catch (e) {
-      post({ type: 'LOAD_ERROR', docId: active.docId, code: 'corrupt' });
+      postLoadError(active, 'corrupt', 'decode_base64', e);
       return;
     }
     active.parts = [];
     if (bytes.length !== active.byteLength) {
-      post({ type: 'LOAD_ERROR', docId: active.docId, code: 'corrupt' });
+      postLoadError(active, 'corrupt', 'decode_size_mismatch', null);
       return;
     }
     var lib = window.pdfjsLib;
     if (!lib) {
-      post({ type: 'LOAD_ERROR', docId: active.docId, code: 'unsupported' });
+      postLoadError(active, 'engine_unavailable', 'engine_missing', null);
       return;
     }
     try {
@@ -257,9 +309,15 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
     } catch (e) {}
     var task = null;
     try {
-      task = lib.getDocument({ data: bytes, disableWorker: true, isEvalSupported: false });
+      task = lib.getDocument({
+        data: bytes,
+        disableWorker: true,
+        isEvalSupported: false,
+        isOffscreenCanvasSupported: false,
+        useWorkerFetch: false
+      });
     } catch (e) {
-      post({ type: 'LOAD_ERROR', docId: active.docId, code: engineFailureCode(e) });
+      postLoadError(active, engineFailureCode(e), 'get_document_call', e);
       return;
     }
     bytes = null;
@@ -269,10 +327,14 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
         return;
       }
       pdfDoc = doc;
-      buildPageViews(doc, active);
+      try {
+        buildPageViews(doc, active);
+      } catch (e) {
+        postLoadError(active, engineFailureCode(e), 'page_setup', e, { pages: doc && Number.isFinite(doc.numPages) ? doc.numPages : 0 });
+      }
     }, function (error) {
       if (!session || session.docId !== active.docId) return;
-      post({ type: 'LOAD_ERROR', docId: active.docId, code: engineFailureCode(error) });
+      postLoadError(active, engineFailureCode(error), 'get_document_promise', error);
     });
   }
 
@@ -448,12 +510,20 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
         view.task = null;
         if (error && error.name === 'RenderingCancelledException') return;
         if (session && session.docId === docId) {
-          post({ type: 'RENDER_ERROR', docId: docId, page: view.pageNumber });
+          var renderMessage = telemetry(session, 'page_render', error, { pages: pdfDoc ? pdfDoc.numPages : 0 });
+          renderMessage.type = 'RENDER_ERROR';
+          renderMessage.docId = docId;
+          renderMessage.page = view.pageNumber;
+          post(renderMessage);
         }
       });
     }, function () {
       if (session && session.docId === docId) {
-        post({ type: 'RENDER_ERROR', docId: docId, page: view.pageNumber });
+        var pageMessage = telemetry(session, 'page_render', null, { pages: pdfDoc ? pdfDoc.numPages : 0 });
+        pageMessage.type = 'RENDER_ERROR';
+        pageMessage.docId = docId;
+        pageMessage.page = view.pageNumber;
+        post(pageMessage);
       }
     });
   }

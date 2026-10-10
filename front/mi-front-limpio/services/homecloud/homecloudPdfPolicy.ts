@@ -66,13 +66,13 @@ export function pdfInlineEligibility(sizeBytes: number | null | undefined): PdfI
 }
 
 /** Engine failure codes the WebView renderer can report (never raw exceptions). */
-export type PdfEngineFailureCode = 'password' | 'corrupt' | 'unsupported';
+export type PdfEngineFailureCode = 'password' | 'corrupt' | 'engine_failed';
 
 /** Maps a pdf.js failure name to the intentional product code. Also unit-tested. */
 export function mapPdfEngineErrorName(errorName: string | null | undefined): PdfEngineFailureCode {
   if (errorName === 'PasswordException') return 'password';
-  if (errorName === 'InvalidPDFException' || errorName === 'MissingPDFException') return 'corrupt';
-  return 'unsupported';
+  if (errorName === 'InvalidPDFException' || errorName === 'MissingPDFException' || errorName === 'FormatError') return 'corrupt';
+  return 'engine_failed';
 }
 
 export const VIEWER_PDF_TOO_LARGE_TITLE = 'Este PDF es muy grande para mostrarlo aquí';
