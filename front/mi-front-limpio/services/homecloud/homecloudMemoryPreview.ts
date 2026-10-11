@@ -36,6 +36,8 @@ const PREVIEW_EXPIRY_MARGIN_MS = 30_000;
 const PREVIEW_DEFAULT_TTL_MS = 5 * 60_000;
 
 const previewUrlCache = new Map<string, PreviewCacheEntry>();
+const previewRequests = new Map<string, Promise<MemoryPreviewState>>();
+const MAX_PREVIEW_CACHE_ENTRIES = 80;
 
 function nowMs(): number {
   return Date.now();
@@ -65,37 +67,60 @@ function isPreviewUnavailablePayload(value: unknown): boolean {
 export async function getMemoryPreviewUrl(
   accessToken: string,
   contentId: string,
-  options?: { signal?: AbortSignal; timeoutMs?: number },
+  options?: { signal?: AbortSignal; timeoutMs?: number; forceRefresh?: boolean },
 ): Promise<MemoryPreviewState> {
-  const cached = cachedPreview(contentId);
+  const cached = options?.forceRefresh ? null : cachedPreview(contentId);
   if (cached) return { status: 'ready', url: cached };
 
-  let result;
-  try {
-    result = await fetchHomeCloudContentAccess(accessToken, contentId, 'preview', {
-      signal: options?.signal,
-      timeoutMs: options?.timeoutMs,
-    });
-  } catch (error) {
-    if (isPreviewUnavailablePayload(error)) return { status: 'unavailable' };
-    throw error;
-  }
+  const pending = options?.forceRefresh ? null : previewRequests.get(contentId);
+  if (pending) return pending;
 
-  if (isPreviewUnavailablePayload(result)) return { status: 'unavailable' };
-  if (!result || typeof result !== 'object' || typeof (result as { signedUrl?: unknown }).signedUrl !== 'string') {
-    return { status: 'unavailable' };
-  }
+  const request = (async (): Promise<MemoryPreviewState> => {
+    let result;
+    try {
+      result = await fetchHomeCloudContentAccess(accessToken, contentId, 'preview', {
+        signal: options?.signal,
+        timeoutMs: options?.timeoutMs,
+      });
+    } catch (error) {
+      if (isPreviewUnavailablePayload(error)) return { status: 'unavailable' };
+      throw error;
+    }
 
-  const signedUrl = (result as { signedUrl: string }).signedUrl;
-  const expiresIn = (result as { expiresIn?: unknown }).expiresIn;
-  const ttlMs = typeof expiresIn === 'number' && Number.isFinite(expiresIn) && expiresIn > 0
-    ? expiresIn * 1000
-    : PREVIEW_DEFAULT_TTL_MS;
-  previewUrlCache.set(contentId, { url: signedUrl, expiresAt: nowMs() + ttlMs });
-  return { status: 'ready', url: signedUrl };
+    if (isPreviewUnavailablePayload(result)) return { status: 'unavailable' };
+    if (!result || typeof result !== 'object' || typeof (result as { signedUrl?: unknown }).signedUrl !== 'string') {
+      return { status: 'unavailable' };
+    }
+
+    const signedUrl = (result as { signedUrl: string }).signedUrl;
+    const expiresIn = (result as { expiresIn?: unknown }).expiresIn;
+    const ttlMs = typeof expiresIn === 'number' && Number.isFinite(expiresIn) && expiresIn > 0
+      ? expiresIn * 1000
+      : PREVIEW_DEFAULT_TTL_MS;
+    previewUrlCache.set(contentId, { url: signedUrl, expiresAt: nowMs() + ttlMs });
+    trimPreviewCache();
+    return { status: 'ready', url: signedUrl };
+  })().finally(() => {
+    previewRequests.delete(contentId);
+  });
+  previewRequests.set(contentId, request);
+  return request;
+}
+
+function trimPreviewCache(): void {
+  while (previewUrlCache.size > MAX_PREVIEW_CACHE_ENTRIES) {
+    const oldest = previewUrlCache.keys().next().value;
+    if (typeof oldest !== 'string') return;
+    previewUrlCache.delete(oldest);
+  }
+}
+
+export function evictMemoryPreviewUrl(contentId: string): void {
+  previewUrlCache.delete(contentId);
 }
 
 /** Drop every cached preview URL (e.g. household switch, sign out). */
 export function clearMemoryPreviewCache(): void {
   previewUrlCache.clear();
+  previewRequests.clear();
 }

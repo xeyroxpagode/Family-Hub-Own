@@ -1,0 +1,227 @@
+import React, { useEffect, useState } from 'react';
+import { Image, StyleSheet, View } from 'react-native';
+
+import { colors, radius, spacing } from '../../constants/theme';
+import { HomePlusIcon } from '../../constants/icons';
+import { albumItemCountLabel } from '../../services/homecloud/homecloudAlbumScope';
+import type { HomeCloudAlbum } from '../../services/homecloud/homecloudTypes';
+import { AppText } from '../ui/AppText';
+import { AppButton } from '../ui/AppButton';
+import { Skeleton } from '../ui/Skeleton';
+import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
+
+/**
+ * HomeCloud MO-A2 — Album tile.
+ *
+ * Visual grammar is the EXISTING HomeCloud tile grammar (Files `FolderTile` /
+ * `FileTile`): square visual surface, existing radius/border/surface tokens, a
+ * name bounded to two lines and a secondary line underneath.
+ *
+ * Two hard rules live in this file:
+ *
+ * 1. `itemCount` is rendered VERBATIM. It is the exact server aggregate of
+ *    active Memories. The tile never counts loaded Memories: a page length is a
+ *    different, wrong number.
+ * 2. The cover is a CONTENT ID, not a URL. `coverContentId` is resolved through
+ *    the existing ephemeral preview path and nothing else — no second probe, no
+ *    fabricated poster, no original download, no backend cover lookup.
+ */
+
+/**
+ * Stable fallback for "this Album genuinely has no cover to show".
+ *
+ * `unavailable`, `error` and a null `coverContentId` all resolve to this SAME
+ * visual on purpose: an honest gap should look like a gap, not flicker through
+ * several invented states. What it must NOT be is the loading state — that was
+ * BUG B's second face, and it is what made a resolving cover indistinguishable
+ * from a permanently blank tile.
+ */
+function AlbumCoverFallback({ label }: { label: string }) {
+  return (
+    <View
+      accessibilityRole="image"
+      accessibilityLabel={label}
+      style={[styles.visual, styles.fallbackVisual]}
+    >
+      <HomePlusIcon name="albums" size={30} color={colors.text.tertiary} />
+    </View>
+  );
+}
+
+/**
+ * HC2-C §23.7 / C3 — A DISTINGUISHABLE COVER LOADING STATE.
+ *
+ * While the preview is genuinely in flight the tile shows a quiet shimmer block,
+ * which is what "we are still working on this" looks like everywhere else in the
+ * app. It is announced as a loading image, so a screen reader is told the
+ * difference between "arriving" and "there is nothing here".
+ *
+ * The moment the answer is `unavailable`, or the image itself errors, the
+ * fallback replaces it — and STAYS replaced. There is no path back to a
+ * skeleton-looking tile, which is the specific defect that was reported.
+ */
+function AlbumCoverLoading({ label }: { label: string }) {
+  return (
+    <View
+      accessibilityRole="image"
+      accessibilityLabel={`${label}. Cargando`}
+      accessibilityState={{ busy: true }}
+      style={[styles.visual, styles.loadingVisual]}
+    >
+      <Skeleton variant="card" style={styles.loadingBlock} />
+    </View>
+  );
+}
+
+/**
+ * The hook is mounted ONLY for a real content id.
+ *
+ * Splitting it out is what makes "never mount `useMemoryPreviewUrl` with an
+ * invalid id" a structural property of this file instead of a condition that
+ * could be forgotten.
+ */
+function AlbumCoverImage({
+  accessToken,
+  contentId,
+  label,
+}: {
+  accessToken: string | null;
+  contentId: string;
+  label: string;
+}) {
+  // EXACTLY ONE preview attempt for this cover. A video cover legitimately has
+  // no preview yet, so `preview_unavailable` is an expected answer and the
+  // stable fallback is the honest result — never a second probe and never an
+  // invented poster.
+  const preview = useMemoryPreviewUrl(accessToken, contentId, true);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [contentId]);
+
+  if (preview.phase === 'ready') {
+    if (imageFailed) return <AlbumCoverFallback label={label} />;
+    return (
+      <Image
+        source={{ uri: preview.url }}
+        resizeMode="cover"
+        onError={() => setImageFailed(true)}
+        accessibilityRole="image"
+        accessibilityLabel={label}
+        style={styles.visual}
+      />
+    );
+  }
+
+  // `idle` and `loading` are the only phases that mean "still resolving". An
+  // `error` is not loading: it is a failure that already has its honest answer.
+  if (preview.phase === 'idle' || preview.phase === 'loading') {
+    return <AlbumCoverLoading label={label} />;
+  }
+  return <AlbumCoverFallback label={label} />;
+}
+
+export function AlbumCover({
+  album,
+  accessToken,
+}: {
+  album: HomeCloudAlbum;
+  accessToken: string | null;
+}) {
+  const label = `Portada del álbum ${album.name}`;
+  if (album.coverContentId === null) {
+    return <AlbumCoverFallback label={label} />;
+  }
+  return <AlbumCoverImage accessToken={accessToken} contentId={album.coverContentId} label={label} />;
+}
+
+export function AlbumTile({
+  album,
+  accessToken,
+  canOrganize,
+  onPress,
+  onMore,
+}: {
+  album: HomeCloudAlbum;
+  accessToken: string | null;
+  /** Organize is the ONLY capability that unlocks Album actions. */
+  canOrganize: boolean;
+  onPress: () => void;
+  onMore: () => void;
+}) {
+  return (
+    <View style={styles.tile}>
+      {canOrganize ? (
+        <AppButton
+          variant="icon"
+          size="sm"
+          onPress={onMore}
+          style={styles.more}
+          accessibilityLabel={`Acciones del álbum ${album.name}`}
+        >
+          <HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} />
+        </AppButton>
+      ) : null}
+      <AppButton
+        variant="secondary"
+        onPress={onPress}
+        style={styles.visual}
+        accessibilityLabel={`Abrir el álbum ${album.name}`}
+      >
+        <AlbumCover album={album} accessToken={accessToken} />
+      </AppButton>
+      <AppText variant="bodySmall" weight="700" numberOfLines={2}>
+        {album.name}
+      </AppText>
+      <AppText variant="caption" tone="secondary" numberOfLines={1}>
+        {albumItemCountLabel(album.itemCount)}
+      </AppText>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  tile: {
+    width: 132,
+    gap: spacing[1],
+    position: 'relative',
+  },
+  visual: {
+    aspectRatio: 1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    backgroundColor: colors.surface.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    padding: 0,
+  },
+  fallbackVisual: {
+    backgroundColor: colors.background.alt,
+  },
+  /**
+   * HC2-C: the cover's LOADING surface. It is deliberately a hair different from
+   * `fallbackVisual` (transparent over the card) so a resolving cover never
+   * renders as the same flat grey block as an Album that has no cover at all.
+   */
+  loadingVisual: {
+    backgroundColor: 'transparent',
+  },
+  /** Fills the tile: `Skeleton` needs a real box, the parent is `aspectRatio`. */
+  loadingBlock: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    borderRadius: radius.lg,
+    borderWidth: 0,
+  },
+  more: {
+    position: 'absolute',
+    right: spacing[1],
+    top: spacing[1],
+    zIndex: 2,
+    backgroundColor: colors.surface.card,
+  },
+});

@@ -7,6 +7,8 @@ const intakeController = require('../controllers/homecloud.intake.controller')
 const filesController = require('../controllers/homecloud.files.controller')
 const lifecycleController = require('../controllers/homecloud.lifecycle.controller')
 const officeController = require('../controllers/homecloud.office.controller')
+const albumsController = require('../controllers/homecloud.albums.controller')
+const memoryController = require('../controllers/homecloud.memory.controller')
 
 const router = express.Router()
 
@@ -47,10 +49,20 @@ router.get('/content/:contentId/access', storageController.getHomeCloudContentAc
 router.get('/content/:contentId', readController.getContentByIdController)
 
 // Stage 4B.1: Memories read model (Memories Root / Timeline data source).
-// Active memories only (role=memory, lifecycle=active), canonical Timeline
-// order, stable limit/offset pagination, derived kind + album memberships.
-// Query: limit, offset, year, albumId, query, kind
+// Active memories only (role=memory, lifecycle=active), stable limit/offset
+// pagination, derived kind + album memberships.
+// Query: limit, offset, year, albumId, query, kind, order
+// `order` defaults to the global Timeline (newest -> oldest); `order=album`
+// with `albumId` selects the EXPLICIT Album presentation mode (oldest -> newest).
 router.get('/memories', readController.listMemoriesController)
+router.post('/memories/:contentId/trash', lifecycleController.trashMemoryController)
+router.post('/memories/:contentId/restore', lifecycleController.restoreMemoryController)
+router.delete('/memories/:contentId', lifecycleController.purgeMemoryController)
+router.post('/memories/purge-all', lifecycleController.purgeAllMemoriesController)
+
+// ST-3: Memory metadata corrections (semantic date, caption, resurfacing
+// hiding, HOUSEHOLD_SHARED favorite). Requires homecloud.organize.
+router.patch('/memories/:contentId', memoryController.updateMemoryController)
 
 // Folders: list the whole household catalogue and get by ID
 // (protected, household-scoped). The catalogue carries parent_folder_id so a
@@ -97,6 +109,16 @@ router.delete('/office-session/:sessionId', officeController.revokeOfficeSession
 // Stable ordering by name
 router.get('/albums', readController.listAlbumsController)
 router.get('/albums/:albumId', readController.getAlbumByIdController)
+
+// MO-A1 Album organization mutations (require homecloud.organize).
+// An Album is a shared ORGANIZATION over Memories: none of these endpoints
+// creates, modifies, trashes or purges a Memory, and DELETE is a HARD delete of
+// the grouping only (membership rows disappear through the FK cascade).
+router.post('/albums', albumsController.createAlbumController)
+router.patch('/albums/:albumId', albumsController.renameAlbumController)
+router.delete('/albums/:albumId', albumsController.deleteAlbumController)
+router.post('/albums/:albumId/items', albumsController.addAlbumItemController)
+router.delete('/albums/:albumId/items/:contentId', albumsController.removeAlbumItemController)
 
 // Album items primitive (protected, household-scoped)
  // Low-level repository primitive for Stage 4 composition

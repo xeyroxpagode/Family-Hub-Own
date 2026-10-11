@@ -63,6 +63,7 @@ import {
   HouseholdSwitcherSheet,
   IconButton,
 } from '../components/ui';
+import { isMemoryViewerOpen, subscribeMemoryViewerOpen } from '../services/homecloud/homecloudViewerVisibility';
 import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
 import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
 import { PlannerDeepLinkProvider } from '../services/planner/plannerDeepLinkProvider';
@@ -302,6 +303,16 @@ export function HomeTabNavigator() {
   
   const [showHouseholdSwitcher, setShowHouseholdSwitcher] = useState(false);
   const [showAccountSheet, setShowAccountSheet] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(isMemoryViewerOpen());
+  useEffect(() => subscribeMemoryViewerOpen(() => setViewerOpen(isMemoryViewerOpen())), []);
+  /**
+   * ST-4: global chrome UNMOUNTS while the Viewer is open inside MoreTab. The
+   * Viewer/tab state stays owned by Memories; this only mirrors the flag. The
+   * previous extra `activeTab === 'MoreTab'` guard was fragile because this
+   * navigator's state listener can start stale when the More stack is already
+   * focused, leaving the physical bottom navbar mounted over the Viewer.
+   */
+  const chromeHidden = viewerOpen;
 
   const personName = authMe?.person?.display_name ?? 'Usuario';
   const personAvatarUrl = authMe?.person?.avatar_url ?? null;
@@ -329,26 +340,28 @@ export function HomeTabNavigator() {
 
   return (
     <View style={styles.container}>
-      <AppTopBar
-        personName={personName}
-        personAvatarUrl={personAvatarUrl}
-        householdName={householdName}
-        householdRole={householdRole}
-        onAvatarPress={handleAvatarPress}
-        onHouseholdPress={handleHouseholdPress}
-        rightSlot={(
-          <TopBarActions
-            accessToken={session?.access_token ?? null}
-            householdId={currentHousehold?.id ?? authMe?.active_household?.id ?? null}
-            navigation={navigation}
-          />
-        )}
-      />
+      {chromeHidden ? null : (
+        <AppTopBar
+          personName={personName}
+          personAvatarUrl={personAvatarUrl}
+          householdName={householdName}
+          householdRole={householdRole}
+          onAvatarPress={handleAvatarPress}
+          onHouseholdPress={handleHouseholdPress}
+          rightSlot={(
+            <TopBarActions
+              accessToken={session?.access_token ?? null}
+              householdId={currentHousehold?.id ?? authMe?.active_household?.id ?? null}
+              navigation={navigation}
+            />
+          )}
+        />
+      )}
 
       <PlannerDeepLinkProvider>
         <PlannerSheetProvider>
         <Tab.Navigator
-          tabBar={(props) => <MainFloatingTabBar {...props} />}
+          tabBar={(props) => (chromeHidden ? null : <MainFloatingTabBar {...props} />)}
           screenOptions={{
             headerShown: false,
             tabBarShowLabel: false,

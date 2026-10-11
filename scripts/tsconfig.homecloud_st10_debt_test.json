@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": { "module": "CommonJS", "moduleResolution": "Bundler", "outDir": "./compiled-st10-debt" },
+  "include": [
+    "../scripts/homecloud_st10_intake_debt_tests.ts"
+  ],
+  "exclude": ["node_modules"]
+}

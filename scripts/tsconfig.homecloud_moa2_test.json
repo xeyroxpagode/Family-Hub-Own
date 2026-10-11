@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-moa2"
+  },
+  "include": [
+    "../scripts/homecloud_moa2_album_surface_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudAlbumScope.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudAlbumsPagination.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudAlbumDetailPagination.ts"
+  ],
+  "exclude": ["node_modules"]
+}

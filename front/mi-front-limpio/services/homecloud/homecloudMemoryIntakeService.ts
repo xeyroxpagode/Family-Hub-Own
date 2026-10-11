@@ -5,12 +5,16 @@ import { ensureHomeCloudUploadRuntime } from './homecloudUploadRuntime';
 import { ensureUploadCoordinator } from './homecloudUploadCoordinator';
 import { cleanupTerminalJobArtifact, sweepOrphanDurableWorkspaces } from './homecloudDurableArtifact';
 import { fetchHomeCloudAlbumsCached } from './homecloudReadService';
-import type { BinaryMemoryDraft, BinaryMemoryMetadata, MemoryIntakeConfig, MemoryIntakeState, MemoryIntakeDestination } from './homecloudMemoryIntakeTypes';
-import type { UploadJob } from './homecloudUploadTypes';
+import type { BinaryMemoryDraft, BinaryMemoryMetadata, MemoryBatchAcceptedItem, MemoryBatchJobState, MemoryBatchSubmissionItem, MemoryIntakeConfig, MemoryIntakeState, MemoryIntakeDestination } from './homecloudMemoryIntakeTypes';
+import type { UploadJob, UploadLocalArtifact } from './homecloudUploadTypes';
 import type { MemoryPickerOutcome } from './homecloudMemoryPicker';
 import { memoryAttemptTrace, memoryDevTrace } from './homecloudMemoryDiagnostics';
 import type { MemoryAttempt } from './homecloudMemoryAttempt';
 import { homeCloudUploadErrorMessage } from './homecloudUploadError';
+import type { MediaCaptureMetadata } from './homecloudMediaCaptureMetadata';
+
+/** The gallery batch result, as this service consumes it. */
+export type MemoryBatchSeed = { artifact: UploadLocalArtifact; capture: MediaCaptureMetadata; source: 'gallery' };
 
 /**
  * HomeCloud HC-2C â€” Memory Intake service.
@@ -67,8 +71,12 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
   let selectedAlbumId: string | null = initialAlbumId ?? null;
   let selectedAlbumName: string | null = initialAlbumName ?? null;
   let availableAlbums: MemoryIntakeDestination[] = [];
-  let albumsLoaded = false;
+  // Destinations are re-readable, NOT loaded once and forgotten. The previous
+  // one-shot flag made the picker offer Albums that had been renamed or deleted
+  // elsewhere, and it could never recover without a remount.
+  let destinationsInFlight: Promise<void> | null = null;
   let picking = false;
+  let pickerGeneration = 0;
   let stateListeners: Set<(state: MemoryIntakeState) => void> = new Set();
 
   const baseState: MemoryIntakeState = { status: 'idle' };
@@ -95,26 +103,49 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
 
 
-  async function loadAlbums(): Promise<void> {
-    if (albumsLoaded) return;
-    try {
-      const token = getAccessToken();
-      if (!token) throw new Error('no access token');
-      const albums = await fetchHomeCloudAlbumsCached(token, { householdId });
-      availableAlbums = [
-        { id: 'root', name: 'Recuerdos', isCurrent: selectedAlbumId === null },
-        ...albums.map((a) => ({ id: a.id, name: a.name, isCurrent: a.id === selectedAlbumId })),
-      ];
-      // If the inherited Album context no longer resolves, surface it instead of
-      // silently continuing as root Memories.
-      if (selectedAlbumId && !albums.some((a) => a.id === selectedAlbumId)) {
-        emitState({ invalidAlbum: true });
+/**
+   * Reload the Album destinations through the EXISTING cached read.
+   *
+   * This is a re-runnable seam, not a one-shot load:
+   *  - it is safe to call on every sheet open, so the picker always reflects the
+   *    Albums that exist NOW;
+   *  - concurrent calls share ONE in-flight read instead of racing two answers
+   *    over the same list;
+   *  - the read is the SAME `fetchHomeCloudAlbumsCached` the surface already
+   *    used. No second Albums fetcher is introduced here, and this module owns NO
+   *    Album management: it can neither create, rename nor delete an Album.
+   *
+   * Album MUTATIONS elsewhere invalidate the household Album read keys, so once
+   * they have run this reload is guaranteed to miss the cache and re-read.
+   */
+  async function reloadDestinations(): Promise<void> {
+    if (destinationsInFlight) return destinationsInFlight;
+    const run = (async () => {
+      try {
+        const token = getAccessToken();
+        if (!token) throw new Error('no access token');
+        const albums = await fetchHomeCloudAlbumsCached(token, { householdId });
+        availableAlbums = [
+          { id: 'root', name: 'Recuerdos', isCurrent: selectedAlbumId === null },
+          ...albums.map((a) => ({ id: a.id, name: a.name, isCurrent: a.id === selectedAlbumId })),
+        ];
+        // An inherited Album context that no longer resolves is SURFACED, never
+        // silently retargeted to root and never silently kept as if it existed.
+        if (selectedAlbumId && !albums.some((a) => a.id === selectedAlbumId)) {
+          emitState({ invalidAlbum: true });
+        } else if (selectedAlbumId) {
+          emitState({ albumName: albums.find((a) => a.id === selectedAlbumId)?.name ?? selectedAlbumName, invalidAlbum: false });
+        }
+      } catch {
+        // An empty Album list must NEVER block Memory creation: "Sin álbum"
+        // stays valid, so the only destination offered is the root one.
+        availableAlbums = [{ id: 'root', name: 'Recuerdos', isCurrent: selectedAlbumId === null }];
+      } finally {
+        destinationsInFlight = null;
       }
-      albumsLoaded = true;
-    } catch {
-      availableAlbums = [{ id: 'root', name: 'Recuerdos', isCurrent: selectedAlbumId === null }];
-      albumsLoaded = true;
-    }
+    })();
+    destinationsInFlight = run;
+    return run;
   }
 
   function mapEngineStateToIntakeState(job: UploadJob): MemoryIntakeState['status'] {
@@ -178,6 +209,48 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     }, attempt, owns);
   }
 
+  /**
+   * ST-10.D — the MULTI-SELECTION gallery picker.
+   *
+   * It shares the single item's guard lifecycle verbatim (`picking`, the
+   * generation counter, the attempt ownership check and the capability gate), so
+   * a double tap cannot open two native pickers and a late resolve cannot
+   * overwrite a newer selection. What differs is only the result: N independent
+   * seeds instead of one draft.
+   */
+  async function pickMemoryBatch(attempt?: MemoryAttempt, owns: (attempt: MemoryAttempt) => boolean = () => true): Promise<MemoryBatchSeed[] | null> {
+    if (!capabilities.contribute) {
+      emitState({ status: 'failed', error: 'No tienes permiso para agregar recuerdos.' });
+      return null;
+    }
+    if (picking) return null;
+    picking = true;
+    const generation = ++pickerGeneration;
+    resetTransientState();
+    emitState({ status: 'picking' });
+    try {
+      const { pickMemoryMediaBatch } = await import('./homecloudMemoryPicker');
+      const outcome = await pickMemoryMediaBatch(attempt);
+      if (attempt && !owns(attempt)) return null;
+      if (outcome.success === false && outcome.cancelled === true) {
+        emitState({ status: 'idle', error: undefined });
+        return null;
+      }
+      if (outcome.success === false) {
+        emitState({ status: 'failed', error: outcome.error, permissionDenied: outcome.permissionDenied, canAskAgain: outcome.canAskAgain });
+        return null;
+      }
+      emitState({ status: 'idle', error: undefined });
+      return outcome.seeds;
+    } catch (error) {
+      if (attempt && !owns(attempt)) return null;
+      emitState({ status: 'failed', error: error instanceof Error ? error.message : 'No pudimos seleccionar la foto o el video.' });
+      return null;
+    } finally {
+      if (pickerGeneration === generation) picking = false;
+    }
+  }
+
   async function runSourcePicker(pick: () => Promise<MemoryPickerOutcome>, attempt?: MemoryAttempt, owns: (attempt: MemoryAttempt) => boolean = () => true): Promise<BinaryMemoryDraft | null> {
     if (!capabilities.contribute) {
       emitState({ status: 'failed', error: 'No tienes permiso para agregar recuerdos.' });
@@ -186,6 +259,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
     if (picking) return null;
     picking = true;
+    const generation = ++pickerGeneration;
     resetTransientState();
     emitState({ status: 'picking' });
 
@@ -204,7 +278,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
       }
 
       emitState({ status: 'idle', error: undefined });
-      return { artifact: outcome.artifact, capture: outcome.capture, source: outcome.source, durationMillis: outcome.durationMillis };
+      return { artifact: outcome.artifact, capture: outcome.capture, source: outcome.source };
     } catch (error) {
       if (attempt && !owns(attempt)) return null;
       emitState({
@@ -213,7 +287,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
       });
       return null;
     } finally {
-      picking = false;
+      if (pickerGeneration === generation) picking = false;
     }
   }
 
@@ -329,6 +403,7 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
    * starts from a clean owner.
    */
   function dismiss(): void {
+    pickerGeneration += 1;
     picking = false;
     acceptedJobId = null;
     acceptedDraftKey = null;
@@ -379,6 +454,130 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     }
   }
 
+  /**
+   * ST-10.E — ONE USER ACTION, N AUTHORIZED JOBS.
+   *
+   * This is a COORDINATION SURFACE, not a new pipeline. Every item goes through
+   * the exact same `queue.enqueue(..., role: 'memory')` the single-item path
+   * already uses, so it inherits the shared engine's register → authorize →
+   * upload → verify → finalize chain, its per-job `intakeRequestId` idempotency
+   * and its durable recovery. Nothing here forks, wraps or replaces the upload
+   * engine, and no bulk endpoint is invented.
+   *
+   * The result is deliberately NOT transactional. Each item is reported with the
+   * real state of its own job, because N independent uploads cannot be undone
+   * together and pretending otherwise would be a lie about the user's data.
+   */
+  let acceptedBatchKey: string | null = null;
+  let batchJobIds: string[] = [];
+
+  async function createBinaryMemories(items: readonly MemoryBatchSubmissionItem[], batchKey: string): Promise<MemoryBatchAcceptedItem[]> {
+    if (!capabilities.contribute) {
+      emitState({ status: 'failed', error: 'No tienes permiso para agregar recuerdos.' });
+      return [];
+    }
+    // DOUBLE-SUBMIT GUARD, synchronous and authoritative: a second press of the
+    // same batch returns the SAME job ids instead of enqueueing them twice.
+    if (acceptedBatchKey === batchKey && batchJobIds.length > 0) {
+      return batchAcceptedItems(batchJobIds);
+    }
+    if (items.length === 0) return [];
+    acceptedBatchKey = batchKey;
+    const accepted: MemoryBatchAcceptedItem[] = [];
+    for (const item of items) {
+      try {
+        const job = await queue.enqueue(
+          {
+            role: 'memory',
+            intakeSource: config.intakeSource ?? 'memories:picker',
+            initialAlbumId: item.metadata.initialAlbumId,
+            caption: item.metadata.caption,
+            capturedAt: item.metadata.capturedAt,
+            capturedYear: item.metadata.capturedYear,
+            capturedMonth: item.metadata.capturedMonth,
+            capturePrecision: item.metadata.capturePrecision,
+          },
+          item.draft.artifact,
+        );
+        batchJobIds.push(job.id);
+        accepted.push({ draftId: item.draftId, jobId: job.id });
+      } catch (error) {
+        // A refused enqueue is an HONEST per-item failure, never a silent skip.
+        accepted.push({ draftId: item.draftId, jobId: null, error: homeCloudUploadErrorMessage(error, 'No pudimos guardar este recuerdo.') });
+      }
+    }
+    // PRESENTATION BINDING: the batch's accepted jobs are what the summary
+    // projects, never "the latest memory job in the household".
+    emitState({ status: batchAggregateStatus() });
+    return accepted;
+  }
+
+  function batchAcceptedItems(jobIds: readonly string[]): MemoryBatchAcceptedItem[] {
+    return jobIds.map((jobId) => ({ draftId: jobId, jobId }));
+  }
+
+  /**
+   * The REAL state of every job this batch created, read from the durable store
+   * rather than from any optimistic local flag. The vocabulary is the engine's
+   * own (`UploadJobState`), never an invented batch lifecycle.
+   */
+  function batchJobStates(jobIds: readonly string[]): MemoryBatchJobState[] {
+    return jobIds.map((jobId) => {
+      const job = store.get(jobId);
+      return {
+        jobId,
+        displayName: job?.artifact.displayName ?? 'recuerdo',
+        state: job?.state ?? 'failed',
+        contentId: job?.contentId ?? null,
+        retryable: job?.error?.retryable === true,
+        error: job?.error?.message ?? null,
+      };
+    });
+  }
+
+  function batchAggregateStatus(): MemoryIntakeState['status'] {
+    const states = batchJobStates(batchJobIds);
+    if (states.length === 0) return 'idle';
+    if (states.every((job) => job.state === 'completed')) return 'completed';
+    if (states.some((job) => job.state === 'failed')) return 'failed';
+    if (states.some((job) => job.state === 'cancelled')) return 'cancelled';
+    if (states.some((job) => job.state === 'finalizing' || job.state === 'verifying')) return 'finalizing';
+    if (states.some((job) => job.state === 'uploading' || job.state === 'registered')) return 'uploading';
+    return 'preparing';
+  }
+
+  /**
+   * FAILED-ONLY RETRY. Only the ids passed in are retried, so an item that
+   * already reached `completed` is never re-uploaded and never re-registered.
+   * Each retry reuses the same coordinator path the global activity band uses,
+   * which is idempotent per job.
+   */
+  async function retryBatchJobs(jobIds: readonly string[]): Promise<void> {
+    resetTransientState();
+    for (const jobId of jobIds) await coordinator.retry(jobId);
+    emitState({ status: batchAggregateStatus() });
+  }
+
+  /**
+   * CANCEL A SUBSET. Only the ids passed in are cancelled. Items already
+   * `completed` are refused by the coordinator, so this can never claim a
+   * finalized Memory was undone.
+   */
+  async function cancelBatchJobs(jobIds: readonly string[]): Promise<number> {
+    let cancelled = 0;
+    for (const jobId of jobIds) {
+      const result = await queue.cancelJob(jobId);
+      if (result) cancelled += 1;
+    }
+    emitState({ status: batchAggregateStatus() });
+    return cancelled;
+  }
+
+  function dismissBatch(): void {
+    acceptedBatchKey = null;
+    batchJobIds = [];
+  }
+
   function canShowDestinationSelector(): boolean {
     // Root + at least one Album, and no inherited Album context (context already
     // resolved intent â†’ don't ask again).
@@ -397,8 +596,14 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
 
   return {
     pickMemory,
+    pickMemoryBatch,
     pickAudio,
     createBinaryMemory,
+    createBinaryMemories,
+    batchJobStates,
+    retryBatchJobs,
+    cancelBatchJobs,
+    dismissBatch,
     selectDestination,
     retry,
     cancel,
@@ -408,11 +613,17 @@ export function createMemoryIntakeService(config: MemoryIntakeConfig) {
     getInitialAlbum,
     canShowDestinationSelector,
     hasAlbumContext,
-    loadAlbums,
+    /**
+     * Re-read the Album destinations. Neutral by design: this service owns no
+     * Album management, so it never names a create/rename/delete operation.
+     */
+    reloadDestinations,
     recover,
     hasActiveJob,
     /** The job this surface is bound to (null before the first submit). */
     getAcceptedJobId: () => acceptedJobId,
+    /** The job ids this batch created, in submission order. */
+    getBatchJobIds: () => [...batchJobIds],
     /** Compat projection over the shared queue (never separate authority). */
     getCurrentJob: () => queue.getCurrentJob(),
   };

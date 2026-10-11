@@ -697,6 +697,56 @@ const commands = {
     'node',
     ['scripts/compiled/scripts/homecloud_4c1_1_memory_create_recovery_tests.js'],
   ),
+  'homecloud-lifecycle-backend-contract': () => runCommand(
+    'HomeCloud lifecycle backend contract tests',
+    'node',
+    ['scripts/homecloud_lifecycle_backend_contract_tests.js'],
+  ),
+  'homecloud-delete-capability-enforcement': () => runCommand(
+    'HomeCloud delete capability enforcement tests',
+    'node',
+    ['scripts/homecloud_delete_capability_enforcement_tests.js'],
+  ),
+  'homecloud-purge-storage-honesty': () => runCommand(
+    'HomeCloud purge storage honesty tests',
+    'node',
+    ['scripts/homecloud_purge_storage_honesty_tests.js'],
+  ),
+  'homecloud-selection-caller-context': () => runCommand(
+    'HomeCloud selection caller context tests',
+    'node',
+    ['scripts/homecloud_selection_caller_context_tests.js'],
+  ),
+  'homecloud-viewer-android-back': () => runCommand(
+    'HomeCloud Viewer Android Back tests',
+    'node',
+    ['scripts/homecloud_viewer_android_back_tests.js'],
+  ),
+  'homecloud-viewer-immersive': () => runCommand(
+    'HomeCloud Viewer immersive tests',
+    'node',
+    ['scripts/homecloud_viewer_immersive_tests.js'],
+  ),
+  'homecloud-viewer-loading-states': () => runCommand(
+    'HomeCloud Viewer loading states tests',
+    'node',
+    ['scripts/homecloud_viewer_loading_states_tests.js'],
+  ),
+  'homecloud-viewer-no-nested-modal': () => runCommand(
+    'HomeCloud Viewer no nested modal tests',
+    'node',
+    ['scripts/homecloud_viewer_no_nested_modal_tests.js'],
+  ),
+  'homecloud-global-tab-switch': () => runCommand(
+    'HomeCloud global tab switch tests',
+    'node',
+    ['scripts/homecloud_global_tab_switch_tests.js'],
+  ),
+  'homecloud-scroll-offsets': () => runCommand(
+    'HomeCloud scroll offset tests',
+    'node',
+    ['scripts/homecloud_scroll_offset_tests.js'],
+  ),
 
   'homecloud-s0-gallery-intake-contract': () => runCommand(
     'HomeCloud S0 gallery intake contract tests',
@@ -709,10 +759,255 @@ const commands = {
     ['scripts/homecloud_s0_modal_host_contract_tests.js'],
   ),
 
+  'homecloud-p2-foundation': () => runCommand(
+    'HomeCloud P2 memories foundation tests',
+    'node',
+    ['scripts/compiled/scripts/homecloud_p2_memories_foundation_tests.js'],
+  ),
+  'homecloud-st3-patch-favorites': () => runCommand(
+    'HomeCloud ST-3 memory PATCH + favorites contract tests',
+    'node',
+    ['scripts/homecloud_st3_memory_patch_tests.js'],
+  ),
+  'homecloud-st3-semantic-date-compile': () => runCommand(
+    'Compile HomeCloud ST-3 semantic date focused tests',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st3_test.json'],
+  ),
+  'homecloud-st3-semantic-date': () => runCommand(
+    'HomeCloud ST-3 semantic date / written date tests',
+    'node',
+    ['scripts/compiled/scripts/homecloud_st3_semantic_date_tests.js'],
+  ),
   'homecloud-4c1-compile': () => runCommand(
     'Compile HomeCloud 4C1 focused tests',
     'npm',
     ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_4c1_test.json'],
+  ),
+
+  // MO-A1 — Albums contract / backend / read model.
+  //
+  // homecloud-moa1-album-contract is deterministic (no database, no network):
+  // capability model, Album DTO contract, Album order vs Timeline order, cover
+  // suitability, mutation route surface, schema freeze, read-model boundaries
+  // and shared-foundation decoupling.
+  //
+  // homecloud-moa1-album-runtime is ENVIRONMENT-DEPENDENT: it exercises the REAL
+  // backend services against the LOCAL Supabase reported by `supabase status`
+  // and refuses any non-local URL. It is the runtime proof for the five Album
+  // mutations, the exact itemCount (including >1000), the derived cover, the
+  // Album read mode and the capability/household authority. Without a running
+  // local Supabase it reports RUNTIME_REQUIRED and fails; it never degrades to a
+  // pretend pass.
+  'homecloud-moa1-album-contract': () => runCommand(
+    'HomeCloud MO-A1 Album contract deterministic tests',
+    'node',
+    ['scripts/homecloud_moa1_album_contracts_tests.js'],
+  ),
+  'homecloud-moa1-album-runtime': () => runCommand(
+    'HomeCloud MO-A1 Album runtime tests (local Supabase)',
+    'node',
+    ['scripts/homecloud_moa1_album_runtime_tests.js'],
+  ),
+  // MO-A2 — Albums SURFACE (the UI slice that consumes the closed MO-A1
+  // contract).
+  //
+  // homecloud-moa2-album-surface is deterministic: it EXECUTES the two
+  // framework-free Album controllers (generations, stale-answer rejection,
+  // replace vs append, dedupe, terminal missing-Album, reset) and reads the real
+  // component sources for the boundaries that only source can prove.
+  //
+  // homecloud-moa2-album-runtime is ENVIRONMENT-DEPENDENT: it boots the REAL
+  // backend HomeCloud routes in process on an EPHEMERAL local port and drives
+  // the REAL compiled frontend client over HTTP against the LOCAL Supabase
+  // reported by `supabase status`, so every Album request shape, status and
+  // typed refusal is exercised as the app sends it. It refuses a non-local URL.
+  'homecloud-moa2-album-surface': () => {
+    runCommand(
+      'HomeCloud MO-A2 compile Album surface/controller tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa2_test.json'],
+    );
+    return runCommand(
+      'HomeCloud MO-A2 Album surface / controller deterministic tests',
+      'node',
+      ['scripts/compiled-moa2/scripts/homecloud_moa2_album_surface_tests.js'],
+    );
+  },
+  'homecloud-moa2-album-runtime': () => {
+    runCommand(
+      'HomeCloud MO-A2 compile the Album client contract',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa2_client_test.json'],
+    );
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'HomeCloud MO-A2 Album runtime tests (local Supabase, real client over HTTP)',
+      'node',
+      ['scripts/homecloud_moa2_album_runtime_tests.js'],
+      { env },
+    );
+  },
+  // MO-A3 — MEMORY SELECTION + ALBUM INTEGRATION.
+  //
+  // homecloud-moa3-selection is deterministic: it EXECUTES the framework-free
+  // selection session, drag state machine, mounted-row registry + hit testing,
+  // edge auto-scroll solver/ticker, collection read contracts and membership
+  // composer, and it reads the real component sources for the boundaries only a
+  // source can prove (no Viewer, no route, no delete, no global store, no smart
+  // collection). It also carries the HC-1 order closure: an explicit
+  // characterization of the pre-existing Album visual-order gap plus the exact
+  // Timeline-unchanged / Album-corrected proof.
+  //
+  // homecloud-moa3-selection-runtime is ENVIRONMENT-DEPENDENT: it boots the REAL
+  // backend HomeCloud routes in process on an EPHEMERAL local port and drives the
+  // REAL compiled frontend client AND the REAL pure modules over HTTP against the
+  // LOCAL Supabase reported by `supabase status`. It refuses a non-local URL.
+  'homecloud-moa3-selection': () => {
+    runCommand(
+      'HomeCloud MO-A3 compile selection / drag / collections / order tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa3_test.json'],
+    );
+    return runCommand(
+      'HomeCloud MO-A3 memory selection deterministic tests',
+      'node',
+      ['scripts/compiled-moa3/scripts/homecloud_moa3_memory_selection_tests.js'],
+    );
+  },
+  'homecloud-moa3-selection-runtime': () => {
+    runCommand(
+      'HomeCloud MO-A3 compile the selection client contract',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa3_client_test.json'],
+    );
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'HomeCloud MO-A3 memory selection runtime tests (local Supabase, real client over HTTP)',
+      'node',
+      ['scripts/homecloud_moa3_memory_selection_runtime_tests.js'],
+      { env },
+    );
+  },
+  // MO-A3 DEVICE FIX (D1/D2/D3) — the three physical-iPhone gesture defects the
+  // automated gates could not see: the auto-scroll crash, the drag leaking into
+  // pull-to-refresh, and the drag leaking into the parent exit swipe.
+  //
+  // It is deterministic and framework free. Its fixtures are built from the
+  // RUNTIME facts proven against the installed React Native (a SectionList ref
+  // publishes getScrollResponder and NOT scrollToOffset), so the "supported" and
+  // "missing method" cases describe the real object rather than a convenient one.
+  'homecloud-moa3-device-gestures': () => {
+    runCommand(
+      'HomeCloud MO-A3 device fix compile scroll-adapter / refresh-gate / exit-gesture tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa3_device_gesture_fix_test.json'],
+    );
+    return runCommand(
+      'HomeCloud MO-A3 device fix scroll adapter / refresh gate / exit gesture tests',
+      'node',
+      ['scripts/compiled-moa3-device-gesture/scripts/homecloud_moa3_device_gesture_fix_tests.js'],
+    );
+  },
+  // HC2-C Run A — the Memories FOUNDATION gate (C0..C4).
+  //
+  // Three deterministic suites, ONE compile: the Viewer's opening invariant, the
+  // Albums first paint, and the root/selection contracts. They are wired as a
+  // suite so they can never become orphans again — which is exactly how
+  // `homecloud-hc2a-memories-viewer` became one (audit R9).
+  'homecloud-hc2c-memories-foundation': () => {
+    runCommand('HomeCloud HC2-C Run A compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2c_test.json']);
+    runCommand('HomeCloud HC2-C Viewer opening tests', 'node', ['scripts/compiled-hc2c/scripts/homecloud_hc2c_viewer_opening_tests.js']);
+    runCommand('HomeCloud HC2-C Albums rail tests', 'node', ['scripts/compiled-hc2c/scripts/homecloud_hc2c_albums_rail_tests.js']);
+    return runCommand('HomeCloud HC2-C Memories root and selection tests', 'node', ['scripts/compiled-hc2c/scripts/homecloud_hc2c_memories_root_tests.js']);
+  },
+  'homecloud-hc2a-memories-viewer': () => {
+    runCommand('HomeCloud HC2-A memory viewer compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2a_test.json']);
+    return runCommand('HomeCloud HC2-A memory viewer foundation tests', 'node', ['scripts/compiled-hc2a/scripts/homecloud_hc2a_memories_viewer_tests.js']);
+  },
+  'homecloud-hc2b-media-viewer-contract': () => {
+    runCommand('HomeCloud HC2-B Slice 0 compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2b_test.json']);
+    return runCommand('HomeCloud HC2-B Slice 0 tests', 'node', ['scripts/compiled-hc2b/scripts/homecloud_hc2b_media_viewer_tests.js']);
+  },
+  'homecloud-st9-media-reliability': () => {
+    runCommand('HomeCloud ST-9 media reliability compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2b_test.json']);
+    return runCommand('HomeCloud ST-9 media reliability tests', 'node', ['scripts/compiled-hc2b/scripts/homecloud_st9_media_reliability_tests.js']);
+  },
+  'homecloud-st10-image-zoom-compile': () => runCommand(
+    'HomeCloud ST-10 image zoom compile',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st10_zoom_test.json'],
+  ),
+  'homecloud-st10-image-zoom': () => runCommand(
+    'HomeCloud ST-10 image zoom tests',
+    'node',
+    ['scripts/compiled-st10-zoom/scripts/homecloud_st10_image_zoom_tests.js'],
+  ),
+  'homecloud-st10-intake-debt-compile': () => runCommand(
+    'HomeCloud ST-10 intake debt compile',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st10_debt_test.json'],
+  ),
+  'homecloud-st10-intake-debt': () => runCommand(
+    'HomeCloud ST-10 intake debt tests',
+    'node',
+    ['scripts/compiled-st10-debt/scripts/homecloud_st10_intake_debt_tests.js'],
+  ),
+  'homecloud-st10-camera-compile': () => runCommand(
+    'HomeCloud ST-10 camera convergence compile',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st10_camera_test.json'],
+  ),
+  'homecloud-st10-camera': () => runCommand(
+    'HomeCloud ST-10 camera convergence tests',
+    'node',
+    ['scripts/compiled-st10-camera/scripts/homecloud_st10_camera_convergence_tests.js'],
+  ),
+  'homecloud-st10-batch-compile': () => runCommand(
+    'HomeCloud ST-10 batch intake compile',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st10_batch_test.json'],
+  ),
+  'homecloud-st10-batch': () => runCommand(
+    'HomeCloud ST-10 batch intake tests',
+    'node',
+    ['scripts/compiled-st10-batch/scripts/homecloud_st10_batch_intake_tests.js'],
+  ),
+  'homecloud-1f-dto-leak': () => runCommand(
+    'HomeCloud 1F DTO leak regression tests',
+    'node',
+    ['scripts/homecloud_1f_dto_leak_tests.js'],
+  ),
+  'homecloud-1d-backend-enforcement': () => runCommand(
+    'HomeCloud 1D backend enforcement tests',
+    'node',
+    ['scripts/homecloud_1d_backend_enforcement_tests.js'],
+  ),
+  'homecloud-1d-capability-resolution': () => runCommand(
+    'HomeCloud 1D capability resolution contract tests',
+    'node',
+    ['scripts/homecloud_1d_capability_resolution_contract_tests.js'],
+  ),
+  'homecloud-1d-frontend-projection': () => runCommand(
+    'HomeCloud 1D frontend projection tests',
+    'node',
+    ['scripts/homecloud_1d_frontend_projection_tests.js'],
+  ),
+  'homecloud-1d-new-household-capability-regression': () => runCommand(
+    'HomeCloud 1D new household capability regression tests',
+    'node',
+    ['scripts/homecloud_1d_new_household_capability_regression_tests.js'],
+  ),
+  'homecloud-1d-rls-bypass': () => runCommand(
+    'HomeCloud 1D RLS bypass tests',
+    'node',
+    ['scripts/homecloud_1d_rls_bypass_tests.js'],
   ),
   'homecloud-stage-a1-capture-recovery': () => runCommand(
     'HomeCloud Stage A1 in-app capture runtime recovery tests',
@@ -1285,10 +1580,152 @@ const commands = {
   coverage: () => runCommand('Core coverage baseline', 'npm', ['run', 'test:coverage']),
   'ci-syntax': () => runCommand('CI workflow syntax', 'node', ['tests/static/workflow-syntax.js']),
   whitespace: () => runCommand('Whitespace check', 'git', ['diff', '--check']),
+  'homecloud-st5-action-authority-compile': () => runCommand(
+    'HomeCloud ST-5 compile action authority tests',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st5_test.json'],
+  ),
+  'homecloud-st5-action-authority': () => runCommand(
+    'HomeCloud ST-5 action authority tests',
+    'node',
+    ['scripts/compiled-st5/scripts/homecloud_memory_action_authority_tests.js'],
+  ),
+  'homecloud-st5-viewer-action-menu': () => runCommand(
+    'HomeCloud ST-5 viewer action menu tests',
+    'node',
+    ['scripts/homecloud_viewer_action_menu_tests.js'],
+  ),
+  'homecloud-st5-favorite-actions': () => runCommand(
+    'HomeCloud ST-5 favorite action tests',
+    'node',
+    ['scripts/homecloud_favorite_action_tests.js'],
+  ),
+  'homecloud-st5-written-share': () => runCommand(
+    'HomeCloud ST-5 written memory share tests',
+    'node',
+    ['scripts/homecloud_written_memory_share_tests.js'],
+  ),
+  'homecloud-st5-share-temp-cleanup': () => runCommand(
+    'HomeCloud ST-5 share temp cleanup tests',
+    'node',
+    ['scripts/homecloud_share_temp_cleanup_tests.js'],
+  ),
+  'homecloud-st5-multishare-contract': () => runCommand(
+    'HomeCloud ST-5 multishare platform contract tests',
+    'node',
+    ['scripts/homecloud_multishare_contract_tests.js'],
+  ),
 };
 
 const suites = {
-  typecheck: ['frontend-typecheck', 'test-typecheck'],
+typecheck: ['frontend-typecheck', 'test-typecheck'],
+  'homecloud-hc2b-media-viewer': ['homecloud-hc2b-media-viewer-contract'],
+  // HC2-C Run A gate. It carries BOTH the new Foundation evidence AND the whole
+  // Viewer evidence it sits on top of, because Run A must never weaken what HC2-A
+  // and HC2-B froze: the opening invariant is a correction OF that pager, not a
+  // replacement for it. `homecloud-hc2a-memories-viewer` was an ORPHAN command —
+  // registered, referenced by no suite, so it ran in no `npm run quality` at all
+  // (audit R9). It is wired here so the Viewer evidence is never silent again.
+  'homecloud-hc2c-run-a': [
+    'homecloud-hc2c-memories-foundation',
+    'homecloud-hc2a-memories-viewer',
+    'homecloud-hc2b-media-viewer-contract',
+    'homecloud-moa3-selection',
+    'homecloud-moa3-device-gestures',
+    'homecloud-moa2-album-surface',
+    'homecloud-moa1-album-contract',
+    'frontend-typecheck',
+  ],
+  'homecloud-p1-lifecycle': [
+    'homecloud-lifecycle-backend-contract',
+    'homecloud-delete-capability-enforcement',
+    'homecloud-purge-storage-honesty',
+    'homecloud-selection-caller-context',
+    'homecloud-viewer-android-back',
+    'homecloud-global-tab-switch',
+    'homecloud-scroll-offsets',
+    'homecloud-1d-backend-enforcement',
+    'homecloud-1d-capability-resolution',
+    'homecloud-1d-frontend-projection',
+    'homecloud-1d-new-household-capability-regression',
+    'homecloud-1d-rls-bypass',
+  ],
+  'homecloud-st3': [
+    'homecloud-st3-patch-favorites',
+    'homecloud-st3-semantic-date-compile',
+    'homecloud-st3-semantic-date',
+    'homecloud-4c1-compile',
+    'homecloud-lifecycle-backend-contract',
+    'homecloud-p2-foundation',
+    'frontend-typecheck',
+  ],
+  'homecloud-st4': [
+    'homecloud-viewer-immersive',
+    'homecloud-viewer-loading-states',
+    'homecloud-viewer-no-nested-modal',
+    'homecloud-hc2b-media-viewer-contract',
+    'homecloud-viewer-android-back',
+    'homecloud-global-tab-switch',
+    'homecloud-selection-caller-context',
+    'frontend-typecheck',
+  ],
+  'homecloud-st5': [
+    'homecloud-st5-action-authority-compile',
+    'homecloud-st5-action-authority',
+    'homecloud-st5-viewer-action-menu',
+    'homecloud-st5-favorite-actions',
+    'homecloud-st5-written-share',
+    'homecloud-st5-share-temp-cleanup',
+    'homecloud-st5-multishare-contract',
+    'frontend-typecheck',
+  ],
+  'homecloud-st9': [
+    'homecloud-hc2b-media-viewer-contract',
+    'homecloud-st9-media-reliability',
+    'homecloud-viewer-immersive',
+    'homecloud-viewer-loading-states',
+    'homecloud-viewer-no-nested-modal',
+    'frontend-typecheck',
+  ],
+  'homecloud-st10': [
+    'homecloud-st10-image-zoom-compile',
+    'homecloud-st10-image-zoom',
+    'homecloud-st10-camera-compile',
+    'homecloud-st10-camera',
+    'homecloud-st10-intake-debt-compile',
+    'homecloud-st10-intake-debt',
+    'homecloud-st10-batch-compile',
+    'homecloud-st10-batch',
+    'homecloud-hc2b-media-viewer-contract',
+    'homecloud-st9-media-reliability',
+    'homecloud-viewer-immersive',
+    'homecloud-viewer-loading-states',
+    'homecloud-viewer-no-nested-modal',
+    'homecloud-viewer-android-back',
+    'homecloud-hc2c-memories-foundation',
+    'homecloud-hc2a-memories-viewer',
+    'homecloud-moa3-device-gestures',
+    'homecloud-st3-semantic-date-compile',
+    'homecloud-st3-semantic-date',
+    'homecloud-st3-patch-favorites',
+    'homecloud-st5-action-authority-compile',
+    'homecloud-st5-action-authority',
+    'homecloud-2c-frontend-structure',
+    'homecloud-s0-gallery-intake-contract',
+    'homecloud-s0-modal-host-contract',
+    'homecloud-stage-a1-capture-recovery',
+    'homecloud-p2-foundation',
+    'homecloud-upload-recovery',
+    'homecloud-t1-queue-persistence',
+    'homecloud-t1-stale-job',
+    'homecloud-s2i-durable-recovery',
+    'homecloud-moa2-album-surface',
+    'homecloud-moa1-album-contract',
+    'homecloud-lifecycle-backend-contract',
+    'homecloud-selection-caller-context',
+    'frontend-typecheck',
+    'frontend-lint',
+  ],
   lint: ['backend-syntax', 'backend-eslint', 'frontend-lint'],
   backend: ['testing-core', 'core-backend'],
   frontend: ['compile-frontend-tests', 'core-frontend', 'g0.3'],
@@ -1337,7 +1774,7 @@ const suites = {
     'homecloud-4b1-preview',
     'homecloud-4a2-written-validation',
   ],
-  'homecloud-4c1': [
+'homecloud-4c1': [
     'homecloud-4c1-compile',
     'homecloud-4c1-memory-create',
     'homecloud-4c1-1-memory-create-recovery',
@@ -1351,6 +1788,65 @@ const suites = {
     'homecloud-w1a-authority',
     'homecloud-w1bc-pagination-reconciliation',
     'homecloud-w1c-scanner-acceptance',
+    'frontend-typecheck',
+  ],
+  // MO-A1 gate. Every new MO-A1 evidence belongs here; there are no orphan
+  // scripts. The two `*-runtime` members need a local Supabase and classify
+  // themselves as RUNTIME_REQUIRED when it is not available.
+  'homecloud-moa1': [
+    'homecloud-moa1-album-contract',
+    'homecloud-1f-dto-leak',
+    'homecloud-moa1-album-runtime',
+    'homecloud-4b1-memories-read-model',
+    'homecloud-4b2-timeline',
+    'homecloud-4a2-written-validation',
+    'homecloud-4a2-written-runtime',
+    'frontend-typecheck',
+  ],
+  // MO-A2 gate. Every new MO-A2 evidence belongs here; there are no orphan
+  // scripts. It carries its own surface + runtime evidence AND the whole MO-A1
+  // album contract, because the UI slice must never weaken the contract it
+  // consumes. The two `*-runtime` members need a local Supabase and classify
+  // themselves as RUNTIME_REQUIRED / ENVIRONMENT_FAILURE when it is not
+  // available; they never degrade to a pretend pass.
+  'homecloud-moa2': [
+    'homecloud-moa2-album-surface',
+    'homecloud-moa2-album-runtime',
+    'homecloud-moa1-album-contract',
+    'homecloud-moa1-album-runtime',
+    'homecloud-1f-dto-leak',
+    'homecloud-4b1-memories-read-model',
+    'homecloud-4b1-preview',
+    'homecloud-4b2-timeline',
+    'homecloud-4a2-written-validation',
+    'homecloud-4a2-written-runtime',
+    'homecloud-4c1-1-memory-create-recovery',
+    'homecloud-w1a-authority',
+    'homecloud-w1bc-pagination-reconciliation',
+    'frontend-typecheck',
+  ],
+  // MO-A3 gate. Every new MO-A3 evidence belongs here; there are no orphan
+  // scripts. It carries its own selection + runtime evidence AND the whole MO-A2
+  // / MO-A1 album contract, because the selection slice must never weaken the
+  // contract it consumes. The three `*-runtime` members need a local Supabase and
+  // classify themselves as ENVIRONMENT_FAILURE / RUNTIME_REQUIRED when it is not
+  // available; they never degrade to a pretend pass.
+  'homecloud-moa3': [
+    'homecloud-moa3-selection',
+    'homecloud-moa3-selection-runtime',
+    'homecloud-moa3-device-gestures',
+    'homecloud-moa2-album-surface',
+    'homecloud-moa2-album-runtime',
+    'homecloud-moa1-album-contract',
+    'homecloud-moa1-album-runtime',
+    'homecloud-1f-dto-leak',
+    'homecloud-4b1-memories-read-model',
+    'homecloud-4b1-preview',
+    'homecloud-4b2-timeline',
+    'homecloud-2c-frontend-structure',
+    'homecloud-upload-recovery',
+    'homecloud-w1a-authority',
+    'homecloud-w1bc-pagination-reconciliation',
     'frontend-typecheck',
   ],
   'homecloud-w1': [

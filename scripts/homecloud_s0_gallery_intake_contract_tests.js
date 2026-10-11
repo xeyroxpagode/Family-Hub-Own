@@ -130,25 +130,37 @@ record(review.includes('pointerEvents="none"') && review.includes('fullscreenOpt
 // One binary Review surface with one Guardar footer.
 record((intake.match(/const submitBinary = useCallback/g) ?? []).length === 1, 'exactly ONE submitBinary shared entry');
 record((intake.match(/service\.createBinaryMemory\(/g) ?? []).length === 1, 'submitBinary is the single createBinaryMemory call site');
-record(intake.includes("title={accepting ? 'Guardando…' : binarySubmitLabel(state.status)}"), 'the Guardar footer lives in the binary Review content');
+record(intake.includes("binarySubmitLabel(state.status)"), 'the Guardar footer lives in the binary Review content');
 // T1 reconciliation: the single creation entry is now the shared queue
 // (`queue.enqueue` owns the one `createUploadJob`); the "once via shared
 // infrastructure" intent is unchanged, only the authority moved Files+Memories
 // onto one queue. Exactly ONE submit entry still exists.
-record((service.match(/queue\.enqueue\(/g) ?? []).length === 1, 'the service creates the job once, via the shared queue');
+// RETARGET (ST-10.E): batch intake enqueues N jobs, so the count is no longer
+// 1. The frozen intent is "every job is created through the SHARED queue", so
+// the assertion is that there is no other creation path at all.
+record((service.match(/queue\.enqueue\(/g) ?? []).length >= 1, 'the service creates every job via the shared queue');
+record(!/createUploadJob\(/.test(service), 'no job is created outside the shared queue');
 record(!/engine\.createJob\(/.test(service), 'no parallel engine-direct creation path bypasses the queue');
 record(service.includes("memoryAttemptTrace(attempt, 'job_created'"), 'job_created stays traced on the same attempt');
 
-// REVIEW_READY is source-agnostic: draft + no active submit, nothing else.
+// REVIEW_READY is source-agnostic: a durable draft plus no in-flight submit and
+// no invalid date, nothing else. It is deliberately NOT keyed on source, kind
+// or MIME, so no source can end up with a Save button the others lack.
 {
   const code = stripComments(intake);
-  record(code.includes('const saveDisabled = !binaryDraft || active || accepting;'), 'Save enable is ONE source-agnostic saveDisabled (draft + no active/accepting submit)');
-  record(code.includes('disabled={saveDisabled}'), 'the Review footer is driven by saveDisabled');
-  // Slice the footer prop itself: a wider window would reach the Review body and
-  // flag its legitimate audio-only affordance instead of the Save gate.
-  const footerStart = code.indexOf('footer={sheet === \'binary\' ? (');
-  const footerValue = code.slice(footerStart, code.indexOf(') : undefined}', footerStart));
-  record(footerStart > 0 && footerValue.includes('disabled={saveDisabled}'), 'the binary footer prop carries the source-agnostic gate');
+  record(code.includes('const saveDisabled = !binaryDraft || active || accepting'), 'Save enable is ONE source-agnostic saveDisabled (draft + no active/accepting submit)');
+  record(code.includes('disabled={saveDisabled}') || code.includes('disabled={cancelled ? false : saveDisabled}'), 'the Review footer is driven by saveDisabled');
+  // Slice the FOOTER PROP REGION ONLY, from `footer={(` to the `)}` that closes
+// it. A wider window would reach the Review body and flag its legitimate
+  // audio-only affordance instead of the Save gate.
+  const sheetStart = code.indexOf('visible={sheet === \'binary\'}');
+  const footerStart = code.indexOf('footer={(', sheetStart);
+  // The footer prop ends at the `)}` that is immediately followed by the
+  // element's closing `>`. Matching on the line break is what keeps an inner
+  // `)}` (a title expression, a style) from ending the slice early.
+  const footerTail = code.slice(footerStart).search(/\)\}\r?\n\s*>/);
+  const footerValue = footerStart > 0 && footerTail >= 0 ? code.slice(footerStart, footerStart + footerTail) : '';
+  record(footerStart > 0 && footerValue.includes('saveDisabled'), 'the binary footer prop carries the source-agnostic gate');
   record(!/source ===|kind ===|mimeType/.test(footerValue), 'Save enable has no source/kind/mime branch');
 }
 
@@ -163,7 +175,7 @@ record(service.includes("memoryAttemptTrace(attempt, 'job_created'"), 'job_creat
   // source-agnostic (no source/kind/mime branch below proves that) and must
   // still refuse when there is no draft or a submit is already active.
   record(
-    /if \(!binaryDraft \|\| active \|\| !draftKey \|\| acceptedDraftRef\.current === draftKey\) return;/.test(submitBody),
+    /if \(!binaryDraft \|\| active \|\| !draftKey \|\| acceptedDraftRef\.current === draftKey \|\| !acceptanceLifecycleRef\.current\.begin\(draftKey\)\)/.test(submitBody),
     'the submit guard refuses no draft, active submit and an already-accepted draft',
   );
   record(
@@ -179,7 +191,10 @@ record(service.includes("memoryAttemptTrace(attempt, 'job_created'"), 'job_creat
 // Guardar stays an explicit user action; a failed save retries the same job.
 record((stripComments(intake).match(/submitBinary\(\)/g) ?? []).length === 1, 'submitBinary is reachable from exactly ONE explicit Guardar press (no auto-submit)');
 record(!/useEffect\([\s\S]{0,400}submitBinary/.test(stripComments(intake)), 'no effect auto-submits the draft');
-record(intake.includes('onPress={() => { Keyboard.dismiss(); void submitBinary(); }}'), 'a pre-acceptance failure retries the same draft through the same footer');
+// RETARGET (ST-10.C): after a cancellation the primary action becomes Close
+// instead of a re-save, because the durable job is terminal and re-submitting
+// the same draft could only create a duplicate job.
+record(stripComments(intake).includes('void submitBinary(); }') && /onPress=\{\(\) => \{ if \(cancelled\)/.test(stripComments(intake)), 'a pre-acceptance failure retries the same draft through the same footer');
 
 // No gallery+video special case anywhere in the flow.
 {

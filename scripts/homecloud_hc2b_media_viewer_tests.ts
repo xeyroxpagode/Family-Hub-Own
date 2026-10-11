@@ -1,0 +1,340 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  applyMemoryVisualRange,
+  resolveMemoryVisualRangeIds,
+} from '../front/mi-front-limpio/services/homecloud/homecloudMemoryDrag';
+import {
+  albumViewerSession,
+  collectionViewerSession,
+  libraryViewerSession,
+  memoryViewerDataset,
+} from '../front/mi-front-limpio/services/homecloud/homecloudMemoryViewerSource';
+import type { HomeCloudMemoryKind, HomeCloudMemoryListItem } from '../front/mi-front-limpio/services/homecloud/homecloudTypes';
+import {
+  MemoryAcceptanceLifecycle,
+  MemoryPickerLifecycle,
+} from '../front/mi-front-limpio/services/homecloud/homecloudMemoryIntakeLifecycle';
+import {
+  MemoryMediaAccess,
+  audioSeekRatio,
+  audioSeekTarget,
+  isMemoryMediaKind,
+  mediaPlaybackAuthorized,
+  mediaProgressRatio,
+  resolveMemoryMediaFailure,
+  validMediaDuration,
+  type MemoryMediaLifecycle,
+} from '../front/mi-front-limpio/services/homecloud/homecloudMemoryMediaPlayback';
+
+let failed = 0;
+function check(value: boolean, label: string) {
+  if (value) console.log(`PASS: ${label}`);
+  else { failed += 1; console.error(`FAIL: ${label}`); }
+}
+function memory(id: string, kind: HomeCloudMemoryKind): HomeCloudMemoryListItem {
+  return {
+    id, kind, role: 'memory', displayName: null, mimeType: kind === 'written' ? null : `${kind}/test`, extension: null,
+    sizeBytes: null, uploadedByMemberId: null, uploadedAt: null, hasPreview: false, hiddenFromResurfacing: false,
+    caption: null, writtenText: kind === 'written' ? id : null, capturedAt: null, capturedYear: null, capturedMonth: null,
+    capturePrecision: 'unknown', albumIds: [],
+    favorite: false,
+  };
+}
+
+console.log('\n=== HC2-B MEDIA VIEWER SLICE 0 ===');
+const order = ['1', '2', '3', '4', '5', '6'];
+check(resolveMemoryVisualRangeIds('1', '4', order).join() === '1,2,3,4', 'D4 incomplete row 1→4 is contiguous visual order');
+check(resolveMemoryVisualRangeIds('2', '5', order).join() === '2,3,4,5', 'D4 2→5 crosses rows contiguously');
+check(resolveMemoryVisualRangeIds('5', '2', order).join() === '2,3,4,5', 'D4 reverse/bottom→top is symmetric');
+check([...applyMemoryVisualRange(new Set(['6']), ['1','2','3','4','5'], 'select')].sort().join() === '1,2,3,4,5,6', 'D4 select preserves baseline');
+check([...applyMemoryVisualRange(new Set(order), ['2','3','4','5'], 'deselect')].sort().join() === '1,6', 'D4 deselect preserves baseline outside current range');
+
+const photo = memory('photo', 'image'); const video = memory('video', 'video'); const audio = memory('audio', 'audio'); const note = memory('note', 'written');
+const all = [photo, video, audio, note];
+// HC2-C STALE_TEST RETARGET (§13 / A4). The OLD expectation was that a session
+// factory SNAPSHOTS the dataset (`libraryViewerSession(memories, id)`), and the
+// field was then never read by anyone. The freeze replaces that with: a session
+// is SOURCE IDENTITY plus the OPENING AUTHORITY, and the dataset is resolved
+// live by `memoryViewerDataset`. The assertions below are therefore retargeted,
+// not weakened: source identity is still asserted exactly, and the live dataset
+// is now asserted to agree with the source it was opened with.
+const library = libraryViewerSession(photo.id);
+check(library.source.kind === 'library' && library.source.label === 'Recuerdos', 'Library opener produces Library source');
+check(library.activeContentId === photo.id, 'Library opener records the tapped Memory as the opening authority');
+check(!('memories' in library), 'a session carries no dataset snapshot: the dead field is gone, not merely unread');
+const album = albumViewerSession('album-7', 'Viaje', note.id);
+check(album.source.kind === 'album' && album.source.sourceId === 'album-7' && album.source.label === 'Viaje', 'Album opener preserves exact Album source');
+check(album.activeContentId === note.id, 'Album opener records the tapped Memory as the opening authority');
+const cases = [
+  { kind: 'image' as const, label: 'Fotos', item: photo },
+  { kind: 'video' as const, label: 'Videos', item: video },
+  { kind: 'audio' as const, label: 'Audios', item: audio },
+  { kind: 'written' as const, label: 'Notas', item: note },
+];
+for (const item of cases) {
+  const sourceId = `type:${item.kind}`;
+  const session = collectionViewerSession({ kind: 'type', memoryKind: item.kind }, sourceId, item.label, item.item.id);
+  const pager = memoryViewerDataset(session.source, {
+    library: all,
+    album: { sourceId: 'album-7', memories: [photo, note] },
+    collection: { sourceId, memories: all },
+  });
+  check(session.source.kind === 'collection' && session.source.sourceId === sourceId && session.source.label === item.label, `${item.label} opener produces exact Collection source`);
+  check(session.activeContentId === item.item.id, `${item.label} opener records the tapped Memory as the opening authority`);
+  check(pager.length === 1 && pager[0]?.kind === item.kind, `${item.label} pager contains only its Collection kind`);
+  check(pager.indexOf(item.item) !== -1 || pager.some((m) => m.id === item.item.id), `${item.label} pager resolves the tapped Memory from the LIVE dataset`);
+}
+const root = process.cwd();
+const screen = fs.readFileSync(path.join(root, 'front/mi-front-limpio/screens/HomeCloudMemoriesScreen.tsx'), 'utf8');
+const viewer = fs.readFileSync(path.join(root, 'front/mi-front-limpio/components/homecloud/MemoryViewer.tsx'), 'utf8');
+check(screen.includes('libraryViewerSession') && screen.includes('albumViewerSession') && screen.includes('collectionViewerSession'), 'each caller supplies explicit Viewer source identity');
+check(viewer.includes('{source.label}'), 'Viewer chrome renders the source naming authority label');
+
+const lifecycle = new MemoryPickerLifecycle();
+const oldAttempt = lifecycle.begin('gallery', 100)!;
+check(lifecycle.begin('audio-import', 101) === null, 'D6 rapid double tap opens only one picker');
+lifecycle.invalidate();
+const currentAttempt = lifecycle.begin('audio-import', 110)!;
+check(lifecycle.settle(oldAttempt, 120).kind === 'stale' && lifecycle.active()?.attempt === currentAttempt.attempt, 'D6 old settle cannot corrupt a newer attempt');
+check(lifecycle.settle(currentAttempt, 130).kind === 'current' && !lifecycle.isBusy(), 'D6 success/cancel/error settle returns to idle');
+check(lifecycle.begin('gallery', 140) !== null, 'D6 picker reopens after cancel or error');
+lifecycle.invalidate();
+const reopened = lifecycle.begin('audio-import', 150)!;
+check(reopened.attempt !== 0, 'D6 an explicit ownership boundary releases the guard and permits a new picker');
+// PRODUCT TRUTH (§20/§21): elapsed time alone never ends picker ownership. A
+// native presentation can legitimately run far past any wall-clock threshold,
+// so a never-settling picker must stay owned instead of being auto-closed.
+check(lifecycle.begin('gallery', 60_000) === null && lifecycle.active()?.attempt === reopened.attempt, 'D6 arbitrary elapsed time never cancels an unsettled picker');
+check(lifecycle.settle(reopened, 60_000).kind === 'current', 'D6 a picker that finally settles still releases ownership honestly');
+check(lifecycle.begin('gallery', 60_001) !== null, 'D6 ownership is reusable after the long presentation settles');
+lifecycle.invalidate();
+
+const acceptance = new MemoryAcceptanceLifecycle();
+check(acceptance.begin('draft-1') && !acceptance.begin('draft-1'), 'D6 binary submit admits one in-flight acceptance');
+acceptance.settle('draft-1', false);
+check(!acceptance.isAccepting() && acceptance.begin('draft-1'), 'D6 thrown/failed submit restores guards and permits retry');
+acceptance.settle('draft-1', true);
+check(acceptance.isAccepted('draft-1') && !acceptance.begin('draft-1'), 'D6 durable acceptance remains idempotent');
+
+const intake = fs.readFileSync(path.join(root, 'front/mi-front-limpio/services/homecloud/MemoryIntake.tsx'), 'utf8');
+const intakeService = fs.readFileSync(path.join(root, 'front/mi-front-limpio/services/homecloud/homecloudMemoryIntakeService.ts'), 'utf8');
+for (const event of ['picker_request', 'picker_guard_reject', 'picker_settled', 'picker_stale_settle', 'picker_appstate_observed', 'intake_submit_rejected']) {
+  check(intake.includes(`'${event}'`), `D6 TEMPORARY diagnostics include ${event}`);
+}
+// PRODUCT TRUTH (§20): an AppState transition is NOT an ownership boundary, so
+// the listener must OBSERVE and never invalidate. Presenting a native picker
+// legitimately moves the app out of `active`; invalidating there would close
+// legitimate presentations — the exact failure D6 exists to prevent.
+const appStateListener = /AppState\.addEventListener\('change',[\s\S]*?\n {4}\}\);/.exec(intake)?.[0] ?? '';
+check(appStateListener.includes('picker_appstate_observed') && !appStateListener.includes('invalidate'), 'D6 AppState transition only traces; it never invalidates picker ownership');
+check(!/runtimeTrace\('picker_appstate_invalidate'/.test(intake), 'D6 no longer invalidates a legitimate native picker on backgrounding');
+check(!/AppState[\s\S]{0,400}?setTimeout/.test(intake), 'D6 has no AppState watchdog timeout that auto-closes a picker');
+// The ownership boundaries that ARE allowed to invalidate must stay intact.
+for (const boundary of ['pickerLifecycleRef.current.invalidate();', 'attemptAuthorityRef.current.invalidate();']) {
+  check(intake.includes(boundary), `D6 keeps the established ownership boundary ${boundary}`);
+}
+check(/const closeCreate[\s\S]*?pickerAttemptRef\.current \+= 1;/.test(intake), 'D6 closing the Create flow supersedes the picker generation');
+check(/mountedRef\.current = true;[\s\S]*?pickerLifecycle\.invalidate\(\)/.test(intake), 'D6 unmount still releases the pending picker guard');
+check(/const submitBinary[\s\S]*catch \(error\)[\s\S]*finally/.test(intake), 'D6 submit exceptions always restore acceptance guards');
+check(intakeService.includes('if (pickerGeneration === generation) picking = false;'), 'D6 service-level stale settle cannot clear a newer picker guard');
+check(!/runtimeTrace\([^\n]*(accessToken|signedUrl|localUri|contentId|fileName)/.test(intake), 'D6 diagnostics exclude sensitive identifiers and media paths');
+
+// ===========================================================================
+// HC2-B — VIDEO MEMORY PLAYBACK
+// ===========================================================================
+console.log('\n=== HC2-B VIDEO PLAYBACK ===');
+
+/**
+ * Comments describe intent in prose, so a "this must not exist" assertion has
+ * to look at CODE. Stripping comments keeps those assertions precise instead of
+ * matching a sentence that explains why the thing is absent.
+ */
+function codeOf(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+// PRODUCT TRUTH: a Video opens PAUSED and nothing but an explicit user press may
+// start it. The single authorization boolean is therefore the whole contract:
+// `true` merely permits playback, it never begins it.
+const ALLOWED: MemoryMediaLifecycle = { isActivePage: true, viewerOpen: true, appActive: true, screenFocused: true, dragging: false };
+check(mediaPlaybackAuthorized(ALLOWED), 'Video the active foreground page is authorized to play');
+for (const [label, patch] of [
+  ['backgrounded', { appActive: false }],
+  ['HomeCloud blurred', { screenFocused: false }],
+  ['mid-swipe', { dragging: true }],
+  ['Viewer closed', { viewerOpen: false }],
+  ['page-away', { isActivePage: false }],
+] as [string, Partial<MemoryMediaLifecycle>][]) {
+  check(!mediaPlaybackAuthorized({ ...ALLOWED, ...patch }), `Video is NOT authorized while ${label}`);
+}
+
+// There is deliberately no "resume" anywhere: authorization is a permission,
+// never an instruction, so returning to the foreground cannot restart a video.
+const mediaModule = fs.readFileSync(path.join(root, 'front/mi-front-limpio/services/homecloud/homecloudMemoryMediaPlayback.ts'), 'utf8');
+const videoPageSource = fs.readFileSync(path.join(root, 'front/mi-front-limpio/components/homecloud/MemoryVideoPage.tsx'), 'utf8');
+const videoCode = codeOf(videoPageSource);
+check(!/\b(resume|autoPlay|autoplay|startPlayback)\b/.test(codeOf(mediaModule)), 'media contract exposes no resume/autoplay helper at all');
+check(!/\.play\(/.test(videoCode), 'the Video page never calls play(); only the native controls start playback');
+
+// DURATION (§39): only a duration the player actually reported is a duration.
+check(validMediaDuration(12.5) === 12.5 && validMediaDuration(0) === 0, 'a reported finite non-negative duration is honoured');
+check(validMediaDuration(undefined) === null && validMediaDuration(Number.NaN) === null, 'undefined and NaN are never rendered as a duration');
+check(validMediaDuration(Number.POSITIVE_INFINITY) === null && validMediaDuration(-1) === null, 'Infinity and a negative duration are rejected');
+check(mediaProgressRatio(5, 0) === null, 'progress is null while the duration is still unknown (0), never a divide by zero');
+check(mediaProgressRatio(5, 10) === 0.5 && mediaProgressRatio(50, 10) === 1, 'progress is clamped into 0..1');
+
+// ERROR CLASSIFICATION (§41): unsupported requires evidence.
+check(resolveMemoryMediaFailure({ access: 'failed', platform: 'android', videoTracks: [] }) === 'access', 'a missing original is an ACCESS failure, never "unsupported"');
+check(resolveMemoryMediaFailure({ access: 'ok', platform: 'android', videoTracks: [{ isSupported: false }] }) === 'unsupported', 'Android reporting an unplayable track is an evidenced UNSUPPORTED state');
+check(resolveMemoryMediaFailure({ access: 'ok', platform: 'android', videoTracks: [{ isSupported: true }] }) === 'playback', 'a supported track on error is a generic PLAYBACK failure');
+check(resolveMemoryMediaFailure({ access: 'ok', platform: 'android', videoTracks: [] }) === 'playback', 'no track evidence never becomes UNSUPPORTED');
+check(resolveMemoryMediaFailure({ access: 'ok', platform: 'ios', videoTracks: [{ isSupported: false }] }) === 'playback', 'iOS never claims UNSUPPORTED from an Android-only field');
+
+// STALE ASYNC RESULTS (§32): a superseded generation cannot resolve.
+const mediaAccess = new MemoryMediaAccess();
+const first = mediaAccess.begin();
+const second = mediaAccess.begin();
+check(!mediaAccess.isCurrent(first) && mediaAccess.isCurrent(second), 'a superseded signed-original request can no longer resolve');
+mediaAccess.invalidate();
+check(!mediaAccess.isCurrent(second), 'revoking ownership invalidates the outstanding request too');
+
+// MEDIA OWNERSHIP: only the active page may hold a player, and an inactive page
+// must not even ASK for the original.
+const videoPage = videoPageSource;
+check(/if \(!active\) return <View/.test(videoCode) && videoCode.indexOf('if (!active)') < videoCode.indexOf('useVideoPlayer('), 'the inactive Video page returns a placeholder BEFORE any player hook exists');
+check((videoCode.match(/getMemoryOriginalUrl\(/g) ?? []).length === 1 && /function ActiveMemoryVideoPage/.test(videoPage), 'exactly one place requests the signed original, and it is inside the ACTIVE page');
+// `subscription.remove()` is the LISTENER teardown, not a player release: the
+// assertion targets the player object specifically, and also forbids the
+// non-releasing `createVideoPlayer` factory.
+check(!/player\.(remove|release)\(/.test(videoCode) && !/createVideoPlayer/.test(videoCode), 'the Video page adds no manual release on top of the hook-owned one');
+check(/player\.pause\(\)/.test(videoCode) && /if \(authorized\) return;/.test(videoCode), 'a revoked lifecycle intent pauses the player that is still mounted');
+// ST-9 RETARGET (FINAL_PRODUCT_TRUTH §15.4, PLAN ST-9 slice VID-02): the poster
+// is IN. The page consumes the real signed preview when `hasPreview` exists
+// and names the honest no-poster state otherwise. Still no transcode and no
+// Save/Share fabrication.
+check(/useMemoryPreviewUrl/.test(videoCode) && /posterUrl/.test(videoCode), 'ST-9 video consumes the real signed preview as a poster when one exists');
+check(/posterLoading/.test(videoCode) && /Preparando video/.test(videoCode), 'ST-9 video names the honest no-poster state instead of a black square');
+check(!/transcod|saveToFiles|Sharing|shareAsync|expo-sharing/.test(videoCode), 'ST-9 video still invents no transcode and no Save/Share action');
+
+// PAGER + LIFECYCLE, as code-level integration.
+check(/onScrollBeginDrag=\{beginPagerDrag\}/.test(viewer), 'a pager drag immediately revokes playback authorization');
+check(/active=\{item\.id === activeContentId\}/.test(viewer), 'the Viewer passes the active-page authority to every page');
+check((viewer.match(/AppState\.addEventListener/g) ?? []).length === 1, 'the Viewer owns exactly ONE AppState listener for media, so Video and Audio cannot compete');
+check(!/\.play\(/.test(codeOf(viewer)), 'the Viewer itself never starts playback');
+check(/windowSize=\{|initialNumToRender=\{/.test(viewer), 'the Viewer bounds how many full-screen pages stay mounted');
+
+// ===========================================================================
+// HC2-B — AUDIO MEMORY PLAYBACK
+// ===========================================================================
+console.log('\n=== HC2-B AUDIO PLAYBACK ===');
+
+const audioPage = fs.readFileSync(path.join(root, 'front/mi-front-limpio/components/homecloud/MemoryAudioPage.tsx'), 'utf8');
+const audioCode = codeOf(audioPage);
+
+// SEEK MATH (§54). Every unsafe input must degrade to "do not seek", never to a
+// NaN / Infinity / negative / past-the-end target.
+check(audioSeekRatio(50, 100) === 0.5, 'a press at the middle of the track seeks to the middle');
+check(audioSeekRatio(-20, 100) === 0 && audioSeekRatio(140, 100) === 1, 'a press outside the track clamps into 0..1');
+check(audioSeekRatio(50, 0) === null && audioSeekRatio(50, Number.NaN) === null, 'a zero or unknown track width never produces a ratio');
+check(audioSeekRatio(Number.NaN, 100) === null && audioSeekRatio(50, Number.POSITIVE_INFINITY) === null, 'non-finite coordinates and widths never produce a ratio');
+check(audioSeekTarget(0.5, 200) === 100, 'the ratio maps onto a real duration');
+check(audioSeekTarget(0.5, 0) === null && audioSeekTarget(0.5, Number.NaN) === null, 'an unknown or zero duration never seeks (no divide)');
+check(audioSeekTarget(Number.NaN, 200) === null, 'a non-finite ratio never seeks');
+check(audioSeekTarget(5, 200) === 200 && audioSeekTarget(-5, 200) === 0, 'the target is clamped into 0..duration, never past the end');
+check(audioSeekTarget(0.5, Number.POSITIVE_INFINITY) === null && audioSeekTarget(0.5, -10) === null, 'an infinite or negative duration never seeks');
+
+// OWNERSHIP: same structural invariant as Video.
+check(/if \(!active\) return <View/.test(audioCode) && audioCode.indexOf('if (!active)') < audioCode.indexOf('useAudioPlayer('), 'the inactive Audio page returns a placeholder BEFORE any player hook exists');
+check((audioCode.match(/getMemoryOriginalUrl\(/g) ?? []).length === 1 && /function ActiveMemoryAudioPage/.test(audioCode), 'exactly one place requests the signed original, and it is inside the ACTIVE page');
+check(!/player\.remove\(/.test(audioCode) && !/createAudioPlayer/.test(audioCode), 'the Audio page adds no manual release on top of the hook-owned one');
+
+// OPEN PAUSED / NEVER AUTO-RESUME: the ONLY play() is inside the explicit press.
+const toggleBody = /const toggle = \(\) => \{[\s\S]*?\n {2}\};/.exec(audioCode)?.[0] ?? '';
+check(toggleBody.includes('player.play()') && !audioCode.replace(toggleBody, '').includes('.play('), 'play() is only ever reached from the explicit user press handler');
+check(/onPress=\{toggle\}/.test(audioCode), 'the play/pause control is the single user press that authorizes playback');
+check(/if \(authorized\) return;/.test(audioCode) && /player\.pause\(\)/.test(audioCode), 'a revoked lifecycle intent pauses the player that is still mounted');
+check(!/useEffect\([\s\S]{0,200}authorized[\s\S]{0,200}?\.play\(/.test(audioCode), 'no effect resumes playback when authorization returns');
+
+// PROGRESS STAYS LOCAL (§52): the Viewer must not own a 4 Hz position readout.
+check(/useAudioPlayerStatus\(player\)/.test(audioCode), 'the active Audio page owns its own player status');
+check(!/currentTime/.test(codeOf(viewer)), 'the Viewer does not lift high-frequency playback progress');
+
+// HONEST SEEK / ERROR: no raw native text, no fake waveform, no fake action.
+check(/catch\(\(\) => setSeekFailed\(true\)\)/.test(audioCode) && /No pudimos mover la posición/.test(audioCode), 'a failed seek becomes an honest message instead of being swallowed');
+check(!/\{status\.error\}/.test(audioCode) && !/\{error\}/.test(audioCode), 'the raw native error string is never rendered');
+check(/Posición no disponible/.test(audioCode), 'an unknown duration renders an honest position, not a fake one');
+// ST-9 RETARGET (FINAL_PRODUCT_TRUTH §16.3): a fake waveform stays forbidden,
+// and the real audio-derived waveform is IN. The page may draw ONLY native
+// sampler frames, gated on `isAudioSamplingSupported`, with an honest
+// fallback otherwise.
+check(/useAudioSampleListener/.test(audioCode) && /isAudioSamplingSupported/.test(audioCode), 'ST-9 audio derives its waveform exclusively from the native sampler');
+check(!/Math\.random/.test(audioCode), 'ST-9 audio generates no synthetic waveform data');
+check(/no disponible en este dispositivo/.test(audioCode) && /al reproducir/.test(audioCode), 'ST-9 audio states the honest fallback when sampling is unsupported or silent');
+
+// CAPTURE BOUNDARY (§56): the Viewer must not touch recording configuration.
+check(!/setAudioModeAsync|useAudioRecorder|RecordingPresets|requestRecordingPermissions|allowsRecording|stopAndDiscard/.test(audioCode), 'the Viewer playback page never reopens recording or audio-session configuration');
+
+// ===========================================================================
+// HC2-B — COMBINED MEDIA LIFECYCLE
+// ===========================================================================
+console.log('\n=== HC2-B COMBINED MEDIA LIFECYCLE ===');
+
+// The invariant has to survive BOTH media types at once, so these are asserted
+// against the Viewer's single intent rather than per component.
+const viewerCode = codeOf(viewer);
+check((viewer.match(/AppState\.addEventListener/g) ?? []).length === 1, 'exactly ONE AppState listener serves both media types (no competing answers)');
+check(!/AppState/.test(videoPage.replace(/^import .*$/gm, '')) && !/AppState/.test(audioCode), 'neither media component installs its own AppState listener');
+check(!/useFocusEffect|useIsFocused/.test(videoCode) && !/useFocusEffect|useIsFocused/.test(audioCode), 'focus is resolved once, by the Viewer, not per media component');
+
+// EVERY revocation path must be represented, and NOTHING may restore it.
+for (const [label, pattern] of [
+  ['pager drag start', /onScrollBeginDrag=\{beginPagerDrag\}/],
+  ['settled page change', /onActiveChange\(item\.id\)/],
+  ['HomeCloud blur', /screenFocused/],
+  ['app background', /appActive/],
+  ['Viewer close', /viewerOpen: true/],
+  ['scope / household change', /scopeChanged/],
+] as [string, RegExp][]) {
+  check(pattern.test(viewerCode), `the single intent accounts for ${label}`);
+}
+check(!/\bautoResume\b|\bresumeOn|\bonForeground\s*=\s*true\b/.test(viewerCode), 'no path automatically restores playback authorization');
+
+// A drag released WITHOUT momentum never fires onMomentumScrollEnd, so the
+// no-momentum path must restore authorization or a cancelled drag would leave
+// media suspended forever.
+// HC2-C STALE_TEST RETARGET: this assertion used to name the PROP BINDING
+// (`onScrollEndDrag={endPagerDrag}`) as its proof. HC2-C had to give the drag-end
+// reader the scroll offset, because `onScrollEndDrag` is the second lock-release
+// path the freeze names, so the binding is now `dragEndAt`. The HC2-B INVARIANT
+// itself is untouched and is now asserted more robustly: the drag-end reader is
+// wired AND is the one that performs the conditional no-momentum restore.
+check(
+  /onScrollEndDrag=\{dragEndAt\}/.test(viewerCode)
+    && /onMomentumScrollEnd=\{settleAt\}/.test(viewerCode)
+    && /onMomentumScrollBegin/.test(viewerCode)
+    && /const endPagerDrag = useCallback\([\s\S]{0,120}?if \(!momentumRef\.current\) setDragging\(false\);/.test(viewerCode),
+  'a drag released without momentum restores authorization',
+);
+
+// NO DOUBLE RELEASE (§62): the Expo hooks own release, so nothing may also
+// release, and no parent may hold a player a child owns.
+for (const [label, source] of [['Video', videoCode], ['Audio', audioCode]] as [string, string][]) {
+  check(!/player\.(remove|release)\(/.test(source), `${label} never manually releases a hook-owned native object`);
+}
+check(!/useVideoPlayer|useAudioPlayer|VideoView/.test(viewerCode), 'the Viewer parent holds no player instance owned by a child');
+
+// SOURCE CONTEXT (§67): media kind must never recompute the Viewer source.
+check(!/memoryViewerSession|libraryViewerSession|albumViewerSession|collectionViewerSession/.test(viewerCode), 'the Viewer never recomputes its own source from the media kind');
+check(viewer.includes('{source.label}'), 'the chrome still names the ACTUAL source context (Library / Album / Collection)');
+
+// WRITTEN + IMAGE ARE REGRESSION-FROZEN (§65/§66): the existing branches must
+// still be the untouched implementations.
+check(
+  /memory\.kind === 'written'[\s\S]{0,120}<WrittenPage/.test(viewerCode)
+    && /function WrittenPage[\s\S]{0,500}<ScrollView/.test(viewerCode),
+  'Written remains a plain scrollable text page in the same Viewer',
+);
+check(/return <ImagePage memory=\{memory\}/.test(viewerCode), 'Image keeps its existing page implementation');
+
+if (failed) process.exitCode = 1;

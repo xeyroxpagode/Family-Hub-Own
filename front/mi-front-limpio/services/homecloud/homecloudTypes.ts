@@ -59,6 +59,8 @@ export interface HomeCloudContentBase {
   /** Persisted Memory-model contract for the future Resurfacing stage.
    *  Always false for Files; Memories may hide from resurfacing. */
   readonly hiddenFromResurfacing: boolean;
+  /** HOUSEHOLD_SHARED favorite. Same value for every household member. */
+  readonly favorite: boolean;
 }
 
 /** File-specific metadata (role = 'file').
@@ -172,7 +174,23 @@ export interface HomeCloudMemoriesQuery {
   readonly query?: string;
   /** Restrict to one derived kind. */
   readonly kind?: HomeCloudMemoryKind;
+  /**
+   * Presentation order of the read model.
+   * - 'timeline' (default): global Timeline, newest -> oldest.
+   * - 'album': Album presentation, oldest -> newest. Requires `albumId`;
+   *   the server rejects 'album' without it instead of guessing.
+   */
+  readonly order?: HomeCloudMemoriesOrder;
+  /** Explicit lifecycle read mode. Defaults to active; trash surface asks for trashed. */
+  readonly lifecycle?: 'active' | 'trashed';
+  /** Smart collection filter for household-shared favorites. */
+  readonly favorite?: boolean;
+  /** Exact, active, not-hidden resurfacing candidates. */
+  readonly resurfacing?: boolean;
 }
+
+/** Canonical Memories read modes. */
+export type HomeCloudMemoriesOrder = 'timeline' | 'album';
 
 /**
  * One page of the Memories read model.
@@ -212,13 +230,32 @@ export interface HomeCloudFolder {
   readonly updatedAt: string;
 }
 
-/** Album DTO — minimal per HC-1F Product Truth (active only). */
+/**
+ * Album DTO — a shared ORGANIZATION over Memories (active Albums only).
+ *
+ * `itemCount` is the EXACT number of active Memories in the Album (integer
+ * >= 0), never a page length and never a visible tile count.
+ * `coverContentId` is the OLDEST suitable active visual Memory (image/video) in
+ * canonical Album order, or null when the Album has no visual Memory. It is a
+ * content id only: the caller resolves it through the existing preview path. No
+ * cover URL, no signed URL and no storage path is ever exposed.
+ */
 export interface HomeCloudAlbum {
   readonly id: string;
   readonly name: string;
   readonly createdByMemberId: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly itemCount: number;
+  readonly coverContentId: string | null;
+}
+
+/** Album membership relation as returned by the add-membership endpoint. */
+export interface HomeCloudAlbumMembership {
+  readonly albumId: string;
+  readonly contentId: string;
+  readonly addedByMemberId: string | null;
+  readonly addedAt: string;
 }
 
 /** Album item (primitive for Stage 4 composition). */

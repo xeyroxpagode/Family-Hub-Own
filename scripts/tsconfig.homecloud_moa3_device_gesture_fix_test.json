@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-moa3-device-gesture"
+  },
+  "include": [
+    "../scripts/homecloud_moa3_device_gesture_fix_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryGestureOwnership.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudMemoryDrag.ts"
+  ],
+  "exclude": ["node_modules"]
+}

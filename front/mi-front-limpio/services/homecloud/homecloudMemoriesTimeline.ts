@@ -12,13 +12,23 @@ import type { HomeCloudMemoryListItem } from './homecloudTypes';
  * binary custody, not the semantic capture date.
  *
  * Grouping rules (capturePrecision is the only date authority):
- * - unknown    -> "Sin fecha" section, always LAST. No year is inferred.
+ * - unknown    -> "Sin fecha" section. No year is inferred. It is LAST in the
+ *                default `timeline` mode and FIRST in `album` mode, which is
+ *                exactly the NULLS placement of each server order.
  * - year       -> "Durante {year}" block. Never January, never day 1. It is
- *                forced AFTER the known-month groups of the same year.
+ *                forced AFTER the known-month groups of the same year in
+ *                `timeline` mode and BEFORE them in `album` mode.
  * - month_year -> "{Month} {year}" group (e.g. "Agosto 2020"). No day invented.
  * - exact      -> the month group matching its coherent capturedYear /
  *                capturedMonth (falls back to parsing capturedAt UTC when the
  *                components are missing). Grouping stays monthly.
+ *
+ * MODE (MO-A3, HC-1 closure): the grouping NEVER re-sorts. It only decides where
+ * each honest group is PLACED inside the received order, and that placement is
+ * the single difference between the two server orders. `timeline` stays the
+ * default and is behaviour-identical to the pre-MO-A3 grouper; `album` is
+ * applied ONLY by Album surfaces, so an Album now renders in the order the
+ * server actually sent.
  *
  * Visual structure: YearGroup[] (year header) -> sections (month / year-only
  * blocks). `flattenTimelineForSectionList` adapts the tree to RN SectionList
@@ -58,6 +68,34 @@ const TIMELINE_MONTH_NAMES_LOWER = [
 ] as const;
 
 export const TIMELINE_UNKNOWN_TITLE = 'Sin fecha';
+
+/**
+ * HOW A RECEIVED SEQUENCE IS PLACED INTO GROUPS.
+ *
+ * The grouper NEVER sorts: it preserves the received (canonical server) order
+ * and only decides WHERE each honest semantic group is PLACED inside it. That
+ * placement is the only thing the two server orders disagree about, so it is
+ * modelled as data instead of being hard-coded once.
+ *
+ * - `timeline` (the DEFAULT, and the only mode the Memories Root uses): the
+ *   global Timeline is newest -> oldest, so an unknown date is the OLDEST thing
+ *   and leads nothing — it is the trailing group; and inside a year a
+ *   precision='year' Memory (no month) is the least precise group, so it
+ *   trails the known-month blocks. This is the pre-MO-A3 behaviour, unchanged.
+ *
+ * - `album`: the Album presentation order is oldest -> newest with the OPPOSITE
+ *   NULLS placement (MO-A1 `ALBUM_MEMORIES_ORDER`): an unknown date is the
+ *   FIRST thing of the Album, and a precision='year' Memory leads its own year.
+ *   Applying `timeline` placement to an Album read therefore produced a real
+ *   visual-order gap — `Sin fecha` rendered last and `Durante {year}` rendered
+ *   after every month of that year, contradicting the order the server sent.
+ *
+ * Timeline behaviour MUST stay byte-identical, so `timeline` is the default and
+ * Album surfaces pass `album` explicitly.
+ */
+export type TimelineGroupingMode = 'timeline' | 'album';
+
+export const TIMELINE_GROUPING_MODE_DEFAULT: TimelineGroupingMode = 'timeline';
 
 export type TimelineSectionKind = 'month' | 'year' | 'unknown';
 
@@ -155,11 +193,20 @@ function semanticGroupOf(memory: HomeCloudMemoryListItem): {
 
 /**
  * Group Memories into YearGroup -> sections, preserving the received
- * (canonical 4B.1) order. Unknown is always last; within a year, known-month
- * groups come first (in first-seen order) and the year-only block trails.
+ * (canonical 4B.1 / MO-A1) order. The received order is never changed; only the
+ * GROUP PLACEMENT of the unknown group and of the year-only block depends on the
+ * mode (see `TimelineGroupingMode`):
+ *
+ * - `timeline`: unknown group LAST; year-only block LAST within its year.
+ * - `album`:    unknown group FIRST; year-only block FIRST within its year.
+ *
+ * Year blocks themselves keep their first-seen order in both modes, which is the
+ * server's own direction: descending years in the Timeline, ascending years in
+ * an Album.
  */
 export function groupMemoriesForTimeline(
   memories: readonly HomeCloudMemoryListItem[],
+  mode: TimelineGroupingMode = TIMELINE_GROUPING_MODE_DEFAULT,
 ): TimelineYearGroup[] {
   const yearOrder: (number | null)[] = [];
   const monthSectionsByYear = new Map<number, TimelineSection[]>();
@@ -207,18 +254,24 @@ export function groupMemoriesForTimeline(
     }
   }
 
+  const albumPlacement = mode === 'album';
   const groups: TimelineYearGroup[] = yearOrder.map((year) => {
     const sections = [...(monthSectionsByYear.get(year as number) ?? [])];
     const yearOnly = yearOnlyByYear.get(year as number) ?? [];
     if (yearOnly.length > 0) {
-      sections.push({
+      const yearOnlySection: TimelineSection = {
         key: `y-only:${year}`,
         kind: 'year',
         year: year as number,
         month: null,
         title: formatTimelineYearOnlyTitle(year as number),
         items: [...yearOnly],
-      });
+      };
+      // In an Album read the least precise group of the year LEADS it, matching
+      // `captured_month ASC NULLS FIRST`; in the Timeline it trails, matching
+      // `captured_month DESC NULLS LAST`.
+      if (albumPlacement) sections.unshift(yearOnlySection);
+      else sections.push(yearOnlySection);
     }
     return {
       key: `year:${year}`,
@@ -229,7 +282,7 @@ export function groupMemoriesForTimeline(
   });
 
   if (unknownItems.length > 0) {
-    groups.push({
+    const unknownGroup: TimelineYearGroup = {
       key: 'year:unknown',
       year: null,
       title: TIMELINE_UNKNOWN_TITLE,
@@ -243,7 +296,12 @@ export function groupMemoriesForTimeline(
           items: [...unknownItems],
         },
       ],
-    });
+    };
+    // `captured_year ASC NULLS FIRST` in an Album read puts the undated Memory
+    // FIRST; the Timeline's NULLS LAST puts it LAST. Never re-sorting: only the
+    // group's position changes, and the items keep their received order.
+    if (albumPlacement) groups.unshift(unknownGroup);
+    else groups.push(unknownGroup);
   }
 
   return groups;

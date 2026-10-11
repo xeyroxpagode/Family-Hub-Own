@@ -16,11 +16,26 @@ export interface MemoryPickerResult {
   artifact: UploadLocalArtifact;
   capture: MediaCaptureMetadata;
   source: 'gallery' | 'camera' | 'audio-import' | 'audio-recorder';
-  durationMillis?: number | null;
 }
 export interface MemoryPickerCancelled { success: false; cancelled: true; }
 export interface MemoryPickerError { success: false; cancelled: false; error: string; permissionDenied?: boolean; canAskAgain?: boolean; }
 export type MemoryPickerOutcome = MemoryPickerResult | MemoryPickerCancelled | MemoryPickerError;
+
+/**
+ * ST-10.D — the BATCH outcome of a gallery selection.
+ *
+ * It carries N INDEPENDENT seeds, each with its own artifact and its own capture
+ * metadata. There is deliberately no shared capture and no shared date here: the
+ * batch's independence is created at the seam where each asset's own metadata
+ * still exists.
+ */
+export interface MemoryPickerBatchResult {
+  success: true;
+  seeds: { artifact: UploadLocalArtifact; capture: MediaCaptureMetadata; source: 'gallery' }[];
+}
+export interface MemoryPickerBatchCancelled { success: false; cancelled: true; }
+export interface MemoryPickerBatchError { success: false; cancelled: false; error: string; permissionDenied?: boolean; canAskAgain?: boolean; }
+export type MemoryPickerBatchOutcome = MemoryPickerBatchResult | MemoryPickerBatchCancelled | MemoryPickerBatchError;
 
 const MIME_EXTENSIONS: Record<string, string> = {
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif',
@@ -46,9 +61,18 @@ function imagePickerMime(asset: ImagePicker.ImagePickerAsset): string | null {
   if (asset.type === 'video') return 'video/mp4';
   return null;
 }
-async function imageOutcome(asset: ImagePicker.ImagePickerAsset, source: 'gallery', attempt?: MemoryAttempt): Promise<MemoryPickerOutcome> {
+/**
+ * THE SINGLE ASSET ADAPTER. It is shared verbatim by the single-item and the
+ * batch paths, so an item imported in a batch is prepared by exactly the same
+ * code, with exactly the same capture-metadata derivation, as an item imported
+ * on its own.
+ *
+ * An unsupported asset is REJECTED, not silently dropped: the caller decides
+ * whether one unusable asset is worth losing the whole selection over.
+ */
+async function galleryAssetSeed(asset: ImagePicker.ImagePickerAsset, attempt?: MemoryAttempt): Promise<MemoryPickerBatchResult> {
   let mimeType = imagePickerMime(asset);
-  if (!mimeType) return { success: false, cancelled: false, error: 'Solo podés agregar fotos o videos.' };
+  if (!mimeType) throw new Error('Solo podés agregar fotos o videos.');
   const rawName = asset.fileName ?? asset.uri.split('/').pop() ?? 'recuerdo';
   let extension = extensionFrom(rawName, mimeType);
   if (attempt) reclassifyMemoryAttempt(attempt, mimeType.startsWith('video/') ? 'video' : 'image');
@@ -92,11 +116,37 @@ async function imageOutcome(asset: ImagePicker.ImagePickerAsset, source: 'galler
   const durable = await copyArtifactToDurableWorkspace({ localUri: asset.uri, displayName: ensureSingleExtension(rawName, extension), mimeType, sizeBytes: asset.fileSize ?? 0, extension });
   if (attempt) memoryAttemptTrace(attempt, 'artifact_copy_end', { sizeBytes: durable.sizeBytes });
   const capture = deriveMediaCaptureMetadata({ exif: asset.exif, type: asset.type, duration: asset.duration, fileName: asset.fileName });
-  memoryDevTrace('draft_ready', { source, mimeType, sizeBytes: durable.sizeBytes });
-  return { success: true, artifact: durable, capture, source, durationMillis: asset.duration ?? null };
+  memoryDevTrace('draft_ready', { source: 'gallery', mimeType, sizeBytes: durable.sizeBytes });
+  return { success: true, seeds: [{ artifact: durable, capture, source: 'gallery' }] };
 }
 
 export async function pickMemoryMedia(attempt?: MemoryAttempt): Promise<MemoryPickerOutcome> {
+  const outcome = await pickGalleryMedia(attempt, false);
+  if (!outcome.success) return outcome;
+  // The single-item contract is a PROJECTION of the same adapter, never a second
+  // implementation: one seed in, one draft out.
+  const [seed] = outcome.seeds;
+  return seed
+    ? { success: true, artifact: seed.artifact, capture: seed.capture, source: seed.source }
+    : { success: false, cancelled: false, error: 'No se seleccionó ninguna foto o video.' };
+}
+
+/**
+ * ST-10.D — MULTIPLE SELECTION IS THE PRODUCT (Product Truth §6.7).
+ *
+ * `allowsMultipleSelection: true` plus iterating EVERY returned asset. The
+ * previous `assets?.[0]` silently threw away the rest of the selection, which is
+ * the single reason batch intake did not exist.
+ *
+ * Nothing here reduces the result to one item and nothing here merges two items:
+ * each asset is staged on its own and keeps its own capture metadata, so a batch
+ * can legitimately contain three different dates.
+ */
+export async function pickMemoryMediaBatch(attempt?: MemoryAttempt): Promise<MemoryPickerBatchOutcome> {
+  return pickGalleryMedia(attempt, true);
+}
+
+async function pickGalleryMedia(attempt: MemoryAttempt | undefined, multiple: boolean): Promise<MemoryPickerBatchOutcome> {
   /**
    * HOMECLOUD_STAGE_A_GALLERY_AUTH_TRIGGER_INSTRUMENTATION — the two ends of
    * the native gallery presentation. The pair is the head of the timeline that
@@ -105,24 +155,62 @@ export async function pickMemoryMedia(attempt?: MemoryAttempt): Promise<MemoryPi
    * background/inactive -> active hop can be placed relative to the resolve.
    */
   const launchedAt = Date.now();
-  runtimeTrace('gallery_picker_launch', { appState: AppState.currentState ?? null });
+  runtimeTrace('gallery_picker_launch', { appState: AppState.currentState ?? null, multiple });
 
   try {
-    if (attempt) memoryAttemptTrace(attempt, 'picker_start', { acceptedKinds: 'image,video' });
-    memoryDevTrace('picker_start', { source: 'gallery' });
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: false, allowsEditing: false, quality: 1, exif: true });
-    const asset = result.assets?.[0];
+    if (attempt) memoryAttemptTrace(attempt, 'picker_start', { acceptedKinds: 'image,video', multiple });
+    memoryDevTrace('picker_start', { source: 'gallery', multiple });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], allowsMultipleSelection: multiple, allowsEditing: false, quality: 1, exif: true });
+    const assets = result.assets ?? [];
 
     runtimeTrace('gallery_picker_resolve', {
       appState: AppState.currentState ?? null,
       durationMs: Date.now() - launchedAt,
-      assetType: asset?.type ?? null,
+      assetCount: assets.length,
+      assetTypes: assets.map((asset) => asset.type),
       cancelled: result.canceled === true,
     });
 
     if (result.canceled) return { success: false, cancelled: true };
-    return asset ? imageOutcome(asset, 'gallery', attempt) : { success: false, cancelled: false, error: 'No se seleccionó ninguna foto o video.' };
-  } catch (error) { return { success: false, cancelled: false, error: error instanceof Error ? error.message : 'Error al seleccionar foto o video.' }; }
+    if (assets.length === 0) return { success: false, cancelled: false, error: 'No se seleccionó ninguna foto o video.' };
+
+    /**
+     * ONE ASSET FAILING MUST NOT DESTROY THE REST OF THE SELECTION. A draft is
+     * returned per asset so the caller can name the items that are ready; the
+     * assets that could not be staged simply do not appear, and the honest
+     * partial selection is surfaced by the caller rather than reported as a
+     * total failure that re-asks the user to choose again.
+     */
+    const seeds: { artifact: UploadLocalArtifact; capture: MediaCaptureMetadata; source: 'gallery' }[] = [];
+    let failure: Error | null = null;
+    for (const asset of assets) {
+      try {
+        const seed = await galleryAssetSeed(asset, attempt);
+        seeds.push(...seed.seeds);
+      } catch (error) {
+        failure = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    if (seeds.length === 0) throw failure ?? new Error('No pudimos preparar lo que seleccionaste.');
+    memoryDevTrace('gallery_batch_ready', { requested: assets.length, staged: seeds.length });
+    return { success: true, seeds };
+  } catch (error) {
+    // CRT-06: surface a permanent media-permission denial so the create sheet
+    // can render the "Abrir configuración" affordance instead of dead code.
+    try {
+      const permission = await ImagePicker.getMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        return {
+          success: false,
+          cancelled: false,
+          error: 'No tenemos permiso para acceder a tus fotos y videos.',
+          permissionDenied: true,
+          canAskAgain: permission.canAskAgain,
+        };
+      }
+    } catch { /* permission query is best-effort */ }
+    return { success: false, cancelled: false, error: error instanceof Error ? error.message : 'Error al seleccionar foto o video.' };
+  }
 }
 
 export async function pickAudioMemory(attempt?: MemoryAttempt): Promise<MemoryPickerOutcome> {
@@ -150,7 +238,6 @@ export async function persistCameraCapture(input: {
   uri: string;
   kind: 'image' | 'video';
   capturedAt: string;
-  durationMillis?: number | null;
   attempt: MemoryAttempt;
 }): Promise<MemoryPickerResult> {
   const format = await resolveCapturedArtifactFormat(input.uri, input.kind);
@@ -166,16 +253,17 @@ export async function persistCameraCapture(input: {
   });
   memoryAttemptTrace(input.attempt, 'artifact_ready', { sizeBytes: artifact.sizeBytes });
   const date = new Date(input.capturedAt);
+  // The camera's semantic date is the REAL HomeCloud capture instant, not an
+  // import clock reading and not an EXIF field the SDK never delivered.
   return {
     success: true,
     artifact,
     capture: { capturedAt: input.capturedAt, capturedYear: date.getUTCFullYear(), capturedMonth: date.getUTCMonth() + 1, capturePrecision: 'exact' },
     source: 'camera',
-    durationMillis: input.durationMillis ?? null,
   };
 }
 
-export async function persistRecordedAudio(uri: string, capturedAt: string, durationMillis: number, attempt?: MemoryAttempt): Promise<MemoryPickerResult> {
+export async function persistRecordedAudio(uri: string, capturedAt: string, attempt?: MemoryAttempt): Promise<MemoryPickerResult> {
   const stamp = capturedAt.replace(/[:.]/g, '-');
   if (attempt) memoryAttemptTrace(attempt, 'artifact_copy_start', { mimeType: 'audio/mp4' });
   const artifact = await copyArtifactToDurableWorkspace({ localUri: uri, displayName: `grabacion-${stamp}.m4a`, mimeType: 'audio/mp4', sizeBytes: 0, extension: 'm4a' });
@@ -184,7 +272,10 @@ export async function persistRecordedAudio(uri: string, capturedAt: string, dura
   // original exists. This never targets the durable workspace copy.
   void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
   const date = new Date(capturedAt);
-  return { success: true, artifact, capture: { capturedAt, capturedYear: date.getUTCFullYear(), capturedMonth: date.getUTCMonth() + 1, capturePrecision: 'exact' }, source: 'audio-recorder', durationMillis };
+  // The semantic date is the real recording START instant, taken before
+  // `record()`. It is never replaced by the stop instant, the import time or the
+  // upload time (Product Truth §7.2).
+  return { success: true, artifact, capture: { capturedAt, capturedYear: date.getUTCFullYear(), capturedMonth: date.getUTCMonth() + 1, capturePrecision: 'exact' }, source: 'audio-recorder' };
 }
 
 export async function discardMemoryMedia(artifact: UploadLocalArtifact): Promise<void> { await discardDurableArtifact(artifact); }

@@ -183,12 +183,25 @@ const getAlbumItemsController = async (req, res) => {
  * Returns active Memories only (role=memory, lifecycle=active) in the canonical
  * Timeline order, with the derived kind and the Album memberships the UI needs.
  *
- * Query params (all optional): limit, offset, year, albumId, query, kind.
+ * Query params (all optional): limit, offset, year, albumId, query, kind, order.
+ * order defaults to 'timeline' (newest -> oldest); 'album' with albumId selects
+ * the explicit Album presentation mode (oldest -> newest).
  */
 const listMemoriesController = async (req, res) => {
   try {
-    const { limit, offset, year, albumId, query, kind } = req.query ?? {};
-    const result = await listMemories(req, { limit, offset, year, albumId, query, kind });
+    const { limit, offset, year, albumId, query, kind, order, lifecycle, favorite, resurfacing } = req.query ?? {};
+    const result = await listMemories(req, {
+      limit,
+      offset,
+      year,
+      albumId,
+      query,
+      kind,
+      order,
+      lifecycle,
+      favorite,
+      resurfacing,
+    });
 
     await telemetry.track('homecloud_memories_list', {
       result: 'success',

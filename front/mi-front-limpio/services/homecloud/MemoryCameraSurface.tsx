@@ -15,7 +15,12 @@ import { MemoryVideoPreview, formatDuration } from './MemoryMediaReview';
 
 type CameraMode = 'picture' | 'video';
 type Phase = 'ready' | 'capturing' | 'recording' | 'stopping' | 'captured' | 'using' | 'error';
-type Capture = { uri: string; kind: 'image' | 'video'; capturedAt: string; durationMillis: number | null };
+/**
+ * INTAKE-10: a capture carries only the bytes and the real capture instant. The
+ * elapsed recording length is a LIVE on-screen timer, not a persisted field: no
+ * column exists for it, so publishing it on the draft would be dead data.
+ */
+type Capture = { uri: string; kind: 'image' | 'video'; capturedAt: string };
 
 async function deleteTemp(uri: string | null | undefined) { if (uri) await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {}); }
 
@@ -114,7 +119,7 @@ export function MemoryCameraSurface({
       // `quality: 1` is its maximum processed quality, not a lossless claim.
       const result = await camera.takePictureAsync({ quality: 1, exif: true });
       if (!mountedRef.current || operationRef.current !== operation || !ownsAttempt(attempt)) { await deleteTemp(result.uri); return; }
-      replaceCapture({ uri: result.uri, kind: 'image', capturedAt, durationMillis: null }); setPhase('captured'); memoryAttemptTrace(attempt, 'capture_complete');
+      replaceCapture({ uri: result.uri, kind: 'image', capturedAt }); setPhase('captured'); memoryAttemptTrace(attempt, 'capture_complete');
     } catch (caught) { if (mountedRef.current && operationRef.current === operation) { setError('No pudimos sacar la foto. Probá de nuevo.'); setPhase('error'); memoryAttemptTrace(attempt, 'error', { step: 'capture_photo', message: caught instanceof Error ? caught.message : 'unknown' }); } }
   }, [ownsAttempt, phase, ready, replaceCapture]);
 
@@ -159,7 +164,7 @@ export function MemoryCameraSurface({
       const durationMillis = recordingStartedAtRef.current ? Date.now() - recordingStartedAtRef.current : 0; recordingStartedAtRef.current = null;
       if (!result) { if (mountedRef.current && operationRef.current === operation) { setError('No pudimos guardar el video.'); setPhase('error'); } return; }
       if (!mountedRef.current || operationRef.current !== operation || !ownsAttempt(attempt)) { await deleteTemp(result.uri); return; }
-      replaceCapture({ uri: result.uri, kind: 'video', capturedAt, durationMillis }); setPhase('captured'); memoryAttemptTrace(attempt, 'capture_complete', { durationMillis });
+      replaceCapture({ uri: result.uri, kind: 'video', capturedAt }); setPhase('captured'); memoryAttemptTrace(attempt, 'capture_complete', { recordedMs: durationMillis });
     } catch (caught) { if (mountedRef.current && operationRef.current === operation) { setError('No pudimos grabar el video. Probá de nuevo.'); setPhase('error'); memoryAttemptTrace(attempt, 'error', { step: 'record_video', message: caught instanceof Error ? caught.message : 'unknown' }); } }
     finally { recordStartLockRef.current = false; }
   }, [microphonePermission, mode, ownsAttempt, phase, ready, recordGate, replaceCapture, requestMicrophonePermission]);
@@ -180,7 +185,7 @@ export function MemoryCameraSurface({
       const outcome = await persistCameraCapture({ ...selected, attempt });
       if (!mountedRef.current || operationRef.current !== operation || !ownsAttempt(attempt)) { await discardMemoryMedia(outcome.artifact); return; }
       await deleteTemp(selected.uri); captureRef.current = null; setCapture(null); memoryAttemptTrace(attempt, 'review_requested');
-      onUse({ artifact: outcome.artifact, capture: outcome.capture, source: outcome.source, durationMillis: outcome.durationMillis }, attempt);
+      onUse({ artifact: outcome.artifact, capture: outcome.capture, source: outcome.source }, attempt);
     } catch (caught) { if (mountedRef.current && operationRef.current === operation) { setError('No pudimos preparar la captura. Podés reintentar.'); setPhase('captured'); memoryAttemptTrace(attempt, 'error', { step: 'artifact_copy', message: caught instanceof Error ? caught.message : 'unknown' }); } }
   }, [onUse, ownsAttempt, phase]);
 

@@ -20,9 +20,11 @@ import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
  * - image:   real thumbnail via ephemeral signed preview (variant=preview).
  *            Expired / failed / unavailable previews fall back to a neutral
  *            visual. Never the original, never a fabricated image.
- * - video:   NO poster is fabricated (backend has no video decoder). Neutral
- *            surface + play affordance + honest caption/date metadata. A
- *            future hasPreview=true video reuses the same generic contract.
+ * - video:   real poster via ephemeral signed preview (variant=preview) when
+ *            `hasPreview` is true. The backend never generates video posters
+ *            today, so the tile normally shows the neutral surface + play
+ *            affordance; a future `hasPreview=true` video reuses this same
+ *            contract. No poster is ever fabricated.
  * - audio:   NO waveform is fabricated. Neutral surface + audio icon +
  *            caption/date. No playback in this slice.
  * - written: writtenText IS the content (visually truncated, canonically
@@ -33,11 +35,29 @@ import { useMemoryPreviewUrl } from './useMemoryPreviewUrl';
  * metadata and is never rendered here; a media Memory without caption falls
  * back to its honest semantic date ("12 ene 2024" / "Sin fecha").
  *
- * Cards are intentionally NON-INTERACTIVE in this slice: there is no
- * productive Viewer V2 destination yet, so no fake navigation, modal or
- * viewer is wired. Roles stay descriptive (image/text), never button.
+ * IDEMPOTENCE: cards are NON-INTERACTIVE by default. There is no productive
+ * Viewer V2 destination yet, so a card never navigates, never opens a modal and
+ * never pretends to be tappable.
+ *
+ /**
+ * HC2-C BUG D — NO PERMANENT REMOVE AFFORDANCE ON ANY CARD.
+ *
+ * `albumScopeAction` / `AlbumScopeRemove` / `MemoryAlbumScopeAction` are gone
+ * from this file entirely. A destructive control painted on EVERY card of an
+ * Album is chrome the user can trigger by accident, and the wrapper it lived in
+ * painted a white SQUARE behind a circular button, so the four corners showed.
+ * Removing the affordance removes both problems at once; "fixing the radius"
+ * would have kept the destructive chrome and only hidden the artifact.
+ *
+ * A Memory inside an Album now renders EXACTLY like a Memory anywhere else.
+ * Removing a membership is contextual: selection -> `Quitar del álbum`, which
+ * deletes the Memory↔Album link and nothing else. The Memory survives, there is
+ * no Trash and no binary delete.
+ *
+ * `MemoryCard` remains what it always was underneath: a non-interactive,
+ * non-navigational product renderer with no selection, no Album mutation and no
+ * Viewer knowledge.
  */
-
 export function MemoryCard({
   memory,
   accessToken,
@@ -49,7 +69,7 @@ export function MemoryCard({
     case 'image':
       return <MemoryImageTile memory={memory} accessToken={accessToken} />;
     case 'video':
-      return <MemoryVideoTile memory={memory} />;
+      return <MemoryVideoTile memory={memory} accessToken={accessToken} />;
     case 'audio':
       return <MemoryAudioTile memory={memory} />;
     case 'written':
@@ -142,24 +162,51 @@ function MemoryImageTile({
   );
 }
 
-function MemoryVideoTile({ memory }: { memory: HomeCloudMemoryListItem }) {
+function MemoryVideoTile({
+  memory,
+  accessToken,
+}: {
+  memory: HomeCloudMemoryListItem;
+  accessToken: string | null;
+}) {
   const label = tileAccessibilityLabel(memory, 'Video');
+  const preview = useMemoryPreviewUrl(accessToken, memory.id, memory.hasPreview);
+  const [imageFailed, setImageFailed] = React.useState(false);
+  React.useEffect(() => {
+    setImageFailed(false);
+  }, [memory.id]);
+  const showPoster = preview.phase === 'ready' && !imageFailed;
   return (
     <View style={styles.tile}>
-      <View style={[styles.visual, styles.videoVisual]}>
-        <View accessibilityRole="image" accessibilityLabel={label} style={styles.videoIcon}>
-          <HomePlusIcon name="videocam" size={30} color={colors.text.tertiary} />
+      {showPoster ? (
+        <Image
+          source={{ uri: preview.phase === 'ready' ? preview.url : '' }}
+          resizeMode="cover"
+          onError={() => setImageFailed(true)}
+          accessibilityRole="image"
+          accessibilityLabel={label}
+          style={styles.visual}
+        />
+      ) : (
+        <View style={[styles.visual, styles.videoVisual]}>
+          <View accessibilityRole="image" accessibilityLabel={label} style={styles.videoIcon}>
+            <HomePlusIcon name="videocam" size={30} color={colors.text.tertiary} />
+          </View>
         </View>
-        <View style={styles.playBadge}>
-          <HomePlusIcon name="play" size={12} color={colors.text.inverse} />
-        </View>
+      )}
+      <View style={styles.playBadge}>
+        <HomePlusIcon name="play" size={12} color={colors.text.inverse} />
       </View>
       <TileCaption memory={memory} />
     </View>
   );
 }
 
-function MemoryAudioTile({ memory }: { memory: HomeCloudMemoryListItem }) {
+function MemoryAudioTile({
+  memory,
+}: {
+  memory: HomeCloudMemoryListItem;
+}) {
   const label = tileAccessibilityLabel(memory, 'Audio');
   return (
     <View style={styles.tile}>
@@ -174,7 +221,11 @@ function MemoryAudioTile({ memory }: { memory: HomeCloudMemoryListItem }) {
   );
 }
 
-function MemoryWrittenTile({ memory }: { memory: HomeCloudMemoryListItem }) {
+function MemoryWrittenTile({
+  memory,
+}: {
+  memory: HomeCloudMemoryListItem;
+}) {
   const text = memoryPrimaryText(memory);
   const label = memorySemanticLabel(memory);
   return (

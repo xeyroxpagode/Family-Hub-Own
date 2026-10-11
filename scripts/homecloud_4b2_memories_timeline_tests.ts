@@ -78,6 +78,7 @@ function mem(overrides: Partial<HomeCloudMemoryListItem> & { id?: string }): Hom
     capturedMonth: null,
     capturePrecision: 'unknown',
     albumIds: [],
+    favorite: false,
     ...overrides,
   } as HomeCloudMemoryListItem;
 }
@@ -421,6 +422,32 @@ async function previewRuntime() {
     return out;
   }
 
+  /**
+   * Is this `<...>` a JSX TAG or a TypeScript TYPE ARGUMENT list?
+   *
+   * A regex cannot tell them apart on its own: `new Map<string, number>()` and
+   * `type H = SectionList<Row, Section> & {` look exactly like an opening tag.
+   * Treating them as tags pushed phantom entries onto the stack, the stack then
+   * drifted out of balance, and real CODE was reported as raw JSX text — a false
+   * positive that made this guard fail for reasons that have nothing to do with
+   * raw strings.
+   *
+   * The discriminator is what FOLLOWS the closing `>`: a type argument list is
+   * always followed by `(`, `&`, `|` or `=` (a call, an intersection, a union, an
+   * annotation), while a real JSX element is followed by `{`, `<`, a newline or
+   * the end of the tag. The assertion itself is unchanged and keeps its full
+   * strength: a genuine raw string inside a `View` / `AppButton` / `Pressable`
+   * is still detected.
+   */
+  function isTypeArgumentList(flat: string, endIndex: number): boolean {
+    for (let i = endIndex; i < flat.length; i += 1) {
+      const ch = flat[i];
+      if (ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t') continue;
+      return ch === '(' || ch === '&' || ch === '|' || ch === '=';
+    }
+    return true;
+  }
+
   function scanRawTextViolations(code: string): string[] {
     const flat = neutralizeExpressions(stripComments(code));
     const violations: string[] = [];
@@ -430,6 +457,7 @@ async function previewRuntime() {
     while ((match = textPattern.exec(flat)) !== null) {
       const [, , tag, text] = match;
       if (tag) {
+        if (!tag.startsWith('</') && isTypeArgumentList(flat, match.index + tag.length)) continue;
         const closing = tag.startsWith('</');
         const selfClosing = tag.endsWith('/>');
         const name = tag.replace(/^<\/?/, '').split(/[\s/>]/)[0];

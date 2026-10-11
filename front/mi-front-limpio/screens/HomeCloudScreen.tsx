@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
@@ -9,6 +9,7 @@ import { HomeCloudFilesView } from './HomeCloudFilesScreen';
 import { HomeCloudMemoriesView } from './HomeCloudMemoriesScreen';
 import { HomeCloudUploadActivity } from '../components/homecloud/HomeCloudUploadActivity';
 import { useHousehold } from '../context/HouseholdContext';
+import { isMemoryViewerOpen, subscribeMemoryViewerOpen } from '../services/homecloud/homecloudViewerVisibility';
 
 type HomeCloudSection = 'files' | 'memories';
 
@@ -16,24 +17,30 @@ export function HomeCloudScreen() {
   const navigation = useNavigation<any>();
   const { currentHousehold } = useHousehold();
   const [section, setSection] = useState<HomeCloudSection>('files');
+  const [viewerOpen, setViewerOpen] = useState(isMemoryViewerOpen());
+  useEffect(() => subscribeMemoryViewerOpen(() => setViewerOpen(isMemoryViewerOpen())), []);
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
-        <AppButton variant="icon" size="sm" onPress={() => navigation.goBack()} accessibilityLabel="Volver">
-          <HomePlusIcon name="arrow-back" size={22} color={colors.text.primary} />
-        </AppButton>
-        <AppText variant="title2" weight="800" style={styles.title}>HomeCloud</AppText>
-      </View>
-      <SegmentedControl
-        selectionMode="single"
-        value={section}
-        options={[{ value: 'files', label: 'Archivos' }, { value: 'memories', label: 'Recuerdos' }]}
-        onChange={setSection}
-        accessibilityLabel="Vista de HomeCloud"
-        style={styles.selector}
-      />
-      <HomeCloudUploadActivity householdId={currentHousehold?.id ?? null} />
+      {viewerOpen ? null : (
+        <View style={styles.header}>
+          <AppButton variant="icon" size="sm" onPress={() => navigation.goBack()} accessibilityLabel="Volver">
+            <HomePlusIcon name="arrow-back" size={22} color={colors.text.primary} />
+          </AppButton>
+          <AppText variant="title2" weight="800" style={styles.title}>HomeCloud</AppText>
+        </View>
+      )}
+      {viewerOpen ? null : (
+        <SegmentedControl
+          selectionMode="single"
+          value={section}
+          options={[{ value: 'files', label: 'Archivos' }, { value: 'memories', label: 'Recuerdos' }]}
+          onChange={setSection}
+          accessibilityLabel="Vista de HomeCloud"
+          style={styles.selector}
+        />
+      )}
+      {viewerOpen ? null : <HomeCloudUploadActivity householdId={currentHousehold?.id ?? null} />}
       <View style={styles.content}>
         {/* Both panes stay mounted so each keeps its own loaded window; `visible`
             is the ONLY thing that changes, and it is the signal the Files surface
@@ -43,7 +50,7 @@ export function HomeCloudScreen() {
           <HomeCloudFilesView visible={section === 'files'} />
         </View>
         <View style={[styles.pane, section !== 'memories' && styles.hidden]} accessibilityElementsHidden={section !== 'memories'}>
-          <HomeCloudMemoriesView />
+          <HomeCloudMemoriesView active={section === 'memories'} />
         </View>
       </View>
     </View>

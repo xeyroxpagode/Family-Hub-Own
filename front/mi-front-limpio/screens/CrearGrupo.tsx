@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -45,10 +45,12 @@ export const P02CrearGrupo = ({ navigation }: Props) => {
   const [joinToken, setJoinToken] = useState('');
   const [tipoFamilia, setTipoFamilia] = useState<FamilyType>('nucleo');
   const [loading, setLoading] = useState(false);
+  const creatingRef = useRef(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [focusedInput, setFocusedInput] = useState<'household' | 'join' | null>(null);
 
 const handleCreate = async () => {
+    if (creatingRef.current) return;
     Keyboard.dismiss();
 
     if (!nombreHogar.trim()) {
@@ -63,20 +65,24 @@ const handleCreate = async () => {
       return;
     }
 
+    creatingRef.current = true;
     setLoading(true);
     setErrorMessage(null);
 
-    const { household, error } = await createHousehold(accessToken, nombreHogar);
+    try {
+      const { household, error } = await createHousehold(accessToken, nombreHogar);
 
-    if (error || !household) {
-      setErrorMessage(error ?? 'Error inesperado. Intenta nuevamente.');
+      if (error || !household) {
+        setErrorMessage(error ?? 'Error inesperado. Intenta nuevamente.');
+        return;
+      }
+
+      await refetchMe();
+      navigation.reset({ index: 0, routes: [{ name: 'HomeTabs' }] });
+    } finally {
+      creatingRef.current = false;
       setLoading(false);
-      return;
     }
-
-    await refetchMe();
-
-    setLoading(false);
   };
 
 const handleSignOut = async () => {
