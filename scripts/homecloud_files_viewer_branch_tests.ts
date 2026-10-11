@@ -807,7 +807,9 @@ export async function runViewerBranchTests(options: {
     backSurface.unmount();
     record(backHandlers.size === 0, 'V-L5g. with no handler left behind');
 
-    const office = await mount(file({ id: 'c-docx', displayName: 'plan.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+    // OFFICE-1: las hojas y presentaciones siguen con hand-off honesto hasta
+    // OFFICE-3. Word (DOCX/DOC) entra al visor integrado con sesión autorizada.
+    const office = await mount(file({ id: 'c-xlsx', displayName: 'plan.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     const officeTree = office.expanded();
     const officeText = renderText(officeTree).join(' ');
     record(/vista previa no disponible/i.test(officeText), 'V-L5h. an Office document is an honest external hand-off');
@@ -817,6 +819,69 @@ export async function runViewerBranchTests(options: {
       'V-L5j. and no PDF renderer is mounted for it, because it is not a PDF');
     record(native.downloads.length === 1, 'V-L5k. and the exact original WAS staged, so the hand-off is real');
     office.unmount();
+
+    // OFFICE-1: un DOCX ya no termina en "vista previa no disponible": entra a
+    // la superficie Office (sesión autorizada). Se monta la superficie REAL
+    // directamente (precedente V-L6i). En este harness el backend no existe,
+    // así que la sesión falla y la superficie muestra el fallo honesto con el
+    // hand-off todavía ofrecido — nunca una pantalla en blanco.
+    const officeSurface = (viewerModule as { ViewerOfficeSurface?: unknown }).ViewerOfficeSurface;
+    record(typeof officeSurface === 'function', 'V-L5h2. the real Office surface is exported for direct mounting');
+    if (typeof officeSurface === 'function') {
+      const surface = officeSurface as (props: Record<string, unknown>) => unknown;
+      let externalCalls = 0;
+      const box = {
+        current: {
+          file: { id: 'c-docx', displayName: 'plan.docx' },
+          accessToken: 'token-de-prueba',
+          onExternalOpen: () => { externalCalls += 1; },
+          externalAvailable: true,
+          externalBusy: false,
+        },
+      };
+      const host = createViewerHost();
+      activeViewerHost = host;
+      const view = () => surface(box.current);
+      host.__render(view);
+      host.__commit();
+      const direct = {
+        render: () => { host.__render(view); host.__commit(); },
+        settle: async (rounds = 10, waitMs = 5) => { await host.__settle(view, rounds, waitMs); host.__render(view); host.__commit(); },
+        expanded: () => expand(host.__lastTree(), 0),
+        unmount: () => host.__unmount(),
+      };
+      const preparingText = renderText(direct.expanded()).join(' ');
+      record(/preparando documento/i.test(preparingText),
+        'V-L5h3. a DOCX enters the integrated Office surface instead of the no-preview branch');
+      await direct.settle();
+      const failedTree = direct.expanded();
+      const failedText = renderText(failedTree).join(' ');
+      record(/no pudimos mostrar/i.test(failedText),
+        'V-L5i2. when the session cannot be authorized it fails honestly, never blank');
+      const handoff = findAll(failedTree, (element) => element.type === 'AppButton' && element.props?.title === 'Abrir o compartir con…');
+      record(handoff.length === 1 && handoff[0]?.props?.disabled !== true,
+        'V-L5i3. with the system hand-off still offered from the Office failure');
+      (handoff[0]?.props?.onPress as (() => void) | undefined)?.();
+      record(externalCalls === 1,
+        'V-L5i4. and the hand-off button actually fires the system hand-off');
+      record(findOne(failedTree, (element) => element.type === 'Image') === null,
+        'V-L5j2. and no foreign renderer is mounted for it');
+      // Cerrar cancela la sesión best-effort: desmontar no debe lanzar.
+      let unmountThrew = false;
+      try {
+        direct.unmount();
+      } catch {
+        unmountThrew = true;
+      }
+      record(!unmountThrew, 'V-L5j3. closing cancels the session best-effort without throwing');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    // El Viewer integrado también se alcanza desde el Viewer completo.
+    const word = await mount(file({ id: 'c-docx2', displayName: 'plan.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+    const wordPreparingText = renderText(word.expanded()).join(' ');
+    record(/preparando documento/i.test(wordPreparingText),
+      'V-L5h4. the full Viewer routes a DOCX into the Office surface');
+    word.unmount();
 
     const svg = await mount(file({ id: 'c-svg', displayName: 'logo.svg', mimeType: 'image/svg+xml' }));
     const svgTree = svg.expanded();

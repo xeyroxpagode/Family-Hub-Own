@@ -72,6 +72,7 @@ const suiteClass = {
   'homecloud-files-stage2': 'DETERMINISTIC (+ LOCAL_RUNTIME_REQUIRED steps, skipped when absent)',
   'homecloud-files-stage2-surface': 'DETERMINISTIC',
   'homecloud-files-viewer': 'DETERMINISTIC',
+  'homecloud-office-viewer': 'DETERMINISTIC',
   'homecloud-files-ux': 'DETERMINISTIC',
   'homecloud-3a-3d': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-3a-3d-acceptance': 'LOCAL_RUNTIME_REQUIRED',
@@ -598,6 +599,30 @@ const commands = {
       'HomeCloud Files UX / interaction grammar tests',
       'node',
       ['scripts/compiled-files-ux/scripts/homecloud_files_ux_tests.js'],
+      { env },
+    );
+  },
+  'homecloud-office-viewer': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud Office Viewer compile tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_office_viewer_test.json'],
+    );
+    runCommand(
+      'HomeCloud Office Viewer frontend tests',
+      'node',
+      ['scripts/compiled-office-viewer/scripts/homecloud_office_viewer_tests.js'],
+      { env },
+    );
+    return runCommand(
+      'HomeCloud Office Viewer backend tests',
+      'node',
+      ['scripts/homecloud_office_viewer_backend_tests.js'],
       { env },
     );
   },

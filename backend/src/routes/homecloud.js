@@ -6,8 +6,15 @@ const readController = require('../controllers/homecloud.read.controller')
 const intakeController = require('../controllers/homecloud.intake.controller')
 const filesController = require('../controllers/homecloud.files.controller')
 const lifecycleController = require('../controllers/homecloud.lifecycle.controller')
+const officeController = require('../controllers/homecloud.office.controller')
 
 const router = express.Router()
+
+// OFFICE-1: entrega autorizada del documento al DocServer (bearer de sesión).
+// Vive ANTES del middleware de auth a propósito: el DocServer descarga
+// server-to-server sin credencial de usuario; la única credencial es el
+// download token scoped a la sesión, creada bajo household + capability.
+router.get('/office/:sessionId/document', officeController.serveOfficeDocument)
 
 router.use(authFinalMiddleware)
 
@@ -80,6 +87,11 @@ router.get('/files/trash', lifecycleController.listTrash)
 // answers { contentId, operationId, status } and processes asynchronously
 // through the durable purge worker (Storage API only, crash-safe, retried).
 router.post('/content/:contentId/purge', lifecycleController.purgeContent)
+
+// Office Viewer V1 (OFFICE-1: DOCX/DOC read-only). Sesiones cortas,
+// firmadas con JWT, sin write-back. Requiere homecloud.view.
+router.post('/content/:contentId/office-session', officeController.createOfficeSession)
+router.delete('/office-session/:sessionId', officeController.revokeOfficeSession)
 
 // Albums: list and get by ID (protected, household-scoped, active-only)
 // Stable ordering by name

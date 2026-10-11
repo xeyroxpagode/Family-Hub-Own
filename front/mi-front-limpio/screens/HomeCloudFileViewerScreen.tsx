@@ -40,6 +40,16 @@ import {
 import { buildPdfViewerHtml } from '../services/homecloud/homecloudPdfViewerHtml';
 import { PdfTooLargeError, readStagedPdfForBridge } from '../services/homecloud/homecloudPdfTransport';
 import { PDFJS_ENGINE_SOURCE } from '../services/homecloud/pdfJsEngine.generated';
+import {
+  OFFICE_VIEWER_LOAD_TIMEOUT_MS,
+  buildOfficeViewerHtml,
+  cancelOfficeViewingSession,
+  createOfficeViewingSession,
+  isOfficeViewerSupported,
+  officeViewerAllowedOrigin,
+  parseOfficeViewerMessage,
+  type OfficeViewingSession,
+} from '../services/homecloud/homecloudOfficeViewer';
 
 /**
  * HomeCloud Files - Stage 2 / Phase 3 - VIEWER V1.
@@ -261,6 +271,11 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
 
   const kind = classification.kind;
   const cannotPreview = kind === 'unsupported' || kind === 'office_document' || kind === 'office_sheet' || kind === 'office_presentation';
+  // OFFICE-2: el visor Office embebido se dibuja FUERA del ScrollView. El
+  // contenido del documento (páginas, zoom, scroll propio del visor embebido)
+  // ocupa todo el área restante del Viewer: una vista previa, no una
+  // "aplicación de Office" enmarcada con UI alrededor.
+  const officeInline = kind === 'office_document' && isOfficeViewerSupported({ fileName: file.displayName });
 
   return (
     <View style={[styles.screen, { paddingTop: Math.max(insets.top, spacing[4]), paddingBottom: Math.max(insets.bottom, spacing[4]) }]}>
@@ -285,6 +300,10 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
           <AppText variant="title3" weight="800" align="center">{failure.reason === 'unsupported' ? 'Formato no compatible' : 'No pudimos mostrar el archivo'}</AppText>
           <AppText variant="body" tone="secondary" align="center">{failure.message}</AppText>
           {stagedUri ? <AppButton title="Abrir o compartir con…" onPress={() => void handleExternalOpen()} disabled={busy} style={{ marginTop: spacing[3] }} /> : null}
+        </View>
+      ) : officeInline ? (
+        <View style={styles.officeFill}>
+          {renderPreviewSurface()}
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.body}>
@@ -340,6 +359,20 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
               a custom implementation. */}
           <AppText variant="bodySmall" style={styles.mono} selectable>{textPreview.text}</AppText>
         </View>
+      );
+    }
+    if (officeInline && file) {
+      // OFFICE-2: Word (DOCX/DOC) integrado como VISOR EMBEBIDO read-only
+      // (`type: "embedded"` llega firmado en la config de la sesión).
+      // Hojas y presentaciones siguen con hand-off honesto hasta OFFICE-3.
+      return (
+        <ViewerOfficeSurface
+          file={file}
+          accessToken={accessToken}
+          onExternalOpen={() => void handleExternalOpen()}
+          externalAvailable={stagedUri !== null}
+          externalBusy={busy}
+        />
       );
     }
     if (cannotPreview) {
@@ -750,6 +783,201 @@ function ViewerAudioSurface({ uri, title }: { uri: string; title: string }) {
   );
 }
 
+/**
+ * Superficie Office (OFFICE-1: DOCX/DOC, read-only; OFFICE-2: visor embebido).
+ *
+ * La sesión trae la config firmada por el backend con `type: "embedded"` y
+ * `editorConfig.mode: "view"`: el WebView muestra el CONTENIDO del documento
+ * (páginas legibles, zoom y scroll del propio visor embebido), no un
+ * workspace de edición. Sin enlaces de compartir/embeber/descargar por
+ * parte del DocServer: el original se comparte desde HomePlus.
+ *
+ * Fases: preparando (sesión autorizada) -> cargando (editor) -> visible.
+ * Cerrar cancela la sesión best-effort; la expiración la impone el backend.
+ * El WebView solo navega al origen del DocServer entregado POR SESIÓN.
+ * `domStorageEnabled` es requerido por el editor (a diferencia del PDF
+ * bloqueado); la compensación es el allowlist estricto de navegación.
+ *
+ * Exportada (no solo local) para que la suite monte la superficie REAL;
+ * producción la usa siempre a través del Viewer.
+ */
+export function ViewerOfficeSurface({
+  file,
+  accessToken,
+  onExternalOpen,
+  externalAvailable,
+  externalBusy,
+}: {
+  file: { readonly id: string; readonly displayName: string };
+  accessToken: string;
+  onExternalOpen: () => void;
+  externalAvailable: boolean;
+  externalBusy: boolean;
+}) {
+  const [status, setStatus] = useState<'preparing' | 'loading' | 'visible' | 'failed'>('preparing');
+  const [session, setSession] = useState<OfficeViewingSession | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // OFFICE-2: `appReady` distingue "el editor arrancó pero el documento no
+  // llegó" (descarga/conversión) de "ni siquiera arrancó" (api.js/red/init).
+  // Solo alimenta el código de diagnóstico; nunca expone URLs ni tokens.
+  const [appReady, setAppReady] = useState(false);
+  const [html, setHtml] = useState<string | null>(null);
+  const sessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const targetId = file.id;
+    setStatus('preparing');
+    setSession(null);
+    setError(null);
+    setAppReady(false);
+    setHtml(null);
+    createOfficeViewingSession(accessToken, targetId)
+      .then((created) => {
+        if (!active) {
+          // La pantalla ya se fue: cancelar lo recién creado.
+          void cancelOfficeViewingSession(accessToken, created.sessionId);
+          return;
+        }
+        const nextHtml = buildOfficeViewerHtml({
+          apiJsUrl: `${created.documentServerUrl.replace(/\/+$/, '')}/web-apps/apps/api/documents/api.js`,
+          config: created.config,
+          token: created.token,
+        });
+        sessionRef.current = created.sessionId;
+        setSession(created);
+        setHtml(nextHtml);
+        setStatus('loading');
+      })
+      .catch(() => {
+        if (!active) return;
+        setError('No pudimos preparar este documento. Revisá tu conexión o intentá de nuevo. Código: office_session_failed.');
+        setStatus('failed');
+      });
+    return () => {
+      active = false;
+      const pending = sessionRef.current;
+      sessionRef.current = null;
+      if (pending) void cancelOfficeViewingSession(accessToken, pending);
+    };
+  }, [file.id, accessToken]);
+
+  useEffect(() => {
+    if (status !== 'loading') return undefined;
+    const timer = setTimeout(() => {
+      // Sin DOCUMENT_READY en 60 s: fallo honesto con etapa. Si la app
+      // arrancó, el documento no llegó (descarga/conversión, OFFICE-2);
+      // si no, falló el arranque (red/api.js/init) o el WebView miente.
+      setError(
+        appReady
+          ? 'El editor arrancó pero el documento no terminó de cargar. Código: office_timeout_app_ready.'
+          : 'El visor tardó demasiado en responder. Código: office_timeout_no_app_ready.',
+      );
+      setStatus('failed');
+    }, OFFICE_VIEWER_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [status, appReady]);
+
+  const allowedOrigin = useMemo(
+    () => (session ? officeViewerAllowedOrigin(session.documentServerUrl) : null),
+    [session],
+  );
+
+  const handleMessage = useCallback((event: { nativeEvent: { data: unknown } }) => {
+    const message = parseOfficeViewerMessage(event.nativeEvent.data);
+    if (!message) return;
+    if (message.type === 'APP_READY') {
+      setAppReady(true);
+      return;
+    }
+    if (message.type === 'DOCUMENT_READY') {
+      setStatus('visible');
+      return;
+    }
+    // LOAD_ERROR trae un código acotado del puente (`api-missing`,
+    // `editor-error:<detalle>`…): se muestra tal cual, sin URLs ni tokens.
+    setError(`Este dispositivo no pudo mostrar el documento. Código: ${message.message}.`);
+    setStatus('failed');
+  }, []);
+
+  if (status === 'preparing') {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={colors.brand} />
+        <AppText variant="caption" tone="secondary">Preparando documento…</AppText>
+      </View>
+    );
+  }
+
+  if (status === 'failed') {
+    return (
+      <View style={styles.center}>
+        <AppText variant="title3" weight="800" align="center">No pudimos mostrar el archivo</AppText>
+        <AppText variant="body" tone="secondary" align="center">{error ?? 'Intentá de nuevo.'}</AppText>
+        <AppButton
+          title="Abrir o compartir con…"
+          onPress={onExternalOpen}
+          disabled={externalBusy || !externalAvailable}
+          style={{ marginTop: spacing[3] }}
+          accessibilityLabel="Abrir o compartir el archivo con otra app"
+        />
+      </View>
+    );
+  }
+
+  if (!html || !allowedOrigin) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={colors.brand} />
+        <AppText variant="caption" tone="secondary">Cargando visor…</AppText>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.officeBox}>
+      <WebView
+        key={session?.sessionId ?? file.id}
+        source={{ html, baseUrl: allowedOrigin }}
+        originWhitelist={[allowedOrigin]}
+        style={styles.office}
+        javaScriptEnabled
+        domStorageEnabled
+        allowFileAccess={false}
+        allowFileAccessFromFileURLs={false}
+        allowUniversalAccessFromFileURLs={false}
+        allowingReadAccessToURL={undefined}
+        setSupportMultipleWindows={false}
+        javaScriptCanOpenWindowsAutomatically={false}
+        sharedCookiesEnabled={false}
+        thirdPartyCookiesEnabled={false}
+        mediaPlaybackRequiresUserAction
+        mixedContentMode="never"
+        onShouldStartLoadWithRequest={(request) => {
+          const url = typeof request?.url === 'string' ? request.url : '';
+          if (url === 'about:blank' || url.startsWith('about:blank#') || url === 'about:srcdoc') return true;
+          return url.startsWith(`${allowedOrigin}/`);
+        }}
+        onMessage={handleMessage}
+        onError={() => {
+          setError('Este dispositivo no pudo mostrar el documento. Código: office_webview_error.');
+          setStatus('failed');
+        }}
+        onHttpError={() => {
+          setError('Este dispositivo no pudo mostrar el documento. Código: office_webview_http_error.');
+          setStatus('failed');
+        }}
+      />
+      {status === 'loading' ? (
+        <View style={styles.officeLoading}>
+          <ActivityIndicator color={colors.brand} />
+          <AppText variant="caption" tone="secondary">Cargando visor…</AppText>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background.base, paddingHorizontal: spacing[5] },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing[3], marginBottom: spacing[2] },
@@ -762,6 +990,10 @@ const styles = StyleSheet.create({
   pdf: { width: '100%', height: 560, backgroundColor: colors.surface.card },
   pdfPager: { alignItems: 'center', paddingVertical: spacing[1] },
   media: { width: '100%', height: 320, borderRadius: radius.lg, backgroundColor: colors.surface.card },
+  officeFill: { flex: 1 },
+  officeBox: { flex: 1, borderRadius: radius.lg, overflow: 'hidden' },
+  office: { flex: 1, backgroundColor: '#ffffff' },
+  officeLoading: { alignItems: 'center', paddingVertical: spacing[3], gap: spacing[1] },
   textBlock: { gap: spacing[2] },
   mono: { lineHeight: 20 },
 });

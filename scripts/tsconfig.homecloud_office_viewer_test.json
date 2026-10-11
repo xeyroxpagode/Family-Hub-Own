@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-office-viewer"
+  },
+  "include": [
+    "../scripts/homecloud_office_viewer_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudOfficeViewer.ts"
+  ],
+  "exclude": ["node_modules"]
+}
