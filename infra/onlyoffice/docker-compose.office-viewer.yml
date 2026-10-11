@@ -1,0 +1,60 @@
+# HomeCloud Office Viewer (V1) — ONLYOFFICE Document Server, desarrollo aislado.
+#
+# OFFICE-1. Aislamiento:
+#   - Red propia `office_viewer_net`. NO se adjunta a `supabase_network_HomePlus`.
+#   - Sin volúmenes de Supabase. Solo un volumen propio para datos del DocServer.
+#   - NO modifica ni reemplaza contenedores/volúmenes de Supabase.
+# Imagen pineada y reproducible: onlyoffice/documentserver:9.4.0 (Community).
+# Disco: imagen ~1.2 GB comprimida. RAM: reservar 2 GB mínimo para este servicio.
+#
+# Uso (secretos SOLO por entorno, nunca en este archivo):
+#   $env:ONLYOFFICE_JWT_SECRET = '<secreto-fuerte-local>'
+#   docker compose -f infra/onlyoffice/docker-compose.office-viewer.yml up -d
+# TODOS los comandos compose (incluido `down`) exigen la variable; sin el
+# secreto a mano, detener con: docker stop homeplus-onlyoffice-viewer
+#
+# Variables:
+#   ONLYOFFICE_JWT_SECRET   (requerido) secreto HS256 compartido con el backend.
+#   OFFICE_VIEWER_HTTP_PORT (opcional, default 8180) puerto local para HTTP.
+# El backend expone el DocServer al móvil vía túnel HTTPS temporal (cloudflared);
+# este compose NO hardcodea ningún hostname: el backend informa la URL pública
+# por sesión (ONLYOFFICE_PUBLIC_URL del backend).
+name: homeplus-office-viewer
+
+services:
+  onlyoffice-viewer:
+    image: onlyoffice/documentserver:9.4.0
+    container_name: homeplus-onlyoffice-viewer
+    restart: "no"
+    stdin_open: true
+    tty: true
+    stop_grace_period: 1m
+    ports:
+      - "${OFFICE_VIEWER_HTTP_PORT:-8180}:80"
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: "${ONLYOFFICE_JWT_SECRET:?ONLYOFFICE_JWT_SECRET es obligatorio y no debe commitearse}"
+      JWT_HEADER: AuthorizationJwt
+      JWT_IN_BODY: "true"
+      # Sin co-edición en este slice: un solo editor por documento basta.
+      USE_UNAUTHORIZED_STORAGE: "false"
+    volumes:
+      - office-viewer-data:/var/www/onlyoffice/Data
+    networks:
+      - office_viewer_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:80/healthcheck || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+networks:
+  office_viewer_net:
+    name: homeplus_office_viewer_net
+    driver: bridge
+    internal: false
+
+volumes:
+  office-viewer-data:
+    name: homeplus_office_viewer_data
