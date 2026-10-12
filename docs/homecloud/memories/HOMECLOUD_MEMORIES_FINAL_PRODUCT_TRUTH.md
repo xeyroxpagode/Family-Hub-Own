@@ -34,6 +34,11 @@ dos ultimas decisiones explicitas de producto:
 Las decisiones anteriores que estas dos sustituyen quedan marcadas como **SUPERSEDED** en el
 punto exacto donde aparecem, no borradas, para que la historia siga siendo legible.
 
+**Revision de producto aplicada 2026-10-12 (fecha semantica de medios).** La enmienda
+autoritaria de §6.3 elimina la edicion de fecha del Review foto/video/audio, mantiene la
+derivacion automatica o `Sin fecha`, mueve la correccion a Informacion posguardado, oculta
+`uploaded_at` de UI y preserva el flujo de fecha opcional de recuerdos escritos.
+
 ---
 
 ## 1. Product Definition
@@ -264,7 +269,7 @@ root
     → `Importar audio`                        <- accion de primer nivel, item 3
       → picker de documentos/audio del sistema
         → review binario de audio
-          → Fecha semantica EDITABLE
+          → Fecha semantica automatica (sin editor en Review)
           → Album opcional
           → Descripcion opcional
           → Guardar
@@ -284,7 +289,7 @@ root
     → `Grabar audio`                          <- accion de primer nivel, item 4
       → grabador
         → review binario de audio
-          → Fecha semantica EDITABLE
+          → Fecha semantica automatica (sin editor en Review)
           → Album opcional
           → Descripcion opcional
           → Guardar
@@ -316,7 +321,7 @@ La regla "popover = filtros" queda **rechazada**. La gramatica HomeCloud es:
 | **ANCHORED MENU / BOTTOM SHEET** | Lista corta de acciones; comandos contextuales; un `+`; un `⋯`; un selector de modo | Menu del `+`; Acciones del Menu de seleccion; Acciones de `⋯` del Viewer; Acciones de album |
 | **SHEET / PICKER DEDICADO** | Elegir entre muchos destinos; editar metadata; formularios grandes | Selector de destino multi-album; Hoja de nombre de album; Formulario de intake; Hoja de edicion de fecha; Info del Memory |
 | **CONFIRM DIALOG** | Irreversible | Purge (borrado permanente); Vaciar papelera; Eliminar album |
-| **INLINE** | Estado reversible inmediato; toggles ligeros | Chip de album en intake; precisions de fecha; conteo de seleccion |
+| **INLINE** | Estado reversible inmediato; toggles ligeros | Chip de album en intake; precision de fecha en recuerdo escrito/Info; conteo de seleccion |
 
 Prohibido:
 
@@ -346,10 +351,6 @@ conoce, ese intake esta mal.
 ```
 [ preview del contenido ]
 
-Fecha
-  valor derivado, automatico, EDITABLE
-  (exact | mes y ano | solo ano | sin fecha)
-
 Album        opcional
 Descripcion  opcional
 
@@ -359,18 +360,34 @@ Guardar recuerdo
 Reglas:
 
 - El **preview** es el elemento dominante. No es un thumbnail pequenos.
-- La **Fecha** es un dato de primera clase, no un detalle gris. Es lo que hace que un
-  Memories sea un Memories y no un filesystem.
+- La fecha semantica sigue siendo un dato de primera clase, pero para foto, video y audio
+  se deriva automaticamente de metadata admitida y **no se edita en Review**.
 - **Album** y **Descripcion** son opcionales y nunca bloquean el guardado.
 - Exactos visuales (tipografia, tamano, colores) NO quedan congelados por este documento.
   La jerarquia y el comportamiento SI.
 
-### 6.3 La fecha en intake binario DEBE ser editable
+### 6.3 Enmienda autoritativa 2026-10-12 — fecha semantica de medios
 
-CURRENT la muestra read-only. Eso esta **mal** y es un hueco P1 del producto (§ DATE-03).
-Razon de producto: si HomeCloud resuelve `Sin fecha` para un video de galeria, y el usuario
-no puede corregirlo en ningun momento, HomeCloud pierde el recuerdo de una manera que el
-usuario no puede reparar. Un dato que HomeCloud no sabe no es un dato del usuario.
+Esta enmienda sustituye toda regla anterior que exigia editar fecha o precision durante el
+Review binario. No cambia schema, permisos, lifecycle, bytes originales ni upload pipeline.
+
+1. Foto/video importados usan por asset metadata explicitamente admitida y parseable.
+2. Una captura propia usa su instante real de captura cuando corresponde.
+3. Audio importado/grabado aplica la misma regla segun metadata fuente y autoridad real.
+4. Sin fuente valida: `capture_precision='unknown'` y campos de captura nulos; UI `Sin fecha`.
+5. Nunca derivar de `uploaded_at`, `created_at`, `Date.now()` al importar, nombre, picker o
+   mtime no autorizado. Nunca inventar dia, mes o precision.
+6. Review individual y batch de foto/video/audio no muestran DatePicker ni selector de
+   precision. Cada item de un batch conserva su metadata independiente.
+7. La edicion ocurre **despues de guardar**, exclusivamente en `Informacion del recuerdo`,
+   y solo con `homecloud.organize`; miembros sin permiso ven el valor read-only.
+8. `uploaded_at` se conserva internamente para auditoria/operacion pero la UI no muestra
+   `Fecha de subida` ni usa ese campo para Timeline o resurfacing.
+9. Recuerdos escritos conservan su flujo especifico: fecha semantica explicita opcional con
+   las cuatro precisiones; nunca se obliga a inventar una fecha.
+
+La implementacion funcional de esta enmienda pertenece al paquete Memories, no al paquete
+Shared Premium Polish. Este freeze documental no autoriza modificar Intake en ese paquete.
 
 ### 6.4 Intake de audio: importado y grabado, DOS entradas, UN review
 
@@ -385,7 +402,7 @@ acciones de primer nivel del menu del `+`** (§4.1.1).
 | Fecha automatica | **`unknown` → `Sin fecha`** (§7.2) | **`exact`** = instante real de inicio |
 | Precision inicial | `unknown` | `exact` |
 | Review | **el mismo** review binario de audio | **el mismo** review binario de audio |
-| Fecha editable | **SI**, obligatoria como en cualquier binario | **SI** |
+| Fecha editable en Review | **NO** | **NO** |
 | Album / Descripcion | opcional / opcional | opcional / opcional |
 | Submit | el mismo `submitBinary` | el mismo `submitBinary` |
 | Audio Viewer | **el mismo** Audio Viewer (§16) | **el mismo** Audio Viewer (§16) |
@@ -402,20 +419,19 @@ acciones de primer nivel del menu del `+`** (§4.1.1).
 4. **Importar audio NO es un atajo de `Fotos y videos`.** Un archivo de audio no es una
    foto ni un video. El menu `Fotos y videos` no ofrece audio.
 
-### 6.5 Fecha del audio importado: `Sin fecha` es automatico, nunca terminal
+### 6.5 Fecha del audio importado: `Sin fecha` es automatico y editable posguardado
 
 El audio importado no tiene ninguna fuente de fecha parseable en el stack actual, asi que
 la derivacion automatica produce `capture_precision = 'unknown'` → `Sin fecha` (§7.2).
 
-Eso es **aceptable y correcto**. Lo que es **inaceptable** es que ese `Sin fecha` sea
-incorregible.
+Eso es **aceptable y correcto**. Puede corregirse despues de guardar desde Informacion del
+recuerdo (§8), sujeto a `homecloud.organize`; no se pide ni se edita durante Review.
 
 Regla congelada:
 
 ```
 automatico  ->  capture_precision = unknown  ->  `Sin fecha`
-corregible  ->  el usuario edita en intake (§6.3)  ->  se persiste
-             ->  el usuario edita despues en Informacion del recuerdo (§8)  ->  se persiste
+corregible  ->  el usuario edita despues en Informacion del recuerdo (§8)  ->  se persiste
 ```
 
 - `Sin fecha` en un audio importado es un **estado de espera de correccion**, no un
@@ -511,7 +527,7 @@ Si HomeCloud no tiene un valor parseable de un campo soportado, el resultado es
 | MP4 de galeria | Mismos 3 campos EXIF | 1,2,3 | `unknown` |
 | Video de camara | **Instante real de captura de HomeCloud** (no el reloj del cliente al importar, sino el instante de la captura) | directo | n/a |
 | Imagen de camara | Instante real de captura de HomeCloud | directo | n/a |
-| Audio importado (`Importar audio`, item 3 del menu del `+`) | **Ninguna fuente soportada.** El audio importado no tiene campo de captura parseable en el stack actual. | — | **siempre `unknown` → `Sin fecha`**, y §6.5 obliga a que ese `Sin fecha` sea corregible por el usuario en intake y despues en `Información del recuerdo` |
+| Audio importado (`Importar audio`, item 3 del menu del `+`) | **Ninguna fuente soportada.** El audio importado no tiene campo de captura parseable en el stack actual. | — | **siempre `unknown` → `Sin fecha`**, corregible posguardado en `Información del recuerdo` (§6.5) |
 | Audio grabado | Instante real de inicio de grabacion | directo | n/a |
 | Recuerdo escrito | Eleccion del usuario; por defecto el dia actual | usuario | `unknown` |
 
@@ -584,8 +600,8 @@ pantalla de "completar fechas pendientes".
 | Editar descripcion (single) | **IN** |
 | Editar membresias de album (single) | **IN** |
 | **Correccion masiva de fecha en un lote** | **OUT de V1.** No se congela sin evidencia de necesidad. Requiere una pantalla propia y una decision sobre items parciales. Reconsiderable. |
-| Editar fecha al capturar (galeria) | **IN** (§6.3) |
-| Editar fecha al capturar (camara) | **IN** |
+| Editar fecha al capturar/importar medios | **OUT** (§6.3, enmienda 2026-10-12) |
+| Editar fecha posguardado desde Informacion | **IN** |
 | Editar fecha de recuerdo escrito | **IN** (ya existe) |
 
 ### 7.5 Presentacion
@@ -607,7 +623,6 @@ En Timeline, los grupos `unknown` y `year`-only van **al final**, en una seccion
 El usuario debe poder distinguir, sin ambiguedad:
 
 - **CUANDO OCURRIO EL RECUERDO** = Semantic Date (§7)
-- **CUANDO SE AGREGÓ A HOMECLOUD** = `uploaded_at` (fecha de ingesta)
 - **QUIEN LO AGREGÓ** = `uploaded_by_member_id`
 
 Son tres hechos distintos. Ninguna pantalla debe llamarlos igual.
@@ -622,7 +637,6 @@ Son tres hechos distintos. Ninguna pantalla debe llamarlos igual.
 | Descripcion | **SI** |
 | Pertenencia a albums | **SI** |
 | Tipo (Foto / Video / Audio / Nota) | no (derivado) |
-| Agregado a HomeCloud (fecha) | no (hecho) |
 | Agregado por (miembro) | no (hecho) |
 | Tamano / mimeType / nombre tecnico | **NO.** No se expone. Un filename y un storage path **no son la identidad de un Memory**. |
 
@@ -630,9 +644,9 @@ La identidad de un Memory es su contenido y su fecha semantica. Nunca su ruta.
 
 ### 8.3 Alcance
 
-`Informacion del recuerdo` es la **unica** superficie de edicion de metadata.
-No hay una segunda via de edicion. Editar desde Intake y editar desde Info usan la misma
-autoridad.
+`Informacion del recuerdo` es la **unica** superficie de edicion de metadata para medios
+binarios. No hay una segunda via de edicion. Los recuerdos escritos conservan su editor
+especifico de creacion (§17).
 
 ---
 
@@ -2108,10 +2122,10 @@ bloqueos y sin sorpresas:
 2. Crear un recuerdo desde cada modo: galeria, camara foto, camara video, **audio importado**,
    **audio grabado**, recuerdo escrito. Los dos modos de audio se alcanzan como **acciones
    de primer nivel distintas** del menu del `+`, sin submenu (§4.1.1).
-2b. Corregir la fecha de un audio importado de `Sin fecha` a una fecha exacta — en intake y
-   despues en `Informacion del recuerdo` — y verificar que a partir de ahi ya aparece en
+2b. Corregir posguardado la fecha de un audio importado de `Sin fecha` a una fecha exacta
+   desde `Informacion del recuerdo` y verificar que a partir de ahi ya aparece en
    `Para volver a ver` (§21.3.2).
-3. Ver la fecha derivada, **corregirla**, y verla persistida.
+3. Ver la fecha derivada y, ya guardado el recuerdo, **corregirla** desde Informacion y verla persistida.
 4. Ver el recuerdo en Timeline con la fecha correcta.
 5. Crear un album desde el tile final del riel.
 6. Seleccionar N Memories y crear un album **desde la seleccion**, con los Memories
