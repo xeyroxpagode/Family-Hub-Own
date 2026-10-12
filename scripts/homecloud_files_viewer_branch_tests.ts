@@ -807,18 +807,39 @@ export async function runViewerBranchTests(options: {
     backSurface.unmount();
     record(backHandlers.size === 0, 'V-L5g. with no handler left behind');
 
-    // OFFICE-1: las hojas y presentaciones siguen con hand-off honesto hasta
-    // OFFICE-3. Word (DOCX/DOC) entra al visor integrado con sesión autorizada.
-    const office = await mount(file({ id: 'c-xlsx', displayName: 'plan.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-    const officeTree = office.expanded();
-    const officeText = renderText(officeTree).join(' ');
-    record(/vista previa no disponible/i.test(officeText), 'V-L5h. an Office document is an honest external hand-off');
-    record(findAll(officeTree, (element) => element.type === 'AppButton' && element.props?.title === 'Abrir o compartir con…').length === 1,
-      'V-L5i. with the hand-off actually offered');
-    record(findOne(officeTree, (element) => element.type === 'WebView') === null,
-      'V-L5j. and no PDF renderer is mounted for it, because it is not a PDF');
-    record(native.downloads.length === 1, 'V-L5k. and the exact original WAS staged, so the hand-off is real');
-    office.unmount();
+    // OFFICE-3: XLSX/XLS/PPTX/PPT ya NO terminan en "vista previa no
+    // disponible": enrutan a la superficie Office integrada (sesión
+    // autorizada), igual que DOCX. En este harness el backend no existe,
+    // así que la superficie queda pidiendo la sesión ("Preparando
+    // documento…") — la rama de hand-off externo deja de ser la ÚNICA.
+    const OFFICE_V1_CASES = [
+      ['V-L5m', 'plan.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+      ['V-L5m2', 'PLAN.XLS', 'application/vnd.ms-excel'],
+      ['V-L5m3', 'deck.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+      ['V-L5m4', 'DECK.PPT', 'application/vnd.ms-powerpoint'],
+    ] as const;
+    for (const [label, name, mime] of OFFICE_V1_CASES) {
+      const office = await mount(file({ id: `c-office-${label.toLowerCase()}`, displayName: name, mimeType: mime }));
+      const officeText = renderText(office.expanded()).join(' ');
+      record(/preparando documento/i.test(officeText),
+        `${label}. ${name} routes into the integrated Office surface (OFFICE-3), not the no-preview branch`);
+      record(native.downloads.length === 1,
+        `${label}. the exact original WAS staged, so the backup hand-off stays real`);
+      office.unmount();
+    }
+
+    // Los formatos Office NO-V1 (XLSM, ODT, RTF, ODP…) conservan el hand-off
+    // externo honesto: OFFICE-3 no finge compatibilidad con los que no son de
+    // los seis formatos V1.
+    const nonV1 = await mount(file({ id: 'c-xlsm', displayName: 'libro.xlsm', mimeType: 'application/vnd.ms-excel.sheet.macroEnabled.12' }));
+    const nonV1Tree = nonV1.expanded();
+    record(/vista previa no disponible/i.test(renderText(nonV1Tree).join(' ')),
+      'V-L5n. a non-V1 Office format (XLSM) keeps the honest external hand-off');
+    record(findAll(nonV1Tree, (element) => element.type === 'AppButton' && element.props?.title === 'Abrir o compartir con…').length === 1,
+      'V-L5n2. with the hand-off actually offered');
+    record(findOne(nonV1Tree, (element) => element.type === 'WebView') === null,
+      'V-L5n3. and no renderer WebView is mounted for it');
+    nonV1.unmount();
 
     // OFFICE-1: un DOCX ya no termina en "vista previa no disponible": entra a
     // la superficie Office (sesión autorizada). Se monta la superficie REAL

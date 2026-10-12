@@ -65,6 +65,17 @@ const RUNTIME_ENVIRONMENT = {
     'SUPABASE_ANON_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
   ],
+  // OFFICE-3: la suite de integración real necesita el stack local completo
+  // (Supabase + backend corriendo con ONLYOFFICE_* + Document Server 9.4.0).
+  // Self-skips cuando el stack está ausente; el backend de QA lo levanta el
+  // operador con ONLYOFFICE_INTERNAL_API_URL apuntando a su host interno.
+  'homecloud-office-viewer-integration': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'ONLYOFFICE_JWT_SECRET',
+    'OFFICE_INTEGRATION_INTERNAL_API_URL',
+  ],
 };
 
 const suiteClass = {
@@ -73,6 +84,7 @@ const suiteClass = {
   'homecloud-files-stage2-surface': 'DETERMINISTIC',
   'homecloud-files-viewer': 'DETERMINISTIC',
   'homecloud-office-viewer': 'DETERMINISTIC',
+  'homecloud-office-viewer-integration': 'LOCAL_RUNTIME_REQUIRED (self-skips when the stack is down)',
   'homecloud-files-ux': 'DETERMINISTIC',
   'homecloud-3a-3d': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-3a-3d-acceptance': 'LOCAL_RUNTIME_REQUIRED',
@@ -626,6 +638,15 @@ const commands = {
       { env },
     );
   },
+  // OFFICE-3: integración REAL (LOCAL_RUNTIME_REQUIRED). Sesiones
+  // autorizadas contra el backend vivo, descarga server-to-server y
+  // procesamiento genuino por el Document Server 9.4.0 con fixtures
+  // OOXML in-line y legacy OLE2 producidos por el motor real.
+  'homecloud-office-viewer-integration': () => runCommand(
+    'HomeCloud Office Viewer integración real (sesiones + DocServer + seguridad)',
+    'node',
+    ['scripts/homecloud_office_viewer_integration_tests.js'],
+  ),
   'homecloud-files-hierarchy-migration': {
     label: 'HomeCloud Files nested folder hierarchy migration safety (isolated local DBs)',
     run: () => runCommand(

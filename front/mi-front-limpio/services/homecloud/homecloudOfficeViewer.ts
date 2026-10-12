@@ -1,7 +1,8 @@
 import { requestJson } from '../api';
 
 /**
- * HomeCloud Office Viewer V1 — cliente (OFFICE-1: DOCX/DOC, read-only).
+ * HomeCloud Office Viewer V1 — cliente (OFFICE-3: DOCX/DOC/XLSX/XLS/PPTX/PPT,
+ * read-only).
  *
  * El frontend NUNCA construye URLs de Storage ni del DocServer por su
  * cuenta: pide una sesión autorizada al backend y recibe la configuración
@@ -12,8 +13,8 @@ import { requestJson } from '../api';
  * Sin logs del token ni de la config firmada.
  */
 
-/** OFFICE-1: solo Word. El resto llega en OFFICE-3. */
-const OFFICE_VIEWER_SUPPORTED_EXTENSIONS = new Set(['docx', 'doc']);
+/** OFFICE-3: los seis formatos Office V1 (Word, Excel, PowerPoint). */
+const OFFICE_VIEWER_SUPPORTED_EXTENSIONS = new Set(['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt']);
 
 export function officeViewerExtensionOf(fileName: string): string {
   const trimmed = fileName.trim();
