@@ -42,7 +42,7 @@ function AlbumCoverFallback({ label }: { label: string }) {
     <View
       accessibilityRole="image"
       accessibilityLabel={label}
-      style={[styles.visual, styles.fallbackVisual]}
+      style={[styles.cover, styles.fallbackVisual]}
     >
       <HomePlusIcon name="albums" size={30} color={colors.text.tertiary} />
     </View>
@@ -51,7 +51,7 @@ function AlbumCoverFallback({ label }: { label: string }) {
 
 function AlbumCoverError({ label }: { label: string }) {
   return (
-    <View accessibilityRole="image" accessibilityLabel={`${label}. No se pudo cargar`} style={[styles.visual, styles.errorVisual]}>
+    <View accessibilityRole="image" accessibilityLabel={`${label}. No se pudo cargar`} style={[styles.cover, styles.errorVisual]}>
       <HomePlusIcon name="warning-outline" size={24} color={colors.danger.base} />
       <AppText variant="micro" tone="danger" align="center">No se pudo cargar</AppText>
     </View>
@@ -76,7 +76,7 @@ function AlbumCoverLoading({ label }: { label: string }) {
       accessibilityRole="image"
       accessibilityLabel={`${label}. Cargando`}
       accessibilityState={{ busy: true }}
-      style={[styles.visual, styles.loadingVisual]}
+      style={[styles.cover, styles.loadingVisual]}
     >
       <Skeleton variant="card" style={styles.loadingBlock} />
     </View>
@@ -123,7 +123,7 @@ function AlbumCoverImage({
         onLoad={() => Animated.timing(imageOpacity, { toValue: 1, duration: reducedMotion ? 0 : MOTION.fast, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()}
         accessibilityRole="image"
         accessibilityLabel={label}
-        style={[styles.visual, { opacity: imageOpacity }]}
+        style={[styles.cover, { opacity: imageOpacity }]}
       />
     );
   }
@@ -211,6 +211,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
     padding: 0,
+  },
+  /**
+   * The button owns the square geometry. Every cover state is its child, so it
+   * must fill that already-measured box instead of relying on image intrinsic
+   * dimensions. Reusing `visual` here made a ready image render at its own
+   * tiny measured size in the centre of an otherwise correct tile.
+   */
+  cover: {
+    width: '100%',
+    height: '100%',
+    alignSelf: 'stretch',
+    borderRadius: radius.lg,
   },
   fallbackVisual: {
     backgroundColor: colors.background.alt,
