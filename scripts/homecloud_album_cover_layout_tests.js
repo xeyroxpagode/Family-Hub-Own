@@ -25,5 +25,9 @@ check('LOADING renders in the same full-size cover layer', /style=\{\[styles\.co
 check('EMPTY renders in the same full-size cover layer', /style=\{\[styles\.cover, styles\.fallbackVisual\]\}/.test(source));
 check('ERROR renders in the same full-size cover layer', /style=\{\[styles\.cover, styles\.errorVisual\]\}/.test(source));
 check('the button remains the clipping square', /visual:\s*\{[\s\S]*aspectRatio:\s*1[\s\S]*overflow:\s*'hidden'/.test(source));
+check(
+  'the visual zeroes the AppButton axis padding instead of relying on the padding shorthand',
+  /visual:\s*\{[\s\S]*paddingVertical:\s*0[\s\S]*paddingHorizontal:\s*0/.test(source),
+);
 
 console.log('HOMECLOUD_ALBUM_COVER_LAYOUT_TESTS=PASS');

@@ -210,7 +210,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    padding: 0,
+    /**
+     * HC-POL-008 — `AppButton` brings its own `paddingVertical` /
+     * `paddingHorizontal` on the axis keys, and a lone `padding: 0` does not
+     * deterministically beat them on device: the cover stayed inset inside the
+     * square with the card surface showing around it. Declaring the SAME axis
+     * keys the base style uses overwrites them where the outcome is defined.
+     */
+    paddingVertical: 0,
+    paddingHorizontal: 0,
   },
   /**
    * The button owns the square geometry. Every cover state is its child, so it
