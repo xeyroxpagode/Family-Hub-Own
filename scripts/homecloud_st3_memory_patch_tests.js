@@ -39,7 +39,7 @@ async function main() {
   const lifecycleSource = read('backend/src/services/homecloudLifecycleService.js');
   const mapperSource = read('backend/src/lib/homecloudMappers.js');
   const readServiceSource = read('backend/src/services/homecloudReadService.js');
-  const migration = read('supabase/migrations/20261007000000_homecloud_memories_favorite_v1.sql');
+  const migration = read('supabase/migrations/20261007010000_homecloud_memories_favorite_v1.sql');
   const p2Foundation = read('scripts/homecloud_p2_memories_foundation_tests.ts');
 
   const routeTable = routes.stack

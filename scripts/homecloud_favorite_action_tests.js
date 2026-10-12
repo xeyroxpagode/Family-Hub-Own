@@ -17,7 +17,7 @@ const viewer = read('front/mi-front-limpio/components/homecloud/MemoryViewer.tsx
 const favoritesModule = read('front/mi-front-limpio/services/homecloud/homecloudMemoryFavorites.ts');
 const readService = read('front/mi-front-limpio/services/homecloud/homecloudReadService.ts');
 const types = read('front/mi-front-limpio/services/homecloud/homecloudTypes.ts');
-const migration = read('supabase/migrations/20261007000000_homecloud_memories_favorite_v1.sql');
+const migration = read('supabase/migrations/20261007010000_homecloud_memories_favorite_v1.sql');
 
 let failed = 0;
 async function check(label, fn) {
