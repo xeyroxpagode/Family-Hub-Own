@@ -241,7 +241,7 @@ const detailCode = code('front/mi-front-limpio/components/homecloud/AlbumDetailV
   // ONE action host, never a stacked sheet.
   check(/visible=\{selectionSheetOpen \|\| viewerActionsContentId !== null\}/.test(screen), 'the action sheet and the destination picker are ONE host (ST-5: viewer actions ride the SAME host)');
   check(screen.includes('const selectionSheetOpen = selectionActionsOpen || destinationPickerOpen;'), 'their visibility is a single derived value, so they cannot stack');
-  check((screen.match(/<ActionSheet/g) ?? []).length === 1, 'exactly ONE ActionSheet is rendered in Memories');
+  check((screen.match(/<AdaptiveActionMenu/g) ?? []).length === 1, 'exactly ONE adaptive action host is rendered in Memories');
 
   // Run A organisation actions.
   check(screen.includes('Agregar a un álbum'), 'the root/collection action is Agregar a un álbum');

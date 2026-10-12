@@ -200,24 +200,34 @@ export function FileActionHost({
     }
   };
 
+  const actionContent = (
+    <>
+      <AppText variant="caption" tone="secondary">{currentFolderLabel}</AppText>
+      {actions.map((action) => (
+        <AppButton
+          key={action.id}
+          title={action.label}
+          variant={action.intent === 'danger' ? 'danger' : action.intent}
+          disabled={!action.available || (action.id === 'favorite' ? favoriteBusy : action.id === 'trash' ? trashBusy : saving)}
+          loading={(action.id === 'favorite' && favoriteBusy) || (action.id === 'trash' && trashBusy)}
+          accessibilityLabel={`${action.label} ${file.displayName}`}
+          accessibilityState={{ busy: action.id === 'favorite' ? favoriteBusy : action.id === 'trash' ? trashBusy : saving }}
+          onPress={() => run(action.id)}
+        />
+      ))}
+      {actionError ? <AppText variant="bodySmall" tone="danger" accessibilityRole="alert" accessibilityLabel={`Error: ${actionError}`} testID="file-action-error">{actionError}</AppText> : null}
+      {downloadFeedback ? <AppText variant="bodySmall" tone={downloadFeedback.tone}>{downloadFeedback.message}</AppText> : null}
+    </>
+  );
+
   return (
     <>
-      <ActionSheet
+      {showInfo ? <ActionSheet
         visible
-        title={showInfo ? 'Información del archivo' : file.displayName}
+        title="Información del archivo"
         onRequestClose={onClose}
-        // STAGE 2 REOPEN — REACHABILITY.
-        //
-        // This was `content`: a BOUNDED, NON-scrollable content box. Six action
-        // rows plus a caption do not fit a short or notched sheet at a raised font
-        // scale, so the LAST rows — the Favorite included — were clipped off the
-        // bottom of the sheet and became unreachable, with no error and no disabled
-        // control to explain it. `fileActionSheetLayoutPolicy` decides that
-        // overflow from the real tokens; `scrollable-content` plus the scroll
-        // container below is what makes the answer "reachable" instead of
-        // "present in the tree but clipped away on a real device".
         size="scrollable-content"
-        footer={showInfo ? (
+        footer={(
           <View style={styles.list}>
             <AppButton
               title="Guardar cambios"
@@ -226,7 +236,7 @@ export function FileActionHost({
               accessibilityLabel={`Guardar cambios de ${file.displayName}`}
             />
           </View>
-        ) : null}
+        )}
       >
         <ScrollView
           style={styles.scroll}
@@ -234,60 +244,16 @@ export function FileActionHost({
           showsVerticalScrollIndicator
           keyboardShouldPersistTaps="handled"
         >
-          {showInfo ? (
-            <>
-              <AppInput label="Nombre" value={name} onChangeText={(next) => { setDraft((previous) => ({ ...previous, name: true })); setName(next); }} editable={permissions.organize} />
-              <AppInput label="Nota" value={note} onChangeText={(next) => { setDraft((previous) => ({ ...previous, note: true })); setNote(next); }} editable={permissions.organize} multiline />
-              <FormActionRow
-                label="Carpeta"
-                value={currentFolderLabel}
-                disabled={!permissions.organize}
-                onPress={onMoveRequest}
-              />
-              <FormActionRow
-                label="Fecha del documento"
-                value={file.documentDate ?? 'Agregar fecha'}
-                disabled={!permissions.organize}
-                onPress={() => setDatePicker(true)}
-              />
-            </>
-          ) : (
-            <>
-              <AppText variant="caption" tone="secondary">{currentFolderLabel}</AppText>
-              {actions.map((action) => (
-                <AppButton
-                  key={action.id}
-                  title={action.label}
-                  variant={action.intent === 'danger' ? 'danger' : action.intent}
-                  // PER-ACTION BUSY. The Favorite is busy while ITS OWN mutation is
-                  // in flight, the Papelera row while ITS OWN is, and the other rows
-                  // are disabled only by a mutation they would actually conflict
-                  // with. Neither busy flag ever makes Renombrar or Cerrar look dead.
-                  disabled={!action.available || (action.id === 'favorite' ? favoriteBusy : action.id === 'trash' ? trashBusy : saving)}
-                  loading={(action.id === 'favorite' && favoriteBusy) || (action.id === 'trash' && trashBusy)}
-                  accessibilityLabel={`${action.label} ${file.displayName}`}
-                  accessibilityState={{
-                    busy: action.id === 'favorite' ? favoriteBusy : action.id === 'trash' ? trashBusy : saving,
-                  }}
-                  onPress={() => run(action.id)}
-                />
-              ))}
-              {actionError ? (
-                <AppText
-                  variant="bodySmall"
-                  tone="danger"
-                  accessibilityRole="alert"
-                  accessibilityLabel={`Error: ${actionError}`}
-                  testID="file-action-error"
-                >{actionError}</AppText>
-              ) : null}
-              {downloadFeedback ? (
-                <AppText variant="bodySmall" tone={downloadFeedback.tone}>{downloadFeedback.message}</AppText>
-              ) : null}
-            </>
-          )}
+          <AppInput label="Nombre" value={name} onChangeText={(next) => { setDraft((previous) => ({ ...previous, name: true })); setName(next); }} editable={permissions.organize} />
+          <AppInput label="Nota" value={note} onChangeText={(next) => { setDraft((previous) => ({ ...previous, note: true })); setNote(next); }} editable={permissions.organize} multiline />
+          <FormActionRow label="Carpeta" value={currentFolderLabel} disabled={!permissions.organize} onPress={onMoveRequest} />
+          <FormActionRow label="Fecha del documento" value={file.documentDate ?? 'Agregar fecha'} disabled={!permissions.organize} onPress={() => setDatePicker(true)} />
         </ScrollView>
-      </ActionSheet>
+      </ActionSheet> : <ActionSheet visible title={file.displayName} onRequestClose={onClose} size="scrollable-content">
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.list} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
+          {actionContent}
+        </ScrollView>
+      </ActionSheet>}
       <DatePickerSheet
         visible={datePicker}
         value={file.documentDate ?? new Date().toISOString().slice(0, 10)}

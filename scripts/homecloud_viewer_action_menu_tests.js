@@ -14,7 +14,7 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8').re
 
 const viewer = read('front/mi-front-limpio/components/homecloud/MemoryViewer.tsx');
 const screen = read('front/mi-front-limpio/screens/HomeCloudMemoriesScreen.tsx');
-const actionSheet = read('front/mi-front-limpio/components/ui/ActionSheet.tsx');
+const actionSheet = read('front/mi-front-limpio/components/ui/AdaptiveActionMenu.tsx');
 
 let failed = 0;
 async function check(label, fn) {
@@ -32,7 +32,7 @@ async function check(label, fn) {
   });
 
   await check('the ... control preserves the caller: it is a prop callback, not navigation', () => {
-    assert.match(viewer, /onOpenActions\?: \(contentId: string\) => void/);
+    assert.match(viewer, /onOpenActions\?: \(contentId: string, event\?:/);
     assert.doesNotMatch(viewer, /useNavigation|navigation\.navigate/);
   });
 
@@ -51,8 +51,8 @@ async function check(label, fn) {
     assert.match(actionSheet, /Modal/);
   });
 
-  await check('the Viewer menu rides the SAME single ActionSheet host: exactly one <ActionSheet> in the screen', () => {
-    assert.equal((screen.match(/<ActionSheet/g) ?? []).length, 1);
+  await check('the Viewer menu rides the SAME single adaptive host', () => {
+    assert.equal((screen.match(/<AdaptiveActionMenu/g) ?? []).length, 1);
     assert.match(screen, /visible=\{selectionSheetOpen \|\| viewerActionsContentId !== null\}/);
   });
 

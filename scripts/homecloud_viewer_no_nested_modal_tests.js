@@ -15,7 +15,7 @@ function check(value, label) {
 console.log('\n=== HOMECLOUD ST-4 VIEWER NO NESTED MODAL ===');
 
 const viewer = read('front/mi-front-limpio/components/homecloud/MemoryViewer.tsx');
-const actionSheet = read('front/mi-front-limpio/components/ui/ActionSheet.tsx');
+const actionSheet = read('front/mi-front-limpio/components/ui/AdaptiveActionMenu.tsx');
 const memoriesScreen = read('front/mi-front-limpio/screens/HomeCloudMemoriesScreen.tsx');
 
 check(!viewer.includes("from 'react-native'") || !/\bModal\b/.test(viewer), 'the Viewer renders no React Native Modal');
@@ -29,8 +29,8 @@ check(
   'the single shared modal host still exists exactly once',
 );
 check(
-  (memoriesScreen.match(/<ActionSheet\b/g) ?? []).length === 1,
-  'Memories still renders exactly one ActionSheet host',
+  (memoriesScreen.match(/<AdaptiveActionMenu\b/g) ?? []).length === 1,
+  'Memories still renders exactly one adaptive action host',
 );
 check(
   memoriesScreen.includes('<MemoryInfoSheet') && memoriesScreen.includes('onOpenInfo={(contentId) => setInfoContentId(contentId)}'),

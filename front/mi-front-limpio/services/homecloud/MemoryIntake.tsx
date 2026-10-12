@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, AppState, Keyboard, Linking, ScrollView, StyleSheet, View, type AppStateStatus } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 
-import { ActionSheet, AppButton, AppInput, AppText, FilterChip } from '../../components/ui';
+import { ActionSheet, AdaptiveActionMenu, AppButton, AppInput, AppText, FilterChip, menuAnchorFromEvent, type MenuAnchor } from '../../components/ui';
 import { InteractivePressable } from '../../components/ui/InteractivePressable';
 import { MemorySemanticDateFields } from '../../components/homecloud/MemorySemanticDateFields';
 import { HomePlusIcon } from '../../constants/icons';
@@ -151,6 +151,7 @@ export function MemoryIntake({ config, onComplete, destinationsRevision }: Memor
   const getAccessToken = useCallback(() => accessTokenRef.current || null, []);
   const [state, setState] = useState<MemoryIntakeState>({ status: 'idle' });
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [createAnchor, setCreateAnchor] = useState<MenuAnchor | null>(null);
   /**
    * CAM-08: the recording waiting to enter the Review. It is a REF, not state:
    * the handoff commit must be idempotent across renders, and it is read by
@@ -915,7 +916,7 @@ const openWritten = () => {
   return (
     <>
       <InteractivePressable
-        onPress={openCreate}
+        onPress={(event) => { setCreateAnchor(menuAnchorFromEvent(event)); openCreate(); }}
         disabled={triggerDisabled}
         style={styles.createTrigger}
         pressScale={motion.scale.icon}
@@ -927,7 +928,7 @@ const openWritten = () => {
         <HomePlusIcon name="add" size={24} color={colors.brand} />
       </InteractivePressable>
 
-      <ActionSheet visible={sheet === 'create'} title="Guardar un recuerdo" onRequestClose={closeCreate} size="content">
+      <AdaptiveActionMenu visible={sheet === 'create'} title="Guardar un recuerdo" anchor={createAnchor} itemCount={5} onRequestClose={closeCreate} width={300}>
         <View style={styles.actions}>
           <AppButton title={picking ? 'Abriendo…' : 'Fotos y videos'} loading={picking} disabled={picking} onPress={() => void chooseMedia()} />
           <AppButton title="Capturar momento" variant="secondary" disabled={picking} onPress={openCamera} />
@@ -941,7 +942,7 @@ const openWritten = () => {
             </View>
           ) : null}
         </View>
-      </ActionSheet>
+      </AdaptiveActionMenu>
 
       {/*
        * SINGLE NATIVE MODAL HOST for the binary Review.

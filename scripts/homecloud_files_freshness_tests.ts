@@ -1341,7 +1341,7 @@ function testBoundaries(): void {
   record(/AppState\.addEventListener\('change'/.test(screen), "F7. the lifecycle signal is the platform's own AppState");
   record(/subscription\.remove\(\)/.test(screen), 'F8. and it is removed on teardown');
   record(/<HomeCloudFilesView visible=\{section === 'files'\} \/>/.test(shell), 'F9. the shell signals visibility with ONE prop — no shell redesign');
-  record(/display: 'none'/.test(shell), 'F10. and both panes are still mounted, exactly as before');
+  record((shell.match(/<Animated\.View/g) ?? []).length === 2 && /pointerEvents=\{section === 'files' \? 'auto' : 'none'\}/.test(shell), 'F10. both panes stay mounted while the inactive pane is non-interactive');
   record(/refreshPreservingWindow/.test(pagination), 'F11. the window-preserving primitive is untouched and still the refresh path');
 }
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View, type GestureResponderEvent } from 'react-native';
 
 import { colors, radius, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
@@ -50,7 +50,7 @@ export function AlbumsRail({
   canOrganize: boolean;
   accessToken: string | null;
   onOpenAlbum: (album: HomeCloudAlbum) => void;
-  onAlbumActions: (album: HomeCloudAlbum) => void;
+  onAlbumActions: (album: HomeCloudAlbum, event?: GestureResponderEvent) => void;
   onCreateAlbum: () => void;
   onOpenFavorites: () => void;
   onRetry: () => void;
@@ -124,7 +124,7 @@ export function AlbumsRail({
             accessToken={accessToken}
             canOrganize={canOrganize}
             onPress={() => onOpenAlbum(album)}
-            onMore={() => onAlbumActions(album)}
+            onMore={(event) => onAlbumActions(album, event)}
           />
         ))}
         {canOrganize ? <CreateAlbumTile onPress={onCreateAlbum} /> : null}

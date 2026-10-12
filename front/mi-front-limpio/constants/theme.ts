@@ -541,17 +541,30 @@ export const glass = {
   },
 } as const;
 
-export const motion = {
-  press: 80,
-  tap: 80,
+/**
+ * Shared motion vocabulary. Durations are grouped by intent so HomeCloud does
+ * not grow another collection of unrelated magic numbers. Native controls keep
+ * their platform timing; these values only govern app-owned transitions.
+ */
+export const MOTION = {
+  feedback: 120,
+  feedbackExit: 100,
+  state: 180,
+  stateExit: 120,
+  navigation: 260,
+  tabCrossFade: 150,
+  viewerOrigin: 280,
+  reducedFade: 30,
+  press: 120,
+  tap: 120,
   navActive: 150,
   fast: 150,
-  toggle: 200,
-  fade: 200,
-  screenEnter: 240,
+  toggle: 180,
+  fade: 180,
+  screenEnter: 260,
   screenExit: 200,
-  normal: 240,
-  sheet: 300,
+  normal: 260,
+  sheet: 280,
   success: 420,
   max: 500,
   scale: {
@@ -565,6 +578,9 @@ export const motion = {
     release: { damping: 18, stiffness: 300, mass: 0.8 },
   },
 } as const;
+
+/** Backwards-compatible name for callers outside the Shared polish scope. */
+export const motion = MOTION;
 
 export const touchTargets = {
   normal: 44,

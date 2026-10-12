@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { RefreshControl, SectionList, StyleSheet, View } from 'react-native';
+import { RefreshControl, SectionList, StyleSheet, View, type GestureResponderEvent } from 'react-native';
 
 import { colors, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
@@ -78,7 +78,7 @@ export function AlbumDetailView({
    */
   selecting: boolean;
   onBack: () => void;
-  onOpenActions: () => void;
+  onOpenActions: (event?: GestureResponderEvent) => void;
   onRefresh: () => void;
   onLoadMore: () => void;
   onAddMemories: () => void;
@@ -255,7 +255,7 @@ function Header({
   title: string;
   onBack: () => void;
   canOrganize: boolean;
-  onOpenActions: () => void;
+  onOpenActions: (event?: GestureResponderEvent) => void;
 }) {
   return (
     <View style={styles.header}>

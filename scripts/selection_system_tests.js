@@ -62,7 +62,11 @@ try {
   assert.match(rootScreen, /HomeCloudFilesView/);
   assert.match(rootScreen, /HomeCloudMemoriesView/);
   assert.match(rootScreen, /setSection/);
-  assert.match(rootScreen, /display: 'none'/);
+  assert.match(rootScreen, /Animated\.View/);
+  assert.match(rootScreen, /pointerEvents=\{section === 'files' \? 'auto' : 'none'\}/);
+  assert.match(rootScreen, /pointerEvents=\{section === 'memories' \? 'auto' : 'none'\}/);
+  assert.match(rootScreen, /MOTION\.tabCrossFade/);
+  assert.doesNotMatch(rootScreen, /display: 'none'/);
   assert.doesNotMatch(files, /navigate\(['"]HomeCloudMemories/);
   assert.doesNotMatch(memories, /navigate\(['"]HomeCloudFiles/);
   assert.match(navigator, /name="HomeCloud"/);
@@ -130,7 +134,7 @@ try {
   assert.match(grammar, /\{ id: 'favorite', label: 'Agregar a favoritos'/);
   assert.match(grammar, /stateKey: 'isFavorite'/);
   assert.match(grammar, /activeLabel: 'Quitar de favoritos'/);
-  assert.equal((grammar.match(/implemented: false/g) || []).length, 2);
+  assert.equal((grammar.match(/implemented: false/g) || []).length, 1);
   assert.match(grammar, /\{ id: 'open', label: 'Abrir'/);
   assert.match(grammar, /\{ id: 'trash', label: 'Mover a la papelera'/);
 // The Favoritos retrieval is a SERVER filter mode, never a client filter: the

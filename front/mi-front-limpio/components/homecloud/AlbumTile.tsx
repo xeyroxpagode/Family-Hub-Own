@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, StyleSheet, View, type GestureResponderEvent } from 'react-native';
 
-import { colors, radius, spacing } from '../../constants/theme';
+import { colors, MOTION, radius, spacing } from '../../constants/theme';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { HomePlusIcon } from '../../constants/icons';
 import { albumItemCountLabel } from '../../services/homecloud/homecloudAlbumScope';
 import type { HomeCloudAlbum } from '../../services/homecloud/homecloudTypes';
@@ -44,6 +45,15 @@ function AlbumCoverFallback({ label }: { label: string }) {
       style={[styles.visual, styles.fallbackVisual]}
     >
       <HomePlusIcon name="albums" size={30} color={colors.text.tertiary} />
+    </View>
+  );
+}
+
+function AlbumCoverError({ label }: { label: string }) {
+  return (
+    <View accessibilityRole="image" accessibilityLabel={`${label}. No se pudo cargar`} style={[styles.visual, styles.errorVisual]}>
+      <HomePlusIcon name="warning-outline" size={24} color={colors.danger.base} />
+      <AppText variant="micro" tone="danger" align="center">No se pudo cargar</AppText>
     </View>
   );
 }
@@ -95,21 +105,25 @@ function AlbumCoverImage({
   // invented poster.
   const preview = useMemoryPreviewUrl(accessToken, contentId, true);
   const [imageFailed, setImageFailed] = useState(false);
+  const reducedMotion = useReducedMotion();
+  const imageOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     setImageFailed(false);
-  }, [contentId]);
+    imageOpacity.setValue(0);
+  }, [contentId, imageOpacity]);
 
   if (preview.phase === 'ready') {
-    if (imageFailed) return <AlbumCoverFallback label={label} />;
+    if (imageFailed) return <AlbumCoverError label={label} />;
     return (
-      <Image
+      <Animated.Image
         source={{ uri: preview.url }}
         resizeMode="cover"
         onError={() => setImageFailed(true)}
+        onLoad={() => Animated.timing(imageOpacity, { toValue: 1, duration: reducedMotion ? 0 : MOTION.fast, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()}
         accessibilityRole="image"
         accessibilityLabel={label}
-        style={styles.visual}
+        style={[styles.visual, { opacity: imageOpacity }]}
       />
     );
   }
@@ -119,7 +133,7 @@ function AlbumCoverImage({
   if (preview.phase === 'idle' || preview.phase === 'loading') {
     return <AlbumCoverLoading label={label} />;
   }
-  return <AlbumCoverFallback label={label} />;
+  return preview.phase === 'error' ? <AlbumCoverError label={label} /> : <AlbumCoverFallback label={label} />;
 }
 
 export function AlbumCover({
@@ -148,7 +162,7 @@ export function AlbumTile({
   /** Organize is the ONLY capability that unlocks Album actions. */
   canOrganize: boolean;
   onPress: () => void;
-  onMore: () => void;
+  onMore: (event?: GestureResponderEvent) => void;
 }) {
   return (
     <View style={styles.tile}>
@@ -160,7 +174,7 @@ export function AlbumTile({
           style={styles.more}
           accessibilityLabel={`Acciones del álbum ${album.name}`}
         >
-          <HomePlusIcon name="ellipsis-horizontal" size={19} color={colors.text.secondary} />
+          <HomePlusIcon name="ellipsis-horizontal" size={19} color="#FFFFFF" />
         </AppButton>
       ) : null}
       <AppButton
@@ -201,6 +215,7 @@ const styles = StyleSheet.create({
   fallbackVisual: {
     backgroundColor: colors.background.alt,
   },
+  errorVisual: { backgroundColor: colors.danger.soft, gap: spacing[1], paddingHorizontal: spacing[2] },
   /**
    * HC2-C: the cover's LOADING surface. It is deliberately a hair different from
    * `fallbackVisual` (transparent over the card) so a resolving cover never
@@ -222,6 +237,9 @@ const styles = StyleSheet.create({
     right: spacing[1],
     top: spacing[1],
     zIndex: 2,
-    backgroundColor: colors.surface.card,
+    minWidth: 44,
+    minHeight: 44,
+    backgroundColor: 'rgba(20,18,16,0.72)',
+    borderColor: 'rgba(255,255,255,0.72)',
   },
 });

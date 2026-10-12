@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, type GestureResponderEvent } from 'react-native';
 
 import { colors, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
@@ -71,7 +71,7 @@ export function MemorySelectionHeader({
   canAddToAlbum: boolean;
   onCancel: () => void;
   /** Opens the contextual action sheet. Available from the first frame. */
-  onOpenActions: () => void;
+  onOpenActions: (event?: GestureResponderEvent) => void;
   busy: boolean;
   failure: MemorySelectionFailure | null;
   onRetryFailed: () => void;

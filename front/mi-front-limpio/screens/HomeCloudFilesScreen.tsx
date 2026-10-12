@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, FlatList, PanResponder, RefreshControl, StyleSheet, View, type GestureResponderHandlers } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, PanResponder, RefreshControl, StyleSheet, View, type GestureResponderEvent, type GestureResponderHandlers } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
-import { ActionSheet, AppButton, AppInput, AppText, ErrorState, InteractivePressable } from '../components/ui';
+import { ActionSheet, AdaptiveActionMenu, AppButton, AppInput, AppText, ErrorState, InteractivePressable, menuAnchorFromEvent, type MenuAnchor } from '../components/ui';
 import { FileActionHost, type FilePatch } from '../services/homecloud/FileActionHost';
 import { FileMoveDestinationPicker } from '../services/homecloud/FileMoveDestinationPicker';
 import { FilesFilterMenu } from '../services/homecloud/FilesFilterMenu';
@@ -138,7 +138,7 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
 
   const [error, setError] = useState<string | null>(null);
   const [readFailure, setReadFailure] = useState<{ kind: HomeCloudReadFailure; message: string; detail?: string } | null>(null);
-  const [addOpen, setAddOpen] = useState(false); const [uploadOpen, setUploadOpen] = useState(false); const [folderEditor, setFolderEditor] = useState<{ mode: 'create' | 'rename'; item?: HomeCloudFolder } | null>(null); const [folderName, setFolderName] = useState(''); const [folderActions, setFolderActions] = useState<HomeCloudFolder | null>(null); const [actionTargetId, setActionTargetId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
+  const [addOpen, setAddOpen] = useState(false); const [uploadOpen, setUploadOpen] = useState(false); const [folderEditor, setFolderEditor] = useState<{ mode: 'create' | 'rename'; item?: HomeCloudFolder } | null>(null); const [folderName, setFolderName] = useState(''); const [folderActions, setFolderActions] = useState<HomeCloudFolder | null>(null); const [folderActionAnchor, setFolderActionAnchor] = useState<MenuAnchor | null>(null); const [actionTargetId, setActionTargetId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   const [downloadFeedback, setDownloadFeedback] = useState<{ tone: 'secondary' | 'danger'; message: string } | null>(null);
   // STAGE 2 REOPEN — THE FAVORITE'S OWN BUSY STATE AND ITS OWN FAILURE CHANNEL.
   //
@@ -762,7 +762,7 @@ const handleFileTap = useCallback((fileId: string) => {
     if (!target) return;
     setViewerTargetId(fileId);
   }, [selection.mode, files]);
-  const handleFileLongPress = useCallback((fileId: string) => {
+  const handleFileLongPress = useCallback((fileId: string, _event?: GestureResponderEvent) => {
     if (selection.mode) {
       // INSIDE selection mode a long press ARMS THE SWEEP and does nothing else: the
       // mode is read ONCE, from the anchor's current selection state, and is fixed
@@ -1248,7 +1248,7 @@ const handleFileTap = useCallback((fileId: string) => {
       // not change when only the selection does — without this a selected row
       // would keep painting itself as unselected.
       extraData={selection}
-      renderItem={({ item }) => item.kind === 'folder' ? <FolderTile folder={item.value} onPress={() => openFolder(item.value)} onLongPress={() => setFolderActions(item.value)} /> : <FileTile file={item.value} selectionMode={selection.mode} selected={isFileSelected(selection, item.value.id)} onPress={() => handleFileTap(item.value.id)} onLongPress={() => handleFileLongPress(item.value.id)} onSetSelected={(next) => setSelection((previous) => setFileSelectionSelected(previous, item.value.id, next))} onMeasure={(frame) => registerFileTileFrame(item.value.id, frame)} panHandlers={dragPanResponder.panHandlers} />}
+      renderItem={({ item }) => item.kind === 'folder' ? <FolderTile folder={item.value} onPress={() => openFolder(item.value)} onLongPress={(event) => { setFolderActionAnchor(event ? menuAnchorFromEvent(event) : null); setFolderActions(item.value); }} /> : <FileTile file={item.value} selectionMode={selection.mode} selected={isFileSelected(selection, item.value.id)} onPress={() => handleFileTap(item.value.id)} onLongPress={(event) => handleFileLongPress(item.value.id, event)} onSetSelected={(next) => setSelection((previous) => setFileSelectionSelected(previous, item.value.id, next))} onMeasure={(frame) => registerFileTileFrame(item.value.id, frame)} panHandlers={dragPanResponder.panHandlers} />}
       // STAGE 2 REOPEN — AUTOMATIC PAGINATION.
       //
       // `Mostrar más archivos` is GONE: a normal scroll must never stop on a button.
@@ -1291,10 +1291,10 @@ const handleFileTap = useCallback((fileId: string) => {
     <ActionSheet visible={addOpen} title="Agregar" onRequestClose={() => setAddOpen(false)} size="content"><View style={styles.sheetList}><AppButton title="Elegir archivo" onPress={() => { setAddOpen(false); setUploadOpen(true); }} /><AppButton title="Escanear documento" variant="secondary" onPress={() => { setAddOpen(false); navigation.navigate('HomeCloudScanner', { folderId: folder?.id ?? null, folderName: folder?.name ?? null, capabilities: caps }); }} /><AppButton title="Nueva carpeta" variant="secondary" disabled={!canOrganize} onPress={() => { setAddOpen(false); setFolderName(''); setFolderEditor({ mode: 'create' }); }} />{folder ? <AppText variant="caption" tone="secondary">Se creará dentro de {folder.name}.</AppText> : null}</View></ActionSheet>
     <ActionSheet visible={uploadOpen} title="Elegir archivo" onRequestClose={() => setUploadOpen(false)} size="content"><FileIntake config={{ householdId: currentHousehold?.id ?? '', accessToken: token ?? '', capabilities: caps, initialFolderId: folder?.id ?? null, initialFolderName: folder?.name ?? null, intakeSource: 'homecloud:files' }} onComplete={() => { setUploadOpen(false); void refresh(); }} onDismiss={() => setUploadOpen(false)} /></ActionSheet>
     <ActionSheet visible={!!folderEditor} title={folderEditor?.mode === 'rename' ? 'Renombrar carpeta' : 'Nueva carpeta'} onRequestClose={() => setFolderEditor(null)} size="content" footer={<AppButton title="Guardar" disabled={!folderName.trim() || saving} onPress={() => void saveFolder()} />}><AppInput value={folderName} onChangeText={setFolderName} label="Nombre" autoFocus /></ActionSheet>
-    <ActionSheet visible={!!folderActions} title={folderActions?.name ?? 'Carpeta'} onRequestClose={() => setFolderActions(null)} size="content"><View style={styles.sheetList}><AppButton title="Renombrar" variant="secondary" disabled={!canOrganize} onPress={() => { setFolderName(folderActions!.name); setFolderEditor({ mode: 'rename', item: folderActions! }); setFolderActions(null); }} /><AppButton title="Mover" variant="secondary" disabled={!canOrganize} onPress={() => { setMoveIntent({ kind: 'folder', folderId: folderActions!.id }); setFolderActions(null); }} /><AppButton title="Eliminar carpeta" variant="danger" disabled={!canOrganize || saving} onPress={() => void removeFolder()} />{/* HONEST delete copy (Stage 2 Phase 1). A nested delete does NOT recursively
+    <AdaptiveActionMenu visible={!!folderActions} title={folderActions?.name ?? 'Carpeta'} anchor={folderActionAnchor} itemCount={3} onRequestClose={() => setFolderActions(null)}><View style={styles.sheetList}><AppButton title="Renombrar" variant="secondary" disabled={!canOrganize} onPress={() => { setFolderName(folderActions!.name); setFolderEditor({ mode: 'rename', item: folderActions! }); setFolderActions(null); }} /><AppButton title="Mover" variant="secondary" disabled={!canOrganize} onPress={() => { setMoveIntent({ kind: 'folder', folderId: folderActions!.id }); setFolderActions(null); }} /><AppButton title="Eliminar carpeta" variant="danger" disabled={!canOrganize || saving} onPress={() => void removeFolder()} />{/* HONEST delete copy (Stage 2 Phase 1). A nested delete does NOT recursively
         delete content, so wording that implied it would be a lie: the folder is
         removed and its DIRECT contents move up to its parent. Files are never
-        deleted by removing a folder. */}<AppText variant="caption" tone="secondary">Al eliminar la carpeta no se borra ningún archivo: su contenido directo pasa a {folderActions ? (folderDisplayPath(allFolders, folderActions.parentFolderId) ?? 'Archivos') : 'Archivos'}.</AppText></View></ActionSheet>
+        deleted by removing a folder. */}<AppText variant="caption" tone="secondary">Al eliminar la carpeta no se borra ningún archivo: su contenido directo pasa a {folderActions ? (folderDisplayPath(allFolders, folderActions.parentFolderId) ?? 'Archivos') : 'Archivos'}.</AppText></View></AdaptiveActionMenu>
     {/* The canonical per-File action host. It is always mounted and decides its own
         visibility, so there is never a second place that can open a File menu. */}
     <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} favoriteBusy={favoriteBusy} trashBusy={trashBusy} actionError={actionError} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setDownloadFeedback(null); setActionError(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveIntent({ kind: 'file' })} onFavorite={(isFavorite) => void toggleFileFavorite(isFavorite)} onTrash={() => void trashFile()} onDownload={() => void saveCopyOfFile()} onShare={() => void shareFile()} />
@@ -1319,7 +1319,7 @@ const handleFileTap = useCallback((fileId: string) => {
  * to reach those actions, so the same intents are also exposed as accessibility
  * actions on the tile.
  */
-function FolderTile({ folder, onPress, onLongPress }: { folder: HomeCloudFolder; onPress: () => void; onLongPress: () => void }) { return <View style={styles.tile}><AppButton variant="secondary" onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={styles.visual} accessibilityLabel={`Abrir carpeta ${folder.name}`} accessibilityHint="Toca para abrir. Mantené presionado para ver sus acciones." accessibilityActions={[{ name: 'activate', label: 'Abrir carpeta' }, { name: 'longpress', label: 'Acciones de la carpeta' }]} onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'longpress') onLongPress(); }}><HomePlusIcon name="folder" size={48} color={colors.terracotta[500]} /></AppButton><AppText variant="bodySmall" weight="700" numberOfLines={2}>{folder.name}</AppText></View>; }
+function FolderTile({ folder, onPress, onLongPress }: { folder: HomeCloudFolder; onPress: () => void; onLongPress: (event?: GestureResponderEvent) => void }) { return <View style={styles.tile}><AppButton variant="secondary" onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={styles.visual} accessibilityLabel={`Abrir carpeta ${folder.name}`} accessibilityHint="Toca para abrir. Mantené presionado para ver sus acciones." accessibilityActions={[{ name: 'activate', label: 'Abrir carpeta' }, { name: 'longpress', label: 'Acciones de la carpeta' }]} onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'longpress') onLongPress(); }}><HomePlusIcon name="folder" size={48} color={colors.terracotta[500]} /></AppButton><AppText variant="bodySmall" weight="700" numberOfLines={2}>{folder.name}</AppText></View>; }
 
 /**
  * A File tile. Two gestures, one owner:
@@ -1353,7 +1353,7 @@ export function FileTile({
   selectionMode: boolean;
   selected: boolean;
   onPress: () => void;
-  onLongPress: () => void;
+  onLongPress: (event?: GestureResponderEvent) => void;
   /**
    * Put this File into a DECIDED selection state. Drag is an enhancement, so the
    * tile also offers explicit `select` / `deselect` accessibility actions through

@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { spacing } from '../../constants/theme';
 import { ALBUM_DELETE_MEMORIES_SURVIVE_COPY } from '../../services/homecloud/homecloudAlbumScope';
 import type { HomeCloudAlbum } from '../../services/homecloud/homecloudTypes';
-import { ActionSheet, AppButton, AppInput, AppText } from '../ui';
+import { ActionSheet, AdaptiveActionMenu, AppButton, AppInput, AppText, type MenuAnchor } from '../ui';
 
 /**
  * HomeCloud MO-A2 — Album name editor and Album actions.
@@ -98,6 +98,7 @@ export function AlbumNameSheet({
 
 export function AlbumActionsSheet({
   album,
+  anchor,
   canOrganize,
   deleting,
   error,
@@ -107,6 +108,7 @@ export function AlbumActionsSheet({
   onDelete,
 }: {
   album: HomeCloudAlbum | null;
+  anchor: MenuAnchor | null;
   canOrganize: boolean;
   deleting: boolean;
   error: string | null;
@@ -121,12 +123,13 @@ export function AlbumActionsSheet({
   onDelete: () => void;
 }) {
   return (
-    <ActionSheet
+    <AdaptiveActionMenu
       visible={album !== null}
       title={album?.name ?? 'Álbum'}
+      anchor={anchor}
+      itemCount={3}
       onRequestClose={onClose}
       closeDisabled={deleting}
-      size="content"
     >
       <View style={styles.body}>
         {/* Nothing here is rendered for a member without organize: no
@@ -160,7 +163,7 @@ export function AlbumActionsSheet({
           </AppText>
         ) : null}
       </View>
-    </ActionSheet>
+    </AdaptiveActionMenu>
   );
 }
 

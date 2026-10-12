@@ -10,14 +10,14 @@ import {
   StyleSheet,
   View,
   type LayoutChangeEvent,
+  type GestureResponderEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
-import { AppButton, AppText, ErrorState, Skeleton, UndoToast } from '../components/ui';
-import { ActionSheet } from '../components/ui/ActionSheet';
+import { AdaptiveActionMenu, AppButton, AppText, ErrorState, Skeleton, UndoToast, menuAnchorFromEvent, type MenuAnchor } from '../components/ui';
 import { AlbumDetailView } from '../components/homecloud/AlbumDetailView';
 import { AlbumsRail } from '../components/homecloud/AlbumsRail';
 import { AlbumActionsSheet, AlbumNameSheet, type AlbumEditorMode } from '../components/homecloud/AlbumSheets';
@@ -526,6 +526,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
    * thing standing between "something is selected" and "the available actions".
    */
   const [selectionActionsOpen, setSelectionActionsOpen] = useState(false);
+  const [actionMenuAnchor, setActionMenuAnchor] = useState<MenuAnchor | null>(null);
   /** The destination content INSIDE the same sheet. Never a second sheet. */
   const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
 
@@ -539,6 +540,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
   const [editor, setEditor] = useState<{ mode: AlbumEditorMode; album: HomeCloudAlbum | null } | null>(null);
   const [createAlbumForSelection, setCreateAlbumForSelection] = useState(false);
   const [actionsAlbum, setActionsAlbum] = useState<HomeCloudAlbum | null>(null);
+  const [albumActionAnchor, setAlbumActionAnchor] = useState<MenuAnchor | null>(null);
   const [sheetError, setSheetError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -570,8 +572,9 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
     setEditor({ mode: 'rename', album });
   }, []);
 
-  const openAlbumActions = useCallback((album: HomeCloudAlbum) => {
+  const openAlbumActions = useCallback((album: HomeCloudAlbum, event?: GestureResponderEvent) => {
     setSheetError(null);
+    setAlbumActionAnchor(event ? menuAnchorFromEvent(event) : null);
     setActionsAlbum(album);
   }, []);
 
@@ -1098,10 +1101,11 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
    * action asks for nothing. In the root and in an automatic collection there is
    * no known destination, so the same sheet asks for one.
    */
-  const openSelectionActions = useCallback(() => {
+  const openSelectionActions = useCallback((event?: GestureResponderEvent) => {
     if (!canConfirmMemorySelection(selectionRef.current)) return;
     setSelectionFailure(null);
     setDestinationPickerOpen(false);
+    setActionMenuAnchor(event ? menuAnchorFromEvent(event) : null);
     setSelectionActionsOpen(true);
   }, []);
 
@@ -2335,7 +2339,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
             canOrganize={canOrganize}
             selecting={selecting}
             onBack={closeAlbum}
-            onOpenActions={() => { if (openAlbumRecord) openAlbumActions(openAlbumRecord); }}
+            onOpenActions={(event) => { if (openAlbumRecord) openAlbumActions(openAlbumRecord, event); }}
             onRefresh={refreshDetail}
             onLoadMore={loadMoreDetail}
             onAddMemories={() => { if (openAlbumId !== null) enterAddToAlbum(openAlbumId); }}
@@ -2413,7 +2417,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
           canOrganize={canOrganize && !(viewer.source.kind === 'collection' && viewer.source.collection.kind === 'trash')}
           activeFavorite={favoriteOf(viewer.activeContentId) === true}
           onToggleFavorite={() => toggleFavorite(viewer.activeContentId)}
-          onOpenActions={(contentId) => setViewerActionsContentId(contentId)}
+          onOpenActions={(contentId, event) => { setActionMenuAnchor(event ? menuAnchorFromEvent(event) : null); setViewerActionsContentId(contentId); }}
           onClose={() => setViewer(null)}
           onActiveChange={(activeContentId) => setViewer((current) => current ? { ...current, activeContentId } : current)}
           onNearEnd={() => {
@@ -2452,6 +2456,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
       />
       <AlbumActionsSheet
         album={actionsAlbum}
+        anchor={albumActionAnchor}
         canOrganize={canOrganize}
         deleting={deleting}
         error={sheetError}
@@ -2494,16 +2499,17 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
        * In an Album, `Quitar del álbum` needs no destination at all: the open
        * Album IS the destination, so that action runs immediately.
        */}
-      <ActionSheet
+      <AdaptiveActionMenu
         visible={selectionSheetOpen || viewerActionsContentId !== null}
-        title={viewerActionsContentId !== null ? 'Acciones' : selectionSheetTitle ?? undefined}
+        title={viewerActionsContentId !== null ? 'Acciones' : selectionSheetTitle}
+        anchor={destinationPickerOpen ? null : actionMenuAnchor}
+        itemCount={viewerActionsContentId !== null ? 6 : selectionActionItems.length}
         onRequestClose={() => {
           setSelectionActionsOpen(false);
           setDestinationPickerOpen(false);
           setViewerActionsContentId(null);
         }}
         closeDisabled={selectionBusy || selectionFavoriteBusy || shareBusy}
-        size="content"
       >
         <View style={styles.destination}>
           {viewerActionsContentId !== null ? (
@@ -2759,7 +2765,7 @@ export function HomeCloudMemoriesView({ active = true }: HomeCloudMemoriesViewPr
             }}
           />
         </View>
-      </ActionSheet>
+      </AdaptiveActionMenu>
 
       <UndoToast
         visible={toast !== null}

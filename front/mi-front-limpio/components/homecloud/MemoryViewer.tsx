@@ -86,7 +86,7 @@ import type { MemoryViewerSource } from '../../services/homecloud/homecloudMemor
 
 export function MemoryViewer({ memories, activeContentId, accessToken, source, canOrganize, activeFavorite, onToggleFavorite, onOpenActions, onClose, onActiveChange, onNearEnd, onOpenInfo }: {
   memories: readonly HomeCloudMemoryListItem[]; activeContentId: string; accessToken: string | null; source: MemoryViewerSource;
-  canOrganize?: boolean; activeFavorite?: boolean; onToggleFavorite?: () => void; onOpenActions?: (contentId: string) => void;
+  canOrganize?: boolean; activeFavorite?: boolean; onToggleFavorite?: () => void; onOpenActions?: (contentId: string, event?: import('react-native').GestureResponderEvent) => void;
   onClose: () => void; onActiveChange: (contentId: string) => void; onNearEnd: () => void; onOpenInfo?: (contentId: string) => void;
 }) {
   const { width } = useWindowDimensions();
@@ -235,7 +235,7 @@ export function MemoryViewer({ memories, activeContentId, accessToken, source, c
         </AppButton>
       ) : null}
       {onOpenInfo ? <AppButton variant="icon" size="sm" onPress={() => onOpenInfo(activeContentId)} accessibilityLabel="Información del recuerdo" style={styles.closeTarget}><HomePlusIcon name="information-circle-outline" size={24} color={colors.text.inverse} /></AppButton> : null}
-      {onOpenActions ? <AppButton variant="icon" size="sm" onPress={() => onOpenActions(activeContentId)} accessibilityLabel="Acciones del recuerdo" style={styles.closeTarget}><HomePlusIcon name="ellipsis-horizontal" size={24} color={colors.text.inverse} /></AppButton> : null}
+      {onOpenActions ? <AppButton variant="icon" size="sm" onPress={(event) => onOpenActions(activeContentId, event)} accessibilityLabel="Acciones del recuerdo" style={styles.closeTarget}><HomePlusIcon name="ellipsis-horizontal" size={24} color={colors.text.inverse} /></AppButton> : null}
     </View> : null}
     <FlatList ref={list} data={memories} horizontal pagingEnabled showsHorizontalScrollIndicator={false} initialScrollIndex={activeIndex}
       keyExtractor={(memory) => memory.id} getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
