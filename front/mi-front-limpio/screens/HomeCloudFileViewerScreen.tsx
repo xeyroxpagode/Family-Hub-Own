@@ -80,10 +80,14 @@ import {
  *                           Expo Go cannot load custom native modules, which is why
  *                           the previous native renderer had to go; every
  *                           dependency used here ships inside Expo Go.
- *   office                  staged to the TEMPORARY cache and handed to the
- *                           platform: a privacy-safe external/system handoff is
- *                           honest for DOC/XLS/PPT, and pretending otherwise would
- *                           mean shipping a document converter.
+ *   office (DOCX/DOC/XLSX/XLS/PPTX/PPT)
+ *                           OFFICE-3: visor ONLYOFFICE embebido read-only
+ *                           (`type: "embedded"` + `mode: "view"` llegan firmados
+ *                           en la sesión del backend). El original también se
+ *                           stagea a la cache para que el hand-off externo
+ *                           siga disponible como respaldo honesto. Otros
+ *                           formatos Office (odt, rtf, xlsm, odp…) y los
+ *                           documentos web activos siguen con hand-off externo.
  *   svg / html / xml         REFUSED inline as active web content, with the reason
  *                           stated, plus the actions that do work.
  *
@@ -272,10 +276,16 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
   const kind = classification.kind;
   const cannotPreview = kind === 'unsupported' || kind === 'office_document' || kind === 'office_sheet' || kind === 'office_presentation';
   // OFFICE-2: el visor Office embebido se dibuja FUERA del ScrollView. El
-  // contenido del documento (páginas, zoom, scroll propio del visor embebido)
-  // ocupa todo el área restante del Viewer: una vista previa, no una
-  // "aplicación de Office" enmarcada con UI alrededor.
-  const officeInline = kind === 'office_document' && isOfficeViewerSupported({ fileName: file.displayName });
+  // contenido del documento (páginas, hojas con pestañas, slides, zoom,
+  // scroll propio del visor embebido) ocupa todo el área restante del
+  // Viewer: una vista previa, no una "aplicación de Office" enmarcada con
+  // UI alrededor.
+  // OFFICE-3: las tres familias Office (documento, hoja, presentación)
+  // entran al visor integrado cuando la extensión es de los seis formatos
+  // V1; el resto de Office (odt, rtf, xlsm, odp…) conserva el hand-off
+  // honesto de respaldo.
+  const officeInline = (kind === 'office_document' || kind === 'office_sheet' || kind === 'office_presentation')
+    && isOfficeViewerSupported({ fileName: file.displayName });
 
   return (
     <View style={[styles.screen, { paddingTop: Math.max(insets.top, spacing[4]), paddingBottom: Math.max(insets.bottom, spacing[4]) }]}>
@@ -362,9 +372,11 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
       );
     }
     if (officeInline && file) {
-      // OFFICE-2: Word (DOCX/DOC) integrado como VISOR EMBEBIDO read-only
-      // (`type: "embedded"` llega firmado en la config de la sesión).
-      // Hojas y presentaciones siguen con hand-off honesto hasta OFFICE-3.
+      // OFFICE-3: los seis formatos Office V1 (Word/Excel/PowerPoint, OOXML
+      // y legacy) integrados como VISOR EMBEBIDO read-only (`type:
+      // "embedded"` y el documentType por familia llegan firmados en la
+      // config de la sesión). Los formatos Office no-V1 conservan el
+      // hand-off honesto de abajo.
       return (
         <ViewerOfficeSurface
           file={file}
@@ -784,13 +796,16 @@ function ViewerAudioSurface({ uri, title }: { uri: string; title: string }) {
 }
 
 /**
- * Superficie Office (OFFICE-1: DOCX/DOC, read-only; OFFICE-2: visor embebido).
+ * Superficie Office (OFFICE-3: DOCX/DOC/XLSX/XLS/PPTX/PPT, read-only;
+ * OFFICE-2: visor embebido).
  *
- * La sesión trae la config firmada por el backend con `type: "embedded"` y
- * `editorConfig.mode: "view"`: el WebView muestra el CONTENIDO del documento
- * (páginas legibles, zoom y scroll del propio visor embebido), no un
- * workspace de edición. Sin enlaces de compartir/embeber/descargar por
- * parte del DocServer: el original se comparte desde HomePlus.
+ * La sesión trae la config firmada por el backend con `type: "embedded"`,
+ * `editorConfig.mode: "view"` y el `documentType` por familia (word | cell |
+ * slide): el WebView muestra el CONTENIDO del documento (páginas legibles,
+ * hojas con pestañas, slides navegables, zoom y scroll del propio visor
+ * embebido), no un workspace de edición. Sin enlaces de
+ * compartir/embeber/descargar por parte del DocServer: el original se
+ * comparte desde HomePlus.
  *
  * Fases: preparando (sesión autorizada) -> cargando (editor) -> visible.
  * Cerrar cancela la sesión best-effort; la expiración la impone el backend.

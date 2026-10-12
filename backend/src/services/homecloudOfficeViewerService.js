@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * HomeCloud Office Viewer V1 — OFFICE-1 (slice DOCX/DOC, read-only).
+ * HomeCloud Office Viewer V1 — OFFICE-3 (DOCX/DOC/XLSX/XLS/PPTX/PPT, read-only).
  *
- * Sesiones autorizadas de visualización para documentos Word dentro de
+ * Sesiones autorizadas de visualización para documentos Office dentro de
  * HomeCloud Files. El frontend NUNCA habla con Supabase Storage ni con el
  * DocServer por su cuenta: pide una sesión al backend, que verifica
  * household + capability + lifecycle y responde una configuración ONLYOFFICE
@@ -60,16 +60,25 @@ function getMaxDocumentBytes(env = process.env) {
   return value;
 }
 
-/** OFFICE-1: solo Word (DOCX/DOC). El resto llega en OFFICE-3. */
-const WORD_FILE_TYPES = new Map([
-  ['docx', 'docx'],
-  ['doc', 'doc'],
+/**
+ * OFFICE-3: los seis formatos Office V1, con el documentType de ONLYOFFICE
+ * por familia (word | cell | slide). `fileType` SIEMPRE es la extensión
+ * original genuina del archivo (el DocServer la necesita para elegir el
+ * motor de parseo correcto, sobre todo para los binarios legacy 97-2003).
+ */
+const OFFICE_FILE_TYPES = new Map([
+  ['docx', { fileType: 'docx', family: 'word', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }],
+  ['doc', { fileType: 'doc', family: 'word', mime: 'application/msword' }],
+  ['xlsx', { fileType: 'xlsx', family: 'cell', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }],
+  ['xls', { fileType: 'xls', family: 'cell', mime: 'application/vnd.ms-excel' }],
+  ['pptx', { fileType: 'pptx', family: 'slide', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }],
+  ['ppt', { fileType: 'ppt', family: 'slide', mime: 'application/vnd.ms-powerpoint' }],
 ]);
 
-const WORD_MIME_TYPES = new Set([
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/msword',
-]);
+/** MIME Office -> clasificación, derivado de la tabla anterior. */
+const OFFICE_MIME_TYPES = new Map(
+  [...OFFICE_FILE_TYPES.values()].map((entry) => [entry.mime, entry]),
+);
 
 function extensionOf(fileName) {
   if (typeof fileName !== 'string') return '';
@@ -86,17 +95,19 @@ function normalizeMime(mimeType) {
 
 /**
  * Clasifica un archivo para el Office Viewer.
- * OFFICE-1 responde `word` solo para docx/doc; el resto es `unsupported`
- * con un motivo honesto (no se finge compatibilidad).
+ * OFFICE-3: los seis formatos Office V1 (Word, Excel, PowerPoint, OOXML y
+ * legacy binario). La extensión original prevalece cuando es conocida; el
+ * MIME específico clasifica cuando la extensión no dice nada útil. El resto
+ * es `unsupported` con un motivo honesto (no se finge compatibilidad).
  */
 function classifyOfficeDocument({ fileName, mimeType }) {
   const extension = extensionOf(fileName);
   const mime = normalizeMime(mimeType);
-  if (WORD_FILE_TYPES.has(extension) || WORD_MIME_TYPES.has(mime)) {
-    const fileType = WORD_FILE_TYPES.get(extension) ?? (mime === 'application/msword' ? 'doc' : 'docx');
-    return { supported: true, family: 'word', fileType, extension };
+  const match = OFFICE_FILE_TYPES.get(extension) ?? OFFICE_MIME_TYPES.get(mime) ?? null;
+  if (!match) {
+    return { supported: false, family: null, fileType: null, extension };
   }
-  return { supported: false, family: null, fileType: null, extension };
+  return { supported: true, family: match.family, fileType: match.fileType, extension };
 }
 
 /* ------------------------------------------------------------------ */
@@ -151,7 +162,7 @@ function createOfficeSessionStore({ now = () => Date.now(), ttlMs = SESSION_TTL_
     }
   }
 
-  function create({ contentId, householdId, fileType, title }) {
+  function create({ contentId, householdId, fileType, documentType, title }) {
     pruneExpired();
     if (sessions.size >= maxSessions) {
       // Evict la más antigua: límite de recursos, nunca crecimiento sin cota.
@@ -166,6 +177,7 @@ function createOfficeSessionStore({ now = () => Date.now(), ttlMs = SESSION_TTL_
       contentId,
       householdId,
       fileType,
+      documentType,
       title,
       downloadToken,
       createdAt: at,
@@ -213,6 +225,10 @@ function buildOfficeEditorConfig({ session, personId, documentUrl }) {
   // saveUrl, fullscreenUrl}` (documentación oficial de ONLYOFFICE). No se
   // envía NINGUNA de esas URLs: compartir el original sigue siendo de
   // HomePlus (hand-off del Viewer), nunca un enlace del DocServer.
+  //
+  // OFFICE-3: `documentType` viaja por sesión (word | cell | slide) según la
+  // familia del archivo; el DocServer monta el visor correspondiente
+  // (documento, hoja de cálculo con pestañas, presentación con slides).
   const config = {
     document: {
       fileType: session.fileType,
@@ -229,7 +245,7 @@ function buildOfficeEditorConfig({ session, personId, documentUrl }) {
         chat: false,
       },
     },
-    documentType: 'word',
+    documentType: session.documentType,
     type: 'embedded',
     editorConfig: {
       mode: 'view',
@@ -323,6 +339,7 @@ async function createOfficeViewingSession(req, contentId, { store = defaultOffic
     contentId: row.id,
     householdId: context.householdId,
     fileType: classification.fileType,
+    documentType: classification.family,
     title: row.display_name,
   });
 

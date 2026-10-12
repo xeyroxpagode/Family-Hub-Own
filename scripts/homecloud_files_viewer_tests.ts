@@ -218,8 +218,13 @@ console.log('--- V-G: media releases on unmount ---');
 }
 
 // ── V-H: honest Office and unsupported handling ─────────────────────────────
-console.log('--- V-H: Office is a truthful hand-off, never a third-party viewer ---');
+console.log('--- V-H: Office V1 renders via the authorized session viewer; the rest is a truthful hand-off ---');
 {
+  // OFFICE-3: los seis formatos Office V1 se renderizan por la sesión
+  // ONLYOFFICE autorizada (ViewerOfficeSurface), no "inline" desde la signed
+  // URL ni mediante un visor público de terceros; los formatos no-V1
+  // conservan el hand-off honesto. Las afirmaciones de esta sección siguen
+  // siendo ciertas para la capa de clasificación.
   record(isInlineRenderableFamily('office_document') === false, 'office documents are not claimed to render inline');
   record(isInlineRenderableFamily('pdf') === false, 'PDF is not claimed to render inline without a renderer');
   record(needsStagedOriginalForPreview('pdf') && needsStagedOriginalForPreview('office_document'), 'PDF and Office are staged before hand-off');

@@ -1,9 +1,10 @@
 /**
- * HomeCloud Office Viewer V1 — OFFICE-1, evidencia determinística frontend.
+ * HomeCloud Office Viewer V1 — OFFICE-3, evidencia determinística frontend.
  *
- * Contratos del cliente: qué formatos entran al visor integrado, qué HTML se
- * inyecta en el WebView (sin escape = XSS con el título del archivo), qué
- * mensajes del puente se aceptan y qué orígenes navega el WebView.
+ * Contratos del cliente: qué formatos entran al visor integrado (los seis
+ * Office V1), qué HTML se inyecta en el WebView (sin escape = XSS con el
+ * título del archivo), qué mensajes del puente se aceptan y qué orígenes
+ * navega el WebView.
  */
 
 import * as fs from 'node:fs';
@@ -47,12 +48,16 @@ const minimalConfig = {
   editorConfig: { mode: 'view' },
 };
 
-// F-A. Elegibilidad OFFICE-1: solo docx/doc.
-check('docx elegible', isOfficeViewerSupported({ fileName: 'informe.docx' }));
-check('DOC mayúsculas elegible', isOfficeViewerSupported({ fileName: 'ACTA.DOC' }));
+// F-A. Elegibilidad OFFICE-3: los seis formatos Office V1 (Word, Excel,
+// PowerPoint, OOXML y legacy binario).
+for (const name of ['informe.docx', 'ACTA.DOC', 'plan.xlsx', 'PLAN.XLS', 'deck.pptx', 'DECK.PPT']) {
+  check(`${name} elegible`, isOfficeViewerSupported({ fileName: name }));
+}
 check('extensión con espacios', officeViewerExtensionOf('  a.docx  ') === 'docx');
-for (const name of ['plan.xlsx', 'plan.xls', 'deck.pptx', 'deck.ppt', 'doc.pdf', 'foto.png', 'texto.odt', 'sin-extension']) {
-  check(`${name} fuera del visor en OFFICE-1`, !isOfficeViewerSupported({ fileName: name }));
+// Los formatos Office NO-V1 (odt, rtf, docm, ods, xlsm, odp, pptm) y las
+// demás familias siguen fuera del visor integrado: hand-off honesto.
+for (const name of ['doc.pdf', 'foto.png', 'texto.odt', 'nota.rtf', 'macro.docm', 'hoja.ods', 'libro.xlsm', 'pres.odp', 'macro.pptm', 'sin-extension']) {
+  check(`${name} fuera del visor (formato no-V1)`, !isOfficeViewerSupported({ fileName: name }));
 }
 
 // F-B. HTML del editor: orígenes y escape.
@@ -138,6 +143,16 @@ check('origen basura es null', officeViewerAllowedOrigin('nota-url') === null);
 check('sin hostname temporal hardcodeado', !/trycloudflare|ngrok\.io|localhost:\d+/.test(officeCode));
 check('sin console.log en el cliente office', !/console\.(log|info|debug)/.test(officeCode));
 check('screen usa superficie Office', screenSource.includes('ViewerOfficeSurface'));
+// OFFICE-3: las tres familias Office enrutan a la superficie integrada
+// cuando la extensión es de los seis formatos V1.
+check(
+  'screen enruta hojas (office_sheet) al visor integrado',
+  screenSource.includes("kind === 'office_sheet'") && /officeInline[\s\S]*isOfficeViewerSupported/.test(codeNoComments(screenSource)),
+);
+check(
+  'screen enruta presentaciones (office_presentation) al visor integrado',
+  screenSource.includes("kind === 'office_presentation'"),
+);
 check('screen pide sesión autorizada', screenSource.includes('createOfficeViewingSession'));
 check('screen cancela sesión al cerrar', screenSource.includes('cancelOfficeViewingSession'));
 check('PDF intacto en el screen', screenSource.includes('pdfJsEngine.generated'));

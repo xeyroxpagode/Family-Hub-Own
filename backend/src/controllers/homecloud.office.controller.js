@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * HomeCloud Office Viewer V1 — controlador HTTP (OFFICE-1).
+ * HomeCloud Office Viewer V1 — controlador HTTP (OFFICE-3).
  *
  *   POST   /content/:contentId/office-session  (autenticado, homecloud.view)
  *   DELETE /office-session/:sessionId          (autenticado, homecloud.view)
@@ -25,9 +25,14 @@ const {
   STORAGE_SIGNED_URL_TTL_S,
 } = require('../services/homecloudOfficeViewerService');
 
-const WORD_CONTENT_TYPES = new Map([
+/** Content-Types canónicos por fileType (OFFICE-3: las tres familias Office V1). */
+const OFFICE_CONTENT_TYPES = new Map([
   ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
   ['doc', 'application/msword'],
+  ['xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  ['xls', 'application/vnd.ms-excel'],
+  ['pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+  ['ppt', 'application/vnd.ms-powerpoint'],
 ]);
 
 const createOfficeSession = async (req, res) => {
@@ -59,7 +64,8 @@ const revokeOfficeSession = async (req, res) => {
  *   - sesión vigente + download token con comparación timing-safe;
  *   - el row se relee (household de la sesión, role=file, lifecycle=active);
  *   - signed URL de Storage de 60 s creada server-side, nunca expuesta;
- *   - Content-Type restringido a docx/doc, Content-Length acotado;
+ *   - Content-Type restringido a los seis formatos Office V1,
+ *     Content-Length acotado;
  *   - streaming con aborto si el origen excede el cap (origen no confiable);
  *   - `Cache-Control: no-store`.
  */
@@ -113,7 +119,7 @@ const serveOfficeDocument = async (req, res) => {
       throw createHttpError(502, 'No se pudo obtener el documento.', 'office_document_fetch_failed');
     }
 
-    const contentType = WORD_CONTENT_TYPES.get(session.fileType) ?? 'application/octet-stream';
+    const contentType = OFFICE_CONTENT_TYPES.get(session.fileType) ?? 'application/octet-stream';
     res.status(200);
     res.set({
       'Content-Type': contentType,

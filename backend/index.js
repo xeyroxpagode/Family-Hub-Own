@@ -32,7 +32,19 @@ const app = express();
 
 // 4. Middlewares de seguridad y logs
 app.use(helmet());
-app.use(morgan('dev'));
+// OFFICE-3 (cierre de seguridad): la entrega de documentos al DocServer viaja
+// con un token de sesión en la query (`?token=…`). El access log registra el
+// PATH sin query strings para que ningún token, grant firmado ni credencial
+// en URL termine en los logs de la aplicación.
+app.use(morgan((tokens, req, res) => {
+  return [
+    tokens.method(req, res),
+    req.path,
+    tokens.status(req, res),
+    `${tokens['response-time'](req, res)} ms`,
+    `- ${tokens.res(req, res, 'content-length') ?? '-'}`,
+  ].join(' ');
+}));
 
 // CORS configurable por ambiente
 const isProduction = process.env.NODE_ENV === 'production';
