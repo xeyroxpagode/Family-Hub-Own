@@ -255,6 +255,17 @@ const reactStub: Record<string, unknown> = {
   useCallback: (...args: unknown[]) => hostModules().useCallback(...(args as [never])),
   useEffect: (...args: unknown[]) => hostModules().useEffect(...(args as [never])),
   createElement: (...args: unknown[]) => hostModules().createElement(...(args as [never, never, ...never[]])),
+  // HC-POL-011..062 put the animated surfaces behind the shared reduced-motion
+  // hook, which is implemented with `useSyncExternalStore`. The host owns the
+  // subscription so a test can still flip the platform setting if it wants to.
+  useSyncExternalStore: (
+    subscribe: (onStoreChange: () => void) => () => void,
+    getSnapshot: () => unknown,
+  ) => {
+    const [value, setValue] = hostModules().useState(getSnapshot as () => never);
+    hostModules().useEffect(() => subscribe(() => setValue(getSnapshot as () => never)), []);
+    return value;
+  },
 };
 reactStub.default = reactStub;
 reactStub.Fragment = Symbol.for('react.fragment');
@@ -330,15 +341,58 @@ const reactNativeStub = {
   useWindowDimensions: () => windowDimensions,
   // What the presentational primitives need to mount for real. These are the
   // pieces a node host genuinely cannot provide — an animation clock and the
-  // platform's reduce-motion setting — not the components being tested.
+  // platform's reduce-motion setting — not the components being tested. The
+  // clock here is DETERMINISTIC: every animation settles on its target value in
+  // one step, so a tree can be asserted in the state a device would have
+  // reached. `Animated.View` keeps its own tag so an assertion about a plain
+  // `View` never silently starts counting animated wrappers.
   Animated: {
     createAnimatedComponent: (component: unknown) => component,
+    View: 'Animated.View',
+    Text: 'Animated.Text',
+    Image: 'Animated.Image',
+    ScrollView: 'Animated.ScrollView',
     Value: class AnimatedValueStub {
       private current: number;
       constructor(initial: number) { this.current = initial; }
       setValue(next: number): void { this.current = next; }
+      interpolate(): this { return this; }
+      addListener(): string { return 'listener'; }
+      removeListener(): void { }
+      removeAllListeners(): void { }
+      stopAnimation(callback?: (value: number) => void): void { callback?.(this.current); }
+      __getValue(): number { return this.current; }
     },
-    spring: () => ({ start: () => undefined, stop: () => undefined }),
+    timing: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    spring: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    sequence: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+    parallel: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+    loop: (animation: { start(callback?: () => void): void }) => ({
+      start: (callback?: () => void) => { animation.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+  },
+  Easing: {
+    linear: (value: number) => value,
+    ease: (value: number) => value,
+    quad: (value: number) => value,
+    cubic: (value: number) => value,
+    in: () => (value: number) => value,
+    out: () => (value: number) => value,
+    inOut: () => (value: number) => value,
+    bezier: () => (value: number) => value,
   },
   AccessibilityInfo: {
     isReduceMotionEnabled: async () => false,

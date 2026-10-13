@@ -90,3 +90,18 @@ export function fileMoveDestinations(
  * unambiguous for anyone who cannot see the indent at all.
  */
 export const MAX_DESTINATION_INDENT_DEPTH = 5;
+
+/**
+ * HC-POL-023 — the trail ABOVE one destination.
+ *
+ * A destination row shows the folder's own name; in a household with two
+ * `Facturas` in different branches that name alone is ambiguous. This is the
+ * part of the full path that DISAMBIGUATES without repeating the label: the
+ * parent trail. It is null for the root and for top-level folders, whose name
+ * is already unambiguous.
+ */
+export function destinationParentPath(destination: FileMoveDestination): string | null {
+  if (destination.path === null) return null;
+  const segments = destination.path.split(' / ');
+  return segments.length <= 1 ? null : segments.slice(0, -1).join(' / ');
+}

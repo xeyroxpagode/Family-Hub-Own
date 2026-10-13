@@ -242,7 +242,12 @@ console.log('--- V-H: Office V1 renders via the authorized session viewer; the r
 // ── V-I: selection coexistence ─────────────────────────────────────────────
 console.log('--- V-I: a tap opens the Viewer only OUTSIDE selection ---');
 {
-  const handler = /const handleFileTap = useCallback\(\(fileId: string\) => \{[\s\S]*?\}, \[selection\.mode, files\]\);/.exec(screenSource);
+  // HC-POL-014/012 kept every property of the tap handler; its shape grew: the
+  // toggle now also settles the tile's check (animateTileCheck) and the open
+  // resolves the origin-aware transition against the window box, so the
+  // dependency list is longer than `[selection.mode, files]`. The regex follows
+  // the CURRENT shape while the assertions below still prove the SAME grammar.
+  const handler = /const handleFileTap = useCallback\(\(fileId: string\) => \{[\s\S]*?\}, \[selection\.mode, selection, files, animateTileCheck, windowDimensions\.width, windowDimensions\.height\]\);/.exec(screenSource);
   record(Boolean(handler), 'the tap handler exists');
   if (handler) {
     record(/if \(selection\.mode\) \{[\s\S]*?toggleFileSelection/.test(handler[0]), 'INSIDE selection a tap toggles and nothing else');
@@ -254,7 +259,10 @@ console.log('--- V-I: a tap opens the Viewer only OUTSIDE selection ---');
   // STAGE 2 REOPEN: inside selection a long press no longer returns early — it ARMS
   // the drag sweep. What must still hold is the property that test existed for: it
   // must not open ANYTHING. No File menu, no navigation, no Viewer.
-  const longHandler = /const handleFileLongPress = useCallback\(\(fileId: string\) => \{[\s\S]*?\}, \[selection\.mode, armDragSelection\]\);/.exec(screenSource);
+  // The handler signature carries the gesture event (discarded as `_event`)
+  // since the anchored-popover work; the PROPERTY this test exists for is
+  // unchanged: inside selection a long press arms the sweep and opens nothing.
+  const longHandler = /const handleFileLongPress = useCallback\(\(fileId: string, _event\?: GestureResponderEvent\) => \{[\s\S]*?\}, \[selection\.mode, armDragSelection\]\);/.exec(screenSource);
   record(Boolean(longHandler), 'the long-press handler exists and depends on the sweep arming');
   if (longHandler) {
     record(/if \(selection\.mode\) \{[\s\S]*?armDragSelection\(fileId\);[\s\S]*?return;/.test(longHandler[0]),

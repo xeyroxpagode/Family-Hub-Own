@@ -563,6 +563,20 @@ export const MOTION = {
   fade: 180,
   screenEnter: 260,
   screenExit: 200,
+  /**
+   * HC-POL-011 — folder enter/back. The content slides in the direction it was
+   * travelled; the breadcrumb settles slightly behind it.
+   */
+  folderSlide: 200,
+  folderBreadcrumb: 140,
+  /** HC-POL-013 — the selection header morph, cross-fade plus <=4 pt. */
+  selectionMorph: 150,
+  /** HC-POL-014 — the selection check settling onto its ring. */
+  selectionCheck: 120,
+  /** HC-POL-021 — the favorite badge arriving on a tile that is already there. */
+  favoriteBadge: 150,
+  /** HC-POL-061/062 — Office readiness fade and the viewer close. */
+  officeReady: 200,
   normal: 260,
   sheet: 280,
   success: 420,

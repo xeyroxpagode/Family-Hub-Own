@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { ActionSheet, AppButton, AppInput, AppText, DatePickerSheet, FormActionRow } from '../../components/ui';
-import { spacing } from '../../constants/theme';
+import { ActionSheet, AppButton, AppInput, AppText, DatePickerSheet, InteractivePressable } from '../../components/ui';
+import { HomePlusIcon } from '../../constants/icons';
+import { colors, motion, spacing } from '../../constants/theme';
 import {
   resolveFileActions,
   type HomeCloudFileActionId,
@@ -90,6 +91,51 @@ export interface FileActionHostProps {
 }
 
 type HostView = 'actions' | 'info';
+
+/**
+ * HC-POL-024 — ONE information row, with the hierarchy metadata needs.
+ *
+ * Metadata is dense, so the label and the value must not compete: the label is a
+ * quiet 12-13 pt caption and the value is the 15-17 pt answer, stacked with the
+ * gap the contract names. The chevron is the EDITABLE indicator and it exists
+ * only on a row that can actually be changed — a read-only fact is never dressed
+ * up as a control, which is what "no false affordance" means here.
+ */
+function FileInfoRow({
+  label,
+  value,
+  onPress,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  onPress?: () => void;
+  disabled?: boolean;
+}) {
+  const copy = (
+    <View style={styles.rowCopy}>
+      <AppText variant="caption" tone="secondary" weight="700" style={styles.rowLabel}>{label}</AppText>
+      <AppText variant="body" numberOfLines={2} style={styles.rowValue}>{value}</AppText>
+    </View>
+  );
+  if (!onPress) {
+    return <View style={styles.row}>{copy}</View>;
+  }
+  return (
+    <InteractivePressable
+      style={styles.row}
+      onPress={() => { onPress(); }}
+      disabled={disabled}
+      haptic="light"
+      pressScale={motion.scale.card}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${value}`}
+    >
+      {copy}
+      <HomePlusIcon name="chevron-forward-outline" size={18} color={disabled ? colors.text.tertiary : colors.text.secondary} />
+    </InteractivePressable>
+  );
+}
 
 /**
  * HomeCloud Files — THE CANONICAL FILE ACTION HOST.
@@ -244,10 +290,16 @@ export function FileActionHost({
           showsVerticalScrollIndicator
           keyboardShouldPersistTaps="handled"
         >
+          {/* HC-POL-024 — TYPE FIRST, then the name, then where it lives and the
+              domain metadata. The type line is the same honest data the Viewer
+              shows: the real mime type and the real size, never an invented kind. */}
+          <AppText variant="caption" tone="secondary" accessibilityLabel={`Tipo: ${file.mimeType ?? 'desconocido'}`}>
+            {[file.mimeType, file.sizeBytes ? `${Math.max(1, Math.round(file.sizeBytes / 1024))} KB` : null].filter(Boolean).join(' · ')}
+          </AppText>
           <AppInput label="Nombre" value={name} onChangeText={(next) => { setDraft((previous) => ({ ...previous, name: true })); setName(next); }} editable={permissions.organize} />
           <AppInput label="Nota" value={note} onChangeText={(next) => { setDraft((previous) => ({ ...previous, note: true })); setNote(next); }} editable={permissions.organize} multiline />
-          <FormActionRow label="Carpeta" value={currentFolderLabel} disabled={!permissions.organize} onPress={onMoveRequest} />
-          <FormActionRow label="Fecha del documento" value={file.documentDate ?? 'Agregar fecha'} disabled={!permissions.organize} onPress={() => setDatePicker(true)} />
+          <FileInfoRow label="Carpeta" value={currentFolderLabel} onPress={onMoveRequest} disabled={!permissions.organize} />
+          <FileInfoRow label="Fecha del documento" value={file.documentDate ?? 'Agregar fecha'} onPress={() => setDatePicker(true)} disabled={!permissions.organize} />
         </ScrollView>
       </ActionSheet> : <ActionSheet visible title={file.displayName} onRequestClose={onClose} size="scrollable-content">
         <ScrollView style={styles.scroll} contentContainerStyle={styles.list} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
@@ -273,4 +325,20 @@ const styles = StyleSheet.create({
   // would measure its full content and clip the overflow it exists to expose.
   scroll: { flexShrink: 1 },
   list: { gap: spacing[3], paddingBottom: spacing[2] },
+  /** HC-POL-024 — the row is >=52 pt so a metadata sheet is thumb-reachable. */
+  row: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[2],
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    backgroundColor: colors.surface.soft,
+  },
+  rowCopy: { flex: 1, gap: spacing[1] },
+  rowLabel: { letterSpacing: 0.4 },
+  rowValue: { color: colors.text.primary },
 });
