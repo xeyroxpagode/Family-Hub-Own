@@ -75,14 +75,13 @@ export function buildPdfViewerHtml(engineSource: string, palette: PdfViewerPalet
     '#hpSkeleton{align-self:stretch;display:flex;flex-direction:column;gap:10px;padding:6px 2px;}' +
     '.hp-sk{border-radius:6px;background:linear-gradient(100deg,' + palette.surface + ' 40%,' + palette.subtle + ' 50%,' + palette.surface + ' 60%);background-size:200% 100%;animation:hpShimmer 1.4s linear infinite;min-height:220px;}' +
     '@keyframes hpShimmer{to{background-position:-200% 0;}}' +
-    '#hpStatus{padding:10px 4px 2px;font-size:13px;color:' + palette.subtle + ';text-align:center;}' +
+    '#hpErrorText{margin:0 24px;font-size:15px;color:' + palette.subtle + ';text-align:center;}' +
     '#hpError{display:none;align-self:stretch;text-align:center;padding:32px 20px;}' +
     '#hpError h1{font-size:17px;margin:0 0 8px;}' +
     '#hpError p{font-size:14px;margin:0;color:' + palette.subtle + ';}' +
     '</style></head><body>' +
     '<div id="hpScroll"><div id="hpStage">' +
     '<div id="hpSkeleton"><div class="hp-sk"></div><div class="hp-sk"></div></div>' +
-    '<div id="hpStatus" role="status"></div>' +
     '<div id="hpError"><h1 id="hpErrorTitle"></h1><p id="hpErrorText"></p></div>' +
     '</div></div>' +
     '<script>' + engineSource + '</scr' + 'ipt>' +
@@ -118,7 +117,6 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
   var scrollEl = document.getElementById('hpScroll');
   var stageEl = document.getElementById('hpStage');
   var skeletonEl = document.getElementById('hpSkeleton');
-  var statusEl = document.getElementById('hpStatus');
   var errorEl = document.getElementById('hpError');
   var errorTitleEl = document.getElementById('hpErrorTitle');
   var errorTextEl = document.getElementById('hpErrorText');
@@ -139,14 +137,9 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
     }
   }
 
-  function setStatus(text) {
-    if (statusEl) statusEl.textContent = text;
-  }
-
   function showError() {
     if (skeletonEl) skeletonEl.style.display = 'none';
     if (errorEl) errorEl.style.display = 'block';
-    setStatus('');
   }
 
   function engineFailureCode(error) {
@@ -228,7 +221,6 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
       if (!Number.isInteger(msg.byteLength) || msg.byteLength < 1) return;
       disposeSession();
       session = { docId: msg.docId, byteLength: msg.byteLength, totalChunks: msg.totalChunks, parts: new Array(msg.totalChunks), received: 0, startedAt: Date.now() };
-      setStatus('');
       return;
     }
     if (msg.type === 'LOAD_CHUNK') {
@@ -369,7 +361,6 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
       })(n);
     }
     if (skeletonEl) skeletonEl.style.display = 'none';
-    setStatus(count > 1 ? ('1 / ' + count) : '');
     post({ type: 'DOCUMENT_LOADED', docId: active.docId, pages: count });
     startObserving();
     renderNearby(1);
@@ -432,7 +423,6 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
         if (best !== currentPage) {
           currentPage = best;
           if (session && pdfDoc) {
-            setStatus(pdfDoc.numPages > 1 ? (best + ' / ' + pdfDoc.numPages) : '');
             post({ type: 'PAGE_CHANGED', docId: session.docId, page: best, pages: pdfDoc.numPages });
           }
         }
@@ -614,7 +604,6 @@ const PDF_VIEWER_RUNTIME_JS = String.raw`
     errorEl.style.display = 'none';
     stageEl.appendChild(statusEl);
     stageEl.appendChild(errorEl);
-    setStatus('');
   }
 
   try {

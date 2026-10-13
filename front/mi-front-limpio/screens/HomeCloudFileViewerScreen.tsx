@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Image, Linking, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Animated, BackHandler, Easing, Image, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { File } from 'expo-file-system';
 import { WebView } from 'react-native-webview';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { AppButton, AppText } from '../components/ui';
-import { colors, radius, spacing } from '../constants/theme';
+import { HomePlusIcon } from '../constants/icons';
+import { colors, MOTION, radius, spacing } from '../constants/theme';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import type { HomeCloudFile } from '../services/homecloud/homecloudTypes';
+import { viewerCloseDurationMs } from '../services/homecloud/homecloudViewerTransition';
 import {
   VIEWER_FAILURE_MESSAGE,
   ViewerAccessError,
@@ -128,6 +131,42 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
   // not allowed to see it" are different answers and a member deserves the right one.
   const [renderFailure, setRenderFailure] = useState<{ title: string; message: string } | null>(null);
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
+  // HC-POL-058 — the top chrome. Only image and video can hide it: a document a
+  // member READS (PDF, text, Office) always keeps the controls it needs, and the
+  // toggle never takes a gesture away from the media itself.
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const chromeOpacity = useRef(new Animated.Value(1)).current;
+  // HC-POL-062 / HC-POL-012 — the ONE close, shared by every File kind: a short
+  // fade of THIS layer and then the real unmount. The browser context underneath
+  // is never touched, so the return lands on the exact folder, query, sort and
+  // scroll the member left.
+  const exitOpacity = useRef(new Animated.Value(1)).current;
+  const closingRef = useRef(false);
+
+  const requestClose = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    if (reducedMotion) {
+      onClose();
+      return;
+    }
+    Animated.timing(exitOpacity, {
+      toValue: 0,
+      duration: viewerCloseDurationMs(false),
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => onClose());
+  }, [exitOpacity, onClose, reducedMotion]);
+
+  useEffect(() => {
+    Animated.timing(chromeOpacity, {
+      toValue: chromeVisible ? 1 : 0,
+      duration: reducedMotion ? 40 : MOTION.fast,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }).start();
+  }, [chromeVisible, chromeOpacity, reducedMotion]);
 
   const classification = useMemo(
     () => (file ? classifyHomeCloudViewerFile({ fileName: file.displayName, mimeType: file.mimeType }) : null),
@@ -213,11 +252,11 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
   useEffect(() => {
     if (file === null) return undefined;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      onClose();
+      requestClose();
       return true;
     });
     return () => subscription.remove();
-  }, [file, onClose]);
+  }, [file, requestClose]);
 
   const handleExternalOpen = useCallback(async () => {
     if (!file || !stagedUri || busy) return;
@@ -265,10 +304,12 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
   if (!file || !classification) {
     return (
       <View style={styles.screen}>
-        <View style={styles.header}>
-          <AppText variant="title3" weight="800" style={styles.title}>Visor</AppText>
-          <AppButton title="Cerrar" variant="ghost" size="sm" onPress={onClose} />
-        </View>
+        <Animated.View style={{ flex: 1, opacity: exitOpacity }}>
+          <View style={styles.header}>
+            <AppText variant="title3" weight="800" style={styles.title}>Visor</AppText>
+            <AppButton title="Cerrar" variant="ghost" size="sm" onPress={requestClose} />
+          </View>
+        </Animated.View>
       </View>
     );
   }
@@ -287,26 +328,60 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
   const officeInline = (kind === 'office_document' || kind === 'office_sheet' || kind === 'office_presentation')
     && isOfficeViewerSupported({ fileName: file.displayName });
 
+  // HC-POL-058 — only the media kinds that are LOOKED at, not read, may hide
+  // their chrome. Documents keep every control permanently available.
+  const chromeTogglable = kind === 'image' || kind === 'video';
+
   return (
     <View style={[styles.screen, { paddingTop: Math.max(insets.top, spacing[4]), paddingBottom: Math.max(insets.bottom, spacing[4]) }]}>
-      <View style={styles.header}>
-        <AppText variant="title3" weight="800" style={styles.title} numberOfLines={2}>{file.displayName}</AppText>
-        <AppButton title="Cerrar" variant="ghost" size="sm" onPress={onClose} accessibilityLabel="Cerrar el visor" />
-      </View>
-      <AppText variant="caption" tone="secondary">
-        {[file.mimeType, file.sizeBytes ? `${Math.max(1, Math.round(file.sizeBytes / 1024))} KB` : null].filter(Boolean).join(' - ')}
-      </AppText>
+      {/* HC-POL-062 — the exit fade covers the CONTENT, while the root keeps
+          being the View that owns the safe-area insets. */}
+      <Animated.View style={{ flex: 1, opacity: exitOpacity }}>
+      {/* HC-POL-058 — the chrome fades only; the content underneath never
+          moves, so hiding the controls is a reading choice, not a relayout. */}
+      <Animated.View
+        style={[styles.chromeBlock, { opacity: chromeTogglable ? chromeOpacity : 1 }]}
+        pointerEvents={chromeTogglable && !chromeVisible ? 'none' : 'auto'}
+        accessibilityElementsHidden={chromeTogglable && !chromeVisible}
+      >
+        <View style={styles.header}>
+          <AppText variant="title3" weight="800" style={styles.title} numberOfLines={2}>{file.displayName}</AppText>
+          {chromeTogglable && chromeVisible ? (
+            <Pressable
+              onPress={() => setChromeVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Ocultar los controles del visor"
+              style={styles.chromeToggle}
+            >
+              <HomePlusIcon name="chevron-up" size={18} color={colors.text.secondary} />
+            </Pressable>
+          ) : null}
+          <AppButton title="Cerrar" variant="ghost" size="sm" onPress={requestClose} accessibilityLabel="Cerrar el visor" />
+        </View>
+        <AppText variant="caption" tone="secondary">
+          {[file.mimeType, file.sizeBytes ? `${Math.max(1, Math.round(file.sizeBytes / 1024))} KB` : null].filter(Boolean).join(' - ')}
+        </AppText>
+      </Animated.View>
 
       {phase === 'loading' ? (
         <View style={styles.center}><ActivityIndicator color={colors.brand} /><AppText variant="caption" tone="secondary">Preparando…</AppText></View>
       ) : renderFailure ? (
         <View style={styles.center}>
+          {/* HC-POL-060 — one sober state marker per reason, so a protected PDF,
+              a too-large PDF and a damaged one are distinguishable at a glance
+              before a single word is read. */}
+          <HomePlusIcon
+            name={renderFailure.title === VIEWER_PDF_PASSWORD_TITLE ? 'lock-closed' : renderFailure.title === VIEWER_PDF_TOO_LARGE_TITLE ? 'scale' : 'document-outline'}
+            size={28}
+            color={renderFailure.title === VIEWER_PDF_PASSWORD_TITLE ? colors.warning.base : colors.danger.base}
+          />
           <AppText variant="title3" weight="800" align="center">{renderFailure.title}</AppText>
           <AppText variant="body" tone="secondary" align="center">{renderFailure.message}</AppText>
           {stagedUri ? <AppButton title="Abrir o compartir con…" onPress={() => void handleExternalOpen()} disabled={busy} style={{ marginTop: spacing[3] }} accessibilityLabel="Abrir o compartir el archivo con otra app" /> : null}
         </View>
       ) : failure ? (
         <View style={styles.center}>
+          <HomePlusIcon name={failure.reason === 'unsupported' ? 'document-outline' : 'alert-circle-outline'} size={28} color={colors.danger.base} />
           <AppText variant="title3" weight="800" align="center">{failure.reason === 'unsupported' ? 'Formato no compatible' : 'No pudimos mostrar el archivo'}</AppText>
           <AppText variant="body" tone="secondary" align="center">{failure.message}</AppText>
           {stagedUri ? <AppButton title="Abrir o compartir con…" onPress={() => void handleExternalOpen()} disabled={busy} style={{ marginTop: spacing[3] }} /> : null}
@@ -320,17 +395,29 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
           {renderPreviewSurface()}
         </ScrollView>
       )}
+      </Animated.View>
     </View>
   );
 
   function renderPreviewSurface(): React.ReactNode {
     if (kind === 'image' && signedUrl) {
-      return <Image source={{ uri: signedUrl }} style={styles.media} resizeMode="contain" accessibilityLabel={`Imagen ${file!.displayName}`} />;
+      // HC-POL-058 — the image is the whole reason to be here, so the tap that
+      // shows and hides the chrome belongs to IT. Nothing else owns an image
+      // gesture in this viewer, so the toggle takes nothing away.
+      return (
+        <Pressable
+          onPress={() => setChromeVisible((previous) => !previous)}
+          accessibilityRole="button"
+          accessibilityLabel={`Imagen ${file!.displayName}. Tocá para mostrar u ocultar los controles del visor`}
+        >
+          <Image source={{ uri: signedUrl }} style={styles.media} resizeMode="contain" accessibilityLabel={`Imagen ${file!.displayName}`} />
+        </Pressable>
+      );
     }
     if (kind === 'video' && signedUrl) {
       // expo-video is the installed, Expo-supported playback primitive. It is
       // released by the lifecycle effect above when this Viewer unmounts.
-      return <ViewerVideoSurface uri={signedUrl} onHandOff={() => void handleExternalOpenForMedia()} />;
+      return <ViewerVideoSurface uri={signedUrl} onHandOff={() => void handleExternalOpenForMedia()} chromeHidden={chromeTogglable && !chromeVisible} onChromeReveal={() => setChromeVisible(true)} />;
     }
     if (kind === 'audio' && signedUrl) {
       return <ViewerAudioSurface uri={signedUrl} title={file!.displayName} />;
@@ -521,6 +608,19 @@ export function ViewerPdfSurface({
     setSessionKey(`pdf-${pdfSessionCounter++}`);
   }
   const [page, setPage] = useState<{ page: number; pages: number } | null>(null);
+  // HC-POL-059 — the page indicator is a CHIP, not permanent chrome: it appears
+  // on the page change the member caused and fades away again, so it never sits
+  // over the document it exists to describe.
+  const [chipVisible, setChipVisible] = useState(false);
+  const chipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPageChip = useCallback(() => {
+    setChipVisible(true);
+    if (chipTimerRef.current) clearTimeout(chipTimerRef.current);
+    chipTimerRef.current = setTimeout(() => setChipVisible(false), 2000);
+  }, []);
+  useEffect(() => () => {
+    if (chipTimerRef.current) clearTimeout(chipTimerRef.current);
+  }, []);
   const stateRef = useRef({
     session: '',
     settled: false,
@@ -658,9 +758,11 @@ export function ViewerPdfSurface({
       case 'DOCUMENT_LOADED':
         if (state.loadTimer) clearTimeout(state.loadTimer);
         setPage({ page: 1, pages: message.pages });
+        showPageChip();
         break;
       case 'PAGE_CHANGED':
         setPage({ page: message.page, pages: message.pages });
+        showPageChip();
         break;
       case 'LOAD_ERROR':
         if (message.code === 'password') {
@@ -684,7 +786,7 @@ export function ViewerPdfSurface({
         Linking.openURL(message.url).catch(() => undefined);
         break;
     }
-  }, [failOnce, sendDocument, sessionKey, sessionState]);
+  }, [failOnce, sendDocument, sessionKey, sessionState, showPageChip]);
 
   return (
     <View style={styles.pdfBox}>
@@ -710,9 +812,9 @@ export function ViewerPdfSurface({
         onError={() => failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_webview_error'))}
         onHttpError={() => failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_webview_http_error'))}
       />
-      {page && page.pages > 1 ? (
-        <View style={styles.pdfPager}>
-          <AppText variant="caption" tone="secondary">{`${page.page} / ${page.pages}`}</AppText>
+      {page && page.pages > 1 && chipVisible ? (
+        <View style={styles.pdfPageChip} pointerEvents="none" accessibilityLabel={`Página ${page.page} de ${page.pages}`}>
+          <AppText variant="caption" weight="700">{`${page.page} / ${page.pages}`}</AppText>
         </View>
       ) : null}
     </View>
@@ -749,12 +851,21 @@ function getPdfViewerHtml(): string {
  * That gets its OWN honest surface plus an explicit hand-off, and it never throws the
  * member into another app on its own.
  */
-function ViewerVideoSurface({ uri, onHandOff }: { uri: string; onHandOff: () => void }) {
+function ViewerVideoSurface({ uri, onHandOff, chromeHidden = false, onChromeReveal }: { uri: string; onHandOff: () => void; chromeHidden?: boolean; onChromeReveal?: () => void }) {
   const player = useVideoPlayer(uri);
   const failed = player.status === 'error';
   return (
     <View style={styles.mediaBox}>
       <VideoView player={player} style={styles.media} nativeControls contentFit="contain" />
+      {/* HC-POL-058 — while the chrome is hidden the native controls are not
+          what the member is reaching for: any tap on the media reveals the
+          chrome again. While the chrome is VISIBLE this overlay is absent, so
+          the native player controls own every gesture. */}
+      {chromeHidden && onChromeReveal ? (
+        <Pressable style={styles.chromeReveal} onPress={onChromeReveal} accessibilityRole="button" accessibilityLabel="Mostrar los controles del visor">
+          <View />
+        </Pressable>
+      ) : null}
       {failed ? (
         <View style={styles.inlineFailure}>
           <AppText variant="caption" tone="danger" align="center">{VIEWER_VIDEO_RENDER_MESSAGE}</AppText>
@@ -838,6 +949,15 @@ export function ViewerOfficeSurface({
   const [appReady, setAppReady] = useState(false);
   const [html, setHtml] = useState<string | null>(null);
   const sessionRef = useRef<string | null>(null);
+  // HC-POL-061 — an EXPLICIT retry: a failed session is re-created from scratch
+  // (a new authorized session, never a replay of the dead one), and the honest
+  // hand-off stays offered beside it.
+  const [retryToken, setRetryToken] = useState(0);
+  // HC-POL-061 — the loading overlay fades out only when the bridge has REALLY
+  // confirmed DOCUMENT_READY. A WebView that merely mounted never crosses it.
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+  const [overlayGone, setOverlayGone] = useState(false);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     let active = true;
@@ -847,6 +967,8 @@ export function ViewerOfficeSurface({
     setError(null);
     setAppReady(false);
     setHtml(null);
+    setOverlayGone(false);
+    overlayOpacity.setValue(1);
     createOfficeViewingSession(accessToken, targetId)
       .then((created) => {
         if (!active) {
@@ -875,7 +997,7 @@ export function ViewerOfficeSurface({
       sessionRef.current = null;
       if (pending) void cancelOfficeViewingSession(accessToken, pending);
     };
-  }, [file.id, accessToken]);
+  }, [file.id, accessToken, retryToken, overlayOpacity]);
 
   useEffect(() => {
     if (status !== 'loading') return undefined;
@@ -906,14 +1028,23 @@ export function ViewerOfficeSurface({
       return;
     }
     if (message.type === 'DOCUMENT_READY') {
+      // HC-POL-061 — READY is what crosses the loading overlay away, and it is
+      // the BRIDGE's word, never the WebView's mount. The overlay fades over
+      // 200 ms so the document arrives instead of flashing in.
       setStatus('visible');
+      Animated.timing(overlayOpacity, {
+        toValue: 0,
+        duration: reducedMotion ? 40 : MOTION.officeReady,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(() => setOverlayGone(true));
       return;
     }
     // LOAD_ERROR trae un código acotado del puente (`api-missing`,
     // `editor-error:<detalle>`…): se muestra tal cual, sin URLs ni tokens.
     setError(`Este dispositivo no pudo mostrar el documento. Código: ${message.message}.`);
     setStatus('failed');
-  }, []);
+  }, [overlayOpacity, reducedMotion]);
 
   if (status === 'preparing') {
     return (
@@ -927,13 +1058,23 @@ export function ViewerOfficeSurface({
   if (status === 'failed') {
     return (
       <View style={styles.center}>
+        <HomePlusIcon name="alert-circle-outline" size={28} color={colors.danger.base} />
         <AppText variant="title3" weight="800" align="center">No pudimos mostrar el archivo</AppText>
         <AppText variant="body" tone="secondary" align="center">{error ?? 'Intentá de nuevo.'}</AppText>
+        {/* HC-POL-061 — the explicit retry: a FRESH authorized session, never a
+            replay of the failed one. The honest system hand-off stays beside it. */}
+        <AppButton
+          title="Reintentar"
+          variant="secondary"
+          onPress={() => setRetryToken((previous) => previous + 1)}
+          style={{ marginTop: spacing[3] }}
+          accessibilityLabel="Reintentar la vista previa del documento"
+        />
         <AppButton
           title="Abrir o compartir con…"
           onPress={onExternalOpen}
           disabled={externalBusy || !externalAvailable}
-          style={{ marginTop: spacing[3] }}
+          style={{ marginTop: spacing[2] }}
           accessibilityLabel="Abrir o compartir el archivo con otra app"
         />
       </View>
@@ -983,11 +1124,14 @@ export function ViewerOfficeSurface({
           setStatus('failed');
         }}
       />
-      {status === 'loading' ? (
-        <View style={styles.officeLoading}>
+      {/* HC-POL-061 — the overlay stays until the bridge confirms READY, then it
+          FADES: the document is revealed, not swapped in. Once the fade finished
+          it unmounts, so it can never intercept an editor touch. */}
+      {status === 'loading' && !overlayGone ? (
+        <Animated.View style={[styles.officeLoading, { opacity: overlayOpacity }]}>
           <ActivityIndicator color={colors.brand} />
           <AppText variant="caption" tone="secondary">Cargando visor…</AppText>
-        </View>
+        </Animated.View>
       ) : null}
     </View>
   );
@@ -1003,12 +1147,35 @@ const styles = StyleSheet.create({
   inlineFailure: { alignItems: 'center', gap: spacing[2], paddingVertical: spacing[3] },
   pdfBox: { width: '100%', minHeight: 480, borderRadius: radius.lg, overflow: 'hidden' },
   pdf: { width: '100%', height: 560, backgroundColor: colors.surface.card },
-  pdfPager: { alignItems: 'center', paddingVertical: spacing[1] },
+  /** HC-POL-059 — the auto-hiding page chip. Absolute at the box's corner, so it
+      describes the document without ever displacing or permanently covering it. */
+  pdfPageChip: {
+    position: 'absolute',
+    top: spacing[2],
+    right: spacing[2],
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1],
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.card,
+  },
   media: { width: '100%', height: 320, borderRadius: radius.lg, backgroundColor: colors.surface.card },
   officeFill: { flex: 1 },
   officeBox: { flex: 1, borderRadius: radius.lg, overflow: 'hidden' },
   office: { flex: 1, backgroundColor: '#ffffff' },
   officeLoading: { alignItems: 'center', paddingVertical: spacing[3], gap: spacing[1] },
+  /** HC-POL-058 — the fading chrome block. Layout-neutral: opacity only. */
+  chromeBlock: { marginBottom: spacing[2] },
+  chromeToggle: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+  },
+  /** The whole-media reveal while the video chrome is hidden. */
+  chromeReveal: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   textBlock: { gap: spacing[2] },
   mono: { lineHeight: 20 },
 });
