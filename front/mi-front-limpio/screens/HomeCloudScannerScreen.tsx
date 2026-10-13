@@ -38,6 +38,8 @@ import {
   deletePage,
   getPageEffectiveDimensions,
   getPageEffectiveUri,
+  movePageEarlier,
+  movePageLater,
   normalizeScanFileName,
   replacePage,
   resetPageEdit,
@@ -390,6 +392,8 @@ export function HomeCloudScannerScreen() {
   const openSettings = useCallback(() => { void Linking.openSettings().catch(() => {}); }, []);
 
   const selectedPage = pages.find((page) => page.id === selectedId) ?? pages[pages.length - 1] ?? null;
+  /** HC-POL-022 — where the selected page sits, so a reorder button can disable itself at the edges. */
+  const selectedPageIndex = selectedPage ? pages.findIndex((page) => page.id === selectedPage.id) : -1;
 
   /**
    * Editor result boundary (B1). The editor hands back a SERIALIZABLE outcome
@@ -416,12 +420,39 @@ export function HomeCloudScannerScreen() {
     navigation.setParams({ scannerEditOutcome: undefined });
   }, [params.scannerEditOutcome, navigation]);
 
-  const handleEditPage = useCallback(() => {
-    if (!selectedPage) return;
+  /**
+   * HC-POL-022 — open ONE page's editor. The multipage review NEVER edits: every
+   * perspective correction, rotation and crop belongs to the page the member
+   * chose, in its own editor. The optional page argument is how a THUMBNAP opens
+   * its own page: it is the SAME single editor push the "Editar página" button
+   * uses, so there is still exactly one editor route and one call site.
+   */
+  const handleEditPage = useCallback((page?: ScannerPage) => {
+    const target = page ?? selectedPage;
+    if (!target) return;
     // Serializable navigation contract: the page snapshot only (id, uris,
     // dims, canonical edit params). React Navigation 7 checks serializability.
-    navigation.navigate('ScannerImageEditor', { page: selectedPage });
+    navigation.navigate('ScannerImageEditor', { page: target });
   }, [navigation, selectedPage]);
+
+  /**
+   * HC-POL-022 — Reorder the selected page one discrete step. The edge is
+   * checked HERE and not by array identity: a no-op must never drop a valid
+   * generated PDF, and the buttons disable themselves with the same condition.
+   */
+  const handleMovePage = useCallback((direction: 'earlier' | 'later') => {
+    if (!selectedPage) return;
+    const current = pagesRef.current;
+    const index = current.findIndex((page) => page.id === selectedPage.id);
+    if (direction === 'earlier' && index <= 0) return;
+    if (direction === 'later' && (index === -1 || index >= current.length - 1)) return;
+    const nextPages = direction === 'earlier'
+      ? movePageEarlier(current, selectedPage.id)
+      : movePageLater(current, selectedPage.id);
+    pdfRef.current = null; // order changed: the previously generated PDF is stale
+    setPages(nextPages);
+    lightHaptic();
+  }, [selectedPage]);
 
   const handleResetPageEdit = useCallback(() => {
     if (!selectedPage) return;
@@ -567,8 +598,11 @@ export function HomeCloudScannerScreen() {
             renderItem={({ item, index }) => (
               <AppButton
                 variant="icon"
-                onPress={() => setSelectedId(item.id)}
-                accessibilityLabel={`Página ${index + 1}${item.id === selectedPage?.id ? ', seleccionada' : ''}`}
+                // HC-POL-022 — a thumbnail is the page's own door into ITS
+                // editor. It also selects, so dismissing the editor leaves the
+                // member looking at the page they came from.
+                onPress={() => { setSelectedId(item.id); handleEditPage(item); }}
+                accessibilityLabel={`Página ${index + 1}${item.id === selectedPage?.id ? ', seleccionada' : ''}. Tocá para editar esta página`}
                 style={[styles.thumbButton, item.id === selectedPage?.id && styles.thumbButtonSelected]}
               >
                 <Image source={{ uri: getPageEffectiveUri(item) }} style={styles.thumb} resizeMode="cover" />
@@ -577,9 +611,17 @@ export function HomeCloudScannerScreen() {
             )}
           />
           <View style={styles.reviewActions}>
+            {/* HC-POL-022 — the multipage review offers the PAGE-SET actions
+                (add, reorder, save) and the per-page actions on the SELECTED
+                page. It deliberately offers NO global perspective, rotation or
+                crop: those edit ONE page, they live in that page's editor, and a
+                global version of them is exactly how several confirmed pages
+                would get modified by accident. */}
             <AppButton title="Agregar página" variant="secondary" size="sm" onPress={() => { setRetakeId(null); setPhase('camera'); }} accessibilityLabel="Agregar página" style={styles.reviewAction} />
+            <AppButton title="Mover antes" variant="secondary" size="sm" disabled={!selectedPage || selectedPageIndex <= 0} onPress={() => handleMovePage('earlier')} accessibilityLabel="Mover la página seleccionada una posición antes" style={styles.reviewAction} />
+            <AppButton title="Mover después" variant="secondary" size="sm" disabled={!selectedPage || selectedPageIndex < 0 || selectedPageIndex >= pages.length - 1} onPress={() => handleMovePage('later')} accessibilityLabel="Mover la página seleccionada una posición después" style={styles.reviewAction} />
             <AppButton title="Repetir página" variant="secondary" size="sm" disabled={!selectedPage} onPress={() => { if (selectedPage) { setRetakeId(selectedPage.id); setPhase('camera'); } }} accessibilityLabel="Repetir página" style={styles.reviewAction} />
-            <AppButton title="Editar página" variant="primary" size="sm" disabled={!selectedPage} onPress={handleEditPage} accessibilityLabel="Editar página" style={styles.reviewAction} />
+            <AppButton title="Editar página" variant="primary" size="sm" disabled={!selectedPage} onPress={() => handleEditPage()} accessibilityLabel="Editar página" style={styles.reviewAction} />
             {selectedPage?.edit ? (
               <AppButton title="Restablecer" variant="secondary" size="sm" onPress={handleResetPageEdit} accessibilityLabel="Restablecer edición" style={styles.reviewAction} />
             ) : null}

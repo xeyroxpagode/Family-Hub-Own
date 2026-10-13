@@ -106,6 +106,35 @@ export function replacePage(
 }
 
 /**
+ * HC-POL-022 — Reorder: swap one page with its NEIGHBOUR, never a free drag.
+ *
+ * The multipage review reorders by discrete steps on purpose: a confirmed scan
+ * is an ordered document, and a one-step swap is the smallest change a member
+ * can see, undo and understand. Like every list op in this module these return
+ * a FRESH array and never mutate; the surface guards the edges, so a step that
+ * cannot happen is simply never requested.
+ */
+export function movePageEarlier(pages: readonly ScannerPage[], pageId: string): ScannerPage[] {
+  const index = pages.findIndex((page) => page.id === pageId);
+  if (index <= 0) return [...pages];
+  const next: ScannerPage[] = [...pages];
+  const previous = next[index - 1];
+  next[index - 1] = next[index];
+  next[index] = previous;
+  return next;
+}
+
+export function movePageLater(pages: readonly ScannerPage[], pageId: string): ScannerPage[] {
+  const index = pages.findIndex((page) => page.id === pageId);
+  if (index === -1 || index === pages.length - 1) return [...pages];
+  const next: ScannerPage[] = [...pages];
+  const following = next[index + 1];
+  next[index + 1] = next[index];
+  next[index] = following;
+  return next;
+}
+
+/**
  * Adopt a confirmed editor outcome: apply the canonical edit parameters and
  * take ownership of the freshly generated processed file. The caller is
  * responsible for deleting the page's PREVIOUS processedUri first — this
@@ -166,7 +195,10 @@ export function getPageEffectiveDimensions(page: ScannerPage): { width: number; 
  * content + same name -> same key (cache hit).
  */
 export function buildScanPdfCacheKey(pages: readonly ScannerPage[], name: string): string {
-  return `${pages.map((page) => `${page.id}:${getPageEffectiveUri(page)}`).join('|')}#${name}`;
+  // HC-POL-022 — POSITION is part of the content identity. The PDF embeds the
+  // pages in order, so a reorder is a content change: without the index in the
+  // key, a reordered scan would silently reuse a PDF built with the old order.
+  return `${pages.map((page, index) => `${index}:${page.id}:${getPageEffectiveUri(page)}`).join('|')}#${name}`;
 }
 
 /** A PDF can only be created from at least one captured page. */

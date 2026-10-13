@@ -1041,6 +1041,52 @@ async function main(): Promise<void> {
   );
   record(buttonByTitle(scanner.tree(), 'Restablecer') !== null, 'RF-C9l. the edited page offers Restablecer (reset to original)');
 
+  // ── RF-C9m: HC-POL-022 — the multipage review NEVER edits pages globally ──
+  //
+  // Perspective, rotation and crop belong to ONE page, in that page's own
+  // editor. A review surface that offered them globally would let a single tap
+  // modify every confirmed page at once, which is exactly the accident this
+  // contract exists to make impossible.
+  record(
+    buttonByTitle(scanner.tree(), 'Corregir perspectiva') === null
+      && buttonByTitle(scanner.tree(), 'Rotar') === null
+      && buttonByTitle(scanner.tree(), 'Rotar 90°') === null
+      && buttonByTitle(scanner.tree(), 'Recortar') === null,
+    'RF-C9m. the multipage review offers NO global perspective, rotation or crop',
+  );
+  // The page-SET actions it does offer: add, reorder (both directions), save.
+  record(
+    buttonByTitle(scanner.tree(), 'Mover antes') !== null
+      && buttonByTitle(scanner.tree(), 'Mover después') !== null,
+    'RF-C9n. the multipage review offers the reorder actions (HC-POL-022)',
+  );
+
+  // ── RF-C9p: reorder is a real, bounded, discrete step ──
+  // The selected page at this point is the confirmed one (pageA, first).
+  const moveLater = buttonByTitle(scanner.tree(), 'Mover después');
+  const moveEarlier = buttonByTitle(scanner.tree(), 'Mover antes');
+  if (moveLater && moveEarlier) {
+    scanner.press(moveLater);
+    await scanner.settle();
+    let reordered = pageData(scanner.tree());
+    record(reordered.length === 2 && reordered[0].id === pageB.id && reordered[1].id === pageA.id,
+      'RF-C9p. one step moves the selected page later (the order really changes)');
+    record(buttonByTitle(scanner.tree(), 'Mover después')?.props?.disabled === true,
+      'RF-C9q. the later step disables itself at the end of the list');
+    const moveEarlierAfter = buttonByTitle(scanner.tree(), 'Mover antes');
+    if (moveEarlierAfter) {
+      scanner.press(moveEarlierAfter);
+      await scanner.settle();
+      const restored = pageData(scanner.tree());
+      record(restored.length === 2 && restored[0].id === pageA.id && restored[1].id === pageB.id,
+        'RF-C9r. one step back restores the order (each step is discrete and visible)');
+    } else {
+      record(false, 'RF-C9r. one step back restores the order (each step is discrete and visible)');
+    }
+  } else {
+    record(false, 'RF-C9p. reorder actions are present and driven');
+  }
+
   // ── RF-C10: re-edit and reconfirm the same page ──
   perspectiveCalls.length = 0;
   const reEdit = buttonByTitle(scanner.tree(), 'Editar página');
@@ -1203,6 +1249,35 @@ async function main(): Promise<void> {
   {
     const ghost = adoptPageEditOutcome(pages, { pageId: 'ghost', edit: { cropRect: geometry.FULL_CROP_RECT, rotationSteps: 0 }, processedUri: 'file:///tmp/x.jpg' });
     record(ghost.every((page) => page.id !== 'ghost'), 'RF-C15a. a late outcome for an unknown page is a no-op (no resurrection)');
+  }
+
+  // ── RF-C16: HC-POL-022 — a thumbnail opens ITS page's editor ──
+  //
+  // Placed last on purpose: opening a thumbnail's editor also SELECTS that
+  // page, and no assertion after this one depends on which page is selected.
+  // It must go through the SAME single editor push, so the navigation record is
+  // the only additional evidence needed.
+  {
+    const finalRows = thumbRows(scanner.tree());
+    const navigationsBeforeThumb = navigations.length;
+    if (finalRows.length >= 2) {
+      scanner.press(finalRows[1]);
+      await scanner.settle();
+      const thumbPush = navigations[navigations.length - 1];
+      record(
+        navigations.length === navigationsBeforeThumb + 1
+          && thumbPush?.[0] === 'ScannerImageEditor'
+          && (thumbPush?.[1] as { page?: ScannerPage } | undefined)?.page?.id === pageB.id,
+        'RF-C16a. tapping a thumbnail opens THAT page\'s editor (HC-POL-022)',
+      );
+      const livePages = pageData(scanner.tree());
+      const liveB = livePages.find((page) => page.id === pageB.id);
+      record(liveB !== undefined
+        && (previewImage(scanner.tree())?.props?.source as { uri?: string })?.uri === (liveB ? getPageEffectiveUri(liveB) : null),
+        'RF-C16b. the thumbnail also selects, so the review preview follows the tapped page');
+    } else {
+      record(false, 'RF-C16a. tapping a thumbnail opens THAT page\'s editor (HC-POL-022)');
+    }
   }
 
   scanner.unmount();

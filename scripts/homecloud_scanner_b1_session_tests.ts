@@ -28,6 +28,8 @@ import {
   deletePage,
   getPageEffectiveDimensions,
   getPageEffectiveUri,
+  movePageEarlier,
+  movePageLater,
   type ScannerPage,
   type ScannerPageEdit,
   type ScannerPageEditOutcome,
@@ -363,6 +365,30 @@ function isSerializable(value: unknown, seen: Set<unknown> = new Set()): boolean
   const keyAfterReadopt = buildScanPdfCacheKey(readopted, name);
   record(keyAfterReadopt !== keyAfterAdoption, 'a second edit invalidates the previous PDF again');
   record(canCreatePdf([]) === false && canCreatePdf(pages) === true, 'PDF still requires at least one page');
+
+  // HC-POL-022 — POSITION is content. The PDF embeds the pages in order, so a
+  // reorder MUST invalidate a previously generated PDF: without the index in the
+  // key, a scan whose pages were swapped would silently reuse the old-order file.
+  record(buildScanPdfCacheKey(movePageLater(adopted, 'a'), name) !== keyAfterAdoption,
+    'reordering a page invalidates the PDF cache (position is part of the content)');
+  record(buildScanPdfCacheKey(movePageEarlier(adopted, 'a'), name) === buildScanPdfCacheKey(adopted, name),
+    'a step that cannot happen keeps the cache hit (a is already first)');
+  {
+    const twoPages: readonly ScannerPage[] = [
+      { id: 'a', originalUri: 'file:///tmp/a.jpg', processedUri: null, edit: null },
+      { id: 'b', originalUri: 'file:///tmp/b.jpg', processedUri: null, edit: null },
+    ];
+    const swapped = movePageLater(twoPages, 'a');
+    record(swapped.length === 2 && swapped[0].id === 'b' && swapped[1].id === 'a',
+      'movePageLater swaps exactly the two neighbours');
+    const swappedBack = movePageEarlier(swapped, 'a');
+    record(swappedBack.length === 2 && swappedBack[0].id === 'a' && swappedBack[1].id === 'b',
+      'movePageEarlier swaps them back');
+    record(movePageEarlier(twoPages, 'a')[0].id === 'a' && movePageEarlier(twoPages, 'a')[1].id === 'b',
+      'moving the first page earlier is a no-op for the order');
+    record(movePageLater(twoPages, 'b')[0].id === 'a' && movePageLater(twoPages, 'b')[1].id === 'b',
+      'moving the last page later is a no-op for the order');
+  }
 
   // Effective dimensions follow the SAME processing plan as the editor (one
   // geometry authority), so the PDF page aspect matches the generated image.

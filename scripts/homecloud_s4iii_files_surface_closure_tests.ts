@@ -227,6 +227,16 @@ const reactStub: Record<string, unknown> = {
   useCallback: (...args: unknown[]) => hostModules().useCallback(...(args as [never])),
   useEffect: (...args: unknown[]) => hostModules().useEffect(...(args as [never])),
   createElement: (...args: unknown[]) => hostModules().createElement(...(args as [never, never, ...never[]])),
+  // The shared reduced-motion hook (used by the HC-POL motion surfaces) is built
+  // on `useSyncExternalStore`, so the stub has to expose it too.
+  useSyncExternalStore: (
+    subscribe: (onStoreChange: () => void) => () => void,
+    getSnapshot: () => unknown,
+  ) => {
+    const [value, setValue] = hostModules().useState(getSnapshot as () => never);
+    hostModules().useEffect(() => subscribe(() => setValue(getSnapshot as () => never)), []);
+    return value;
+  },
 };
 reactStub.default = reactStub;
 reactStub.Fragment = Symbol.for('react.fragment');
@@ -276,6 +286,55 @@ const reactNativeStub = {
   // the device primitive is part of what this host must provide. It is inert
   // here: no test in this file drives it.
   AppState: { currentState: 'active', addEventListener: () => ({ remove: () => undefined }) },
+  // The animation clock the HC-POL motion surfaces need. Deterministic: every
+  // animation settles on its target in one step. `Animated.View` keeps its own
+  // tag so assertions about a plain `View` never count animated wrappers.
+  Animated: {
+    createAnimatedComponent: (component: unknown) => component,
+    View: 'Animated.View',
+    Text: 'Animated.Text',
+    Image: 'Animated.Image',
+    Value: class AnimatedValueStub {
+      private current: number;
+      constructor(initial: number) { this.current = initial; }
+      setValue(next: number): void { this.current = next; }
+      interpolate(): this { return this; }
+      addListener(): string { return 'listener'; }
+      removeListener(): void { }
+      stopAnimation(callback?: (value: number) => void): void { callback?.(this.current); }
+    },
+    timing: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    spring: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    sequence: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+    parallel: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+  },
+  Easing: {
+    linear: (value: number) => value,
+    ease: (value: number) => value,
+    quad: (value: number) => value,
+    cubic: (value: number) => value,
+    in: () => (value: number) => value,
+    out: () => (value: number) => value,
+    inOut: () => (value: number) => value,
+  },
+  AccessibilityInfo: {
+    isReduceMotionEnabled: async () => false,
+    addEventListener: () => ({ remove: () => undefined }),
+  },
+  // The viewer layer's box (HC-POL-012/057) is the window.
+  useWindowDimensions: () => ({ width: 360, height: 640, scale: 2, fontScale: 1 }),
 };
 
 /** The held native transfer: `uploadAsync()` stays pending until released. */
