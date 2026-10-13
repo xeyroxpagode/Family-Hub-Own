@@ -458,7 +458,21 @@ const reactNativeStub = {
       private current: number;
       constructor(initial: number) { this.current = initial; }
       setValue(next: number): void { this.current = next; }
-      interpolate(): this { return this; }
+      /**
+       * RN parity: `AnimatedInterpolation.js::checkValidRanges` throws while it
+       * BUILDS a config whose ranges disagree — so an incompatible pair kills a
+       * screen during RENDER, not during a gesture. A stub that returned `this`
+       * for any config is exactly what let that defect reach iOS, so the
+       * invariant is enforced here, on the real mount path.
+       */
+      interpolate(config?: { inputRange?: readonly number[]; outputRange?: readonly number[] }): this {
+        const inputRange = config?.inputRange;
+        const outputRange = config?.outputRange;
+        if (inputRange && outputRange && inputRange.length !== outputRange.length) {
+          throw new Error(`Invariant Violation: inputRange (${inputRange.length}) and outputRange (${outputRange.length}) must have the same length`);
+        }
+        return this;
+      }
       addListener(): string { return 'listener'; }
       removeListener(): void { }
       stopAnimation(callback?: (value: number) => void): void { callback?.(this.current); }

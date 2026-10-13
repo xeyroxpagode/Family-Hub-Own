@@ -614,6 +614,21 @@ const commands = {
       { env },
     );
   },
+  // HOTFIX HC-POL-013 — THE INTERPOLATION RANGE CONTRACT.
+  //
+  // An `inputRange`/`outputRange` pair with different lengths kills a screen
+  // while React Native BUILDS the config, during render, and the Files UI
+  // harnesses used to stub `interpolate` as a no-op — so this exact defect
+  // reached iOS with every gate green. This step reads the REAL sources and
+  // enforces React Native's own `AnimatedInterpolation.js::checkValidRanges`
+  // on every interpolation of the Files/Shared motion surfaces, while asserting
+  // the approved HC-POL-013/011/012 keyframes stay intact instead of deleted.
+  // Deterministic: node only.
+  'homecloud-files-motion-interpolation': () => runCommand(
+    'HomeCloud Files/Shared motion interpolation range contract tests',
+    'node',
+    ['scripts/homecloud_files_motion_interpolation_tests.js'],
+  ),
   'homecloud-office-viewer': () => {
     const env = {
       ...process.env,
@@ -1905,6 +1920,10 @@ typecheck: ['frontend-typecheck', 'test-typecheck'],
     // privacy review run in CI instead of merely existing.
     'homecloud-files-viewer',
     'homecloud-files-ux',
+    // HOTFIX HC-POL-013: the interpolation range contract is part of the Files
+    // gate so an incompatible `inputRange`/`outputRange` pair can never ship
+    // green again — it is the defect class that blocked HomeCloud on iOS.
+    'homecloud-files-motion-interpolation',
     // Stage 2 Phase 1: the nested hierarchy seams, deterministic and runtime.
     'homecloud-files-hierarchy-ui',
     'homecloud-files-favorites-runtime',

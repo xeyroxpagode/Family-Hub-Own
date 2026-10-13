@@ -1477,7 +1477,7 @@ const handleFileTap = useCallback((fileId: string) => {
       style={[
         styles.titleRow,
         {
-          opacity: headerMorph.interpolate({ inputRange: [0, 1], outputRange: [1, 0.55, 1] }),
+          opacity: headerMorph.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.55, 1] }),
           transform: [{ translateY: headerMorph.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 4, 0] }) }],
         },
       ]}
