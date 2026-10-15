@@ -14,7 +14,7 @@ import { createPlanV1, type CreatePlanInput } from '../../services/plannerPlansV
 import { createIdempotencyKey } from '../../services/idempotency';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
-import { AppButton, AppInput, AppText, SegmentedControl } from '../../components/ui';
+import { AppButton, AppInput, AppText } from '../../components/ui';
 import { colors, radius, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
 import { plannerStyles as S } from './plannerShared';
@@ -59,7 +59,6 @@ export function PlannerPlanCreateScreen({
   const [title, setTitle] = useState('');
   const [titleTouched, setTitleTouched] = useState(false);
   const [description, setDescription] = useState('');
-  const [scope, setScope] = useState<'personal' | 'household'>('household');
   const [targetDate, setTargetDate] = useState('');
 
   const planCreateKeyRef = useRef(createIdempotencyKey('planner.plans.v1.create'));
@@ -78,7 +77,7 @@ export function PlannerPlanCreateScreen({
     const payload: CreatePlanInput = {
       title: title.trim(),
       description: description.trim() || null,
-      scope,
+      scope: 'household',
       targetDate: targetDate.trim() || null,
     };
 
@@ -190,20 +189,7 @@ export function PlannerPlanCreateScreen({
           />
 
           <View style={styles.fieldGroup}>
-            <AppText variant="caption" tone="secondary" weight="700">Alcance</AppText>
-            <SegmentedControl<'personal' | 'household'>
-              value={scope}
-              options={[{ value: 'household', label: 'Familiar' }, { value: 'personal', label: 'Personal' }]}
-              onChange={(nextScope) => {
-                setScope(nextScope);
-                setError(null);
-              }}
-            />
-            <AppText variant="caption" tone="tertiary">
-              {scope === 'household'
-                ? 'Visible para el hogar, según permisos de Planner.'
-                : 'Solo vos podés verlo y editarlo.'}
-            </AppText>
+            <AppText variant="caption" tone="tertiary">Visible para el hogar, según permisos de Planner.</AppText>
           </View>
 
           <AppInput

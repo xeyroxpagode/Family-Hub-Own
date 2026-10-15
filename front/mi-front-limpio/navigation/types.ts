@@ -116,6 +116,8 @@ export type PlannerStackParamList = {
     initialSheet?: 'task' | 'event';
     sheetKey?: number;
     source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown';
+    presetPayload?: import('../services/planner/plannerPresetTaskDomain').PlannerPresetTaskPayload;
+    presetApplicationKey?: number;
   } | undefined;
   CreateTask: {
     taskId?: string;
@@ -129,6 +131,7 @@ export type PlannerStackParamList = {
     fromPlan?: boolean;
     /** P2.2A: canonical task preset payload to apply on open ("Usar" preset). */
     presetPayload?: import('../services/planner/plannerPresetTaskDomain').PlannerPresetTaskPayload;
+    presetApplicationKey?: number;
   } | undefined;
   EditTask: { taskId: string };
   CreateEvent: undefined;
@@ -144,6 +147,9 @@ export type PlannerStackParamList = {
     duplicateFromPresetId?: string;
     /** P2.2A: prefill for "Guardar como preset" from an existing Task (contextual fields already stripped). */
     presetPrefill?: import('../services/planner/plannerPresetTaskDomain').PlannerPresetTaskPayload;
+    /** Return the freshly saved template to the still-mounted Task draft. */
+    returnToTaskDraft?: boolean;
+    returnRouteName?: string;
   } | undefined;
   PlannerPresetEdit: { presetId: string };
   PlannerDraftRecovery: undefined;
@@ -158,6 +164,13 @@ export type PlannerStackParamList = {
   // M10 (TaskDetail/EventDetail) and M7 (PlannerSearch); M1 only defines the
   // contract.
   TaskDetail: import('./plannerNavigationContract').PlannerEntityDetailParams;
+  EvidenceComposer: {
+    taskId: string;
+    taskTitle: string;
+    fulfillmentId?: string;
+    fulfillmentVersion?: number;
+    source?: 'root' | 'swipe' | 'detail' | 'home' | 'correction';
+  };
   EventDetail: import('./plannerNavigationContract').PlannerEntityDetailParams;
   PlannerSearch: import('./plannerNavigationContract').PlannerSearchParams;
   PlannerAttentionActivity: import('./plannerNavigationContract').PlannerAttentionActivityParams;
@@ -165,6 +178,8 @@ export type PlannerStackParamList = {
   ResponsibilityCreate: undefined;
   ResponsibilityEdit: { responsibilityId: string };
   ResponsibilityDetail: { responsibilityId: string };
+  // Event Series / Horarios — the recurring-definition surface (frozen §19/§36).
+  PlannerSeries: undefined;
 };
 
 export type RootStackParamList = AuthStackParamList & PrivateStackParamList;

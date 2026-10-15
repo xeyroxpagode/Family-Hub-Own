@@ -29,6 +29,7 @@
  */
 
 const { createHttpError } = require('../lib/httpErrors')
+const { applyPlanReadScope } = require('../lib/plannerGoalWriteAuthority')
 
 const PROJECTION_VERSION = 'planner.home_summary.v1'
 const TASK_LIMIT = 3
@@ -216,23 +217,21 @@ const toEventSummaryDto = (event) => ({
  * Limit: 1.
  */
 const selectSummaryGoal = ({ goals, membershipId }) => {
+  // Frozen §38: HOME excludes archived AND trashed. `== null` also treats a
+  // missing column value as "not archived", so pre-archive rows stay visible.
   const elegible = (goals ?? []).filter((goal) =>
     goal &&
-    goal.trashed_at === null &&
-    goal.deleted_at === null &&
+    goal.trashed_at == null &&
+    goal.archived_at == null &&
+    goal.deleted_at == null &&
     GOAL_ELEGIBLE_STATUSES.includes(goal.status) &&
     !isPersonalGoal(goal, membershipId),
   )
 
+  // Frozen §31: NO universal Plan progress percentage authority. Ranking uses
+  // canonical lifecycle + target date only; the legacy `progress_percentage`
+  // column is never a ranking key nor a highlight signal.
   const ranked = [...elegible].sort((left, right) => {
-    const leftProgress = Number.isFinite(Number(left.progress_percentage))
-      ? Number(left.progress_percentage)
-      : -1
-    const rightProgress = Number.isFinite(Number(right.progress_percentage))
-      ? Number(right.progress_percentage)
-      : -1
-    if (leftProgress !== rightProgress) return rightProgress - leftProgress
-
     const leftDate = left.ends_at ?? left.starts_at ?? null
     const rightDate = right.ends_at ?? right.starts_at ?? null
     if (leftDate !== rightDate) {
@@ -302,12 +301,14 @@ const loadTaskSummary = async ({ context }) => {
     .select(
       'id, household_id, title, category, status, priority, due_date, due_time, ' +
       'assigned_to_member_id, requires_verification, created_by_member_id, ' +
-      'created_at, version, trashed_at, completed_at, completed_by_member_id, ' +
+      'created_at, version, trashed_at, archived_at, completed_at, completed_by_member_id, ' +
       'verified_at, verified_by_member_id',
     )
     .eq('household_id', context.householdId)
     .neq('status', 'cancelled')
     .is('trashed_at', null)
+    // Frozen §38: HOME excludes archived AND trashed.
+    .is('archived_at', null)
     .order('created_at', { ascending: false })
     .limit(500)
 
@@ -363,18 +364,23 @@ const loadEventSummary = async ({ context, now, horizonEnd }) => {
 /**
  * Section loader: Goals.
  *
- * Selects non-trashed, non-soft-deleted, household-scoped, active goals.
- * Personal goals of other members are excluded by the selector. Progress
- * is computed via the goals service attachProgress helper so M8 does not
- * invent new progress rules.
+ * Selects non-trashed, non-soft-deleted goals reachable from this Planner
+ * context: the context household plus the actor's own Personal Plans, which no
+ * longer carry a household id (Technical Truth §2.2). RLS remains the authority
+ * for what is actually readable.
  */
 const loadGoalSummary = async ({ context, attachProgress }) => {
-  const { data, error } = await context.client
-    .from('planner_goals')
-    .select('*')
-    .eq('household_id', context.householdId)
-    .is('deleted_at', null)
-    .is('trashed_at', null)
+  const { data, error } = await applyPlanReadScope(
+    context.client
+      .from('planner_goals')
+      .select('*')
+      .is('deleted_at', null)
+      .is('trashed_at', null)
+      // Frozen §38: HOME excludes archived AND trashed. Archive is orthogonal
+      // to lifecycle and stays addressable from its own surface.
+      .is('archived_at', null),
+    context,
+  )
     .order('created_at', { ascending: false })
     .limit(200)
 

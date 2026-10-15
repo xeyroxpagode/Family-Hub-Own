@@ -1,77 +1,51 @@
 /**
- * Planner V1 — M1 Search Feature Flag Guard.
+ * Planner V1 — Search entry guard.
  *
- * Purpose:
- * - Single typed guard for `planner.search_entry` feature flag.
- * - Consumes the global `featureFlagStore` + `useFeatureFlags` — NO second
- *   authority (`planner_search_enabled`, `enablePlannerSearch`, etc.).
- * - Default `false`, deny-safe, kill-switch aware.
- * - Requires BOTH flag AND `planner.search` capability.
+ * CURRENT TRUTH (overnight closure): Planner Search is a REQUIRED V1 capability
+ * (backend route + canonical reader + registered screen all exist). The entry is
+ * therefore governed by the canonical `planner.search` capability ALONE.
  *
- * Binding rules (frozen by `planner_v1_implementation_order.md` §M1):
- * - Key is exactly `planner.search_entry`.
- * - Default `false`.
- * - `server_only` flags are never evaluated client-side.
- * - Kill switch (`HOMEPLUS_FEATURE_FLAGS_KILL_SWITCH`) wins.
- * - Missing/error projection → `false`.
- * - Unexpected navigation with flag OFF → safe fallback (not an error).
+ * The `planner.search_entry` flag key stays registered because HomePlus Core
+ * owns the flag registry and the persisted override allowlist, but it no longer
+ * gates this REQUIRED entry: an off-by-default gate would make a live feature
+ * UNREACHABLE, which frozen §41 classifies as not-PASS.
  *
- * Out of scope for M1:
- * - Search icon rendering (M7).
- * - Search productive screen/results (outside V1).
- * - `planner_search_opened` telemetry (emitted when entry is actually used).
+ * Authority rules preserved:
+ * - NO second authority (capability matrix is the only gate).
+ * - Deny-safe: missing/error capability projection → closed.
+ * - Unexpected navigation while closed → safe fallback, never an error.
+ *
+ * For loading/disabled/forbidden/available discrimination use
+ * `resolvePlannerSearchAccess` (plannerSearchAccess.ts), which is the ONLY
+ * authority for this entry. A hook-returning `boolean` was removed on purpose:
+ * it would be a second authority and could silently disagree with the resolver.
  */
 
-import { featureFlagStore, isFeatureEnabled } from '../core/featureFlagStore';
+import { isFeatureEnabled } from '../core/featureFlagStore';
 import type { HomePlusFeatureFlags } from '../core/featureFlagStore';
 
 export const PLANNER_SEARCH_FLAG_KEY = 'planner.search_entry' as const;
 export const PLANNER_SEARCH_CAPABILITY = 'planner.search' as const;
 
 /**
- * Check if Planner Search entry point is enabled for the current
+ * Check if Planner Search entry point is open for the current
  * account + household context.
  *
- * Reads the cached projection from `featureFlagStore` (populated by
- * `FeatureFlagsProvider` on session/household changes).
- * Returns `false` if flag is off, missing, or projection unavailable.
+ * Authority: the canonical `planner.search` capability. The reserved
+ * `planner.search_entry` flag is NOT part of this decision (see file header).
+ * Deny-safe: a missing/undefined capability projection closes the entry.
  */
 export function canOpenPlannerSearch(
   flags: HomePlusFeatureFlags | null | undefined,
   capabilities?: Record<string, boolean> | null | undefined,
 ): boolean {
-  const flagOn = isFeatureEnabled(flags, PLANNER_SEARCH_FLAG_KEY);
-  if (!flagOn) return false;
-
-  // Also require the capability (server-side enforcement; frontend deny-safe)
-  const capabilityOn = capabilities?.[PLANNER_SEARCH_CAPABILITY] === true;
-  if (!capabilityOn) return false;
-
-  return true;
+  void flags;
+  return capabilities?.[PLANNER_SEARCH_CAPABILITY] === true;
 }
 
 /**
- * Hook-ready version that reads from the React context (`useFeatureFlags`).
- * Use in components; for pure functions use `canOpenPlannerSearch(flags, caps)`.
- *
- * M7: This hook is now properly implemented. It consumes `useFeatureFlags`
- * and returns the dual gate result. Consumers should inline the check
- * combining flag + capabilities projection for the full dual gate.
- *
- * For access resolution with proper loading/disabled/forbidden/available
- * discrimination, use `resolvePlannerSearchAccess` from `plannerSearchAccess.ts`.
- */
-export function usePlannerSearchGate(): boolean {
-  const { useFeatureFlags } = require('../../context/FeatureFlagsContext');
-  const { flags } = useFeatureFlags();
-  // The hook checks only the flag; the capability must be checked by the
-  // consumer inline or via `resolvePlannerSearchAccess`.
-  return isFeatureEnabled(flags, PLANNER_SEARCH_FLAG_KEY);
-}
-
-/**
- * Get the raw flag value (for debugging/telemetry) without capability check.
- * Returns `false` if unavailable.
+ * Raw reserved flag value (diagnostics/telemetry only). It does NOT gate the
+ * Search entry; see the file header.
  */
 export function getPlannerSearchFlag(flags: HomePlusFeatureFlags | null | undefined): boolean {
   return isFeatureEnabled(flags, PLANNER_SEARCH_FLAG_KEY);
@@ -86,11 +60,8 @@ export function plannerSearchFallbackAction(
   flags: HomePlusFeatureFlags | null | undefined,
   capabilities?: Record<string, boolean> | null | undefined,
 ): { allowed: boolean; reason: 'flag_off' | 'capability_missing' | 'both' | 'unknown' } {
-  const flagOn = isFeatureEnabled(flags, PLANNER_SEARCH_FLAG_KEY);
+  void flags;
   const capOn = capabilities?.[PLANNER_SEARCH_CAPABILITY] === true;
-
-  if (flagOn && capOn) return { allowed: true, reason: 'unknown' };
-  if (!flagOn && !capOn) return { allowed: false, reason: 'both' };
-  if (!flagOn) return { allowed: false, reason: 'flag_off' };
+  if (capOn) return { allowed: true, reason: 'unknown' };
   return { allowed: false, reason: 'capability_missing' };
 }

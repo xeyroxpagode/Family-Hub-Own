@@ -19,6 +19,7 @@ export type PlannerTaskStatus =
   | 'pending'
   | 'completed'
   | 'awaiting_verification'
+  | 'correction_requested'
   | 'verified'
   | 'cancelled';
 
@@ -76,6 +77,7 @@ export type PlannerTask = {
   origin_entity_id?: string | null;
   origin_reason?: string | null;
   goal_id?: string | null;
+  plan_classification?: 'necessary' | 'supporting' | null;
   trashed_at?: string | null;
   trashed_by_member_id?: string | null;
   cancelled_at?: string | null;
@@ -106,6 +108,8 @@ export type CreatePlannerTaskPayload = {
   assigned_to_member_id?: string;
   requires_verification?: boolean;
   goal_id?: string | null;
+  plan_classification?: 'necessary' | 'supporting' | null;
+  checklist?: Array<{ text: string; checked: boolean }>;
 };
 
 export type UpdatePlannerTaskPayload = Partial<CreatePlannerTaskPayload> & {

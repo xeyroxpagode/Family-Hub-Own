@@ -9,7 +9,7 @@
  *
  * The editor captures ONLY the frozen stable fields (contract):
  *   title, note, type (template_key + category), priority,
- *   estimated_duration_minutes, checklist template (labels/order only),
+ *   checklist template (labels/order only),
  *   requires_verification, requires_evidence.
  *
  * It NEVER captures contextual fields (assignee, date, time, Plan,
@@ -27,7 +27,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -40,11 +39,11 @@ import {
   AppButton,
   AppInput,
   AppText,
-  DurationPickerSheet,
   FilterChip,
   Toggle,
 } from '../../ui';
 import type { PlannerPresetTaskPayload, PresetTaskPriority } from '../../../services/planner/plannerPresetTaskDomain';
+import { PlannerChecklistEditor, makePlannerChecklistDraft, type PlannerChecklistDraftItem } from '../PlannerChecklistEditor';
 
 // ---------------------------------------------------------------------------
 // Canonical Task types (mirrors TaskForm TIPO_OPTIONS)
@@ -124,20 +123,15 @@ export function PlannerPresetEditorScreen({
     Boolean(
       initialPayload?.note
       || (initialPayload?.checklist?.length ?? 0) > 0
-      || initialPayload?.estimated_duration_minutes
       || initialPayload?.requires_evidence,
     ),
   );
   const [note, setNote] = useState(initialPayload?.note ?? '');
-  const [checklist, setChecklist] = useState<Array<{ text: string }>>(
-    (initialPayload?.checklist ?? []).map((item) => ({ text: item.text })),
-  );
-  const [estimatedDuration, setEstimatedDuration] = useState<number | null>(
-    initialPayload?.estimated_duration_minutes ?? null,
+  const [checklist, setChecklist] = useState<PlannerChecklistDraftItem[]>(
+    makePlannerChecklistDraft((initialPayload?.checklist ?? []).map((item) => ({ text: item.text, checked: false }))),
   );
   const [typeId, setTypeId] = useState<string>(presetTypeIdFromPayload(initialPayload));
   const [typeSheetOpen, setTypeSheetOpen] = useState(false);
-  const [durationPickerOpen, setDurationPickerOpen] = useState(false);
   const [requiresVerification, setRequiresVerification] = useState(Boolean(initialPayload?.requires_verification));
   const [requiresEvidence, setRequiresEvidence] = useState(Boolean(initialPayload?.requires_evidence));
 
@@ -162,7 +156,7 @@ export function PlannerPresetEditorScreen({
       template_key: selectedType.templateKey,
       category: selectedType.category,
       priority,
-      estimated_duration_minutes: estimatedDuration,
+      estimated_duration_minutes: null,
       checklist: cleanChecklist,
       requires_verification: requiresVerification,
       requires_evidence: requiresEvidence,
@@ -230,7 +224,7 @@ export function PlannerPresetEditorScreen({
                 Más detalles
               </AppText>
               <AppText variant="caption" tone="tertiary">
-                Nota, checklist, duración, tipo, revisión y evidencia
+                Nota, checklist, tipo, revisión y evidencia
               </AppText>
             </View>
             <HomePlusIcon name={showMore ? 'chevron-up' : 'chevron-down'} size={18} color={colors.text.tertiary} />
@@ -250,58 +244,8 @@ export function PlannerPresetEditorScreen({
                 Checklist
               </AppText>
               <View style={styles.checklistColumn}>
-                {checklist.map((item, index) => (
-                  <View key={index} style={styles.checklistItem}>
-                    <TextInput
-                      style={styles.checklistInput}
-                      value={item.text}
-                      onChangeText={(text) => {
-                        const next = [...checklist];
-                        next[index] = { text };
-                        setChecklist(next);
-                      }}
-                      placeholder="Paso del checklist"
-                      placeholderTextColor={colors.text.muted}
-                    />
-                    <Pressable
-                      onPress={() => setChecklist(checklist.filter((_, itemIndex) => itemIndex !== index))}
-                      accessibilityRole="button"
-                      accessibilityLabel="Quitar paso del checklist"
-                      style={styles.checklistRemove}
-                    >
-                      <HomePlusIcon name="trash" size={18} color={colors.danger.base} />
-                    </Pressable>
-                  </View>
-                ))}
-                <Pressable
-                  style={styles.addChecklistRow}
-                  onPress={() => setChecklist([...checklist, { text: '' }])}
-                  accessibilityRole="button"
-                  accessibilityLabel="Agregar paso al checklist"
-                >
-                  <HomePlusIcon name="add" size={18} color={colors.terracotta[600]} />
-                  <AppText variant="bodySmall" weight="700" style={styles.addChecklistText}>
-                    Agregar paso
-                  </AppText>
-                </Pressable>
+                <PlannerChecklistEditor items={checklist} onChange={setChecklist} disabled={submitting} />
               </View>
-
-              <Pressable
-                style={styles.valueRow}
-                onPress={() => setDurationPickerOpen(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Duración estimada"
-              >
-                <AppText variant="body" style={styles.valueRowLabel}>
-                  Duración estimada
-                </AppText>
-                <View style={styles.valueRowValue}>
-                  <AppText variant="body" tone="tertiary">
-                    {estimatedDuration ? `${estimatedDuration} min` : 'Sin duración'}
-                  </AppText>
-                  <HomePlusIcon name="chevron-forward" size={16} color={colors.text.tertiary} />
-                </View>
-              </Pressable>
 
               <Pressable
                 style={styles.valueRow}
@@ -391,16 +335,6 @@ export function PlannerPresetEditorScreen({
         </View>
       </ActionSheet>
 
-      <DurationPickerSheet
-        visible={durationPickerOpen}
-        value={estimatedDuration}
-        onClose={() => setDurationPickerOpen(false)}
-        onConfirm={(nextDuration: number | null) => {
-          setEstimatedDuration(nextDuration);
-          setDurationPickerOpen(false);
-        }}
-      />
-
       {submitting ? (
         <View style={styles.submittingOverlay} pointerEvents="none">
           <ActivityIndicator color={colors.terracotta[500]} />
@@ -474,45 +408,6 @@ function createStyles(theme: AppResolvedTheme) {
     },
     checklistColumn: {
       gap: 8,
-    },
-    checklistItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    checklistInput: {
-      flex: 1,
-      minHeight: 44,
-      borderRadius: 12,
-      borderWidth: 1.5,
-      borderColor: colors.border.default,
-      backgroundColor: colors.surface.card,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      color: colors.text.primary,
-      fontSize: 14,
-    },
-    checklistRemove: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    addChecklistRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      paddingVertical: 8,
-      paddingHorizontal: 12,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.terracotta[100],
-      backgroundColor: colors.terracotta[50],
-      alignSelf: 'flex-start',
-    },
-    addChecklistText: {
-      color: colors.terracotta[700],
     },
     valueRow: {
       flexDirection: 'row',

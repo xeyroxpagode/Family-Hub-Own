@@ -6,6 +6,32 @@ const createHttpError = (statusCode, message, code, details = null) => {
   return error
 }
 
+// Canonical textual UUID form. Accepts the braced/upper/mixed spellings that
+// Postgres tolerates so a client casing difference is never a 500.
+const UUID_RE = /^\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}?$/
+
+/**
+ * Guard an id path/body parameter before it reaches Postgres.
+ *
+ * A malformed uuid otherwise reaches the driver and surfaces as a 500, which
+ * leaks an implementation detail and leaves the client with no actionable
+ * code. Callers pass the SAME not-found code they use for an absent row so a
+ * malformed id is indistinguishable from a missing one (no existence signal).
+ *
+ * Returns the normalized (unbraced, lower-case) uuid, or throws.
+ */
+const assertUuid = (value, notFound) => {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  if (!UUID_RE.test(raw)) {
+    throw createHttpError(
+      notFound.status ?? 404,
+      notFound.message ?? 'Recurso no encontrado.',
+      notFound.code ?? 'not_found',
+    )
+  }
+  return raw.replace(/^\{|\}$/g, '').toLowerCase()
+}
+
 const sendError = (res, error, fallbackMessage = 'Error inesperado.') =>
   res.status(error.statusCode ?? 500).json({
     error: error.message ?? fallbackMessage,
@@ -83,6 +109,7 @@ const sendApiError = (res, error, req) => {
 
 module.exports = {
   createHttpError,
+  assertUuid,
   sendError,
   buildApiErrorEnvelope,
   sendApiError,

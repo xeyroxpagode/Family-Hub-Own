@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "outDir": "./compiled-planner-runtime",
+    "rootDir": "..",
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noEmit": false,
+    "jsx": "react",
+    "noImplicitAny": false
+  },
+"include": [
+    "../scripts/planner_runtime_mocks/*.ts",
+    "../scripts/planner_v1_root_menu_runtime_tests.ts",
+    "../scripts/planner_v1_feedback_runtime_tests.ts",
+    "../front/mi-front-limpio/components/planner/PlannerAnchoredMenu.tsx",
+    "../front/mi-front-limpio/components/planner/ToastHost.tsx",
+    "../front/mi-front-limpio/context/PlannerSheetContext.tsx",
+    "../front/mi-front-limpio/context/AppThemeContext.tsx",
+    "../front/mi-front-limpio/components/ui/AppText.tsx",
+    "../front/mi-front-limpio/components/ui/InteractivePressable.tsx",
+    "../front/mi-front-limpio/constants/icons.tsx",
+    "../front/mi-front-limpio/constants/theme.ts",
+    "../front/mi-front-limpio/utils/plannerHaptics.ts",
+    "../front/mi-front-limpio/utils/haptics.ts",
+    "../front/mi-front-limpio/services/planner/plannerSheetState.ts",
+    "../front/mi-front-limpio/services/planner/plannerSheetFocus.ts",
+    "../front/mi-front-limpio/services/planner/plannerSheetGuard.ts",
+    "../front/mi-front-limpio/navigation/plannerNavigationContract.ts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+

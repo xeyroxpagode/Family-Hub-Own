@@ -216,10 +216,10 @@ export const plannerTaskAvailableActionLabels: Readonly<Record<PlannerTaskAvaila
   change_assignment: 'Cambiar asignacion',
   claim: 'Me encargo',
   complete: 'Completar',
-  submit_for_verification: 'Enviar a revision',
+  submit_for_verification: 'Completar',
   verify: 'Verificar',
   request_correction: 'Pedir correccion',
-  resubmit: 'Reenviar',
+  resubmit: 'Volver a enviar',
   revert: 'Revertir',
   reopen: 'Reabrir',
   cancel: 'Cancelar',
@@ -260,8 +260,8 @@ export function getPlannerTaskPrimaryAction(task: PlannerTaskDtoV1): PlannerTask
   if (!task.availableActions && task.status === 'pending') {
     return {
       key: task.requires_verification ? 'submit_for_verification' : 'complete',
-      label: task.requires_verification ? 'Enviar a revision' : 'Completar',
-      accessibilityLabel: task.requires_verification ? 'Enviar tarea a revision' : 'Completar tarea',
+      label: 'Completar',
+      accessibilityLabel: 'Completar tarea',
       destructive: false,
     };
   }
@@ -500,7 +500,7 @@ function normalizeAvailableActions(task: PlannerTaskDtoV1): readonly PlannerTask
   if (task.availableActions) return task.availableActions;
   if (task.trashed_at) return [{ action: 'restore' }];
   if (task.status === 'cancelled') return [{ action: 'reactivate' }, { action: 'trash' }];
-  if (task.status === 'awaiting_verification') return [{ action: 'verify' }];
+  if (task.status === 'awaiting_verification') return [];
   if (task.status === 'pending') {
     return [{ action: task.requires_verification ? 'submit_for_verification' : 'complete' }, { action: 'cancel' }, { action: 'trash' }];
   }

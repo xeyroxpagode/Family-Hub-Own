@@ -36,6 +36,8 @@ const mutation = <T>(accessToken: string, path: string, method: 'POST' | 'PATCH'
 
 export const listResponsibilities = (accessToken: string, lifecycle: ResponsibilityLifecycle = 'active') =>
   requestJson<{ responsibilities: PlannerResponsibility[] }>(`/api/planner/responsibilities?lifecycle=${lifecycle}`, { accessToken });
+export const materializeDueResponsibilities = (accessToken: string) =>
+  mutation<{ outcome: string; taskId?: string }[]>(accessToken, 'responsibilities/materialize-due', 'POST');
 export const getResponsibility = (accessToken: string, id: string) =>
   requestJson<{ responsibility: PlannerResponsibility }>(`/api/planner/responsibilities/${id}`, { accessToken });
 export const createResponsibility = (accessToken: string, input: ResponsibilityInput) =>

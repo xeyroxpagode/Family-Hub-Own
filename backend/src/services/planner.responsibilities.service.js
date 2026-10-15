@@ -101,8 +101,6 @@ async function materializeOne(context, row, configuredIds, eligibleIds, today) {
     dbError(taskError)
     if (!task || !isResolved({ status: task.status, requiresVerification: task.requires_verification })) return { outcome: 'live_exists', taskId: open.task_id }
     const resolvedAt = task.verified_at ?? task.completed_at ?? new Date().toISOString()
-    const { error: resolveError } = await context.client.from('planner_responsibility_occurrences').update({ resolved_at: resolvedAt, resolution_status: task.status === 'verified' ? 'verified' : 'completed' }).eq('id', open.id).is('resolved_at', null)
-    dbError(resolveError)
     afterDate = row.schedule_kind === 'after_completion' ? dateOnly(new Date(resolvedAt), context.household?.timezone ?? 'UTC') : today
   }
 
@@ -147,7 +145,6 @@ async function materializeHousehold(context) {
 }
 
 async function listResponsibilities(context, query = {}) {
-  await materializeHousehold(context)
   let request = context.client.from('planner_responsibilities').select('*').eq('household_id', context.householdId).order('updated_at', { ascending: false })
   if (query.lifecycle) request = request.eq('lifecycle', query.lifecycle)
   const { data: rows, error } = await request
@@ -163,7 +160,6 @@ async function listResponsibilities(context, query = {}) {
 }
 
 async function getResponsibility(context, id) {
-  await materializeHousehold(context)
   const result = await listResponsibilities(context)
   const responsibility = result.responsibilities.find((item) => item.id === id)
   if (!responsibility) throw createHttpError(404, 'Responsabilidad no encontrada.', 'responsibility_not_found')
@@ -178,7 +174,6 @@ async function createResponsibility(context, body) {
   const { data, error } = await context.client.from('planner_responsibilities').insert(payload).select('*').single()
   dbError(error)
   await replaceMembers(context, data.id, memberIds)
-  await materializeHousehold(context)
   return getResponsibility(context, data.id)
 }
 
@@ -196,7 +191,6 @@ async function updateResponsibility(context, id, body, expectedVersion) {
   const { error } = await context.client.from('planner_responsibilities').update(payload).eq('id', id).eq('household_id', context.householdId).eq('version', current.version)
   dbError(error)
   if ('memberIds' in body) await replaceMembers(context, id, memberIds)
-  await materializeHousehold(context)
   return getResponsibility(context, id)
 }
 
@@ -208,7 +202,6 @@ async function setLifecycle(context, id, lifecycle, expectedVersion) {
   const { data, error } = await request.select('id').maybeSingle()
   dbError(error)
   if (!data) throw createHttpError(412, 'La responsabilidad cambió.', 'version_conflict')
-  if (lifecycle === 'active') await materializeHousehold(context)
   return getResponsibility(context, id)
 }
 

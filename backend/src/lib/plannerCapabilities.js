@@ -1,9 +1,9 @@
-'use strict';
+﻿'use strict';
 
 /**
- * Planner V0.2 — Capabilities canonical contract.
+ * Planner V0.2 â€” Capabilities canonical contract.
  *
- * Authority: docs/polish-final/planner_final_polish.md §6.
+ * Authority: docs/polish-final/planner_final_polish.md Â§6.
  *
  * Roles are NOT authorization by themselves. Capabilities are resolved
  * server-side from: active membership, role, household config, entity
@@ -83,11 +83,88 @@ const PLANNER_ROLES = Object.freeze([
 //
 // Derived from planner_final_polish.md §6.4. Where the normative doc only
 // contains a "summary" label, the least-restrictive matching grant was
-// chosen consistent with V0 behavior (no archive yet, no templates manage
-// for non-coordinators, audit/settings only for coordinator). Templates.use
-// follows "Ver Planner" access; templates.manage matches "Administrar
-// templates". archive/restore are split intentionally: trash/restore exist
-// in V0; archive is reserved (denied for all in V0 per §15 out-of-scope).
+// chosen consistent with V0 behavior (no templates manage for non-coordinators,
+// audit/settings only for coordinator). Templates.use follows "Ver Planner"
+// access; templates.manage matches "Administrar templates".
+//
+// archive/restore are split intentionally: trash/restore exist in V0; archive
+// was reserved in V0 (out-of-scope) and is NOW GRANTED (user-confirmed decision,
+// overnight closure) for exactly the roles that hold `goal.edit_any` (coordinator,
+// adult, senior) - matching the canonical `availableActions` vocabulary (frozen
+// 22-25) where archive/unarchive are first-class Plan actions. `task.archive`
+// remains denied for every role.
+// Derived from planner_final_polish.md §6.4. Where the normative doc only
+// contains a "summary" label, the least-restrictive matching grant was
+// chosen consistent with V0 behavior (no templates manage for non-coordinators,
+// audit/settings only for coordinator). Templates.use follows "Ver Planner"
+// access; templates.manage matches "Administrar templates".
+//
+// archive/restore are split intentionally: trash/restore exist in V0; archive
+// was reserved in V0 (out-of-scope) and is NOW GRANTED (user-confirmed decision,
+// overnight closure) for exactly the roles that hold `goal.edit_any` (coordinator,
+// adult, senior) - matching the canonical `availableActions` vocabulary (frozen
+// 22-25) where archive/unarchive are first-class Plan actions. `task.archive`
+// remains denied for every role.
+// Derived from planner_final_polish.md §6.4. Where the normative doc only
+// contains a "summary" label, the least-restrictive matching grant was
+// chosen consistent with V0 behavior (no templates manage for non-coordinators,
+// audit/settings only for coordinator). Templates.use follows "Ver Planner"
+// access; templates.manage matches "Administrar templates".
+//
+// archive/restore are split intentionally: trash/restore exist in V0; archive
+// was reserved in V0 (out-of-scope) and is NOW GRANTED (user-confirmed decision,
+// overnight closure) for exactly the roles that hold `goal.edit_any` (coordinator,
+// adult, senior) - matching the canonical `availableActions` vocabulary (frozen
+// 22-25) where archive/unarchive are first-class Plan actions. `task.archive`
+// remains denied for every role.
+// Derived from planner_final_polish.md §6.4. Where the normative doc only
+// contains a "summary" label, the least-restrictive matching grant was
+// chosen consistent with V0 behavior (no templates manage for non-coordinators,
+// audit/settings only for coordinator). Templates.use follows "Ver Planner"
+// access; templates.manage matches "Administrar templates".
+//
+// archive/restore are split intentionally: trash/restore exist in V0; archive
+// was reserved in V0 (out-of-scope) and is NOW GRANTED (user-confirmed decision,
+// overnight closure) for exactly the roles that hold `goal.edit_any` (coordinator,
+// adult, senior) - matching the canonical `availableActions` vocabulary (frozen
+// 22-25) where archive/unarchive are first-class Plan actions. `task.archive`
+// remains denied for every role.
+// Derived from planner_final_polish.md §6.4. Where the normative doc only
+// contains a "summary" label, the least-restrictive matching grant was
+// chosen consistent with V0 behavior (no templates manage for non-coordinators,
+// audit/settings only for coordinator). Templates.use follows "Ver Planner"
+// access; templates.manage matches "Administrar templates".
+//
+// archive/restore are split intentionally: trash/restore exist in V0; archive
+// was reserved in V0 (out-of-scope) and is NOW GRANTED (user-confirmed decision,
+// overnight closure) for exactly the roles that hold `goal.edit_any` (coordinator,
+// adult, senior) - matching the canonical `availableActions` vocabulary (frozen
+// 22-25) where archive/unarchive are first-class Plan actions. `task.archive`
+// remains denied for every role.
+// Derived from planner_final_polish.md §6.4. Where the normative doc only
+// contains a "summary" label, the least-restrictive matching grant was
+// chosen consistent with V0 behavior (no templates manage for non-coordinators,
+// audit/settings only for coordinator). Templates.use follows "Ver Planner"
+// access; templates.manage matches "Administrar templates".
+//
+// archive/restore are split intentionally: trash/restore exist in V0; archive
+// was reserved in V0 (out-of-scope) and is NOW GRANTED (user-confirmed decision,
+// overnight closure) for exactly the roles that hold `goal.edit_any` (coordinator,
+// adult, senior) - matching the canonical `availableActions` vocabulary (frozen
+// 22-25) where archive/unarchive are first-class Plan actions. `task.archive`
+// remains denied for every role.
+// Derived from planner_final_polish.md §6.4. Where the normative doc only
+// contains a "summary" label, the least-restrictive matching grant was
+// chosen consistent with V0 behavior (no templates manage for non-coordinators,
+// audit/settings only for coordinator). Templates.use follows "Ver Planner"
+// access; templates.manage matches "Administrar templates".
+//
+// archive/restore are split intentionally: trash/restore exist in V0; archive
+// was reserved in V0 (out-of-scope) and is NOW GRANTED (user-confirmed decision,
+// overnight closure) for exactly the roles that hold `goal.edit_any` (coordinator,
+// adult, senior) - matching the canonical `availableActions` vocabulary (frozen
+// 22-25) where archive/unarchive are first-class Plan actions. `task.archive`
+// remains denied for every role.
 const DEFAULT_CAPABILITY_MATRIX = Object.freeze({
   coordinator: Object.freeze({
     'planner.view': true,
@@ -122,7 +199,7 @@ const DEFAULT_CAPABILITY_MATRIX = Object.freeze({
     'goal.close_own': true,
     'goal.close_any': true,
     'goal.manage_participants': true,
-    'goal.archive': false,
+    'goal.archive': true,
     'goal.restore': true,
     'planner.templates.use': true,
     'planner.templates.manage': true,
@@ -162,7 +239,7 @@ const DEFAULT_CAPABILITY_MATRIX = Object.freeze({
     'goal.close_own': true,
     'goal.close_any': true,
     'goal.manage_participants': true,
-    'goal.archive': false,
+    'goal.archive': true,
     'goal.restore': true,
     'planner.templates.use': true,
     'planner.templates.manage': false,
@@ -282,7 +359,7 @@ const DEFAULT_CAPABILITY_MATRIX = Object.freeze({
     'goal.close_own': true,
     'goal.close_any': true,
     'goal.manage_participants': true,
-    'goal.archive': false,
+    'goal.archive': true,
     'goal.restore': true,
     'planner.templates.use': true,
     'planner.templates.manage': false,
@@ -393,7 +470,7 @@ function hasCapability(capabilities, capability) {
 function assertCapability(capabilities, capability) {
   assertCoreCapability(capabilities, capability, {
     code: 'planner_forbidden',
-    message: 'No tenés permiso para realizar esta acción.',
+    message: 'No tenÃ©s permiso para realizar esta acciÃ³n.',
   });
 }
 
@@ -404,7 +481,7 @@ function assertCapability(capabilities, capability) {
  *
  * The contract is: a household-scoped entity the actor created is "own";
  * anything else a non-coordinator wants to touch is "any". The
- * controllers already had ad-hoc `created_by_member_id` checks — this
+ * controllers already had ad-hoc `created_by_member_id` checks â€” this
  * helper replaces them with a single rule. Scope ("household" vs
  * "personal" for creates) is passed by the caller because it depends on
  * the request body, not on the row.

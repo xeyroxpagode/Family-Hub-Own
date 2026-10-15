@@ -302,6 +302,11 @@ async function main() {
       due_date: null,
       due_time: null,
       requires_verification: false,
+      checklist: [
+        { text: 'Primero', checked: false },
+        { text: 'Segundo', checked: false },
+        { text: 'Tercero', checked: false },
+      ],
       origin_module: 'inventory',
       origin_entity_type: 'inventory_item',
       origin_entity_id: uuid(),
@@ -310,6 +315,10 @@ async function main() {
     const v0CreateArgs = v0Args(fixture, null, 'create', null, v0CreatePayload);
     let result = await rpcAs(owner.accountId, 'mutate_planner_task_v0', v0CreateArgs);
     check(result.outcome === 'created' && result.task.title === v0CreatePayload.title, 'V0 create runs through shared mutation authority');
+    check(
+      JSON.stringify(result.task.checklist) === JSON.stringify(v0CreatePayload.checklist),
+      'V0 create persists checklist text, checked state, and order',
+    );
     ids.tasks.push(result.task.id);
     let foundation = await currentFoundation(admin, result.task.id);
     check(
@@ -326,10 +335,27 @@ async function main() {
       fixture, result.task.id, 'update', foundation.task.version, {},
     ));
     check(v0Noop.outcome === 'noop' && v0Noop.task.version === foundation.task.version, 'V0 empty update is a SQL-side noop after version check');
+    const editedChecklist = [
+      { text: 'Tercero', checked: true },
+      { text: 'Primero editado', checked: false },
+    ];
     const v0Updated = await rpcAs(owner.accountId, 'mutate_planner_task_v0', v0Args(
-      fixture, result.task.id, 'update', foundation.task.version, { title: 'M11.1B V0 bridge updated' },
+      fixture, result.task.id, 'update', foundation.task.version, { title: 'M11.1B V0 bridge updated', checklist: editedChecklist },
     ));
-    check(v0Updated.outcome === 'updated' && v0Updated.task.title === 'M11.1B V0 bridge updated', 'V0 update writes through shared mutation authority');
+    check(
+      v0Updated.outcome === 'updated'
+        && v0Updated.task.title === 'M11.1B V0 bridge updated'
+        && JSON.stringify(v0Updated.task.checklist) === JSON.stringify(editedChecklist),
+      'V0 update replaces the complete checklist, including reorder, edit, delete, and checked state',
+    );
+    foundation = await currentFoundation(admin, result.task.id);
+    const checklistPreserved = await rpcAs(owner.accountId, 'mutate_planner_task_v0', v0Args(
+      fixture, result.task.id, 'update', foundation.task.version, { description: 'Checklist must survive omitted payload field' },
+    ));
+    check(
+      JSON.stringify(checklistPreserved.task.checklist) === JSON.stringify(editedChecklist),
+      'V0 update preserves checklist when payload omits checklist',
+    );
     foundation = await currentFoundation(admin, result.task.id);
     result = await rpcAs(personA.accountId, 'mutate_planner_task_v0', v0Args(
       fixture, result.task.id, 'complete', foundation.task.version, {},

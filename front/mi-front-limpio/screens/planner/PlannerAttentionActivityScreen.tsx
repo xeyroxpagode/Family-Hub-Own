@@ -185,7 +185,8 @@ export function PlannerAttentionActivityScreen() {
 
   const handleOpenActivity = useCallback((item: ActivityItem) => {
     if (item.entityType === 'milestone') {
-      navigation.navigate('GoalDetail', { entityId: item.entityId, source: 'planner', returnTo: 'previous' });
+      // Historical milestone ids are not Plan ids. The current projection has
+      // no canonical parent Plan id, so keep the history visible but inert.
       return;
     }
     openEntityDetail(navigation, item.entityType, { entityId: item.entityId, source: 'planner', returnTo: 'previous' });

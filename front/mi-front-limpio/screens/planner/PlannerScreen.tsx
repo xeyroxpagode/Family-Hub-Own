@@ -32,7 +32,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshControl, ScrollView, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import { ActionSheet, AppText, SegmentedControl } from '../../components/ui';
+import { AppText, SegmentedControl } from '../../components/ui';
+import { PlannerAnchoredMenu } from '../../components/planner/PlannerAnchoredMenu';
 import { APP_ICONS, HomePlusIcon } from '../../constants/icons';
 import { colors } from '../../constants/theme';
 import { getPlannerSummary, type PlannerSummary } from '../../services/plannerSummary';
@@ -84,6 +85,7 @@ import {
 } from '../../services/planner/plannerSearchAccess';
 import { getActiveDeepLinkCoordinator } from '../../services/planner/plannerDeepLinkCoordinator';
 import { getActivePlannerReliabilityRuntime } from '../../services/planner/reliability';
+import { ContextBanner, type ContextBannerKind } from '../../components/planner/ContextBanner';
 // S2-R1: Reliability runtime ownership moved to PlannerReliabilityRuntimeOwner
 // (mounted by PrivateNavigator above HomeTabs). PlannerScreen no longer opens
 // the runtime itself so Quick Actions and Home can submit productively before
@@ -177,6 +179,7 @@ export function PlannerScreen() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [interactionEpoch, setInteractionEpoch] = useState(0);
   const [plannerError, setPlannerError] = useState<PlannerError | null>(null);
 
   // --- Capabilities (deny-safe projection) ---
@@ -184,10 +187,10 @@ export function PlannerScreen() {
   const [capabilitiesReady, setCapabilitiesReady] = useState(false);
 
   // --- M3: sheet state migrated to PlannerSheetProvider ---
-  // Local sheet state was removed in M3; `sheet` here is the provider
-  // controller. Toasts remain Shell-owned for the create/edit one-shot.
-  const [toast, setToast] = useState<string | null>(null);
+  // Local sheet state was removed in M3. Completion feedback uses the overlay
+  // toast owner (sheet.pushToast / ToastHost), never an in-flow banner.
   const [showOverflow, setShowOverflow] = useState(false);
+  const overflowAnchorRef = useRef<View>(null);
 
   // --- M3: planner sheet provider consumer (for create/edit open) ---
   const sheet = usePlannerSheet();
@@ -505,7 +508,6 @@ export function PlannerScreen() {
   }, [loadSummary]);
 
   const changed = useCallback(() => {
-    setRefreshKey((value) => value + 1);
     void loadSummary(true);
   }, [loadSummary]);
 
@@ -666,27 +668,15 @@ export function PlannerScreen() {
       exitLabel="Salir de Calendario"
     >
       <SafeAreaView style={S.safe} edges={['top']}>
-        <ActionSheet
-          visible={showOverflow}
-          title="Planner"
-          onRequestClose={() => setShowOverflow(false)}
-          size="content"
-        >
-          <View style={{ gap: 8 }}>
-            <TouchableOpacity style={S.overflowItem} onPress={openPresetLibrary} accessibilityRole="button">
-              <HomePlusIcon name={APP_ICONS.planner.notes ?? 'albums-outline'} size={20} color={colors.text.primary} />
-              <AppText variant="body" weight="600" style={{ marginLeft: 12, flex: 1 }}>Biblioteca de presets</AppText>
-            </TouchableOpacity>
-            <TouchableOpacity style={S.overflowItem} onPress={openTrash} accessibilityRole="button">
-              <HomePlusIcon name="trash-outline" size={20} color={colors.text.primary} />
-              <AppText variant="body" weight="600" style={{ marginLeft: 12, flex: 1 }}>Papelera</AppText>
-            </TouchableOpacity>
-          </View>
-        </ActionSheet>
+        <PlannerAnchoredMenu visible={showOverflow} anchorRef={overflowAnchorRef} onRequestClose={() => setShowOverflow(false)} preferredSide="left" items={[
+          { label: 'Presets', icon: APP_ICONS.planner.notes ?? 'albums-outline', onPress: openPresetLibrary },
+          { label: 'Papelera', icon: 'trash-outline', onPress: openTrash },
+        ]} />
 
         <ScrollView
           style={S.scroll}
           contentContainerStyle={S.content}
+          onScrollBeginDrag={() => setInteractionEpoch((value) => value + 1)}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -716,9 +706,12 @@ export function PlannerScreen() {
             ) : null}
 
             <TouchableOpacity
+              ref={overflowAnchorRef}
               style={S.overflowBtn}
               onPress={() => setShowOverflow(true)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Opciones de Planner"
             >
               <HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.secondary} />
             </TouchableOpacity>
@@ -734,11 +727,13 @@ export function PlannerScreen() {
             style={{ marginBottom: 14 }}
           />
 
-          {toast ? (
-            <View style={S.toastBox}>
-              <HomePlusIcon name="checkmark-circle" size={18} color={colors.success.strong} />
-              <AppText variant="bodySmall" tone="success" weight="700" style={{ flex: 1 }}>{toast}</AppText>
-            </View>
+          {/* ContextBanner for offline/queue states (S-3) */}
+          {isOffline ? (
+            <ContextBanner
+              kind="offline"
+              message="Sin conexión. Algunas acciones no están disponibles hasta que vuelvas a conectarte."
+              autoDismissMs={0}
+            />
           ) : null}
 
           {/* Shell-state chrome: full-screen state view when not active content */}
@@ -757,16 +752,20 @@ export function PlannerScreen() {
           {showActiveContent && activeTab === 'tasks' ? (
             <PlannerTasksScreen
               refreshKey={refreshKey}
+              interactionEpoch={interactionEpoch}
               onChanged={changed}
+              capabilities={capabilities}
               onCreateTask={() => sheet.openTaskForm({ source: 'planner' })}
               onEditTask={(id) => navigation.navigate(ROUTE_NAMES.TaskDetail, buildPlannerEntityDetailParams({
                 entityId: id,
                 source: 'planner',
                 returnTo: 'planner',
+                editMode: true,
               }))}
               onShowToast={(msg) => {
-                setToast(msg);
-                setTimeout(() => setToast(null), 2200);
+                // Gate6: overlay toast (no layout shift). The old in-flow
+                // toastBox pushed tabs/list; ToastHost/sheet owns feedback now.
+                sheet.pushToast({ id: `planner-tasks-${Date.now()}`, message: msg, kind: 'success' });
               }}
             />
           ) : null}
@@ -774,9 +773,7 @@ export function PlannerScreen() {
           {showActiveContent && activeTab === 'events' ? (
             <PlannerCalendarScreen
               refreshKey={refreshKey}
-              onCreateEvent={(initialDate) =>
-                sheet.openEventForm({ source: 'planner', initialDate })
-              }
+              onOpenSeries={() => navigation.navigate(ROUTE_NAMES.Series)}
               onOpenProjection={(projection) => {
                 navigation.navigate(projection.destination.route, projection.destination.params);
               }}

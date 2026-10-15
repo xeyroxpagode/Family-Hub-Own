@@ -122,12 +122,11 @@ export function openEventDetail(
 }
 
 /**
- * Navigate to a Goal Detail screen by entity ID only.
+ * Navigate to a Plan Detail screen by entity ID only.
  * `entityId` must be a valid UUID; throws plain Error on invalid input.
  *
- * Uses the legacy route name `'GoalDetail'` which is the physical screen
- * name in `PlannerStackParamList`. The params union accepts both legacy
- * `{ goalId }` and canonical `{ entityId }` shapes.
+ * Resolves against `planner_goals` (the single Plan root) through the
+ * canonical `ROUTE_NAMES.PlanDetail` physical route.
  */
 export function openGoalDetail(
   navigation: PlannerNavigation,
@@ -144,7 +143,7 @@ export function openGoalDetail(
     returnTo: normalizePlannerReturnTarget(options.returnTo),
     justCreated: options.justCreated,
   });
-  navigation.navigate(LEGACY_ROUTE_NAMES.GoalDetail, params);
+  navigation.navigate(ROUTE_NAMES.PlanDetail, params);
 }
 
 /**
@@ -170,7 +169,7 @@ export function openEntityDetail(
   });
   const normalizedKind = normalizePlannerEntityKind(kind);
   if (normalizedKind === 'plan') {
-    navigation.navigate(LEGACY_ROUTE_NAMES.GoalDetail, params);
+    navigation.navigate(resolveDetailRouteName('plan'), params);
   } else {
     const routeName = resolveDetailRouteName(normalizedKind);
     navigation.navigate(routeName as 'TaskDetail' | 'EventDetail', params);
@@ -269,12 +268,11 @@ export function resolvePlannerBackBehavior(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * Compatibility wrapper for the legacy `GoalDetail({ goalId })` route while
- * it coexists with the canonic `GoalDetail({ entityId, ... })` route in the
- * same stack. Delegates to `openGoalDetail`.
+ * Compatibility wrapper for legacy `{ goalId }` shaped Plan detail callers.
+ * Normalizes the legacy key into the canonical `entityId` param and resolves
+ * against the same single Plan root as `openGoalDetail`.
  *
- * Retire when all consumers migrate to `ROUTE_NAMES.GoalDetail` and the
- * legacy `goalId` key is removed from `PlannerStackParamList`.
+ * Retire when the last `goalId`-shaped caller migrates.
  */
 export function openGoalDetailLegacy(
   navigation: PlannerNavigation,
@@ -283,9 +281,9 @@ export function openGoalDetailLegacy(
     source?: PlannerNavigationSource;
   },
 ): void {
-  navigation.navigate(LEGACY_ROUTE_NAMES.GoalDetail, {
-    goalId: options.goalId,
-    source: normalizePlannerNavigationSource(options.source),
+  openGoalDetail(navigation, {
+    entityId: options.goalId,
+    source: options.source,
   });
 }
 

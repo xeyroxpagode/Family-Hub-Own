@@ -22,9 +22,12 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
   BackHandler,
+  Easing,
   Keyboard,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -35,7 +38,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HomePlusIcon } from '../../constants/icons';
-import { colors, spacing } from '../../constants/theme';
+import { colors } from '../../constants/theme';
 import { plannerStyles as S } from '../../screens/planner/plannerShared';
 import { AppText } from '../ui/AppText';
 import { usePlannerSheet } from '../../context/PlannerSheetContext';
@@ -46,12 +49,25 @@ import { TaskForm } from '../../screens/planner/TaskForm';
 import { GoalForm } from '../../screens/planner/GoalForm';
 import { PlannerPlanMinimalCreateSurface } from '../../screens/planner/PlannerPlansSurfaces';
 import { QuickActionsMenu } from './QuickActionsMenu';
+import { PlannerConfirmSheet } from './PlannerConfirmSheet';
+import { PlannerConfirmDestructiveSheet } from './PlannerConfirmDestructiveSheet';
+import { PlannerSheetGuardView } from './PlannerSheetGuardView';
+import { ToastHost } from './ToastHost';
 import type { PlannerSheetState } from '../../services/planner/plannerSheetState';
 import {
   announceSheetOpened,
   isNodeAccessible,
   attemptFocusReturn,
 } from '../../services/planner/plannerSheetFocus';
+import {
+  PLANNER_SHEET_GUARD_COPY,
+  resolveDragDismiss,
+  resolveInitialSheetDetent,
+  resolveSheetDetent,
+  type PlannerSheetDetent,
+} from '../../services/planner/plannerSheetGuard';
+import { useKeyboardVisible } from '../../hooks/useKeyboardVisible';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 import {
   fetchPlannerCapabilitiesCached,
   type PlannerCapabilitiesProjection,
@@ -150,7 +166,7 @@ function ActionsMenuHost() {
 // 3. Form adapters (mutation intent + sheet lock + directed invalidation)
 // ---------------------------------------------------------------------------
 
-function TaskFormHost() {
+function TaskFormHost({ onEmbeddedContentSizeChange }: { onEmbeddedContentSizeChange?: (height: number) => void }) {
   const sheet = usePlannerSheet();
   const { currentHousehold } = useHousehold();
   const { session } = useAuth();
@@ -182,7 +198,7 @@ function TaskFormHost() {
   );
 
   const onClose = useCallback(() => {
-    sheet.requestClose('user_request');
+    sheet.attemptClose('user_request');
   }, [sheet]);
 
   const onSaved = useCallback(
@@ -223,11 +239,17 @@ function TaskFormHost() {
       embedded
       taskId={mold.taskId}
       initialDueDate={mold.initialDueDate}
+      // Plan context must reach the form: without these the create payload loses
+      // `goal_id` + `plan_classification` and a Task created from a Plan is NOT
+      // linked to it.
+      initialPlanId={mold.initialPlanId}
+      initialPlanTitle={mold.initialPlanTitle}
       onClose={onClose}
       onSaved={onSaved}
       createMutationId={createMutationId}
       onSubmitBegin={onSubmitBegin}
       onSubmitEnd={onSubmitEnd}
+      onEmbeddedContentSizeChange={onEmbeddedContentSizeChange}
     />
   );
 }
@@ -263,7 +285,7 @@ function EventFormHost() {
   );
 
   const onClose = useCallback(() => {
-    sheet.requestClose('user_request');
+    sheet.attemptClose('user_request');
   }, [sheet]);
 
   const onSaved = useCallback(
@@ -343,7 +365,7 @@ function GoalFormHost() {
   );
 
   const onClose = useCallback(() => {
-    sheet.requestClose('user_request');
+    sheet.attemptClose('user_request');
   }, [sheet]);
 
   const onSaved = useCallback(
@@ -388,13 +410,20 @@ function GoalFormHost() {
   );
 }
 
+// Non-reactive identity for one mounted Plan form host.
+function createSheetInstanceTag(): string {
+  return `sheet:${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function PlanFormHost() {
   const sheet = usePlannerSheet();
   const { currentHousehold } = useHousehold();
   const { session } = useAuth();
   const accessToken = session?.access_token;
   const [error, setError] = useState<string | null>(null);
-  const instanceTagRef = useRef(`sheet:${Math.random().toString(36).slice(2, 8)}`);
+  // A lazy state initializer runs once for this mounted host. Calling the
+  // generator as a `useRef` argument would still evaluate it on every render.
+  const [instanceTag] = useState(createSheetInstanceTag);
   const submitGateRef = useRef(createPlanWriteSingleFlightGate());
   // REC-0A — record mount/unmount of the Plan form host.
   void usePlanCompositionTrace('PlanFormHost');
@@ -411,7 +440,7 @@ function PlanFormHost() {
       operation: 'create',
       stage: 'intent_created',
       surface: 'PlannerSheetHost.PlanFormHost',
-      instanceTag: instanceTagRef.current,
+      instanceTag,
       mutationId: intentRef.current.mutationId,
       idempotencyKey: intentRef.current.idempotencyKey,
     });
@@ -420,7 +449,7 @@ function PlanFormHost() {
   const createMutationId = intent?.mutationId;
 
   const onClose = useCallback(() => {
-    sheet.requestClose('user_request');
+    sheet.attemptClose('user_request');
   }, [sheet]);
 
   const onSubmit = useCallback(
@@ -429,7 +458,7 @@ function PlanFormHost() {
         operation: 'create',
         stage: 'submit_callback',
         surface: 'PlannerSheetHost.PlanFormHost',
-        instanceTag: instanceTagRef.current,
+        instanceTag,
         mutationId: intent?.mutationId,
         idempotencyKey: intent?.idempotencyKey,
       });
@@ -445,7 +474,7 @@ function PlanFormHost() {
           operation: 'create',
           stage: 'submit_blocked_inflight',
           surface: 'PlannerSheetHost.PlanFormHost',
-          instanceTag: instanceTagRef.current,
+          instanceTag,
           mutationId: intent.mutationId,
           idempotencyKey: intent.idempotencyKey,
         });
@@ -455,7 +484,7 @@ function PlanFormHost() {
         operation: 'create',
         stage: 'enqueue_call',
         surface: 'PlannerSheetHost.PlanFormHost',
-        instanceTag: instanceTagRef.current,
+        instanceTag,
         mutationId: intent.mutationId,
         idempotencyKey: intent.idempotencyKey,
       });
@@ -475,7 +504,7 @@ function PlanFormHost() {
           operation: 'create',
           stage: 'terminal_callback',
           surface: 'PlannerSheetHost.PlanFormHost',
-          instanceTag: instanceTagRef.current,
+          instanceTag,
           mutationId: intent.mutationId,
           idempotencyKey: intent.idempotencyKey,
           status: 'confirmed',
@@ -489,7 +518,7 @@ function PlanFormHost() {
           operation: 'create',
           stage: 'terminal_callback',
           surface: 'PlannerSheetHost.PlanFormHost',
-          instanceTag: instanceTagRef.current,
+          instanceTag,
           mutationId: intent.mutationId,
           idempotencyKey: intent.idempotencyKey,
           status: err instanceof Error ? err.name : 'error',
@@ -497,7 +526,7 @@ function PlanFormHost() {
         submitGateRef.current.release(intent.mutationId);
       }
     },
-    [accessToken, currentHousehold, sheet, intent],
+    [accessToken, currentHousehold, instanceTag, sheet, intent],
   );
 
   return (
@@ -523,15 +552,42 @@ function PlanFormHost() {
 // 4. Host component — single Modal owner
 // ---------------------------------------------------------------------------
 
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/**
+ * Figma V1.1 motion contract for sheets (§07.6 / §11.1 M-13..M-15):
+ * - open: translateY(24px) + opacity, 300 ms, deceleration;
+ * - close: translateY(0→24px) + opacity 1→0, 200 ms, acceleration;
+ * - the sheet stays mounted during its exit;
+ * - exit is always faster than entrance.
+ */
+const SHEET_ENTER_DURATION_MS = 300;
+const SHEET_EXIT_DURATION_MS = 200;
+const SHEET_RISE_DISTANCE_PX = 24;
+const SHEET_ENTER_EASING = Easing.bezier(0.22, 1, 0.36, 1);
+const SHEET_EXIT_EASING = Easing.bezier(0.55, 0, 1, 0.45);
+/** Drag must travel this far before it can claim a touch (px). */
+const DRAG_CLAIM_DISTANCE_PX = 10;
+/** Content drag additionally requires the host scroll to be at the top (px). */
+const CONTENT_DRAG_SCROLL_TOP_PX = 2;
+const MIN_USEFUL_FORM_HEIGHT_PX = 440;
+const FORM_CHROME_AND_FOOTER_HEIGHT_PX = 104;
+const MAX_INITIAL_DETENT_FRACTION = 0.78;
+const DETENT_SETTLE_DURATION_MS = 180;
+
+type SheetExitStyle = 'standard' | 'drag';
+
 export function PlannerSheetHost() {
   const sheet = usePlannerSheet();
   const insets = useSafeAreaInsets();
   const { height: viewportHeight } = useWindowDimensions();
+  const keyboardVisible = useKeyboardVisible();
+  const reduceMotion = useReduceMotion();
   // REC-0A — record mount/unmount of the single sheet host. There should be
   // exactly one alive instance per authenticated shell.
   void usePlanCompositionTrace('PlannerSheetHost');
 
-  const { state, isOpen, isSubmitting, triggerRef, requestClose } = sheet;
+  const { state, isOpen, isSubmitting, askingDismiss, triggerRef, attemptClose, discardFromGuard } = sheet;
   const contentManagesVerticalScroll = state.kind === 'task_form'
     || state.kind === 'event_form'
     || state.kind === 'goal_form'
@@ -540,6 +596,298 @@ export function PlannerSheetHost() {
 
   // Back handler ref (stable identity for addEventListener/removeEventListener)
   const backHandlerRef = useRef<ReturnType<typeof BackHandler.addEventListener> | null>(null);
+
+  // --- Presentation animation state ---
+  // `mounted` keeps the Modal alive while the exit animation runs (Figma:
+  // "la hoja sigue montada durante su salida").
+  const [mounted, setMounted] = useState(false);
+  const mountedRef = useRef(false);
+  mountedRef.current = mounted;
+  const isOpenRef = useRef(isOpen);
+  isOpenRef.current = isOpen;
+  const riseRef = useRef(new Animated.Value(SHEET_RISE_DISTANCE_PX)).current;
+  const fadeRef = useRef(new Animated.Value(0)).current;
+  const riseValueRef = useRef(SHEET_RISE_DISTANCE_PX);
+  const fadeValueRef = useRef(0);
+  const expandedHeight = Math.max(360, Math.round(viewportHeight - Math.max(insets.top + 16, viewportHeight * 0.1)));
+  const defaultInitialHeight = Math.min(
+    expandedHeight,
+    Math.max(MIN_USEFUL_FORM_HEIGHT_PX, Math.round(viewportHeight * 0.66)),
+  );
+  const initialHeightRef = useRef(defaultInitialHeight);
+  const expandedHeightRef = useRef(expandedHeight);
+  expandedHeightRef.current = expandedHeight;
+  const panelHeight = useRef(new Animated.Value(defaultInitialHeight)).current;
+  const panelHeightValueRef = useRef(defaultInitialHeight);
+  const panelHeightRef = panelHeightValueRef;
+  const detentRef = useRef<PlannerSheetDetent>('initial');
+  const measuredInitialContentRef = useRef(false);
+  const exitStyleRef = useRef<SheetExitStyle>('standard');
+  const animatingRef = useRef(false);
+
+  useEffect(() => {
+    const riseListener = riseRef.addListener(({ value }) => { riseValueRef.current = value; });
+    const fadeListener = fadeRef.addListener(({ value }) => { fadeValueRef.current = value; });
+    const heightListener = panelHeight.addListener(({ value }) => { panelHeightValueRef.current = value; });
+    return () => {
+      riseRef.removeListener(riseListener);
+      fadeRef.removeListener(fadeListener);
+      panelHeight.removeListener(heightListener);
+    };
+  }, [riseRef, fadeRef, panelHeight]);
+
+  const setPanelHeight = useCallback((next: number, animated = true) => {
+    const bounded = Math.max(initialHeightRef.current, Math.min(expandedHeightRef.current, next));
+    if (!animated || reduceMotion) {
+      panelHeight.setValue(bounded);
+      return;
+    }
+    Animated.timing(panelHeight, {
+      toValue: bounded,
+      duration: DETENT_SETTLE_DURATION_MS,
+      easing: SHEET_ENTER_EASING,
+      useNativeDriver: false,
+    }).start();
+  }, [panelHeight, reduceMotion]);
+
+  const settleToDetent = useCallback((next: PlannerSheetDetent) => {
+    const target = next === 'expanded' ? expandedHeightRef.current : initialHeightRef.current;
+    detentRef.current = next;
+    setPanelHeight(target);
+    Animated.parallel([
+      Animated.spring(riseRef, { toValue: 0, useNativeDriver: true, friction: 10, tension: 130 }),
+      Animated.timing(fadeRef, {
+        toValue: 1,
+        duration: reduceMotion ? 0 : SHEET_EXIT_DURATION_MS,
+        easing: SHEET_ENTER_EASING,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [fadeRef, reduceMotion, riseRef, setPanelHeight]);
+
+  const settleBack = useCallback(() => settleToDetent(detentRef.current), [settleToDetent]);
+
+  const animateIn = useCallback(() => {
+    exitStyleRef.current = 'standard';
+    animatingRef.current = true;
+    Animated.parallel([
+      Animated.timing(riseRef, {
+        toValue: 0,
+        duration: reduceMotion ? 0 : SHEET_ENTER_DURATION_MS,
+        easing: SHEET_ENTER_EASING,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeRef, {
+        toValue: 1,
+        duration: reduceMotion ? 0 : SHEET_ENTER_DURATION_MS,
+        easing: SHEET_ENTER_EASING,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) animatingRef.current = false;
+    });
+  }, [fadeRef, reduceMotion, riseRef]);
+
+  const animateOut = useCallback(() => {
+    animatingRef.current = true;
+    const fromDrag = exitStyleRef.current === 'drag';
+    exitStyleRef.current = 'standard';
+    const travel = fromDrag ? panelHeightValueRef.current : SHEET_RISE_DISTANCE_PX;
+    Animated.parallel([
+      Animated.timing(riseRef, {
+        toValue: travel,
+        duration: reduceMotion ? 0 : SHEET_EXIT_DURATION_MS,
+        easing: SHEET_EXIT_EASING,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeRef, {
+        toValue: 0,
+        duration: reduceMotion ? 0 : SHEET_EXIT_DURATION_MS,
+        easing: SHEET_EXIT_EASING,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      animatingRef.current = false;
+      // Only unmount when this exit was not interrupted by a re-open
+      // (rapid open/close sequences animate back from wherever they are).
+      if (finished && !isOpenRef.current) {
+        setMounted(false);
+      }
+    });
+  }, [fadeRef, reduceMotion, riseRef]);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (!mountedRef.current) {
+        // Modal's first visible frame must already be hidden and offset.
+        // Starting the animation before it has painted causes a final-position
+        // flash on some native modal implementations.
+        riseRef.setValue(SHEET_RISE_DISTANCE_PX);
+        fadeRef.setValue(0);
+        detentRef.current = 'initial';
+        panelHeight.setValue(initialHeightRef.current);
+        setMounted(true);
+        return;
+      }
+      animateIn();
+    } else if (mountedRef.current) {
+      if (fadeValueRef.current <= 0.02 && riseValueRef.current >= panelHeightRef.current - 1) {
+        // Drag already carried the sheet fully out: nothing left to animate.
+        setMounted(false);
+        return;
+      }
+      animateOut();
+    }
+  // `mounted` is intentionally included: opening first mounts the transparent
+  // Modal, then the following committed render starts the entrance animation.
+  // Without it, the Modal can remain at opacity 0 while its backdrop captures
+  // every touch, which looks like a frozen Planner after tapping `+`.
+  }, [isOpen, mounted, animateIn, animateOut, fadeRef, panelHeight, panelHeightRef, riseRef]);
+
+  // The task's initial intrinsic body chooses a useful starting detent once
+  // per presentation. Later optional details and validation changes stay in
+  // the ScrollView, so the whole panel does not teleport while editing.
+  const onTaskEmbeddedContentSizeChange = useCallback((contentHeight: number) => {
+    if (state.kind !== 'task_form' || measuredInitialContentRef.current) return;
+    measuredInitialContentRef.current = true;
+    const measured = resolveInitialSheetDetent({
+      contentHeight,
+      expandedHeight: expandedHeightRef.current,
+      minimumHeight: MIN_USEFUL_FORM_HEIGHT_PX,
+      chromeAndFooterHeight: FORM_CHROME_AND_FOOTER_HEIGHT_PX,
+      maximumInitialFraction: MAX_INITIAL_DETENT_FRACTION,
+    });
+    initialHeightRef.current = measured;
+    if (detentRef.current === 'initial') setPanelHeight(measured);
+  }, [setPanelHeight, state.kind]);
+
+  useEffect(() => {
+    if (state.kind === 'closed') {
+      measuredInitialContentRef.current = false;
+      initialHeightRef.current = defaultInitialHeight;
+      return;
+    }
+    if (state.kind !== 'task_form') initialHeightRef.current = defaultInitialHeight;
+  }, [defaultInitialHeight, state.kind]);
+
+  // --- Interactive drag-to-dismiss ---
+  // Refs mirror the reactive values so the (single) PanResponder instance
+  // always reads fresh state without re-claiming mid-gesture.
+  const isSubmittingRef = useRef(isSubmitting);
+  isSubmittingRef.current = isSubmitting;
+  const askingRef = useRef(askingDismiss);
+  askingRef.current = askingDismiss;
+  const attemptCloseRef = useRef(attemptClose);
+  attemptCloseRef.current = attemptClose;
+  const keyboardVisibleRef = useRef(keyboardVisible);
+  keyboardVisibleRef.current = keyboardVisible;
+  // PanResponder is deliberately created once, so mirror this reactive value
+  // instead of capturing the initial `closed` state (which would let a form
+  // scroll accidentally claim sheet dragging after it opens).
+  const contentManagesVerticalScrollRef = useRef(contentManagesVerticalScroll);
+  contentManagesVerticalScrollRef.current = contentManagesVerticalScroll;
+  const scrollTopRef = useRef(0);
+  const dragStartHeightRef = useRef(defaultInitialHeight);
+
+  const releaseDrag = useCallback(
+    (downwardTravel: number, vy: number) => {
+      if (downwardTravel > 0) {
+        const decision = resolveDragDismiss({
+          dy: downwardTravel,
+          vy,
+          panelHeight: panelHeightRef.current,
+        });
+        if (decision === 'dismiss') {
+          const closeDecision = attemptCloseRef.current('user_request');
+          if (closeDecision === 'close') {
+            exitStyleRef.current = 'drag';
+            return;
+          }
+        }
+        settleBack();
+        return;
+      }
+      settleToDetent(resolveSheetDetent({
+        currentHeight: panelHeightValueRef.current,
+        initialHeight: initialHeightRef.current,
+        expandedHeight: expandedHeightRef.current,
+        vy,
+      }));
+    },
+    [panelHeightRef, settleBack, settleToDetent],
+  );
+
+  const beginDrag = useCallback(() => {
+    dragStartHeightRef.current = panelHeightValueRef.current;
+  }, []);
+
+  const moveDrag = useCallback((dy: number) => {
+    const initial = initialHeightRef.current;
+    const expanded = expandedHeightRef.current;
+    if (dy < 0) {
+      panelHeight.setValue(Math.min(expanded, Math.max(initial, dragStartHeightRef.current - dy)));
+      riseRef.setValue(0);
+      return;
+    }
+    const collapseTravel = Math.max(0, dragStartHeightRef.current - initial);
+    panelHeight.setValue(Math.max(initial, dragStartHeightRef.current - Math.min(dy, collapseTravel)));
+    riseRef.setValue(Math.max(0, dy - collapseTravel));
+  }, [panelHeight, riseRef]);
+
+  // Chrome drag: the handle strip is an honest drag affordance. Capture-phase
+  // claiming also steals a drag that began on the close button (a press without
+  // a downward move still reaches the button untouched).
+  const chromePanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponderCapture: (_event, gesture) => {
+        if (isSubmittingRef.current || askingRef.current) return false;
+        if (Math.abs(gesture.dy) <= DRAG_CLAIM_DISTANCE_PX || Math.abs(gesture.dx) > Math.abs(gesture.dy)) return false;
+        if (keyboardVisibleRef.current) Keyboard.dismiss();
+        return true;
+      },
+      onPanResponderGrant: beginDrag,
+      onPanResponderMove: (_event, gesture) => moveDrag(gesture.dy),
+      onPanResponderRelease: (_event, gesture) => {
+        const collapseTravel = Math.max(0, dragStartHeightRef.current - initialHeightRef.current);
+        releaseDrag(Math.max(0, gesture.dy - collapseTravel), gesture.vy);
+      },
+      onPanResponderTerminate: () => {
+        settleBack();
+      },
+    }),
+  ).current;
+
+  // Non-form sheets scroll in the host ScrollView. The ScrollView claims the
+  // touchstart, so the wrapper must steal the gesture during the MOVE capture
+  // phase — but only while the scroll rests at the top, so inner scrolling
+  // never competes with sheet dragging.
+  const contentPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponderCapture: (_event, gesture) => {
+        if (isSubmittingRef.current || askingRef.current) return false;
+        if (contentManagesVerticalScrollRef.current) return false;
+        if (scrollTopRef.current > CONTENT_DRAG_SCROLL_TOP_PX) return false;
+        if (gesture.dy <= DRAG_CLAIM_DISTANCE_PX || gesture.vy <= 0 || Math.abs(gesture.dx) > Math.abs(gesture.dy)) return false;
+        if (keyboardVisibleRef.current) Keyboard.dismiss();
+        return true;
+      },
+      onPanResponderGrant: beginDrag,
+      onPanResponderMove: (_event, gesture) => moveDrag(gesture.dy),
+      onPanResponderRelease: (_event, gesture) => {
+        const collapseTravel = Math.max(0, dragStartHeightRef.current - initialHeightRef.current);
+        releaseDrag(Math.max(0, gesture.dy - collapseTravel), gesture.vy);
+      },
+      onPanResponderTerminate: () => {
+        settleBack();
+      },
+    }),
+  ).current;
 
   // --- Android Back ---
   useEffect(() => {
@@ -553,20 +901,22 @@ export function PlannerSheetHost() {
         return true;
       }
 
-      requestClose('back_button');
+      attemptClose('back_button');
       return true;
     });
 
     return () => {
       backHandlerRef.current?.remove();
     };
-  }, [state.kind, isSubmitting, requestClose]);
+  }, [state.kind, isSubmitting, attemptClose]);
 
-  // --- Accessibility announcement on open ---
+  // --- Accessibility announcements ---
   const prevKindRef = useRef(state.kind);
   useEffect(() => {
     let heading: string | null = null;
-    if (state.kind !== 'closed') {
+    if (askingDismiss) {
+      heading = PLANNER_SHEET_GUARD_COPY.title;
+    } else if (state.kind !== 'closed') {
       heading = SHEET_HEADINGS[state.kind];
       if (!heading) {
         const mode = state.kind === 'task_form' || state.kind === 'event_form' || state.kind === 'goal_form' || state.kind === 'plan_form'
@@ -576,12 +926,12 @@ export function PlannerSheetHost() {
       }
     }
 
-    if (heading && prevKindRef.current !== state.kind) {
+    if (heading && (prevKindRef.current !== state.kind || askingDismiss)) {
       announceSheetOpened(heading);
     }
 
     prevKindRef.current = state.kind;
-  }, [state.kind]);
+  }, [state, askingDismiss]);
 
   // --- Focus return on close ---
   const wasOpenRef = useRef(isOpen);
@@ -603,97 +953,174 @@ export function PlannerSheetHost() {
       case 'actions':
         return <ActionsMenuHost />;
       case 'task_form':
-        return <TaskFormHost />;
+        return <TaskFormHost onEmbeddedContentSizeChange={onTaskEmbeddedContentSizeChange} />;
       case 'event_form':
         return <EventFormHost />;
       case 'goal_form':
         return <GoalFormHost />;
       case 'plan_form':
         return <PlanFormHost />;
+      case 'confirm':
+        return <PlannerConfirmSheet data={state.data} />;
+      case 'confirm_destructive':
+        return <PlannerConfirmDestructiveSheet data={state.data} />;
     }
-  }, [state]);
+  }, [state, onTaskEmbeddedContentSizeChange]);
 
   // --- Render ---
-  const visible = state.kind !== 'closed';
+  const visible = mounted;
   const canClose = !isSubmitting;
 
+  // Forms use a measured two-detent height. Other sheets remain intrinsic;
+  // the discard question intentionally wraps its own content.
+  const isTallForm = isFormSheet && !askingDismiss;
+  const panelStyle = [
+    S.sheetPanel,
+    isTallForm && { height: panelHeight, maxHeight: expandedHeight },
+    !isTallForm && { minHeight: 0 },
+  ];
+
+  const handleBackdropPress = () => {
+    if (!canClose) return;
+    // With the keyboard up, a backdrop tap is "tap outside the input": dismiss
+    // the keyboard and keep the sheet (and its draft) intact.
+    if (keyboardVisible) {
+      Keyboard.dismiss();
+      return;
+    }
+    attemptClose('backdrop');
+  };
+
+  const panelAccessibleName = askingDismiss
+    ? PLANNER_SHEET_GUARD_COPY.title
+    : state.kind === 'actions'
+      ? 'Acciones rápidas'
+      : state.kind === 'task_form'
+      ? 'Formulario de tarea'
+      : state.kind === 'event_form'
+      ? 'Formulario de evento'
+      : state.kind === 'goal_form'
+      ? 'Formulario de plan'
+      : state.kind === 'plan_form'
+      ? 'Formulario de plan'
+      : state.kind === 'confirm'
+      ? 'Confirmar'
+      : state.kind === 'confirm_destructive'
+      ? 'Confirmar eliminación'
+      : '';
+
   return (
+    <>
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="none"
       onRequestClose={() => {
-        if (canClose) requestClose('back_button');
+        attemptClose('back_button');
       }}
+      statusBarTranslucent
     >
-      <Pressable
-        style={S.sheetBackdrop}
-        onPress={() => {
-          if (canClose) {
-            Keyboard.dismiss();
-            requestClose('backdrop');
-          }
-        }}
-        accessibilityRole="button"
-        accessibilityLabel={
-          canClose ? 'Cerrar panel' : 'Panel bloqueado — operación en curso'
-        }
-        importantForAccessibility="no"
-      >
-        <Pressable
-          style={[S.sheetPanel, isFormSheet && { height: Math.max(360, viewportHeight - insets.top - spacing[3]) }]}
-          onPress={(e) => e.stopPropagation()}
-          accessibilityRole="none"
+      <View style={{ flex: 1 }}>
+        <AnimatedPressable
+          style={[S.sheetBackdropLayer, { opacity: fadeRef }]}
+          onPress={handleBackdropPress}
+          accessibilityRole="button"
           accessibilityLabel={
-            state.kind === 'actions'
-              ? 'Acciones rápidas'
-              : state.kind === 'task_form'
-              ? 'Formulario de tarea'
-              : state.kind === 'event_form'
-              ? 'Formulario de evento'
-              : state.kind === 'goal_form'
-              ? 'Formulario de plan'
-              : state.kind === 'plan_form'
-              ? 'Formulario de plan'
-              : ''
+            askingDismiss
+              ? PLANNER_SHEET_GUARD_COPY.keepEditing
+              : canClose ? 'Cerrar panel' : 'Panel bloqueado — operación en curso'
           }
-        >
-          {/* Sheet chrome: handle + close button */}
-          <View style={S.sheetHandleContainer}>
-            <View style={S.sheetHandle} />
-            <TouchableOpacity
-              style={S.sheetCloseButton}
-              onPress={() => {
-                if (canClose) {
-                  Keyboard.dismiss();
-                  requestClose('user_request');
-                }
+          importantForAccessibility="no"
+        />
+        <View style={{ flex: 1, justifyContent: 'flex-end' }} pointerEvents="box-none">
+          <Animated.View
+            style={{ transform: [{ translateY: riseRef }], opacity: fadeRef }}
+            pointerEvents="box-none"
+          >
+            <AnimatedPressable
+              style={panelStyle}
+              onLayout={(event) => {
+                panelHeightRef.current = event.nativeEvent.layout.height;
               }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel={
-                canClose ? 'Cerrar panel' : 'Cerrar bloqueado — guardando'
-              }
-              disabled={!canClose}
+              accessibilityRole="none"
+              accessibilityLabel={panelAccessibleName}
+              accessibilityViewIsModal
             >
-              <HomePlusIcon name="close" size={20} color={colors.text.tertiary} style={{ opacity: canClose ? 1 : 0.4 }} />
-            </TouchableOpacity>
-          </View>
+              {/* Sheet chrome: handle + close button. The handle is an honest
+                  drag affordance: it moves the sheet and can dismiss it. */}
+              <View
+                style={S.sheetHandleContainer}
+                {...chromePanResponder.panHandlers}
+              >
+                <Pressable
+                  style={{ flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+                onPress={() => settleToDetent(detentRef.current === 'expanded' ? 'initial' : 'expanded')}
+                accessibilityRole="button"
+                accessibilityLabel={detentRef.current === 'expanded' ? 'Contraer panel' : 'Expandir panel'}
+                accessibilityHint="Arrastrá hacia arriba o abajo para cambiar el tamaño del panel"
+                >
+                  <View style={S.sheetHandle} />
+                </Pressable>
+                <TouchableOpacity
+                  style={S.sheetCloseButton}
+                  onPress={() => {
+                    if (canClose) {
+                      Keyboard.dismiss();
+                      attemptClose('user_request');
+                    }
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    askingDismiss
+                      ? 'Volver al formulario'
+                      : canClose ? 'Cerrar panel' : 'Cerrar bloqueado — guardando'
+                  }
+                  disabled={!canClose}
+                >
+                  <HomePlusIcon name="close" size={20} color={colors.text.tertiary} style={{ opacity: canClose ? 1 : 0.4 }} />
+                </TouchableOpacity>
+              </View>
 
-          {/* Forms own their keyboard-aware vertical scroll; other sheets use the host scroll. */}
-          {contentManagesVerticalScroll ? content : (
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
-              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              {content}
-            </ScrollView>
-          )}
-        </Pressable>
-      </Pressable>
+              {askingDismiss ? (
+                // The guard REPLACES the visible body (Figma §23.7.3), but the
+                // form below stays mounted (hidden) so its draft state
+                // survives: `Seguir editando` must restore it byte for byte.
+                <PlannerSheetGuardView
+                  onKeepEditing={() => attemptClose('user_request')}
+                  onDiscard={() => discardFromGuard('user_request')}
+                />
+              ) : null}
+              <View
+                style={{ flex: 1, minHeight: 0, display: askingDismiss ? 'none' : 'flex' }}
+              >
+                {contentManagesVerticalScroll ? content : (
+                  <View style={{ flex: 1, minHeight: 0 }} {...contentPanResponder.panHandlers}>
+                    <ScrollView
+                      style={{ flex: 1 }}
+                      contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
+                      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
+                      onScroll={(event) => {
+                        scrollTopRef.current = event.nativeEvent.contentOffset.y;
+                      }}
+                      scrollEventThrottle={16}
+                    >
+                      {content}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            </AnimatedPressable>
+          </Animated.View>
+        </View>
+      </View>
     </Modal>
+    {/* A toast reports mutations from the Planner root, where no sheet is
+        visible. Keeping it outside Modal makes that feedback reachable while
+        ToastHost still suppresses itself whenever a sheet owns the surface. */}
+    <ToastHost sheetOpen={isOpen} />
+    </>
   );
 }

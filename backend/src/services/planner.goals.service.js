@@ -1,18 +1,48 @@
 const { createHttpError } = require('../lib/httpErrors')
-const {
-  GOAL_STATUS_TRANSITIONS,
-  GOAL_VISIBILITY_VALUES,
-  GOAL_CATEGORIES,
-  GOAL_TARGET_TYPES,
-  GOAL_PROGRESS_MODES,
-  GOAL_PROGRESS_MODE_TARGET_TYPE_MAP,
-} = require('../constants/planner.constants')
+const { GOAL_VISIBILITY_VALUES } = require('../constants/planner.constants')
 const { assertExpectedVersion } = require('../lib/versionHelpers')
+const {
+  applyPlanReadScope,
+  callPlanWriter,
+  unwrapPlanWriterResult,
+} = require('../lib/plannerGoalWriteAuthority')
 const {
   pickGoalActivityState,
   pickMilestoneActivityState,
   recordPlannerActivity,
 } = require('./planner.activity.service')
+
+// The legacy Goals family no longer owns a write path of its own: every root
+// write below goes through the Plan writers (Technical Truth §15), which derive
+// the actor from auth.uid() and enforce the Personal/Hogar owner shape.
+const WRITER_MESSAGES = {
+  forbidden: 'No tenes permiso para realizar esta accion sobre metas.',
+  versionConflict: 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.',
+}
+
+const WRITER_ERRORS = {
+  goal_not_found: { status: 404, message: 'Meta no encontrada.', code: 'goal_not_found' },
+  invalid_lifecycle_transition: {
+    status: 409,
+    message: 'Transicion invalida.',
+    code: 'invalid_status_transition',
+  },
+  invalid_transition: { status: 400, message: 'Transicion invalida.', code: 'invalid_status_transition' },
+}
+
+// Legacy root fields that no longer form part of the Plan contract
+// (Technical Truth §3). They are rejected instead of silently dropped, so a
+// caller is never told a write landed when it did not.
+const RETIRED_GOAL_FIELDS = [
+  'visibility',
+  'category',
+  'progress_mode',
+  'target_type',
+  'target_value',
+  'current_value',
+  'unit',
+  'starts_at',
+]
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '')
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
@@ -66,44 +96,6 @@ const calculateProgressFromMilestones = async (client, goalId) => {
   const achieved = milestones.filter((m) => m.achieved).length
   const percentage = Math.round((achieved / total) * 100)
   return { percentage, total, completed: achieved }
-}
-
-const validateProgressMode = (value) => {
-  if (value === undefined || value === null || value === '') {
-    return 'steps'
-  }
-  if (!GOAL_PROGRESS_MODES.includes(value)) {
-    throw createHttpError(400, 'progress_mode invalido.', 'invalid_progress_mode')
-  }
-  return value
-}
-
-const validateProgressModeTargetTypeCompatibility = (progressMode, targetType) => {
-  const allowed = GOAL_PROGRESS_MODE_TARGET_TYPE_MAP[progressMode]
-  if (!allowed) {
-    if (targetType !== null && targetType !== undefined) {
-      throw createHttpError(
-        400,
-        `progress_mode '${progressMode}' no permite target_type. target_type debe ser null.`,
-        'incompatible_progress_mode_target_type',
-      )
-    }
-    return
-  }
-  if (targetType === null || targetType === undefined) {
-    throw createHttpError(
-      400,
-      `progress_mode '${progressMode}' requiere target_type.`,
-      'incompatible_progress_mode_target_type',
-    )
-  }
-  if (!allowed.includes(targetType)) {
-    throw createHttpError(
-      400,
-      `target_type '${targetType}' no es compatible con progress_mode '${progressMode}'.`,
-      'incompatible_progress_mode_target_type',
-    )
-  }
 }
 
 const calculateProgressFromTasks = async (client, householdId, goalId) => {
@@ -219,15 +211,16 @@ const attachProgress = async (context, goal) => {
   return { ...goal, progress_percentage: percentage }
 }
 
-const getGoalOrThrow = async (client, householdId, goalId) => {
-  const { data, error } = await client
-    .from('planner_goals')
-    .select('*')
-    .eq('id', goalId)
-    .eq('household_id', householdId)
-    .is('deleted_at', null)
-    .is('trashed_at', null)
-    .maybeSingle()
+const getGoalOrThrow = async (context, goalId) => {
+  const { data, error } = await applyPlanReadScope(
+    context.client
+      .from('planner_goals')
+      .select('*')
+      .eq('id', goalId)
+      .is('deleted_at', null)
+      .is('trashed_at', null),
+    context,
+  ).maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
@@ -238,13 +231,14 @@ const getGoalOrThrow = async (client, householdId, goalId) => {
   return data
 }
 
-const getGoalForTrashOperation = async (client, householdId, goalId) => {
-  const { data, error } = await client
-    .from('planner_goals')
-    .select('*')
-    .eq('id', goalId)
-    .eq('household_id', householdId)
-    .maybeSingle()
+const getGoalForTrashOperation = async (context, goalId) => {
+  const { data, error } = await applyPlanReadScope(
+    context.client
+      .from('planner_goals')
+      .select('*')
+      .eq('id', goalId),
+    context,
+  ).maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
@@ -275,26 +269,6 @@ const validateVisibility = (value) => {
   return value
 }
 
-const validateCategory = (value) => {
-  if (value === undefined || value === null || value === '') {
-    return 'home'
-  }
-  if (!GOAL_CATEGORIES.includes(value)) {
-    throw createHttpError(400, 'category invalido.', 'invalid_category')
-  }
-  return value
-}
-
-const validateTargetType = (value) => {
-  if (value === undefined || value === null || value === '') {
-    return null
-  }
-  if (!GOAL_TARGET_TYPES.includes(value)) {
-    throw createHttpError(400, 'target_type invalido.', 'invalid_target_type')
-  }
-  return value
-}
-
 const validateNonNegativeNumeric = (value, fieldName, allowNull = true) => {
   if (allowNull && (value === undefined || value === null || value === '')) {
     return null
@@ -311,10 +285,11 @@ const validateNonNegativeNumeric = (value, fieldName, allowNull = true) => {
 
 const listGoals = async (context, query) => {
   const limit = parseLimit(query.limit)
+  const onlyMine = isTrueQuery(query.only_mine)
+
   let request = context.client
     .from('planner_goals')
     .select('*')
-    .eq('household_id', context.householdId)
     .is('deleted_at', null)
     .is('trashed_at', null)
 
@@ -327,9 +302,9 @@ const listGoals = async (context, query) => {
   if (query.visibility) {
     request = request.eq('visibility', query.visibility)
   }
-  if (isTrueQuery(query.only_mine)) {
-    request = request.eq('created_by_member_id', context.membershipId)
-  }
+
+  request = applyPlanReadScope(request, context, { onlyMine })
+
   if (query.ends_at_from) {
     if (!isValidDateOnly(query.ends_at_from)) {
       throw createHttpError(400, 'ends_at_from invalido.', 'validation_error')
@@ -356,7 +331,7 @@ const listGoals = async (context, query) => {
 }
 
 const getGoalById = async (context, goalId) => {
-  const goal = await getGoalOrThrow(context.client, context.householdId, goalId)
+  const goal = await getGoalOrThrow(context, goalId)
 
   const { data: milestones, error: milestonesError } = await context.client
     .from('planner_goal_milestones')
@@ -381,36 +356,28 @@ const createGoal = async (context, body) => {
   }
 
   const visibility = validateVisibility(body?.visibility)
-  const progressMode = validateProgressMode(body?.progress_mode)
-  const targetType = validateTargetType(body?.target_type)
-  validateProgressModeTargetTypeCompatibility(progressMode, targetType)
+  const endsAt = validateNullableDate(body?.ends_at, 'ends_at')
 
-  const payload = {
-    household_id: context.householdId,
-    title,
-    description: hasOwn(body, 'description') ? normalizeString(body.description) || null : null,
-    visibility,
-    category: validateCategory(body?.category),
-    progress_mode: progressMode,
-    target_type: targetType,
-    target_value: validateNonNegativeNumeric(body?.target_value, 'target_value', true),
-    current_value: hasOwn(body, 'current_value') ? validateNonNegativeNumeric(body.current_value, 'current_value', false) : 0,
-    unit: hasOwn(body, 'unit') ? normalizeString(body.unit) || null : null,
-    starts_at: validateNullableDate(body?.starts_at, 'starts_at'),
-    ends_at: validateNullableDate(body?.ends_at, 'ends_at'),
-    created_by_member_id: context.membershipId,
-    status: 'active',
-  }
+  // Write authority: create_goal_rpc. It derives the actor from auth.uid(),
+  // produces the correct Personal/Hogar owner shape and authorizes with
+  // goal.create_personal / goal.create_household. The legacy root fields the
+  // Goals form still sends (category, progress_mode, target_type, target_value,
+  // current_value, unit, starts_at) are not part of the Plan contract
+  // (Technical Truth §3) and are intentionally not written.
+  const result = await callPlanWriter(
+    context,
+    'create_goal_rpc',
+    {
+      p_visibility: visibility,
+      p_title: title,
+      p_description: hasOwn(body, 'description') ? normalizeString(body.description) || null : null,
+      p_target_date: endsAt,
+      p_context_household_id: context.householdId,
+    },
+    WRITER_MESSAGES,
+  )
 
-  const { data, error } = await context.client
-    .from('planner_goals')
-    .insert(payload)
-    .select('*')
-    .single()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
+  const data = unwrapPlanWriterResult(result, { errors: WRITER_ERRORS })
 
   recordPlannerActivity(context, {
     entityType: 'goal',
@@ -423,8 +390,17 @@ const createGoal = async (context, body) => {
   return { goal: await attachProgress(context, data) }
 }
 
-const buildGoalPatch = async (context, body, existingGoal) => {
+const buildGoalPatch = async (context, body) => {
   const patch = {}
+
+  const retired = RETIRED_GOAL_FIELDS.filter((field) => hasOwn(body, field))
+  if (retired.length > 0) {
+    throw createHttpError(
+      400,
+      `Estos campos ya no forman parte del contrato de Plan: ${retired.join(', ')}.`,
+      'legacy_goal_field_not_supported',
+    )
+  }
 
   if (hasOwn(body, 'title')) {
     const title = normalizeString(body.title)
@@ -438,110 +414,62 @@ const buildGoalPatch = async (context, body, existingGoal) => {
     patch.description = normalizeString(body.description) || null
   }
 
-  if (hasOwn(body, 'visibility')) {
-    patch.visibility = validateVisibility(body.visibility)
-  }
-
-  if (hasOwn(body, 'category')) {
-    patch.category = validateCategory(body.category)
-  }
-
-  if (hasOwn(body, 'progress_mode')) {
-    patch.progress_mode = validateProgressMode(body.progress_mode)
-  }
-
-  if (hasOwn(body, 'target_type')) {
-    patch.target_type = validateTargetType(body.target_type)
-  }
-
-  if (hasOwn(body, 'target_value')) {
-    patch.target_value = validateNonNegativeNumeric(body.target_value, 'target_value', true)
-  }
-
-  if (hasOwn(body, 'current_value')) {
-    patch.current_value = Number(body.current_value)
-    if (!Number.isFinite(patch.current_value) || patch.current_value < 0) {
-      throw createHttpError(400, 'current_value debe ser >= 0.', 'validation_error')
-    }
-  }
-
-  if (hasOwn(body, 'unit')) {
-    patch.unit = normalizeString(body.unit) || null
-  }
-
-  if (hasOwn(body, 'starts_at')) {
-    patch.starts_at = validateNullableDate(body.starts_at, 'starts_at')
-  }
-
   if (hasOwn(body, 'ends_at')) {
-    patch.ends_at = validateNullableDate(body.ends_at, 'ends_at')
+    patch.target_date = validateNullableDate(body.ends_at, 'ends_at')
   }
 
   if (hasOwn(body, 'status')) {
     throw createHttpError(400, 'status no se modifica con PATCH. Usá POST /goals/:id/complete o POST /goals/:id/close.', 'validation_error')
   }
 
-  if (Object.keys(patch).length > 0) {
-    const resolvedMode = hasOwn(patch, 'progress_mode')
-      ? patch.progress_mode
-      : (existingGoal.progress_mode ?? 'steps')
-    const resolvedTargetType = hasOwn(patch, 'target_type')
-      ? patch.target_type
-      : existingGoal.target_type
-    validateProgressModeTargetTypeCompatibility(resolvedMode, resolvedTargetType)
-  }
-
   return patch
 }
 
 const updateGoal = async (context, goalId, body, expectedVersion) => {
-  const existing = await getGoalOrThrow(context.client, context.householdId, goalId)
+  const existing = await getGoalOrThrow(context, goalId)
   assertExpectedVersion(existing.version, expectedVersion)
-  const patch = await buildGoalPatch(context, body ?? {}, existing)
-
-  if (Object.keys(patch).length === 0) {
-    return { goal: await attachProgress(context, existing) }
-  }
+  const patch = buildGoalPatch(context, body ?? {})
 
   const previousState = pickGoalActivityState(existing)
 
-  const query = context.client
-    .from('planner_goals')
-    .update(patch)
-    .eq('id', goalId)
-    .eq('household_id', context.householdId)
-    .is('deleted_at', null)
-    .is('trashed_at', null)
+  // Write authority: update_goal_rpc. Its writable surface is title /
+  // description / target_date; `visibility` (scope), `owner_person_id`,
+  // `household_id` and `created_by_*` are not parameters of the writer, so they
+  // are immutable in V1.
+  const result = await callPlanWriter(
+    context,
+    'update_goal_rpc',
+    {
+      p_goal_id: goalId,
+      p_expected_version: expectedVersion ?? null,
+      p_context_household_id: context.householdId,
+      p_title: patch.title ?? null,
+      p_description: hasOwn(patch, 'description') ? patch.description : null,
+      p_target_date: hasOwn(patch, 'target_date') ? patch.target_date : null,
+      p_set_title: hasOwn(patch, 'title'),
+      p_set_description: hasOwn(patch, 'description'),
+      p_set_target_date: hasOwn(patch, 'target_date'),
+    },
+    WRITER_MESSAGES,
+  )
 
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query.eq('version', expectedVersion)
+  const data = unwrapPlanWriterResult(result, { errors: WRITER_ERRORS })
+
+  if (hasOwn(patch, 'title') || hasOwn(patch, 'description') || hasOwn(patch, 'target_date')) {
+    recordPlannerActivity(context, {
+      entityType: 'goal',
+      entityId: data.id,
+      action: 'goal.updated',
+      previousState,
+      nextState: pickGoalActivityState(data),
+    }).catch(() => {})
   }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
-    throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'goal',
-    entityId: data.id,
-    action: 'goal.updated',
-    previousState,
-    nextState: pickGoalActivityState(data),
-  }).catch(() => {})
 
   return { goal: await attachProgress(context, data) }
 }
 
 const trashMilestone = async (context, goalId, milestoneId, expectedVersion) => {
-  await getGoalForMilestone(context.client, context.householdId, goalId)
+  await getGoalForMilestone(context, goalId)
 
   const { data: milestoneBefore, error: fetchBeforeError } = await context.client
     .from('planner_goal_milestones')
@@ -612,13 +540,14 @@ const trashMilestone = async (context, goalId, milestoneId, expectedVersion) => 
 }
 
 const restoreMilestone = async (context, goalId, milestoneId, expectedVersion) => {
-  const { data: parentGoal, error: goalError } = await context.client
-    .from('planner_goals')
-    .select('id, trashed_at')
-    .eq('id', goalId)
-    .eq('household_id', context.householdId)
-    .is('deleted_at', null)
-    .maybeSingle()
+  const { data: parentGoal, error: goalError } = await applyPlanReadScope(
+    context.client
+      .from('planner_goals')
+      .select('id, trashed_at')
+      .eq('id', goalId)
+      .is('deleted_at', null),
+    context,
+  ).maybeSingle()
 
   if (goalError) {
     throwSupabaseError(goalError)
@@ -688,169 +617,113 @@ const deleteGoal = async (context, goalId, expectedVersion) => {
 }
 
 const trashGoal = async (context, goalId, expectedVersion) => {
-  const existing = await getGoalForTrashOperation(context.client, context.householdId, goalId)
-  assertExpectedVersion(existing.version, expectedVersion)
+  const previousState = pickGoalActivityState(await getGoalForTrashOperation(context, goalId))
 
-  if (existing.trashed_at !== null) {
-    return { goal: await attachProgress(context, existing) }
+  // Write authority: trash_goal_rpc derives the actor from auth.uid() and
+  // records the durable trash metadata. A mismatching client-supplied member id
+  // is rejected rather than trusted.
+  const result = await callPlanWriter(
+    context,
+    'trash_goal_rpc',
+    {
+      p_goal_id: goalId,
+      p_expected_version: expectedVersion ?? null,
+      p_member_id: context.membershipId,
+      p_context_household_id: context.householdId,
+    },
+    WRITER_MESSAGES,
+  )
+
+  const data = unwrapPlanWriterResult(result, { errors: WRITER_ERRORS })
+
+  if (!result.already_trashed) {
+    recordPlannerActivity(context, {
+      entityType: 'goal',
+      entityId: data.id,
+      action: 'goal.trashed',
+      previousState,
+      nextState: pickGoalActivityState(data),
+    }).catch(() => {})
   }
-
-  const previousState = pickGoalActivityState(existing)
-
-  const query = context.client
-    .from('planner_goals')
-    .update({
-      trashed_at: new Date().toISOString(),
-      trashed_by_member_id: context.membershipId,
-    })
-    .eq('id', goalId)
-    .eq('household_id', context.householdId)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
-    throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'goal',
-    entityId: data.id,
-    action: 'goal.trashed',
-    previousState,
-    nextState: pickGoalActivityState(data),
-  }).catch(() => {})
 
   return { goal: await attachProgress(context, data) }
 }
 
 const restoreGoal = async (context, goalId, expectedVersion) => {
-  const { data: result, error: rpcError } = await context.client.rpc(
+  // Write authority: restore_goal_rpc (reused, not duplicated). Reverses trash
+  // only; lifecycle, archive and children stay untouched.
+  const result = await callPlanWriter(
+    context,
     'restore_goal_rpc',
     {
       p_goal_id: goalId,
       p_expected_version: expectedVersion ?? null,
-    }
+      p_member_id: context.membershipId,
+      p_context_household_id: context.householdId,
+    },
+    WRITER_MESSAGES,
   )
 
-  if (rpcError) {
-    if (rpcError.code === '42501') {
-      throw createHttpError(403, 'No tenes permiso para realizar esta accion sobre metas.', 'rls_violation')
-    }
-    if (rpcError.code === '40007') {
-      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
-    throwSupabaseError(rpcError)
+  const goal = unwrapPlanWriterResult(result, { errors: WRITER_ERRORS })
+
+  if (!result.already_restored) {
+    recordPlannerActivity(context, {
+      entityType: 'goal',
+      entityId: goalId,
+      action: 'goal.restored',
+      previousState: null,
+      nextState: pickGoalActivityState(goal),
+    }).catch(() => {})
   }
-
-  if (!result || result.success === false) {
-    if (result?.error === 'goal_not_found') {
-      throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
-    }
-    throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
-  }
-
-  if (result.already_restored) {
-    const { data: goal, error: fetchError } = await context.client
-      .from('planner_goals')
-      .select('*')
-      .eq('id', goalId)
-      .eq('household_id', context.householdId)
-      .maybeSingle()
-    if (fetchError) {
-      throwSupabaseError(fetchError)
-    }
-    return { goal: await attachProgress(context, goal) }
-  }
-
-  const { data: goal, error: fetchError } = await context.client
-    .from('planner_goals')
-    .select('*')
-    .eq('id', goalId)
-    .eq('household_id', context.householdId)
-    .maybeSingle()
-
-  if (fetchError) {
-    throwSupabaseError(fetchError)
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'goal',
-    entityId: goalId,
-    action: 'goal.restored',
-    previousState: null,
-    nextState: pickGoalActivityState(goal),
-  }).catch(() => {})
 
   return { goal: await attachProgress(context, goal) }
 }
 
-const validateGoalTransition = (fromStatus, toStatus) => {
-  if (!hasOwn(GOAL_STATUS_TRANSITIONS, fromStatus)) {
-    throw createHttpError(400, 'Status origen invalido.', 'invalid_status')
-  }
-  const allowed = GOAL_STATUS_TRANSITIONS[fromStatus]
-  if (!allowed.includes(toStatus)) {
-    throw createHttpError(409, 'Transicion invalida.', 'invalid_status_transition')
-  }
-}
-
-const completeGoal = async (context, goalId, expectedVersion) => {
-  const goal = await getGoalOrThrow(context.client, context.householdId, goalId)
+// `status` is a derived projection of `lifecycle` (Technical Truth §4), so the
+// legacy status vocabulary is validated against the canonical lifecycle
+// machine instead of writing `status` directly.
+const runGoalLifecycleTransition = async (context, goalId, expectedVersion, verb, metadata) => {
+  const goal = await getGoalOrThrow(context, goalId)
   assertExpectedVersion(goal.version, expectedVersion)
-
-  if (goal.status === 'completed') {
-    return { goal: { ...goal, progress_percentage: 100 } }
-  }
-
-  validateGoalTransition(goal.status, 'completed')
 
   const previousState = pickGoalActivityState(goal)
 
-  const query = context.client
-    .from('planner_goals')
-    .update({
-      status: 'completed',
-      lifecycle: 'completed',
-      completed_at: new Date().toISOString(),
-    })
-    .eq('id', goalId)
-    .eq('household_id', context.householdId)
-    .is('deleted_at', null)
-    .is('trashed_at', null)
+  const result = await callPlanWriter(
+    context,
+    'transition_goal_rpc',
+    {
+      p_goal_id: goalId,
+      p_transition: verb,
+      p_expected_version: expectedVersion ?? null,
+      p_context_household_id: context.householdId,
+      p_closed_reason: metadata?.closedReason ?? null,
+    },
+    WRITER_MESSAGES,
+  )
 
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
-    throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
-  }
+  const data = unwrapPlanWriterResult(result, { errors: WRITER_ERRORS })
 
   recordPlannerActivity(context, {
     entityType: 'goal',
     entityId: data.id,
-    action: 'goal.completed',
+    action: metadata?.action,
     previousState,
     nextState: pickGoalActivityState(data),
+    metadata: metadata?.closedReason ? { closed_reason: metadata.closedReason } : null,
   }).catch(() => {})
+
+  return data
+}
+
+const completeGoal = async (context, goalId, expectedVersion) => {
+  const goal = await getGoalOrThrow(context, goalId)
+  if (goal.lifecycle === 'completed') {
+    return { goal: { ...goal, progress_percentage: 100 } }
+  }
+
+  const data = await runGoalLifecycleTransition(context, goalId, expectedVersion, 'complete', {
+    action: 'goal.completed',
+  })
 
   return { goal: { ...data, progress_percentage: 100 } }
 }
@@ -860,120 +733,37 @@ const failGoal = async (context, goalId, expectedVersion, closedReason) => {
 }
 
 const closeGoal = async (context, goalId, expectedVersion, closedReason) => {
-  const goal = await getGoalOrThrow(context.client, context.householdId, goalId)
-  assertExpectedVersion(goal.version, expectedVersion)
-
-  if (goal.status === 'closed') {
+  const goal = await getGoalOrThrow(context, goalId)
+  if (goal.lifecycle === 'cancelled') {
     return { goal: await attachProgress(context, goal) }
   }
 
-  if (goal.status !== 'active') {
-    throw createHttpError(409, 'Transicion invalida.', 'invalid_status_transition')
-  }
-
-  const previousState = pickGoalActivityState(goal)
-
-  const query = context.client
-    .from('planner_goals')
-    .update({
-      status: 'closed',
-      lifecycle: 'cancelled',
-      closed_at: new Date().toISOString(),
-      closed_reason: closedReason ?? null,
-    })
-    .eq('id', goalId)
-    .eq('household_id', context.householdId)
-    .is('deleted_at', null)
-    .is('trashed_at', null)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
-    throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'goal',
-    entityId: data.id,
+  const data = await runGoalLifecycleTransition(context, goalId, expectedVersion, 'cancel', {
     action: 'goal.closed',
-    previousState,
-    nextState: pickGoalActivityState(data),
-    metadata: closedReason ? { closed_reason: closedReason } : null,
-  }).catch(() => {})
+    closedReason,
+  })
 
   return { goal: await attachProgress(context, data) }
 }
 
 const reopenGoal = async (context, goalId, expectedVersion) => {
-  const goal = await getGoalOrThrow(context.client, context.householdId, goalId)
-  assertExpectedVersion(goal.version, expectedVersion)
-
-  if (goal.status !== 'closed' && goal.status !== 'completed') {
-    throw createHttpError(409, 'Transicion invalida.', 'invalid_status_transition')
-  }
-
-  const previousState = pickGoalActivityState(goal)
-
-  const query = context.client
-    .from('planner_goals')
-    .update({
-      status: 'active',
-      lifecycle: 'active',
-      closed_at: null,
-      closed_reason: null,
-      completed_at: null,
-    })
-    .eq('id', goalId)
-    .eq('household_id', context.householdId)
-    .is('deleted_at', null)
-    .is('trashed_at', null)
-
-  if (expectedVersion !== null && expectedVersion !== undefined) {
-    query.eq('version', expectedVersion)
-  }
-
-  const { data, error } = await query.select('*').maybeSingle()
-
-  if (error) {
-    throwSupabaseError(error)
-  }
-  if (!data) {
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw createHttpError(409, 'Esta meta cambió en otro dispositivo. Actualizá y volvé a intentar.', 'version_conflict')
-    }
-    throw createHttpError(404, 'Meta no encontrada.', 'goal_not_found')
-  }
-
-  recordPlannerActivity(context, {
-    entityType: 'goal',
-    entityId: data.id,
+  const data = await runGoalLifecycleTransition(context, goalId, expectedVersion, 'reopen', {
     action: 'goal.reopened',
-    previousState,
-    nextState: pickGoalActivityState(data),
-  }).catch(() => {})
+  })
 
   return { goal: await attachProgress(context, data) }
 }
 
-const getGoalForMilestone = async (client, householdId, goalId) => {
-  const { data, error } = await client
-    .from('planner_goals')
-    .select('id, household_id')
-    .eq('id', goalId)
-    .eq('household_id', householdId)
-    .is('deleted_at', null)
-    .is('trashed_at', null)
-    .maybeSingle()
+const getGoalForMilestone = async (context, goalId) => {
+  const { data, error } = await applyPlanReadScope(
+    context.client
+      .from('planner_goals')
+      .select('id, household_id')
+      .eq('id', goalId)
+      .is('deleted_at', null)
+      .is('trashed_at', null),
+    context,
+  ).maybeSingle()
 
   if (error) {
     throwSupabaseError(error)
@@ -985,7 +775,7 @@ const getGoalForMilestone = async (client, householdId, goalId) => {
 }
 
 const listMilestones = async (context, goalId) => {
-  await getGoalForMilestone(context.client, context.householdId, goalId)
+  await getGoalForMilestone(context, goalId)
 
   const { data, error } = await context.client
     .from('planner_goal_milestones')
@@ -1004,7 +794,7 @@ const listMilestones = async (context, goalId) => {
 }
 
 const createMilestone = async (context, goalId, body) => {
-  await getGoalForMilestone(context.client, context.householdId, goalId)
+  await getGoalForMilestone(context, goalId)
 
   const title = normalizeString(body?.title)
   if (!title) {
@@ -1050,7 +840,7 @@ const createMilestone = async (context, goalId, body) => {
 }
 
 const updateMilestone = async (context, goalId, milestoneId, body, expectedVersion) => {
-  await getGoalForMilestone(context.client, context.householdId, goalId)
+  await getGoalForMilestone(context, goalId)
 
   const { data: existing, error: fetchError } = await context.client
     .from('planner_goal_milestones')

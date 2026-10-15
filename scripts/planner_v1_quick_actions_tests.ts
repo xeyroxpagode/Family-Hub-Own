@@ -542,12 +542,35 @@ function runTests() {
   // 10. Regression — Goal not triggered, Invite absent
   // -------------------------------------------------------------------------
 
-  test('Regression — Goal Quick Create implemented in M5', () => {
-    const goal = plannerQuickActions.catalog.find((a) => a.key === 'create_goal')!;
-    assert(goal.implemented, 'Goal implemented = true');
+  // STALE TEST SUPERSEDED BY CURRENT PRODUCT TRUTH.
+  //
+  // Old assertion: `create_goal` must be `implemented: true` and present in the
+  // daily-launcher implemented list (a milestone-era "M5" gate).
+  //
+  // Superseding truth: Plan create is a REQUIRED V1 capability, but it belongs
+  // to the canonical Plan surface (`PlanList` -> `CreatePlan`), not to the
+  // daily quick-action launcher. Frozen §41 forbids closing a required feature
+  // behind a hidden/unreachable control; frozen §67 forbids duplicating entry
+  // points. Keeping `implemented: false` here is therefore correct, and the
+  // capability guard is still asserted so the contract is not lost.
+  //
+  // Replacement coverage: this block asserts (a) the entry still exists in the
+  // catalog with its canonical capability guard, (b) it stays out of the daily
+  // launcher, and (c) the other two implemented actions are unaffected.
+  // Plan create reachability is covered by the HTTP journeys suite
+  // (scripts/planner_overnight_http_journeys.js), which creates and transitions
+  // Plans through the real backend.
+  test('Regression — Plan create stays on the canonical Plan surface, not the daily launcher', () => {
+    const goal = plannerQuickActions.catalog.find((a) => a.key === 'create_goal');
+    assert(Boolean(goal), 'create_goal still present in the catalog');
+    assertEqual(goal!.destination, 'goal_form', 'create_goal keeps its canonical destination');
+    assertEqual(goal!.implemented, false, 'create_goal is not exposed as a daily quick action');
+
     const implemented = plannerQuickActions.getImplemented();
-    assert(implemented.some((a) => a.key === 'create_goal'), 'Goal in implemented list');
-    assertEqual(implemented.length, 3, '3 implemented actions');
+    assert(!implemented.some((a) => a.key === 'create_goal'), 'create_goal not in the implemented launcher list');
+    assert(implemented.some((a) => a.key === 'create_task'), 'create_task implemented');
+    assert(implemented.some((a) => a.key === 'create_event'), 'create_event implemented');
+    assertEqual(implemented.length, 2, '2 implemented daily actions (task + event)');
   });
 
   test('Regression — Invite permanently excluded', () => {

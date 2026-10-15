@@ -35,7 +35,9 @@ const getTrash = async (req, res) => {
     const type = req.query.type ?? 'all'
     const limit = req.query.limit ? parseInt(req.query.limit, 10) : 100
 
-    if (!['all', 'tasks', 'events', 'goals'].includes(type)) {
+    // Frozen §38: Trash owns discovery + restore of every trashed Planner
+    // entity, including Event Series (Horarios) and Responsibilities.
+    if (!['all', 'tasks', 'events', 'goals', 'event_series', 'responsibilities'].includes(type)) {
       return res.status(400).json({ error: 'type inválido.', code: 'invalid_type' })
     }
 

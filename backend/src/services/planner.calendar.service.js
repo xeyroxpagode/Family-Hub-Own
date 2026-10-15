@@ -167,20 +167,8 @@ const expandEventOccurrences = (event, from, to, overridesByParent = new Map()) 
   return occurrences
 }
 
-const taskItem = (task) => ({
-  type: 'task',
-  id: task.id,
-  title: task.title,
-  description: task.description,
-  due_date: task.due_date,
-  due_time: task.due_time,
-  status: task.status,
-  priority: task.priority,
-  template_key: task.template_key,
-  category: task.category,
-  assigned_to_member_id: task.assigned_to_member_id,
-  requires_verification: task.requires_verification,
-})
+// Tasks are NOT Calendar target content (frozen §35). The Tasks surface reads
+// them from the canonical Tasks endpoint, so Calendar never projects them.
 
 const itemSortValue = (item) => {
   if (item.type === 'event') {
@@ -192,41 +180,41 @@ const itemSortValue = (item) => {
 
 const getCalendar = async (context, query) => {
   const range = getCalendarRange(query.view ?? 'day', query.date ?? toDateOnly(new Date()))
-  const fromDate = toDateOnly(range.from)
-  const toDate = toDateOnly(range.to)
 
+  // Frozen §35: CALENDAR = canonical Events.
+  //
+  // Tasks are NOT Calendar target content (they live in the Tasks surface) and
+  // `schedule_blocks` are not Calendar authority, so neither is read here.
+  //
+  // Recurrence has exactly ONE read path: legacy recurring Events are expanded
+  // in-memory ONLY when they have no Series. Series occurrences are already
+  // materialized as concrete Events (frozen §19/§36) and are read as ordinary
+  // rows, so they can never render twice. GET is read-only: it never
+  // materializes.
   const eventsQuery = context.client
     .from('planner_events')
     .select('*')
     .eq('household_id', context.householdId)
     .eq('status', 'scheduled')
+    // lifecycle is the canonical state (a `draft` Event must not render).
+    .neq('lifecycle', 'draft')
     .is('trashed_at', null)
-    .lte('starts_at', range.to.toISOString())
+    .order('starts_at', { ascending: true })
     .limit(500)
 
-  const tasksQuery = context.client
-    .from('planner_tasks')
-    .select('*')
-    .eq('household_id', context.householdId)
-    .neq('status', 'cancelled')
-    .is('trashed_at', null)
-    .gte('due_date', fromDate)
-    .lte('due_date', toDate)
-    .limit(500)
+  const { data: eventsData, error: eventsError } = await eventsQuery
 
-  const [eventsResult, tasksResult] = await Promise.all([eventsQuery, tasksQuery])
-
-  if (eventsResult.error) {
-    throw createHttpError(500, eventsResult.error.message, 'internal_error')
+  if (eventsError) {
+    throw createHttpError(500, eventsError.message, 'internal_error')
   }
 
-  if (tasksResult.error) {
-    throw createHttpError(500, tasksResult.error.message, 'internal_error')
-  }
-
-  const allEvents = eventsResult.data ?? []
-  const baseEvents = allEvents.filter((e) => e.parent_event_id === null)
-  const overrides = allEvents.filter((e) => e.parent_event_id !== null)
+  const allEvents = eventsData ?? []
+  // Only non-cancelled, non-trashed, non-draft Events participate.
+  const liveEvents = allEvents.filter(
+    (e) => e && e.status !== 'cancelled' && e.lifecycle !== 'trash' && e.lifecycle !== 'cancelled' && e.lifecycle !== 'draft',
+  )
+  const baseEvents = liveEvents.filter((e) => e.parent_event_id === null)
+  const overrides = liveEvents.filter((e) => e.parent_event_id !== null)
 
   const overridesByParent = new Map()
   for (const override of overrides) {
@@ -236,6 +224,26 @@ const getCalendar = async (context, query) => {
 
   const eventItems = []
   for (const event of baseEvents) {
+    // ONE recurrence authority: a Series occurrence is a concrete Event
+    // (series_id set, occurrence_key set) and must render exactly once as
+    // itself. Legacy in-memory expansion applies ONLY to a legacy recurring
+    // Event that no Series owns.
+    if (event.series_id) {
+      if (eventOverlapsRange(
+        new Date(event.starts_at),
+        event.ends_at ? new Date(event.ends_at) : null,
+        range.from,
+        range.to,
+      )) {
+        eventItems.push(eventItem({
+          event,
+          startsAt: new Date(event.starts_at),
+          endsAt: event.ends_at ? new Date(event.ends_at) : null,
+          isRecurringOccurrence: true,
+        }));
+      }
+      continue;
+    }
     const occurrences = expandEventOccurrences(event, range.from, range.to, overridesByParent)
     eventItems.push(...occurrences)
   }
@@ -247,8 +255,7 @@ const getCalendar = async (context, query) => {
     }
   }
 
-  const taskItems = (tasksResult.data ?? []).map(taskItem)
-  const items = [...eventItems, ...taskItems].sort((left, right) =>
+  const items = [...eventItems].sort((left, right) =>
     itemSortValue(left).localeCompare(itemSortValue(right)),
   )
 

@@ -96,6 +96,41 @@ const FORBIDDEN_DRAFT_FIELDS = new Set([
   'createdPlanId',
 ]);
 
+// Runtime identity/state that must never survive into a Preset (frozen §33):
+// a Preset is FORM PREFILL, never an entity instance or historical state.
+// Shared by every entity type, applied AFTER the per-type field lists.
+const FORBIDDEN_RUNTIME_STATE_FIELDS = new Set([
+  'id',
+  'entityId',
+  'entity_id',
+  'createdAt',
+  'created_at',
+  'updatedAt',
+  'updated_at',
+  'version',
+  'archivedAt',
+  'archived_at',
+  'trashedAt',
+  'trashed_at',
+  'deletedAt',
+  'deleted_at',
+  'createdByPersonId',
+  'created_by_person_id',
+  'createdByMemberId',
+  'created_by_member_id',
+  'seriesId',
+  'series_id',
+  'occurrenceKey',
+  'occurrence_key',
+  'responsibilityId',
+  'responsibility_id',
+  'responsibility_occurrence_sequence',
+  'originEntityId',
+  'origin_entity_id',
+  'closedReason',
+  'closed_reason',
+]);
+
 function ensureObjectPayload(input) {
   if (!isPlainObject(input)) {
     return failure('payload_schema_invalid', 'Payload must be an object.');
@@ -128,7 +163,13 @@ function createAdapter({ key, entityType, requiredField, presetForbidden, draftF
     validatePresetPayload(input) {
       const object = ensureObjectPayload(input);
       if (!object.ok) return object;
-      const forbidden = validateNoForbidden(object.value, presetForbidden);
+      // Per-type list PLUS the shared runtime-state list (frozen §33): a Preset
+      // is form prefill, so no entity id, authorship, version, archive/trash
+      // state or concrete-Plan/Series/Responsibility link may survive.
+      const forbidden = validateNoForbidden(
+        object.value,
+        new Set([...presetForbidden, ...FORBIDDEN_RUNTIME_STATE_FIELDS]),
+      );
       if (!forbidden.ok) return forbidden;
       const normalized = normalizeCommonTemplatePayload(normalize(forbidden.value, 'preset'));
       if (!normalized.ok) return normalized;
@@ -144,7 +185,10 @@ function createAdapter({ key, entityType, requiredField, presetForbidden, draftF
     validateDraftPayload(input) {
       const object = ensureObjectPayload(input);
       if (!object.ok) return object;
-      const forbidden = validateNoForbidden(object.value, draftForbidden);
+      const forbidden = validateNoForbidden(
+        object.value,
+        new Set([...draftForbidden, ...FORBIDDEN_RUNTIME_STATE_FIELDS]),
+      );
       if (!forbidden.ok) return forbidden;
       const normalized = normalizeCommonTemplatePayload(normalize(forbidden.value, 'draft'));
       if (!normalized.ok) return normalized;
@@ -274,7 +318,80 @@ const planAdapter = createAdapter({
   },
 });
 
-const adapters = Object.freeze([taskAdapter, eventAdapter, planAdapter]);
+// Responsibility: a recurring definition. A preset carries only its FORM
+// fields (title, category, checklist template, defaults) — never occurrence
+// history, generated Task ids, or runtime lifecycle.
+const responsibilityAdapter = createAdapter({
+  key: 'planner.responsibility.template.v1',
+  entityType: 'responsibility',
+  requiredField: 'title',
+  presetForbidden: new Set([
+    ...FORBIDDEN_TASK_PRESET_FIELDS,
+    'occurrences',
+    'occurrenceHistory',
+    'occurrence',
+    'currentOccurrence',
+    'current_occurrence',
+    'nextOccurrence',
+    'next_occurrence',
+    'generatedTaskIds',
+    'generated_task_ids',
+    'assignee',
+    'assignees',
+    'members',
+    'rotation',
+    'pauseState',
+    'archived_at',
+  ]),
+  draftForbidden: FORBIDDEN_DRAFT_FIELDS,
+  normalize(payload) {
+    const normalized = normalizeTextFields(payload, ['title', 'category']);
+    if (normalized.checklist !== undefined && !Array.isArray(normalized.checklist)) {
+      normalized.checklist = [];
+    }
+    return normalized;
+  },
+});
+
+// Event Series / Horarios: the recurring DEFINITION. A preset never carries
+// materialized occurrences or the series' runtime lifecycle.
+const eventSeriesAdapter = createAdapter({
+  key: 'planner.event.series.template.v1',
+  entityType: 'event_series',
+  requiredField: 'title',
+  presetForbidden: new Set([
+    ...FORBIDDEN_EVENT_PRESET_FIELDS,
+    'occurrences',
+    'materializedOccurrences',
+    'materialized_occurrences',
+    'seriesId',
+    'series_id',
+    'occurrenceKey',
+    'occurrence_key',
+    'startsOn',
+    'endsOn',
+    'archived_at',
+  ]),
+  draftForbidden: FORBIDDEN_DRAFT_FIELDS,
+  normalize(payload) {
+    const normalized = normalizeTextFields(payload, ['title', 'category']);
+    if (normalized.recurrenceRule !== undefined && !isPlainObject(normalized.recurrenceRule)) {
+      delete normalized.recurrenceRule;
+    }
+    return normalized;
+  },
+});
+
+// Frozen §33: supported preset entity types are exactly
+// task | responsibility | event | event_series | plan. `measurement` is NOT a
+// preset type (Measurements are Plan-local state, not a form template).
+const adapters = Object.freeze([
+  taskAdapter,
+  responsibilityAdapter,
+  eventAdapter,
+  eventSeriesAdapter,
+  planAdapter,
+]);
 const adaptersByKey = new Map(adapters.map((adapter) => [adapter.key, adapter]));
 const adaptersByEntity = new Map(adapters.map((adapter) => [adapter.entityType, adapter]));
 
@@ -317,6 +434,7 @@ function validateEnvelopeForUse(envelope, kind) {
 }
 
 module.exports = {
+  FORBIDDEN_RUNTIME_STATE_FIELDS,
   adapters,
   getAdapter,
   getDefaultAdapter,

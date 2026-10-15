@@ -48,13 +48,10 @@ function isActiveEvent(row) {
   return row && row.trashed_at === null && row.status !== 'cancelled';
 }
 
+// Frozen §38: Search excludes trashed only. An archived Plan stays
+// discoverable and is identified as archived in its subtitle/metadata.
 function isActivePlan(row) {
-  return (
-    row &&
-    row.trashed_at === null &&
-    row.archived_at === null &&
-    row.lifecycle !== 'draft'
-  );
+  return row && row.trashed_at === null;
 }
 
 function toVisibilityInput(row, entityType) {
@@ -178,16 +175,25 @@ function toEventResult(row) {
 }
 
 function toPlanResult(row) {
+  // `planner_goals` projects `visibility` as the persisted scope; archived
+  // Plans remain discoverable but must be clearly identifiable (frozen §38).
+  const archived = row.archived_at !== null && row.archived_at !== undefined;
   return {
     id: `plan:${row.id}`,
     entityType: 'plan',
     entityId: row.id,
     title: titleOf(row, 'Plan sin titulo'),
-    subtitle: row.target_date ? `Plan - ${row.target_date}` : 'Plan',
+    subtitle: [
+      archived ? 'Plan archivado' : 'Plan',
+      row.target_date ?? null,
+    ]
+      .filter(Boolean)
+      .join(' · '),
     metadata: {
       lifecycle: row.lifecycle,
-      scope: row.scope,
+      scope: row.visibility ?? row.scope ?? 'household',
       targetDate: row.target_date ?? null,
+      archived,
     },
     destination: buildDestination('plan', row.id),
     updatedAt: row.updated_at ?? row.created_at ?? null,
@@ -241,14 +247,21 @@ async function loadEventRows(context, query, limit) {
 
 async function loadPlanRows(context, query, limit) {
   const pattern = buildIlikePattern(query);
+  // Canonical Plan root is `planner_goals` (frozen §20): `planner_plans` is the
+  // retired M11.3A graph container and is never a product writer or reader.
+  // Exactly ONE `.or()` is emitted (PostgREST resolves repeated `or` params
+  // ambiguously — see plannerGoalWriteAuthority.planReadScopeClause).
+  //
+  // Frozen §38: Search excludes trashed. Archived Plans stay discoverable and
+  // are labelled as archived by `toPlanResult`, so they are NOT filtered here.
   const { data, error } = await context.client
-    .from('planner_plans')
-    .select('id,scope,owner_person_id,household_id,objective,description,lifecycle,target_date,archived_at,trashed_at,version,created_at,updated_at')
-    .or(`household_id.eq.${context.householdId},owner_person_id.eq.${context.personId}`)
+    .from('planner_goals')
+    .select('id,visibility,owner_person_id,household_id,title,description,lifecycle,target_date,archived_at,trashed_at,version,created_at,updated_at')
+    .eq('visibility', 'household')
+    .eq('household_id', context.householdId)
+    .is('deleted_at', null)
     .is('trashed_at', null)
-    .is('archived_at', null)
-    .neq('lifecycle', 'draft')
-    .or(`objective.ilike.${pattern},description.ilike.${pattern}`)
+    .or(`title.ilike.${pattern},description.ilike.${pattern}`)
     .limit(limit * 3);
   if (error) throw createHttpError(500, error.message, 'search_plans_failed');
   return data ?? [];

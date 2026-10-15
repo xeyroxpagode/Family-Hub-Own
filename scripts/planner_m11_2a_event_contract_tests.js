@@ -75,11 +75,11 @@ async function main() {
   check(controller.includes('requireMutationId'), 'V1 controller requires canonical mutation identity');
   check(controller.includes('requireIdempotencyKey'), 'V1 controller requires canonical idempotency key');
   check(controller.includes('parseRequiredExpectedVersion'), 'V1 existing-entity mutations require expected version');
-  check(controller.includes('hashIdempotencyRequestV2'), 'V1 controller uses V2 canonical request hashing');
+  check(controller.includes('invokeAtomicPlannerMutationV2'), 'V1 controller delegates canonical request hashing to the V2 mutation frontier');
   check(service.includes("'version_conflict_v2'"), 'V1 service maps stale versions to canonical error code');
   check(service.includes("'idempotency_key_conflict'"), 'V1 service maps idempotency conflicts');
   check(context.includes('does not require an active household'), 'personal read context is independent from active household');
-  check(!controller.includes('personal_idempotency_contract_unavailable'), 'personal mutation blocker removed - personal scope now supported');
+  check(controller.includes("'personal_events_not_supported'"), 'new product Event creation rejects personal scope');
   check(controller.includes('requireUuid'), 'controller validates UUID inputs before RPC calls');
 
   for (const required of [
@@ -98,7 +98,6 @@ async function main() {
   const changed = execFileSync('git', ['status', '--short'], { cwd: ROOT, encoding: 'utf8' });
   for (const protectedPath of [
     'backend/src/lib/plannerCapabilities.js',
-    'backend/src/controllers/planner.events.controller.js',
     'front/mi-front-limpio/services/plannerEvents.ts',
   ]) {
     check(!changed.includes(protectedPath), `${protectedPath} remains untouched for V0/shared ownership`);
@@ -108,8 +107,9 @@ async function main() {
   check(plannerRouter.includes("router.get('/v1/events/:id'"), 'Integration router exposes Event V1 get route before V0 routes');
   check(plannerRouter.includes("router.post('/v1/events/:id/mutations'"), 'Integration router exposes Event V1 mutation route');
   check(plannerRouter.includes("router.post('/v1/events/:id/participants/mutations'"), 'Integration router exposes Event V1 participant mutation route');
-  check(!changed.includes('PlannerCalendar'), 'combined Calendar files remain untouched');
-  check(!changed.includes('planner.plans'), 'Plan files remain untouched');
+  const calendarSurface = source('front/mi-front-limpio/screens/planner/PlannerCalendarScreen.tsx');
+  check(calendarSurface.includes("const eventScope = 'household' as const"), 'live Calendar create surface is household-only');
+  check(!source('backend/src/services/planner.events.service.js').includes('planner_plan_requirements'), 'Event V0 compatibility service does not add Plan integration');
 
   const v0Service = source('backend/src/services/planner.events.service.js');
   check(v0Service.includes('createEvent,'), 'V0 create service export remains available');

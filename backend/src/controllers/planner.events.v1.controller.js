@@ -63,7 +63,10 @@ async function createEventV1(req, res) {
     const operation = 'planner.events.v1.create';
     const mutation = mutationContractV2(req, operation);
     const scopeType = req.body?.scope ?? 'household';
-    const scopeId = scopeType === 'personal' ? context.personId : (req.body?.householdId ?? context.householdId);
+    if (scopeType !== 'household') {
+      throw createHttpError(400, 'Los eventos personales no están disponibles.', 'personal_events_not_supported');
+    }
+    const scopeId = req.body?.householdId ?? context.householdId;
     if (!scopeId) throw createHttpError(400, 'scopeId required', 'validation_error');
 
     const rpcAdapter = async (client) => {

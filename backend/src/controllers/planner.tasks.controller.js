@@ -2,7 +2,7 @@
 
 const { getPlannerContext } = require('../services/planner.context.service');
 const tasksService = require('../services/planner.tasks.service');
-const responsibilitiesService = require('../services/planner.responsibilities.service');
+const evidenceService = require('../services/planner.task-evidence.service');
 const {
   requireMutationId,
   parseRequiredExpectedVersion,
@@ -31,7 +31,6 @@ const listTasks = async (req, res) => {
     const context = await getPlannerContext(req);
     const capabilities = buildCapabilities(context);
     assertCapability(capabilities, 'planner.view');
-    await responsibilitiesService.materializeHousehold(context);
     const payload = await tasksService.listTasks(context, req.query ?? {});
     return res.status(200).json(payload);
   } catch (error) {
@@ -170,8 +169,6 @@ const completeTask = async (req, res) => {
       idempotencyKey,
       operation,
     });
-    await responsibilitiesService.materializeHousehold(context);
-
     await telemetry.track('planner_mutation_succeeded', {
       action: 'task.complete',
       entity_kind: 'task',
@@ -223,7 +220,6 @@ const runTaskV1Mutation = async (req, res, options) => {
         requestId: req.requestId,
       },
     );
-    await responsibilitiesService.materializeHousehold(context);
     res.set('X-Mutation-Id', mutationId);
     return res.status(200).json(payload);
   } catch (error) {
@@ -319,8 +315,6 @@ const verifyTask = async (req, res) => {
       idempotencyKey,
       operation,
     });
-    await responsibilitiesService.materializeHousehold(context);
-
     res.set('X-Mutation-Id', mutationId);
     return res.status(200).json(payload);
   } catch (error) {
@@ -440,6 +434,69 @@ const getTaskEvidenceHistory = async (req, res) => {
   }
 };
 
+const registerTaskEvidenceArtifact = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const payload = await evidenceService.registerArtifact(context, req.params.id, req.body ?? {});
+    return res.status(201).json({ artifact: payload });
+  } catch (error) { return sendApiError(res, error, req); }
+};
+
+const authorizeTaskEvidenceArtifact = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const payload = await evidenceService.authorizeArtifactUpload(context, req.params.id, req.params.artifactId);
+    return res.status(200).json(payload);
+  } catch (error) { return sendApiError(res, error, req); }
+};
+
+const confirmTaskEvidenceArtifact = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const payload = await evidenceService.confirmArtifact(context, req.params.id, req.params.artifactId);
+    return res.status(200).json({ artifact: payload });
+  } catch (error) { return sendApiError(res, error, req); }
+};
+
+const cancelTaskEvidenceArtifact = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const payload = await evidenceService.cancelArtifact(context, req.params.id, req.params.artifactId);
+    return res.status(200).json({ artifact: payload });
+  } catch (error) { return sendApiError(res, error, req); }
+};
+
+const submitTaskEvidenceV2 = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const payload = await evidenceService.submitEvidence(context, req.params.id, req.params.fulfillmentId, req.body ?? {}, idempotencyKey);
+    return res.status(200).json(payload);
+  } catch (error) { return sendApiError(res, error, req); }
+};
+
+const reviewTaskEvidenceV2 = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    const payload = await evidenceService.reviewEvidence(context, req.params.id, req.params.fulfillmentId, req.params.submissionId, req.body ?? {});
+    return res.status(200).json(payload);
+  } catch (error) { return sendApiError(res, error, req); }
+};
+
+const getTaskEvidenceHistoryV2 = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    return res.status(200).json(await evidenceService.history(context, req.params.id));
+  } catch (error) { return sendApiError(res, error, req); }
+};
+
+const getTaskEvidenceMediaAccess = async (req, res) => {
+  try {
+    const context = await getPlannerContext(req);
+    return res.status(200).json(await evidenceService.signedMediaAccess(context, req.params.id, req.params.artifactId));
+  } catch (error) { return sendApiError(res, error, req); }
+};
+
 const getTaskAuditHistory = async (req, res) => {
   try {
     const context = await getPlannerContext(req);
@@ -459,11 +516,19 @@ module.exports = {
   createTask,
   getTaskById,
   getTaskEvidenceHistory,
+  getTaskEvidenceHistoryV2,
+  getTaskEvidenceMediaAccess,
   getTaskAuditHistory,
   listTasks,
   reactivateTask,
   restoreTask,
   submitTaskEvidence,
+  submitTaskEvidenceV2,
+  registerTaskEvidenceArtifact,
+  authorizeTaskEvidenceArtifact,
+  cancelTaskEvidenceArtifact,
+  confirmTaskEvidenceArtifact,
+  reviewTaskEvidenceV2,
   trashTask,
   updateTask,
   verifyTask,
