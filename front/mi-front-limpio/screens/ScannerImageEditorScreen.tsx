@@ -45,6 +45,7 @@ import {
   coerceScannerPageEdit,
   computeBoxRect,
   defaultScannerPageEdit,
+  handleScreenSpaceScale,
   isUsableSize,
   orientedSize,
   quadBoundingRect,
@@ -54,7 +55,6 @@ import {
   CANVAS_PADDING,
   type DisplayGeometry,
   type Point,
-  type Quad,
   type Rect,
   type RotationSteps,
   type Size,
@@ -82,6 +82,7 @@ import {
   type EditorSessionState,
 } from '../services/homecloud/homecloudScannerEditorSession';
 import type { ScannerPage, ScannerPageEdit, ScannerPageEditOutcome } from '../services/homecloud/homecloudScanner';
+import { beginHomeCloudImmersiveChrome } from '../services/homecloud/homecloudImmersiveChrome';
 
 /** Route params: serializable only. No functions ever (React Navigation 7 checks). */
 type EditorRouteParams = {
@@ -123,6 +124,7 @@ export function ScannerImageEditorScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
+  useEffect(() => beginHomeCloudImmersiveChrome(), []);
 
   const params = (route.params ?? {}) as EditorRouteParams;
   const page = params.page;
@@ -206,7 +208,9 @@ export function ScannerImageEditorScreen() {
     [canvasSize, oriented],
   );
 
+  // The source snapshot is intentionally memoized with the live edit/session.
   const displaySource = useMemo(
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization
     () =>
       editorDisplaySource({
         originalUri: page?.originalUri ?? '',
@@ -410,6 +414,11 @@ export function ScannerImageEditorScreen() {
     navigation.goBack();
   }, [dispatchSession, navigation]);
 
+  const handleRetake = useCallback(() => {
+    dispatchSession({ type: 'cancelled' });
+    navigation.navigate({ name: 'HomeCloudScanner', params: { scannerRetakePageId: page.id }, merge: true, pop: true });
+  }, [dispatchSession, navigation, page.id]);
+
   const handleRotate = useCallback(() => {
     if (session.phase === 'processing') return;
     setEdit((prev) => applyRotationStep(prev));
@@ -423,16 +432,6 @@ export function ScannerImageEditorScreen() {
     dispatchSession({ type: 'user-edits' });
     lightHaptic();
   }, [session.phase, dispatchSession]);
-
-  const handleTogglePreview = useCallback(() => {
-    if (session.phase === 'processing') return;
-    if (session.previewUri) {
-      dispatchSession({ type: 'user-edits' });
-      lightHaptic();
-    } else {
-      void startProcessing('preview');
-    }
-  }, [session.phase, session.previewUri, dispatchSession, startProcessing]);
 
   // ---------------------------------------------------------------------
   // gestures (D): one responder, machine-driven
@@ -565,6 +564,18 @@ export function ScannerImageEditorScreen() {
 
   const processing = session.phase === 'processing';
   const imageElementSize = rotatedImageSize(box, displaySource.rotationSteps);
+  /**
+   * PATCH 1B — corner-handle SCREEN-SPACE invariant. The overlay (polygon,
+   * handles, hit boxes) renders INSIDE the zoomed container, so a zoom of `S`
+   * would draw the dots `S` times larger. Counter-scale the DRAWN dot and its
+   * container-unit hit box by `1 / S`: both stay constant in screen space
+   * (28 pt dot, 44 pt grab target) while the LOGICAL corner stays attached to
+   * the same point of the transformed image. Crop geometry, normalized points
+   * and perspective math are untouched — this is visual only.
+   */
+  const handleCompensation = handleScreenSpaceScale(scale);
+  const handleDrawRadius = (HANDLE_VISUAL_SIZE / 2) * handleCompensation;
+  const handleHitSize = HANDLE_HIT_RADIUS * handleCompensation;
   const quadPoints = CROP_HANDLE_KEYS.map((key) => {
     const point = quadPoint(displaySource.cropQuad, key);
     return { x: point.x * box.width, y: point.y * box.height };
@@ -604,16 +615,7 @@ export function ScannerImageEditorScreen() {
         <View style={styles.headerTitle}>
           <AppText variant="title3" weight="800">Editar página</AppText>
         </View>
-        <AppButton
-          variant="icon"
-          size="sm"
-          onPress={handleConfirm}
-          disabled={processing || sourceSizeError}
-          accessibilityLabel="Confirmar edición"
-          style={styles.headerButton}
-        >
-          <HomePlusIcon name="checkmark" size={22} color={colors.text.primary} />
-        </AppButton>
+        <View style={styles.headerButton} />
       </View>
 
       <View
@@ -658,10 +660,14 @@ export function ScannerImageEditorScreen() {
             <View style={styles.overlayLayer}>
               <Svg width={box.width} height={box.height} style={styles.svgOverlay}>
                 <Path d={dimPath} fill="rgba(0,0,0,0.55)" fillRule="evenodd" />
-                <Polygon points={quadPolygon} fill="transparent" stroke={colors.brand} strokeWidth={2} />
+                {/* PATCH 1C (K) — the polygon stroke is compensated by the
+                    SAME 1/zoom factor as the handles, so it stays ~2 pt in
+                    screen space at every zoom. Presentation only: crop math,
+                    normalized points and perspective output are untouched. */}
+                <Polygon points={quadPolygon} fill="transparent" stroke={colors.brand} strokeWidth={2 * handleCompensation} />
                 {CROP_HANDLE_KEYS.map((key, index) => {
                   const point = quadPoints[index];
-                  return <Circle key={key} cx={point.x} cy={point.y} r={HANDLE_VISUAL_SIZE / 2} fill={colors.brand} stroke="#FFFFFF" strokeWidth={3} />;
+                  return <Circle key={key} cx={point.x} cy={point.y} r={handleDrawRadius} fill={colors.brand} stroke="#FFFFFF" strokeWidth={3 * handleCompensation} />;
                 })}
               </Svg>
               {CROP_HANDLE_KEYS.map((key, index) => {
@@ -672,10 +678,11 @@ export function ScannerImageEditorScreen() {
                     style={[
                       styles.handle,
                       {
-                        left: point.x - HANDLE_VISUAL_SIZE / 2,
-                        top: point.y - HANDLE_VISUAL_SIZE / 2,
-                        width: HANDLE_VISUAL_SIZE,
-                        height: HANDLE_VISUAL_SIZE,
+                        left: point.x - handleHitSize / 2,
+                        top: point.y - handleHitSize / 2,
+                        width: handleHitSize,
+                        height: handleHitSize,
+                        borderRadius: handleHitSize / 2,
                       },
                     ]}
                   />
@@ -695,7 +702,36 @@ export function ScannerImageEditorScreen() {
         ) : null}
       </View>
 
-      <View style={styles.toolbar}>
+      {session.errorMessage ? (
+        <View style={styles.errorBanner}>
+          <AppText variant="bodySmall" tone="danger">{session.errorMessage}</AppText>
+        </View>
+      ) : null}
+
+      {/* PATCH 1C — final structure: SAFE TOP / header / flex canvas / ONE
+          bottom toolbar with safe-area bottom padding. The permanent hint row is
+          gone (helper copy must be compact/contextual/transient — FF image is
+          the protagonist), and the toolbar is a single row so the canvas keeps
+          the majority of the usable area. */}
+      <View style={[styles.toolbar, { paddingBottom: Math.max(insets.bottom, spacing[3]) }]}>
+        <AppButton
+          title="Repetir"
+          variant="secondary"
+          size="sm"
+          onPress={handleRetake}
+          disabled={processing}
+          accessibilityLabel="Repetir captura de esta página"
+          style={styles.toolbarButton}
+        />
+        <AppButton
+          title="Rotar"
+          variant="secondary"
+          size="sm"
+          onPress={handleRotate}
+          disabled={processing}
+          accessibilityLabel="Rotar 90 grados"
+          style={styles.toolbarButton}
+        />
         <AppButton
           title="Restablecer"
           variant="secondary"
@@ -705,45 +741,21 @@ export function ScannerImageEditorScreen() {
           accessibilityLabel="Restablecer recorte y rotación"
           style={styles.toolbarButton}
         />
-        <AppButton
-          title={session.previewUri ? 'Ver original' : 'Aplicar y ver'}
-          variant={session.previewUri ? 'secondary' : 'primary'}
-          size="sm"
-          onPress={handleTogglePreview}
-          disabled={processing || sourceSizeError}
-          accessibilityLabel={
-            session.previewUri ? 'Volver a la imagen original' : 'Aplicar recorte y rotación'
-          }
-          style={styles.toolbarButton}
-        />
-        <AppButton
-          title="Rotar 90°"
-          variant="secondary"
-          size="sm"
-          onPress={handleRotate}
-          disabled={processing}
-          accessibilityLabel="Rotar 90 grados"
-          style={styles.toolbarButton}
-        />
-      </View>
-
-      {session.errorMessage ? (
-        <View style={styles.errorBanner}>
-          <AppText variant="bodySmall" tone="danger">{session.errorMessage}</AppText>
-        </View>
-      ) : null}
-
-      <View style={[styles.hint, { paddingBottom: insets.bottom + spacing[3] }]}>
-        <AppText variant="caption" tone="secondary" align="center">
-          Arrastrá las esquinas para recortar. Pellizcá para ampliar y arrastrá la imagen para moverla.
-        </AppText>
+        <AppButton title="Confirmar" variant="primary" size="sm" onPress={handleConfirm} disabled={processing || sourceSizeError} accessibilityLabel="Confirmar edición" style={styles.toolbarButton} />
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background.base },
+  /**
+   * PATCH 1B — layout ownership. The editor is FULLSCREEN and owns a plain
+   * top-to-bottom column: safe-area top chrome, flex canvas, safe-area bottom
+   * controls. Never centered, never sheet-spaced, never absolutely offset by
+   * guessed device height. `justifyContent: 'flex-start'` states the column
+   * contract explicitly so no ancestor presentation can midpoint the header.
+   */
+  screen: { flex: 1, backgroundColor: colors.background.base, justifyContent: 'flex-start' },
   hiddenWebView: { position: 'absolute', width: 1, height: 1, opacity: 0 },
   header: {
     flexDirection: 'row',
@@ -769,15 +781,12 @@ const styles = StyleSheet.create({
   },
   handle: {
     position: 'absolute',
-    borderRadius: HANDLE_VISUAL_SIZE / 2,
-    backgroundColor: colors.brand,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    shadowColor: '#000000',
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
+    // PATCH 1C — the HIT layer is visually TRANSPARENT: no brand fill, no
+    // visible ring, no shadow. Only the SVG circle is the visible handle
+    // (~28 pt at zoom 1x); this layer is pure touch target (≥44 pt).
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderColor: 'transparent',
   },
   processingOverlay: {
     position: 'absolute',
@@ -799,15 +808,13 @@ const styles = StyleSheet.create({
   },
   toolbar: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing[2],
     paddingHorizontal: spacing[4],
-    paddingVertical: spacing[3],
+    paddingTop: spacing[3],
     backgroundColor: colors.background.base,
     borderTopWidth: 1,
     borderTopColor: colors.border.subtle,
   },
-  toolbarButton: { flexGrow: 1 },
+  toolbarButton: { flexGrow: 1, flexBasis: 0 },
   errorBanner: { paddingHorizontal: spacing[4], paddingBottom: spacing[2] },
-  hint: { paddingHorizontal: spacing[4], paddingTop: spacing[2], backgroundColor: colors.background.base },
 });

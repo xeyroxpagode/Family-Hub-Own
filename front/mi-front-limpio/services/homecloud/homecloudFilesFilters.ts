@@ -31,14 +31,16 @@
 import type { FileSort } from './homecloudFilesService';
 
 export type FilesShowMode = 'all' | 'favorites';
+export type FilesViewMode = 'grid' | 'list';
 
 export interface FilesFilterState {
   readonly show: FilesShowMode;
   readonly sort: FileSort;
+  readonly view: FilesViewMode;
 }
 
 /** The state a freshly opened Files browser is in: everything, newest first. */
-export const DEFAULT_FILES_FILTER_STATE: FilesFilterState = Object.freeze({ show: 'all', sort: 'recent' });
+export const DEFAULT_FILES_FILTER_STATE: FilesFilterState = Object.freeze({ show: 'all', sort: 'recent', view: 'grid' });
 
 export const FILES_SHOW_OPTIONS: readonly { readonly value: FilesShowMode; readonly label: string }[] = Object.freeze([
   { value: 'all', label: 'Todos' },
@@ -47,7 +49,12 @@ export const FILES_SHOW_OPTIONS: readonly { readonly value: FilesShowMode; reado
 
 export const FILES_SORT_OPTIONS: readonly { readonly value: FileSort; readonly label: string }[] = Object.freeze([
   { value: 'recent', label: 'Recientes' },
-  { value: 'name', label: 'A-Z' },
+  { value: 'name', label: 'A–Z' },
+]);
+
+export const FILES_VIEW_OPTIONS: readonly { readonly value: FilesViewMode; readonly label: string }[] = Object.freeze([
+  { value: 'grid', label: 'Cuadrícula' },
+  { value: 'list', label: 'Lista' },
 ]);
 
 export function filesShowLabel(state: FilesFilterState): string {
@@ -69,7 +76,7 @@ export function filesSortLabel(state: FilesFilterState): string {
  * already uses for exactly this case.
  */
 export function hasNonDefaultFilesFilter(state: FilesFilterState): boolean {
-  return state.show !== DEFAULT_FILES_FILTER_STATE.show || state.sort !== DEFAULT_FILES_FILTER_STATE.sort;
+  return state.show !== DEFAULT_FILES_FILTER_STATE.show || state.sort !== DEFAULT_FILES_FILTER_STATE.sort || state.view !== DEFAULT_FILES_FILTER_STATE.view;
 }
 
 /**
@@ -82,12 +89,13 @@ export function hasNonDefaultFilesFilter(state: FilesFilterState): boolean {
 export function filesFilterDescription(state: FilesFilterState): string {
   const show = state.show === 'favorites' ? 'solo tus favoritos' : 'todos los archivos';
   const sort = state.sort === 'name' ? 'ordenados de A a Z' : 'ordenados por más recientes';
-  return `Mostrando ${show}, ${sort}.`;
+  const view = state.view === 'list' ? 'en lista' : 'en cuadrícula';
+  return `Mostrando ${show}, ${sort}, ${view}.`;
 }
 
 /** Accessibility label for the single filter icon. */
 export function filesFilterAccessibilityLabel(state: FilesFilterState): string {
-  return `Filtros y orden. ${filesFilterDescription(state)} Toca para cambiar.`;
+  return `Organizar. ${filesFilterDescription(state)} Toca para cambiar.`;
 }
 
 /** The `favoritesOnly` server parameter implied by this state. */

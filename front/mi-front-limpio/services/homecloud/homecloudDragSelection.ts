@@ -24,33 +24,51 @@
  * without a device. The screen owns the responder, the timers and the measured
  * frames; it never re-implements any of the rules.
  *
- * THE PRODUCT CONTRACT, stated once:
+ * THE PRODUCT CONTRACT, stated once (PATCH 1B: folders are selectable):
  *
- *   hold an UNSELECTED File   -> mode ADD     -> it and every crossed File become selected
- *   hold a SELECTED File      -> mode REMOVE  -> it and every crossed File become deselected
- *   re-cross a File           -> no-op        (each File is processed AT MOST ONCE per gesture)
- *   cross a Folder            -> ignored      (Folders are not selectable, by design)
+ *   hold an UNSELECTED entity -> mode ADD     -> it and every crossed entity become selected
+ *   hold a SELECTED entity    -> mode REMOVE  -> it and every crossed entity become deselected
+ *   re-cross an entity        -> no-op        (each identity is processed AT MOST ONCE per gesture)
+ *   cross a gap/header/index  -> ignored      (only registered entity frames are hit-testable)
  *   release / cancel / leave  -> the gesture, its visited set and any auto-scroll all end
  */
 
 /** The two things a sweep can mean. Decided once, at the anchor. */
 export type DragSelectionMode = 'add' | 'remove';
 
+/**
+ * PATCH 1B — the canonical identity a drag gesture processes.
+ *
+ * Files and folders share one selection stroke, so the visited set stores TYPED
+ * keys, never bare ids: `file:<id>` and `folder:<id>`. A folder id can never
+ * collide with a file id, and the surface parses the key back into
+ * `{ type, id }` before touching selection state.
+ */
+export type DragEntityKind = 'file' | 'folder';
+
+export const dragEntityKey = (kind: DragEntityKind, id: string): string => `${kind}:${id}`;
+
+export function parseDragEntityKey(key: string): { type: DragEntityKind; id: string } | null {
+  if (key.startsWith('file:')) return { type: 'file', id: key.slice('file:'.length) };
+  if (key.startsWith('folder:')) return { type: 'folder', id: key.slice('folder:'.length) };
+  return null;
+}
+
 export interface DragSelectionGesture {
-  /** The File the finger went down on. Never changes. */
+  /** The entity key the finger went down on. Never changes. */
   readonly anchorId: string;
   /** Fixed for the whole gesture. Never re-derived. */
   readonly mode: DragSelectionMode;
-  /** Every File this gesture already processed, the anchor included. */
+  /** Every entity key this gesture already processed, the anchor included. */
   readonly visited: ReadonlySet<string>;
 }
 
 /**
- * Begin a gesture from the File under the held pointer.
+ * Begin a gesture from the entity under the held pointer.
  *
  * The mode comes from the anchor's CURRENT selection state: holding something
- * unselected means "I am adding a run of Files", holding something already
- * selected means "I am removing a run of Files". That is the whole difference
+ * unselected means "I am adding a run", holding something already
+ * selected means "I am removing a run". That is the whole difference
  * from a generic per-tile toggle, and it is why the anchor's state is sampled
  * exactly once.
  */
@@ -63,13 +81,13 @@ export function beginDragSelection(input: { readonly anchorId: string; readonly 
   };
 }
 
-/** The selection state every File crossed by this gesture must end up in. */
+/** The selection state every entity crossed by this gesture must end up in. */
 export const dragSelectionTargetSelected = (gesture: DragSelectionGesture): boolean => gesture.mode === 'add';
 
 /**
- * Fold one crossed File into the gesture.
+ * Fold one crossed entity into the gesture.
  *
- * Returns the SAME gesture object when the File was already visited, which is
+ * Returns the SAME gesture object when the entity was already visited, which is
  * what makes "at most once" a structural property rather than a convention: a
  * re-cross cannot even reach the selection, so it cannot toggle twice. The
  * caller gets a fresh `visited` set only on the transition.
@@ -96,16 +114,25 @@ export interface TileFrame {
 export type FileTileFrames = ReadonlyMap<string, TileFrame>;
 
 /**
- * Record one MEASURED File tile frame.
+ * Record one MEASURED entity tile frame.
  *
- * Only File tiles are ever registered, which is why a Folder can never be swept:
- * a Folder has no entry here, so a hit test can never return one. The map is
- * copied rather than mutated so a frame map is a value, and a stale frame map can
- * never be half-updated from a layout callback.
+ * PATCH 1B — both File and Folder tiles register here under their canonical
+ * entity key, which is why a sweep can traverse both. Anything without an
+ * entry (header, filter icon, `+`, side index, blank grid space) can never be
+ * hit-tested into the selection. The map is copied rather than mutated so a
+ * frame map is a value, and a stale frame map can never be half-updated from a
+ * layout callback.
  */
 export function recordFileTileFrame(frames: FileTileFrames, fileId: string, frame: TileFrame): FileTileFrames {
   const next = new Map(frames);
   next.set(fileId, frame);
+  return next;
+}
+
+/** Register one measured tile frame under an entity key (`file:<id>` / `folder:<id>`). */
+export function recordEntityTileFrame(frames: FileTileFrames, entityKey: string, frame: TileFrame): FileTileFrames {
+  const next = new Map(frames);
+  next.set(entityKey, frame);
   return next;
 }
 

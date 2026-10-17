@@ -1,12 +1,13 @@
 /**
- * HomeCloud W1-C — Scanner accept → detach regression tests.
+ * HomeCloud W1-C — Scanner durable acceptance and completed-save regression tests.
  *
  * THE DEFECT
  * ----------
- * The Scanner navigated back on `intake.status === 'completed'`, so the user sat
- * on the Scanner through upload + verify + finalize. That contradicts the frozen
- * lifecycle: AFTER DURABLE ACCEPTANCE the UI is no longer the owner, so the
- * Scanner must detach at acceptance and let the household coordinator finish.
+ * Durable acceptance transfers execution to the household coordinator, while
+ * the Patch 1 scanner keeps its recoverable review session until the job reports
+ * completed. Only then may it publish the saved File, clean local drafts and
+ * return to the chosen destination. A failure before or after acceptance keeps
+ * the pages available for retry.
  *
  * WHAT IS ACTUALLY EXERCISED HERE
  * -------------------------------
@@ -170,10 +171,10 @@ function parkExecution(householdId: string, store: UploadJobStore) {
   return { release: () => release() };
 }
 
-// ── 1. navigation back happens BEFORE the job is completed ───────────────────
+// ── 1. acceptance transfers execution; navigation waits for completed ───────
 
 async function testDetachBeforeCompleted(): Promise<void> {
-  console.log('\n=== SCANNER 1: detach at acceptance, NOT at completed ===');
+  console.log('\n=== SCANNER 1: accepted execution, completed navigation ===');
   const store = resetWorld();
   const backend = new Backend();
   // The register never answers: the job is accepted and mid-flight, exactly the
@@ -197,19 +198,22 @@ async function testDetachBeforeCompleted(): Promise<void> {
     '1.3. and the surface has not seen a completed status at all');
 
   const outcome = scannerAcceptanceOutcome({ acceptedJobId: jobId, alreadyAccepted: false });
-  record(outcome.kind === 'detach', '1.4. so the policy says DETACH immediately');
+  record(outcome.kind === 'detach', '1.4. the durable job transfers execution ownership to the coordinator');
 
   // The policy must NOT detach while the job is merely uploading.
   const stillFlying = scannerAcceptanceOutcome({ acceptedJobId: jobId, alreadyAccepted: true });
   record(stillFlying.kind === 'stay', '1.5. a second observation never navigates twice (one-shot boundary)');
 
-  // The structural half: no `completed` may drive navigation any more.
+  // The structural half: accepted is not success. The Scanner publishes and
+  // returns only when the durable job actually completed.
   const screen = readFront('screens/HomeCloudScannerScreen.tsx');
-  record(!/intake\.status !==? 'completed'/.test(screen) && !/status === 'completed'/.test(screen),
-    '1.6. the screen no longer branches on a completed status to navigate');
+  record(/intake\.status !== 'completed'/.test(screen)
+    && /publishHomeCloudScannerSaved/.test(screen)
+    && /handleAccepted\(\)/.test(screen),
+  '1.6. completed publishes the saved File and only then returns from Scanner');
   const saveBody = between(screen, 'const handleSave = useCallback', 'const handleRetrySave = useCallback');
   record(saveBody.includes('getAcceptedJobId()') && saveBody.includes('scannerAcceptanceOutcome'),
-    '1.7. the boundary reads the REAL accepted signal, not a timeout or a status string');
+    '1.7. durable acceptance still comes from the REAL accepted signal, never a timer');
   record(!/setTimeout|savingRef/.test(saveBody), '1.8. acceptance is never inferred from a timer');
 
   __setSharedUploadJobStoreForTests(null);
@@ -485,7 +489,7 @@ function between(source: string, from: string, to: string): string {
 }
 
 async function main(): Promise<void> {
-  console.log('=== HOMECLOUD W1-C SCANNER ACCEPT → DETACH TESTS ===');
+  console.log('=== HOMECLOUD W1-C SCANNER ACCEPTANCE → COMPLETED SAVE TESTS ===');
   testPolicy();
   await testDetachBeforeCompleted();
   await testCoordinatorSurvivesDetach();

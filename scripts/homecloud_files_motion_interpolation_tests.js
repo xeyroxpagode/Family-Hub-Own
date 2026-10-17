@@ -347,13 +347,24 @@ check('HC-POL-013 still collapses to a 30 ms linear presence change under reduce
   assert.match(files, /useNativeDriver: true/);
 });
 
-check('HC-POL-011 keeps the folder slide tracked, with the breadcrumb trailing it', () => {
-  assert.match(files, /folderSlide\.setValue\(distance\)/);
-  assert.match(files, /duration: reducedMotion \? 40 : MOTION\.folderSlide/);
-  assert.match(files, /breadcrumbFade\.setValue\(0\)/);
-  assert.match(files, /duration: reducedMotion \? 40 : MOTION\.folderBreadcrumb/);
-  assert.match(files, /transform: \[\{ translateX: folderSlide \}\]/,
-    'the slide is a tracked translation, so it must not be re-keyed by an interpolation');
+check('PATCH 1C removes the horizontal folder slide from the list viewport entirely', () => {
+  // PATCH 1C — FINAL: the horizontal Files content slide is REMOVED. The
+  // translated wrapper was the owner of the physical grid drift after folder
+  // travel / Scanner returns / Grid-List roundtrips, because viewport
+  // measurement and hit testing happened inside the transformed coordinate
+  // system. The frozen decision is stability over decorative motion: no
+  // `folderSlide` value, no `playFolderMotion`, and NO translateX of any
+  // kind on the list viewport or its measurement parent.
+  assert.doesNotMatch(files, /folderSlide/,
+    'the folder-slide driven value must not exist');
+  assert.doesNotMatch(files, /playFolderMotion/,
+    'the folder-motion player must not exist');
+  assert.doesNotMatch(files, /transform: \[\{ translateX: folderSlide \}\]/,
+    'the list viewport must never be horizontally translated');
+  assert.match(files, /<View style=\{styles\.listMotion\}>/,
+    'the list wrapper is a plain, never-transformed View');
+  assert.doesNotMatch(files, /breadcrumbFade/,
+    'the frozen browser hierarchy uses one title region; a duplicate breadcrumb row must not return');
 });
 
 check('the viewer open transform keeps translateX, translateY and scale on one progress', () => {

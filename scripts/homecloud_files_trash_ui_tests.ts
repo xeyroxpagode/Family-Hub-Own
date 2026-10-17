@@ -356,6 +356,10 @@ const uiStub = {
   Skeleton: 'Skeleton',
   FormActionRow: 'FormActionRow',
   InteractivePressable: 'InteractivePressable',
+  AdaptiveActionMenu: 'AdaptiveActionMenu',
+  AdaptiveMenuRow: 'AdaptiveMenuRow',
+  AdaptiveMenuSeparator: 'AdaptiveMenuSeparator',
+  menuAnchorFromEvent: () => null,
 };
 const iconsStub = { HomePlusIcon: 'HomePlusIcon' };
 const downloadStub = {
@@ -677,7 +681,8 @@ function renderText(tree: unknown): string[] {
 }
 
 function buttonByTitle(tree: unknown, title: string): TestElement | null {
-  return findOne(tree, (element) => element.type === 'AppButton' && element.props?.title === title);
+  // PATCH 1B — one compact popover row per command (title is the contract).
+  return findOne(tree, (element) => element.props?.title === title);
 }
 
 type ListProps = { data: { id: string; displayName?: string }[]; renderItem: (input: { item: unknown; index: number }) => unknown };
@@ -810,7 +815,8 @@ async function main(): Promise<void> {
     });
     let tree = host.__render(view);
     host.__commit();
-    const trashButton = findOne(tree, (element) => element.type === 'AppButton' && element.props?.title === 'Mover a la papelera');
+    // PATCH 1B — one compact popover row per command (title is the contract).
+    const trashButton = findOne(tree, (element) => element.props?.title === 'Mover a la papelera');
     record(trashButton !== null, 'B1. the host renders `Mover a la papelera`');
     record(trashButton?.props?.variant === 'danger', 'B2. the trash row is the DANGER variant');
     if (trashButton) (trashButton.props.onPress as () => void)();
@@ -835,9 +841,9 @@ async function main(): Promise<void> {
       onShare: () => undefined,
     }));
     host.__commit();
-    const busyTrash = findOne(busyTree, (element) => element.type === 'AppButton' && element.props?.title === 'Mover a la papelera');
-    const favoriteWhileTrashBusy = findOne(busyTree, (element) => element.type === 'AppButton' && element.props?.title === 'Agregar a favoritos');
-    record(busyTrash?.props?.disabled === true && busyTrash?.props?.loading === true, 'B4. trashBusy disables and loads ONLY the trash row');
+    const busyTrash = findOne(busyTree, (element) => element.props?.title === 'Mover a la papelera');
+    const favoriteWhileTrashBusy = findOne(busyTree, (element) => element.props?.title === 'Agregar a favoritos');
+    record(busyTrash?.props?.disabled === true && busyTrash?.props?.busy === true, 'B4. trashBusy disables and busies ONLY the trash row');
     record(favoriteWhileTrashBusy?.props?.disabled === false, 'B5. the Favorite row is NOT frozen by a trash in flight');
     host.__unmount();
   }
@@ -1109,11 +1115,18 @@ async function main(): Promise<void> {
     const surface = mount(() => filesScreen.HomeCloudFilesView({ visible: true }));
     await surface.settle(6);
 
-    // Long press -> action sheet -> Mover a la papelera -> POST + re-read.
+    // PATCH 1B — tile ⋯ -> anchored popover -> Mover a la papelera -> POST +
+    // re-read. Long press is selection now and never opens actions.
     // The host is a FUNCTION COMPONENT: the tree holds its element, and its
     // rendered output is materialized by invoking it — exactly like section B.
-    const tile = filesTileBody(surface.tree(), 'c-1');
-    (tile.props.onLongPress as () => void)();
+    const fileList = findOne(surface.tree(), (element) => element.type === 'FlatList');
+    const fileListProps = fileList?.props as {
+      data: { kind: string; value: { id: string } }[];
+      renderItem: (input: { item: unknown; index: number }) => unknown;
+    };
+    const fileIndex = fileListProps.data.findIndex((item) => item.kind === 'file' && item.value.id === 'c-1');
+    const fileTile = fileListProps.renderItem({ item: fileListProps.data[fileIndex], index: fileIndex }) as TestElement;
+    (fileTile.props.onMenu as (event: unknown) => void)({ nativeEvent: { pageX: 0, pageY: 0 } });
     surface.render();
     const hostElement = findAll(surface.tree(), (element) => typeof element.type === 'function' && element.type.name === 'FileActionHost')[0];
     const hostOutput = actionHost.FileActionHost(hostElement.props);

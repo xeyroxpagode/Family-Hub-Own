@@ -654,8 +654,9 @@ function typeSearch(tree: unknown, text: string): boolean {
  * the filter icon's own accessibility label and the order chip's own label.
  */
 async function chooseSortThroughFilterMenu(surface: { tree: unknown; settle: () => Promise<void> }, orderLabel: string): Promise<boolean> {
+  // PATCH-1 frozen vocabulary: the filter icon announces itself as `Organizar.`.
   const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
-    && element.props.accessibilityLabel.startsWith('Filtros y orden.')
+    && element.props.accessibilityLabel.startsWith('Organizar.')
     && typeof element.props?.onPress === 'function');
   if (!filterIcon) return false;
   filterIcon.props.onPress();
@@ -788,7 +789,7 @@ async function testSortReachesTheRead(): Promise<void> {
   record(transport.lastFileRead()?.params.get('sort') === 'recent', 'C1. the surface starts on the default sort');
   record(newestFirst === 'c-100', 'C2. and the list follows it (newest first, as the read ordered it)');
 
-  record(await chooseSortThroughFilterMenu(surface, 'A-Z'), 'C3. the sort control is reachable through the filter menu');
+  record(await chooseSortThroughFilterMenu(surface, 'A–Z'), 'C3. the sort control is reachable through the filter menu');
   await surface.settle();
 
   const read = transport.lastFileRead();

@@ -428,12 +428,16 @@ const uiStub = {
   AppText: 'AppText',
   AppInput: 'AppInput',
   ActionSheet: 'ActionSheet',
+  AdaptiveActionMenu: 'AdaptiveActionMenu',
+  AdaptiveMenuRow: 'AdaptiveMenuRow',
+  AdaptiveMenuSeparator: 'AdaptiveMenuSeparator',
   DatePickerSheet: 'DatePickerSheet',
   ErrorState: 'ErrorState',
   FormActionRow: 'FormActionRow',
   // The header controls are InteractivePressables; leaving this out of the stub made the
   // component resolve to undefined and every header control mount with no type.
   InteractivePressable: 'InteractivePressable',
+  menuAnchorFromEvent: () => null,
 };
 const iconsStub = { HomePlusIcon: 'HomePlusIcon' };
 const fileIntakeStub = { FileIntake: 'FileIntake' };
@@ -794,8 +798,9 @@ function searchText(tree: unknown): string {
  * folder navigation, and one intentional change costs EXACTLY ONE read.
  */
 async function chooseSortThroughFilterMenu(surface: { tree: unknown; settle: () => Promise<void> }, orderLabel: string): Promise<boolean> {
+    // PATCH-1 frozen vocabulary: the filter icon announces itself as `Organizar.`.
     const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
-      && element.props.accessibilityLabel.startsWith('Filtros y orden.')
+      && element.props.accessibilityLabel.startsWith('Organizar.')
       && typeof element.props?.onPress === 'function');
     if (!filterIcon) return false;
     filterIcon.props.onPress();
@@ -864,9 +869,11 @@ function openTileActions(tree: unknown, kind: 'folder' | 'file', id: string): bo
     const index = props.data.findIndex((item) => item.kind === kind && item.value.id === id);
     if (index === -1) return false;
     const tile = props.renderItem({ item: props.data[index], index }) as TestElement;
-    const gesture = tile?.props?.onLongPress ?? tile?.props?.onMore;
-    if (typeof gesture !== 'function') return false;
-    (gesture as () => void)();
+    // PATCH 1B — contextual actions open exclusively from the visible ⋯
+    // control. Long press is selection now and never opens a menu.
+    const menu = tile?.props?.onMenu;
+    if (typeof menu !== 'function') return false;
+    (menu as (event: unknown) => void)({ nativeEvent: { pageX: 0, pageY: 0 } });
     return true;
   }
 
@@ -874,6 +881,20 @@ function pressButton(tree: unknown, title: string): boolean {
   const button = findAll(tree, (element) => element.props?.title === title && typeof element.props?.onPress === 'function');
   if (button.length === 0) return false;
   button[button.length - 1].props.onPress();
+  return true;
+}
+
+/**
+ * Press the FIRST match. Closed popovers stay mounted but invisible, so when a
+ * menu row and a sheet CTA share a title, the menu row (earlier in the tree)
+ * is the one that opens the confirmation — pressing the last would hit the
+ * still-closed confirmation CTA, which correctly refuses to run with no
+ * pending confirmation.
+ */
+function pressFirstButton(tree: unknown, title: string): boolean {
+  const button = findAll(tree, (element) => element.props?.title === title && typeof element.props?.onPress === 'function');
+  if (button.length === 0) return false;
+  button[0].props.onPress();
   return true;
 }
 
@@ -973,7 +994,7 @@ async function testFolderCatalogueInvalidation(): Promise<void> {
   const nameInput = findOne(surface.tree, (element) => element.props?.label === 'Nombre' && typeof element.props?.onChangeText === 'function');
   nameInput?.props.onChangeText('Viajes');
   surface.render();
-  record(pressButton(surface.tree, 'Guardar'), 'A3. the create control is reachable');
+  record(pressButton(surface.tree, 'Crear'), 'A3. the create control is reachable');
   await surface.settle();
 
   record(household.folderMutations.some((entry) => entry.startsWith('create:')), 'A4. the create really reached the backend');
@@ -1006,7 +1027,11 @@ async function testFolderCatalogueInvalidation(): Promise<void> {
   // 3. DELETE, with files inside it.
   record(openTileActions(surface.tree, 'folder', 'ff-recetas'), 'A16. the delete affordance is reachable');
   surface.render();
-  record(pressButton(surface.tree, 'Eliminar carpeta'), 'A17. the delete control is reachable');
+  record(pressFirstButton(surface.tree, 'Eliminar carpeta'), 'A17. the delete control is reachable');
+  surface.render();
+  // The menu row opens the destructive confirmation (contents are promoted,
+  // never deleted); the confirmation's own CTA executes it.
+  record(pressButton(surface.tree, 'Eliminar carpeta'), 'A17b. the delete confirmation is confirmed');
   await surface.settle();
 
   record(household.folderMutations.includes('delete:ff-recetas'), 'A18. the delete really reached the backend');
@@ -1180,7 +1205,7 @@ async function testNavigationAndQuery(): Promise<void> {
   record(bIds.length === 2 && bIds.every((id) => id.startsWith('in-ff-viajes')), 'B34. and the list is folder B\'s own files');
 
   // SORT SURVIVES NAVIGATION.
-  record(await chooseSortThroughFilterMenu(surface, 'A-Z'), 'B35. the sort control is reachable through the filter menu');
+  record(await chooseSortThroughFilterMenu(surface, 'A–Z'), 'B35. the sort control is reachable through the filter menu');
   await surface.settle();
   record(household.lastFileRead()?.params.get('sort') === 'name', 'B36. the new sort reached the read');
   const sortBeforeNav = household.lastFileRead()?.params.get('sort');
@@ -1209,7 +1234,7 @@ async function testNavigationAndQuery(): Promise<void> {
   record(debounced.lastFileRead()?.params.get('query') === 'a', 'B36. carrying the intended query');
 
   const readsBeforeSort = debounced.fileReads().length;
-  record(await chooseSortThroughFilterMenu(debounceSurface, 'A-Z'), 'B37. a sort change');
+  record(await chooseSortThroughFilterMenu(debounceSurface, 'A–Z'), 'B37. a sort change');
   await debounceSurface.settle();
   record(debounced.fileReads().length === readsBeforeSort + 1, 'B38. costs exactly ONE read (no duplicate)');
   debounceSurface.unmount();

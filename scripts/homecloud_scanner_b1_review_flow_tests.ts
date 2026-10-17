@@ -1,6 +1,6 @@
 /**
- * HC-3E B1 — REVIEW FLOW regression tests: Capture → Review → Edit → Apply →
- * Confirm → Review.
+ * HC-3E B1 — FINAL REVIEW FLOW regression tests: Capture → Editor → Confirm →
+ * Review.
  *
  * WHY THIS SUITE EXISTS
  * ---------------------
@@ -31,7 +31,7 @@
  *                  machine, apply → real processing plan → preview, confirm →
  *                  navigation payload, cancel ownership, re-edit from the
  *                  preserved original with saved parameters.
- *   RF-C  SCANNER  The REAL compiled HomeCloudScannerScreen: capture → review,
+ *   RF-C  SCANNER  The REAL compiled HomeCloudScannerScreen: capture → editor → review,
  *                  add page, editor push, outcome adoption through the REAL
  *                  router result, phase/pages/selectedId preservation, no auto
  *                  camera/PDF/upload, cancel preserves the previous processed
@@ -640,13 +640,28 @@ function thumbRows(tree: unknown): TestElement[] {
 }
 
 function previewImage(tree: unknown): TestElement | null {
-  return findOne(tree, (element) => element.type === reactNativeStub.Image && typeof element.props?.accessibilityLabel === 'string' && element.props.accessibilityLabel.startsWith('Página '));
+  // PATCH 1C (H) — the large preview is View → ScannerPageImage (the ONE
+  // canonical display resolver). The hook host does not expand function
+  // components, so the preview is located by its component element (the
+  // thumbnail copies carry an empty label) and its display URI resolved
+  // through the SAME canonical policy the component consumes
+  // (`getPageEffectiveUri`).
+  const resolverElement = findOne(tree, (element) => typeof element.type === 'function'
+    && (element.type as { name?: string }).name === 'ScannerPageImage'
+    && element.props?.accessibilityLabel === 'Vista previa de la página seleccionada');
+  if (resolverElement === null) return null;
+  const page = resolverElement.props?.page as ScannerPage;
+  return { type: 'Image', props: { source: { uri: getPageEffectiveUri(page) } } };
 }
 
 function thumbImages(tree: unknown): string[] {
   return thumbRows(tree).map((row) => {
-    const image = findOne(row, (element) => element.type === reactNativeStub.Image);
-    return (image?.props?.source as { uri: string } | undefined)?.uri ?? '';
+    // PATCH 1C — the thumbnail strip consumes the SAME canonical resolver
+    // component as the large preview.
+    const resolverElement = findOne(row, (element) => typeof element.type === 'function'
+      && (element.type as { name?: string }).name === 'ScannerPageImage');
+    const page = resolverElement?.props?.page as ScannerPage | undefined;
+    return page ? getPageEffectiveUri(page) : '';
   });
 }
 
@@ -722,7 +737,7 @@ function freshWorld(): void {
 }
 
 async function main(): Promise<void> {
-  console.log('\n=== HC-3E SCANNER B1 REVIEW FLOW (CAPTURE → REVIEW → EDIT → CONFIRM → REVIEW) ===\n');
+console.log('\n=== HC-3E SCANNER B1 FINAL FLOW (CAPTURE → EDITOR → CONFIRM → REVIEW) ===\n');
   console.log(`  real router: @react-navigation/routers@${routersVersion} / core@${coreVersion}`);
   record(routersVersion.startsWith('7.') && coreVersion.startsWith('7.'), 'RF0.1. the real React Navigation 7 router is the one under test');
 
@@ -770,7 +785,7 @@ async function main(): Promise<void> {
   }
 
   // ═════════════════════════════════════════════════════════════════════════
-  // RF-B: the REAL editor — apply, confirm, cancel, re-edit
+  // RF-B: the REAL editor — one Confirmar action, cancel, re-edit
   // ═══════════════════════════════════════════════════════════════════════
   console.log('\n--- RF-B: the real editor screen over the real session/gesture/geometry code ---');
 
@@ -780,12 +795,12 @@ async function main(): Promise<void> {
   const pageOne: ScannerPage = createScannerPage('scan_p1', 'file:///tmp/capture_1.jpg', 1200, 1800);
   fsFiles.add('file:///tmp/capture_1.jpg');
 
-  // ── RF-B1: rotate + REAL handle drag → apply → real processed preview ──
+  // ── RF-B1: rotate + REAL handle drag → Confirmar processes and returns ──
   let editorPage = pageOne;
   const editorA = mountView(() => editorScreen.ScannerImageEditorScreen(), () => { routeParams = { page: editorPage }; });
   await editorA.settle();
 
-  const rotateButton = buttonByTitle(editorA.tree(), 'Rotar 90°');
+  const rotateButton = buttonByTitle(editorA.tree(), 'Rotar');
   record(rotateButton !== null, 'RF-B1a. the editor renders the rotate action');
   if (rotateButton) editorA.press(rotateButton);
   await editorA.settle();
@@ -816,47 +831,44 @@ async function main(): Promise<void> {
   (canvas!.props.onPanResponderRelease as () => void)();
   await editorA.settle();
 
-  const applyButton = buttonByLabel(editorA.tree(), 'Aplicar recorte y rotación');
-  record(applyButton !== null, 'RF-B1c. the apply action is offered after a real handle drag');
-  if (applyButton) editorA.press(applyButton);
+  record(buttonByLabel(editorA.tree(), 'Aplicar recorte y rotación') === null,
+    'RF-B1c. the deprecated duplicate Apply action is absent');
+  const confirmButton = buttonByLabel(editorA.tree(), 'Confirmar edición');
+  record(confirmButton !== null && confirmButton?.props?.disabled !== true,
+    'RF-B1d. Confirmar is the single primary completion action');
+  const navigationsBefore = navigations.length;
+  if (confirmButton) editorA.press(confirmButton);
   await editorA.settle();
 
-  record(perspectiveCalls.length === 1, 'RF-B1d. apply runs the WebView perspective engine exactly once (a real processed file is generated)');
+  record(perspectiveCalls.length === 1, 'RF-B1e. Confirmar runs the perspective engine exactly once');
   const perspectiveA = perspectiveCalls[0]?.job;
-  record(readsOf().includes('file:///tmp/capture_1.jpg'), 'RF-B1e. processing always starts from the preserved ORIGINAL capture');
-  record(perspectiveA?.rotationSteps === 1, 'RF-B1f. the plan carries the applied 90° rotation to the oriented canvas');
+  record(readsOf().includes('file:///tmp/capture_1.jpg'), 'RF-B1f. processing always starts from the preserved ORIGINAL capture');
+  record(perspectiveA?.rotationSteps === 1, 'RF-B1g. the plan carries the applied 90° rotation to the oriented canvas');
   const sourcePoints = (perspectiveA?.sourcePoints ?? []) as { x: number; y: number }[];
   record(
     sourcePoints[0]?.x > 0
       && sourcePoints[0]?.y > 0
       && perspectiveA?.outputSize?.width > 0
       && perspectiveA?.outputSize?.height > 0,
-    'RF-B1g. the plan carries the REAL dragged quad (inward topLeft handle), validated against post-rotation pixels',
+    'RF-B1h. the plan carries the REAL dragged quad, validated against post-rotation pixels',
   );
-  record(buttonByTitle(editorA.tree(), 'Ver original') !== null, 'RF-B1h. the processed preview is installed (the surface offers going back to the original)');
 
-  // ── RF-B2: confirm hands the preview off as a serializable outcome ──
-  const confirmButton = buttonByLabel(editorA.tree(), 'Confirmar edición');
-  record(confirmButton !== null && confirmButton?.props?.disabled !== true, 'RF-B2a. confirm is enabled while a matching preview is shown');
-  const navigationsBefore = navigations.length;
-  if (confirmButton) editorA.press(confirmButton);
-  await editorA.settle();
-
-  record(navigations.length === navigationsBefore + 1, 'RF-B2b. confirm navigates exactly once');
+  // ── RF-B2: Confirmar hands the result off as a serializable outcome ──
+  record(navigations.length === navigationsBefore + 1, 'RF-B2a. confirm navigates exactly once');
   const handOff = navigations[navigations.length - 1]?.[0] as {
     name?: string;
     params?: { scannerEditOutcome?: ScannerPageEditOutcome };
     merge?: boolean;
     pop?: boolean;
   };
-  record(handOff?.name === 'HomeCloudScanner', 'RF-B2c. the hand-off targets the Scanner');
-  record(handOff?.merge === true, 'RF-B2d. the hand-off MERGES params (the scanner keeps its folder context)');
-  record(handOff?.pop === true, 'RF-B2e. the hand-off carries pop:true — the router reuses the mounted Scanner instead of pushing a fresh one (the B1 fix)');
+  record(handOff?.name === 'HomeCloudScanner', 'RF-B2b. the hand-off targets the Scanner');
+  record(handOff?.merge === true, 'RF-B2c. the hand-off MERGES params');
+  record(handOff?.pop === true, 'RF-B2d. the hand-off carries pop:true');
   const outcomeOne = handOff?.params?.scannerEditOutcome;
-  record(outcomeOne?.pageId === 'scan_p1', 'RF-B2f. the outcome names the edited page');
+  record(outcomeOne?.pageId === 'scan_p1', 'RF-B2e. the outcome names the edited page');
   record(outcomeOne?.processedUri !== undefined && String(outcomeOne.processedUri).startsWith('file:///cache/homecloud-scanner-perspective-'),
-    'RF-B2g. the outcome carries the REAL processed file the preview showed');
-  record(outcomeOne?.edit?.rotationSteps === 1, 'RF-B2h. the outcome carries the canonical edit (rotation applied)');
+    'RF-B2f. the outcome carries the REAL processed file');
+  record(outcomeOne?.edit?.rotationSteps === 1, 'RF-B2g. the outcome carries the canonical edit');
 
   editorA.unmount();
   record(deletesOf(String(outcomeOne?.processedUri)) === 0, 'RF-B2i. unmount after adoption deletes NOTHING (the Scanner owns the processed file now)');
@@ -872,9 +884,10 @@ async function main(): Promise<void> {
   const editorB = mountView(() => editorScreen.ScannerImageEditorScreen(), () => { routeParams = { page: editorPage }; });
   await editorB.settle();
 
-  const applyAgain = buttonByLabel(editorB.tree(), 'Aplicar recorte y rotación');
-  record(applyAgain !== null, 'RF-B3a. re-editing opens the editor with the apply action (parameters recovered)');
-  if (applyAgain) editorB.press(applyAgain);
+  record(buttonByLabel(editorB.tree(), 'Aplicar recorte y rotación') === null,
+    'RF-B3a. re-editing still exposes no duplicate Apply action');
+  const confirmAgain = buttonByLabel(editorB.tree(), 'Confirmar edición');
+  if (confirmAgain) editorB.press(confirmAgain);
   await editorB.settle();
   record(
     perspectiveCalls.length === 1 && readsOf().filter((uri) => uri === 'file:///tmp/capture_1.jpg').length >= 2,
@@ -882,16 +895,22 @@ async function main(): Promise<void> {
   );
   record(perspectiveCalls[0]?.job?.rotationSteps === 1, 'RF-B3c. the saved canonical parameters (rotation) drive the regeneration');
 
-  // ── RF-B4: cancel preserves the previous processed image ──
-  const previousProcessed = String(outcomeOne?.processedUri);
-  const abandonedPreview = fsCalls.filter((call) => call.op === 'write').at(-1)?.uri ?? '';
-  const cancelButton = buttonByLabel(editorB.tree(), 'Cancelar edición');
-  record(cancelButton !== null, 'RF-B4a. cancel is offered');
-  if (cancelButton) editorB.press(cancelButton);
-  await editorB.settle();
-  record(goBacks.length === 1, 'RF-B4b. cancel pops back to the Scanner');
   editorB.unmount();
-  record(deletesOf(abandonedPreview) === 1, 'RF-B4c. cancel deletes the preview the editor still owned exactly once');
+
+  // ── RF-B4: cancel preserves the previous processed image ──
+  editorPage = editedSnapshot;
+  const editorCancel = mountView(() => editorScreen.ScannerImageEditorScreen(), () => { routeParams = { page: editorPage }; });
+  await editorCancel.settle();
+  const previousProcessed = String(outcomeOne?.processedUri);
+  const writesBeforeCancel = fsCalls.filter((call) => call.op === 'write').length;
+  const cancelButton = buttonByLabel(editorCancel.tree(), 'Cancelar edición');
+  record(cancelButton !== null, 'RF-B4a. cancel is offered');
+  if (cancelButton) editorCancel.press(cancelButton);
+  await editorCancel.settle();
+  record(goBacks.length === 1, 'RF-B4b. cancel pops back to the Scanner');
+  editorCancel.unmount();
+  record(fsCalls.filter((call) => call.op === 'write').length === writesBeforeCancel,
+    'RF-B4c. cancel creates no unconfirmed processed artifact');
   record(deletesOf(previousProcessed) === 0, 'RF-B4d. cancel NEVER deletes the Scanner-owned processed image (the previous edit survives)');
   record(deletesOf('file:///tmp/capture_1.jpg') === 0, 'RF-B4e. cancel never deletes the original capture');
 
@@ -916,17 +935,39 @@ async function main(): Promise<void> {
 
   const shutter = buttonByLabel(scanner.tree(), 'Capturar página');
   record(shutter !== null && shutter?.props?.disabled !== true, 'RF-C1b. the shutter is armed once the camera is ready');
+  const navigationBeforeCapture = navigations.length;
   if (shutter) scanner.press(shutter);
   await scanner.settle();
 
+  const firstEditorPush = navigations[navigations.length - 1];
+  const firstCapturedPage = (firstEditorPush?.[1] as { page?: ScannerPage } | undefined)?.page;
+  record(navigations.length === navigationBeforeCapture + 1
+    && firstEditorPush?.[0] === 'ScannerImageEditor'
+    && firstCapturedPage?.originalUri === 'file:///tmp/capture_1.jpg',
+  'RF-C2a. capture automatically opens the newly captured page editor');
+  let captureEditorPage = firstCapturedPage as ScannerPage;
+  const firstCaptureEditor = mountView(() => editorScreen.ScannerImageEditorScreen(), () => { routeParams = { page: captureEditorPage }; });
+  await firstCaptureEditor.settle();
+  const firstCaptureConfirm = buttonByLabel(firstCaptureEditor.tree(), 'Confirmar edición');
+  record(firstCaptureConfirm !== null, 'RF-C2b. the mandatory editor offers Confirmar');
+  if (firstCaptureConfirm) firstCaptureEditor.press(firstCaptureConfirm);
+  await firstCaptureEditor.settle();
+  const firstCaptureHandOff = navigations[navigations.length - 1]?.[0] as {
+    params?: { scannerEditOutcome?: ScannerPageEditOutcome }; pop?: boolean;
+  };
+  record(firstCaptureHandOff?.pop === true && firstCaptureHandOff?.params?.scannerEditOutcome?.pageId === firstCapturedPage?.id,
+    'RF-C2c. Confirmar returns the captured page to the existing scanner session');
+  firstCaptureEditor.unmount();
+  scannerRouteParams = { ...scannerRouteParams, scannerEditOutcome: firstCaptureHandOff?.params?.scannerEditOutcome };
+  scanner.render();
+  await scanner.settle();
+
   let previewEl = previewImage(scanner.tree());
-  record(previewEl !== null, 'RF-C2a. after capture the scanner lands on REVIEW (the preview is rendered)');
-  record((previewEl?.props?.source as { uri: string })?.uri === 'file:///tmp/capture_1.jpg',
-    'RF-C2b. the unedited preview shows the original capture');
-  record(renderText(scanner.tree()).includes('1 página'), 'RF-C2c. the review header counts one page');
+  record(previewEl !== null, 'RF-C2d. after Confirmar the scanner lands on Review');
+  record(renderText(scanner.tree()).includes('1 página'), 'RF-C2e. the review header counts one page');
 
   // Add a second page.
-  const addPage = buttonByTitle(scanner.tree(), 'Agregar página');
+  const addPage = buttonByTitle(scanner.tree(), '+ Página');
   record(addPage !== null, 'RF-C3a. the review phase offers Add Page');
   if (addPage) scanner.press(addPage);
   await scanner.settle();
@@ -938,29 +979,58 @@ async function main(): Promise<void> {
   if (shutterAgain) scanner.press(shutterAgain);
   await scanner.settle();
 
+  const secondEditorPush = navigations[navigations.length - 1];
+  const secondCapturedPage = (secondEditorPush?.[1] as { page?: ScannerPage } | undefined)?.page;
+  record(secondEditorPush?.[0] === 'ScannerImageEditor' && secondCapturedPage?.originalUri === 'file:///tmp/capture_2.jpg',
+    'RF-C3c. + Página follows camera → editor for the second capture');
+  captureEditorPage = secondCapturedPage as ScannerPage;
+  const secondCaptureEditor = mountView(() => editorScreen.ScannerImageEditorScreen(), () => { routeParams = { page: captureEditorPage }; });
+  await secondCaptureEditor.settle();
+  const secondCaptureConfirm = buttonByLabel(secondCaptureEditor.tree(), 'Confirmar edición');
+  if (secondCaptureConfirm) secondCaptureEditor.press(secondCaptureConfirm);
+  await secondCaptureEditor.settle();
+  const secondCaptureHandOff = navigations[navigations.length - 1]?.[0] as {
+    params?: { scannerEditOutcome?: ScannerPageEditOutcome };
+  };
+  secondCaptureEditor.unmount();
+  scannerRouteParams = { ...scannerRouteParams, scannerEditOutcome: secondCaptureHandOff?.params?.scannerEditOutcome };
+  scanner.render();
+  await scanner.settle();
+
   let pages = pageData(scanner.tree());
   record(pages.length === 2, 'RF-C4a. two captured pages are preserved in order');
   const [pageA, pageB] = pages;
+  const initialPageBProcessed = pageB.processedUri;
   record(pageA.originalUri === 'file:///tmp/capture_1.jpg' && pageB.originalUri === 'file:///tmp/capture_2.jpg',
     'RF-C4b. both page identities survive (originals kept, ids stable)');
 
-  // Select the FIRST page, then push the editor exactly like a user tap.
+  // PATCH 1C (J) — tapping an existing thumbnail SELECTS the page (large
+  // preview + visible actions follow `selectedId`) and NEVER opens the
+  // editor. The visible `Editar` action is the single editor door.
   const rows = thumbRows(scanner.tree());
   record(rows.length === 2, 'RF-C5a. the thumbnail strip lists both pages');
+  const navigationsBeforePush = navigations.length;
   scanner.press(rows[0]);
   await scanner.settle();
   previewEl = previewImage(scanner.tree());
-  record((previewEl?.props?.source as { uri: string })?.uri === 'file:///tmp/capture_1.jpg', 'RF-C5b. selecting a thumbnail focuses that page');
-
-  const editButton = buttonByTitle(scanner.tree(), 'Editar página');
-  record(editButton !== null, 'RF-C6a. the review phase offers Edit');
-  const navigationsBeforePush = navigations.length;
+  record((previewEl?.props?.source as { uri: string })?.uri === getPageEffectiveUri(pageA),
+    'RF-C5b. selecting a thumbnail focuses that page');
+  record(navigations.length === navigationsBeforePush,
+    'RF-C6a. PATCH 1C: a thumbnail tap only SELECTS — it never pushes the editor');
+  record(
+    buttonByTitle(scanner.tree(), 'Repetir') !== null
+      && buttonByTitle(scanner.tree(), 'Editar') !== null
+      && buttonByTitle(scanner.tree(), 'Eliminar') !== null,
+    'RF-C6a2. the selected page\'s actions are VISIBLE (Repetir · Editar · Eliminar), not hidden in ⋯',
+  );
+  const editButton = buttonByLabel(scanner.tree(), 'Editar la página seleccionada');
+  record(editButton !== null, 'RF-C6a3. the visible Editar action is offered for the selected page');
   if (editButton) scanner.press(editButton);
   await scanner.settle();
-  record(navigations.length === navigationsBeforePush + 1, 'RF-C6b. Edit pushes the editor once');
+  record(navigations.length === navigationsBeforePush + 1, 'RF-C6b. Editar pushes the editor exactly once');
   const pushedPage = (navigations[navigations.length - 1]?.[1] as { page?: ScannerPage } | undefined)?.page;
   record(pushedPage?.id === pageA.id && pushedPage?.originalUri === 'file:///tmp/capture_1.jpg',
-    'RF-C6c. the editor receives the selected page snapshot (serializable, original preserved)');
+    'RF-C6c. the editor receives the selected page snapshot');
 
   // Run the REAL editor flow on the pushed snapshot: rotate + crop + apply +
   // confirm — the exact interaction sequence the physical QA performed.
@@ -969,7 +1039,7 @@ async function main(): Promise<void> {
   const editorC = mountView(() => editorScreen.ScannerImageEditorScreen(), () => { routeParams = { page: editorLivePage }; });
   await editorC.settle();
 
-  const rotateC = buttonByTitle(editorC.tree(), 'Rotar 90°');
+  const rotateC = buttonByTitle(editorC.tree(), 'Rotar');
   if (rotateC) editorC.press(rotateC);
   await editorC.settle();
   const canvasC = findOne(editorC.tree(), (element) => element.type === 'View' && element.props?.accessibilityLabel === 'Área de edición de la página');
@@ -978,9 +1048,6 @@ async function main(): Promise<void> {
   (canvasC!.props.onPanResponderGrant as (event: unknown) => void)(grantEvent(box.x, box.y));
   (canvasC!.props.onPanResponderMove as (event: unknown) => void)(grantEvent(dragTargetX, dragTargetY));
   (canvasC!.props.onPanResponderRelease as () => void)();
-  await editorC.settle();
-  const applyC = buttonByLabel(editorC.tree(), 'Aplicar recorte y rotación');
-  if (applyC) editorC.press(applyC);
   await editorC.settle();
   const confirmC = buttonByLabel(editorC.tree(), 'Confirmar edición');
   if (confirmC) editorC.press(confirmC);
@@ -1022,7 +1089,7 @@ async function main(): Promise<void> {
   pages = pageData(scanner.tree());
   record(pages.length === 2 && pages[0].id === pageA.id && pages[1].id === pageB.id,
     'RF-C9c. confirmation preserves BOTH captured pages and their identities');
-  record(pages[0].processedUri === outcomeC?.processedUri && pages[1].processedUri === null,
+  record(pages[0].processedUri === outcomeC?.processedUri && pages[1].processedUri === initialPageBProcessed,
     'RF-C9d. only the edited page adopted the processed image (independent edits)');
   record(pages[0].edit?.rotationSteps === 1, 'RF-C9e. the canonical edit parameters were adopted');
   record(thumbImages(scanner.tree())[0] === outcomeC?.processedUri, 'RF-C9f. the thumbnail shows the corrected image');
@@ -1031,15 +1098,19 @@ async function main(): Promise<void> {
   record(printCalls.length === 0, 'RF-C9h. confirming does NOT generate a PDF');
   record(registerCalls() === 0, 'RF-C9i. confirming does NOT upload anything');
   record(goBacks.length === 0, 'RF-C9j. confirming does NOT navigate away (the review session continues)');
+  // PATCH 1C (I) — the page-action ⋯ is GONE: Repetir/Editar/Eliminar and the
+  // reorder controls are visible directly on the review surface.
   record(
-    buttonByTitle(scanner.tree(), 'Agregar página') !== null
-      && buttonByTitle(scanner.tree(), 'Repetir página') !== null
-      && buttonByTitle(scanner.tree(), 'Editar página') !== null
-      && buttonByTitle(scanner.tree(), 'Eliminar página') !== null
-      && buttonByTitle(scanner.tree(), 'Crear PDF') !== null,
-    'RF-C9k. every review action survives the confirmation (Add, Retake, Edit, Delete, Create PDF)',
+    buttonByTitle(scanner.tree(), '+ Página') !== null
+      && buttonByTitle(scanner.tree(), 'Repetir') !== null
+      && buttonByTitle(scanner.tree(), 'Eliminar') !== null
+      && buttonByTitle(scanner.tree(), 'Guardar PDF') !== null,
+    'RF-C9k. review keeps Add, VISIBLE page actions and Save PDF after confirmation',
   );
-  record(buttonByTitle(scanner.tree(), 'Restablecer') !== null, 'RF-C9l. the edited page offers Restablecer (reset to original)');
+  record(
+    buttonByLabel(scanner.tree(), 'Acciones de la página') === null,
+    'RF-C9k2. PATCH 1C: no page-action ⋯ overflow remains (everyday actions are visible)',
+  );
 
   // ── RF-C9m: HC-POL-022 — the multipage review NEVER edits pages globally ──
   //
@@ -1055,25 +1126,26 @@ async function main(): Promise<void> {
     'RF-C9m. the multipage review offers NO global perspective, rotation or crop',
   );
   // The page-SET actions it does offer: add, reorder (both directions), save.
+  // PATCH 1C (I): the one-step reorder row is VISIBLE when N > 1.
   record(
-    buttonByTitle(scanner.tree(), 'Mover antes') !== null
-      && buttonByTitle(scanner.tree(), 'Mover después') !== null,
-    'RF-C9n. the multipage review offers the reorder actions (HC-POL-022)',
+    buttonByTitle(scanner.tree(), '← Mover antes') !== null
+      && buttonByTitle(scanner.tree(), 'Mover después →') !== null,
+    'RF-C9n. the multipage review offers the VISIBLE one-step reorder actions (HC-POL-022)',
   );
 
   // ── RF-C9p: reorder is a real, bounded, discrete step ──
   // The selected page at this point is the confirmed one (pageA, first).
-  const moveLater = buttonByTitle(scanner.tree(), 'Mover después');
-  const moveEarlier = buttonByTitle(scanner.tree(), 'Mover antes');
+  const moveLater = buttonByTitle(scanner.tree(), 'Mover después →');
+  const moveEarlier = buttonByTitle(scanner.tree(), '← Mover antes');
   if (moveLater && moveEarlier) {
     scanner.press(moveLater);
     await scanner.settle();
     let reordered = pageData(scanner.tree());
     record(reordered.length === 2 && reordered[0].id === pageB.id && reordered[1].id === pageA.id,
       'RF-C9p. one step moves the selected page later (the order really changes)');
-    record(buttonByTitle(scanner.tree(), 'Mover después')?.props?.disabled === true,
+    record(buttonByTitle(scanner.tree(), 'Mover después →')?.props?.disabled === true,
       'RF-C9q. the later step disables itself at the end of the list');
-    const moveEarlierAfter = buttonByTitle(scanner.tree(), 'Mover antes');
+    const moveEarlierAfter = buttonByTitle(scanner.tree(), '← Mover antes');
     if (moveEarlierAfter) {
       scanner.press(moveEarlierAfter);
       await scanner.settle();
@@ -1089,7 +1161,7 @@ async function main(): Promise<void> {
 
   // ── RF-C10: re-edit and reconfirm the same page ──
   perspectiveCalls.length = 0;
-  const reEdit = buttonByTitle(scanner.tree(), 'Editar página');
+  const reEdit = buttonByLabel(scanner.tree(), 'Editar la página seleccionada');
   if (reEdit) scanner.press(reEdit);
   await scanner.settle();
   const reSnapshot = (navigations[navigations.length - 1]?.[1] as { page?: ScannerPage } | undefined)?.page;
@@ -1097,9 +1169,6 @@ async function main(): Promise<void> {
     'RF-C10a. re-edit receives the saved canonical parameters and the current processed file');
   editorLivePage = reSnapshot as ScannerPage;
   const editorD = mountView(() => editorScreen.ScannerImageEditorScreen(), () => { routeParams = { page: editorLivePage }; });
-  await editorD.settle();
-  const applyD = buttonByLabel(editorD.tree(), 'Aplicar recorte y rotación');
-  if (applyD) editorD.press(applyD);
   await editorD.settle();
   const confirmD = buttonByLabel(editorD.tree(), 'Confirmar edición');
   if (confirmD) editorD.press(confirmD);
@@ -1132,27 +1201,25 @@ async function main(): Promise<void> {
   previewEl = previewImage(scanner.tree());
   record((previewEl?.props?.source as { uri: string })?.uri === outcomeD?.processedUri, 'RF-C10e. the preview shows the re-confirmed image');
   pages = pageData(scanner.tree());
-  record(pages.length === 2 && pages[1].processedUri === null, 'RF-C10f. the second page is still untouched');
+  record(pages.length === 2 && pages[1].processedUri === initialPageBProcessed, 'RF-C10f. the second page is still untouched');
 
   // ── RF-C11: cancel preserves the previous processed image (live session) ──
   perspectiveCalls.length = 0;
-  const cancelEdit = buttonByTitle(scanner.tree(), 'Editar página');
+  const cancelEdit = buttonByLabel(scanner.tree(), 'Editar la página seleccionada');
   if (cancelEdit) scanner.press(cancelEdit);
   await scanner.settle();
   const cancelSnapshot = (navigations[navigations.length - 1]?.[1] as { page?: ScannerPage } | undefined)?.page;
   editorLivePage = cancelSnapshot as ScannerPage;
   const editorE = mountView(() => editorScreen.ScannerImageEditorScreen(), () => { routeParams = { page: editorLivePage }; });
   await editorE.settle();
-  const applyE = buttonByLabel(editorE.tree(), 'Aplicar recorte y rotación');
-  if (applyE) editorE.press(applyE);
-  await editorE.settle();
-  const abandonedE = fsCalls.filter((call) => call.op === 'write').at(-1)?.uri ?? '';
+  const writesBeforeCancelE = fsCalls.filter((call) => call.op === 'write').length;
   const cancelE = buttonByLabel(editorE.tree(), 'Cancelar edición');
   if (cancelE) editorE.press(cancelE);
   await editorE.settle();
   editorE.unmount();
   record(goBacks.length === 1, 'RF-C11a. cancel pops the editor back to the review session');
-  record(deletesOf(abandonedE) === 1, 'RF-C11b. the abandoned preview is cleaned exactly once (editor ownership)');
+  record(fsCalls.filter((call) => call.op === 'write').length === writesBeforeCancelE,
+    'RF-C11b. cancellation creates no unconfirmed processed artifact');
   record(deletesOf(String(outcomeD?.processedUri)) === 0, 'RF-C11c. the confirmed processed image survives the cancelled edit');
 
   scanner.render();
@@ -1162,24 +1229,24 @@ async function main(): Promise<void> {
     'RF-C11d. after cancel, review still shows the last CONFIRMED image (no lost state)');
 
   // ── RF-C12: two separately edited pages ──
+  // PATCH 1C (J): the thumbnail SELECTS page B; the visible Editar pushes its
+  // editor with the selected snapshot.
   const rowsB = thumbRows(scanner.tree());
   scanner.press(rowsB[1]);
   await scanner.settle();
-  previewEl = previewImage(scanner.tree());
-  record((previewEl?.props?.source as { uri: string })?.uri === 'file:///tmp/capture_2.jpg', 'RF-C12a. the second page is selectable and unedited');
-  perspectiveCalls.length = 0;
-  const editB = buttonByTitle(scanner.tree(), 'Editar página');
-  if (editB) scanner.press(editB);
+  const editPageB = buttonByLabel(scanner.tree(), 'Editar la página seleccionada');
+  if (editPageB) scanner.press(editPageB);
   await scanner.settle();
+  previewEl = previewImage(scanner.tree());
+  record((previewEl?.props?.source as { uri: string })?.uri === getPageEffectiveUri(pageB),
+    'RF-C12a. the second page is selectable with its own confirmed capture');
+  perspectiveCalls.length = 0;
   const snapshotB = (navigations[navigations.length - 1]?.[1] as { page?: ScannerPage } | undefined)?.page;
   editorLivePage = snapshotB as ScannerPage;
   const editorF = mountView(() => editorScreen.ScannerImageEditorScreen(), () => { routeParams = { page: editorLivePage }; });
   await editorF.settle();
-  const rotateF = buttonByTitle(editorF.tree(), 'Rotar 90°');
+  const rotateF = buttonByTitle(editorF.tree(), 'Rotar');
   if (rotateF) editorF.press(rotateF);
-  await editorF.settle();
-  const applyF = buttonByLabel(editorF.tree(), 'Aplicar recorte y rotación');
-  if (applyF) editorF.press(applyF);
   await editorF.settle();
   const confirmF = buttonByLabel(editorF.tree(), 'Confirmar edición');
   if (confirmF) editorF.press(confirmF);
@@ -1215,8 +1282,8 @@ async function main(): Promise<void> {
   record(printCalls.length === 0 && registerCalls() === 0, 'RF-C12e. still no PDF and no upload — everything so far was user-driven review only');
 
   // ── RF-C13: one user-driven PDF that references BOTH effective URIs ──
-  const createPdf = buttonByTitle(scanner.tree(), 'Crear PDF');
-  record(createPdf !== null && createPdf?.props?.disabled !== true, 'RF-C13a. Create PDF is enabled with two pages');
+  const createPdf = buttonByTitle(scanner.tree(), 'Guardar PDF');
+  record(createPdf !== null && createPdf?.props?.disabled !== true, 'RF-C13a. Guardar PDF is enabled with two pages');
   if (createPdf) scanner.press(createPdf);
   await scanner.settle();
   const sheet = findOne(scanner.tree(), (element) => element.type === 'ActionSheet' && element.props?.visible === true);
@@ -1242,8 +1309,8 @@ async function main(): Promise<void> {
   const scannerSource = readSource('screens/HomeCloudScannerScreen.tsx');
   const allPushes = (scannerSource.match(/\bnavigate\(/g) ?? []).length;
   const editorPushes = (scannerSource.match(/navigate\('ScannerImageEditor'/g) ?? []).length;
-  record(allPushes === editorPushes && editorPushes === 1,
-    'RF-C14b. the Scanner still navigates ONLY through the single user-driven editor push (W1-C 5.5 preserved)');
+  record(allPushes === editorPushes && editorPushes === 2,
+    'RF-C14b. both capture and page tap navigate only to the one canonical editor route');
 
   // ── RF-C15: adoption semantics on the pure page model (no-op for ghosts) ──
   {
@@ -1251,32 +1318,31 @@ async function main(): Promise<void> {
     record(ghost.every((page) => page.id !== 'ghost'), 'RF-C15a. a late outcome for an unknown page is a no-op (no resurrection)');
   }
 
-  // ── RF-C16: HC-POL-022 — a thumbnail opens ITS page's editor ──
+  // ── RF-C16: PATCH 1C (J) — a thumbnail tap only SELECTS its page ──
   //
-  // Placed last on purpose: opening a thumbnail's editor also SELECTS that
-  // page, and no assertion after this one depends on which page is selected.
-  // It must go through the SAME single editor push, so the navigation record is
-  // the only additional evidence needed.
+  // Placed last on purpose: the selection changes which page the preview and
+  // the visible actions address, and no assertion after this one depends on
+  // it. The editor is reached ONLY through the visible `Editar` action.
   {
     const finalRows = thumbRows(scanner.tree());
     const navigationsBeforeThumb = navigations.length;
     if (finalRows.length >= 2) {
       scanner.press(finalRows[1]);
       await scanner.settle();
-      const thumbPush = navigations[navigations.length - 1];
-      record(
-        navigations.length === navigationsBeforeThumb + 1
-          && thumbPush?.[0] === 'ScannerImageEditor'
-          && (thumbPush?.[1] as { page?: ScannerPage } | undefined)?.page?.id === pageB.id,
-        'RF-C16a. tapping a thumbnail opens THAT page\'s editor (HC-POL-022)',
+      record(navigations.length === navigationsBeforeThumb,
+        'RF-C16a. PATCH 1C: tapping a thumbnail SELECTS the page — it never opens the editor',
       );
       const livePages = pageData(scanner.tree());
       const liveB = livePages.find((page) => page.id === pageB.id);
       record(liveB !== undefined
         && (previewImage(scanner.tree())?.props?.source as { uri?: string })?.uri === (liveB ? getPageEffectiveUri(liveB) : null),
-        'RF-C16b. the thumbnail also selects, so the review preview follows the tapped page');
+        'RF-C16b. the review preview follows the tapped (selected) page');
+      const editSelected = buttonByLabel(scanner.tree(), 'Editar la página seleccionada');
+      record(editSelected !== null
+        && (editSelected?.props?.accessibilityLabel as string | undefined) === 'Editar la página seleccionada',
+        'RF-C16c. Editar addresses the selected page through the one editor route');
     } else {
-      record(false, 'RF-C16a. tapping a thumbnail opens THAT page\'s editor (HC-POL-022)');
+      record(false, 'RF-C16a. tapping a thumbnail selects THAT page (HC-POL-022)');
     }
   }
 

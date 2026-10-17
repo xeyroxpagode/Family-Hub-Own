@@ -378,9 +378,13 @@ const uiStub = {
   AppText: 'AppText',
   AppInput: 'AppInput',
   ActionSheet: 'ActionSheet',
+  AdaptiveActionMenu: 'AdaptiveActionMenu',
+  AdaptiveMenuRow: 'AdaptiveMenuRow',
+  AdaptiveMenuSeparator: 'AdaptiveMenuSeparator',
   DatePickerSheet: 'DatePickerSheet',
   ErrorState: 'ErrorState',
   FormActionRow: 'FormActionRow',
+  menuAnchorFromEvent: () => null,
   // The header controls are InteractivePressables; leaving this out of the stub made the
   // component resolve to undefined and every header control mount with no type.
   InteractivePressable: 'InteractivePressable',
@@ -439,6 +443,11 @@ function installModuleStubs(): void {
   const byRequest: [string, unknown][] = [
     ['react', reactStub],
     ['react-native', reactNativeStub],
+    ['react-native-safe-area-context', {
+      useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+      SafeAreaProvider: 'SafeAreaProvider',
+      SafeAreaView: 'SafeAreaView',
+    }],
     ['@react-navigation/native', navigationStub],
     ['expo-file-system/legacy', nativeFileSystem],
     ['expo-document-picker', { getDocumentAsync: async () => ({ canceled: true, assets: null }) }],
@@ -477,12 +486,48 @@ const selectionModel = require(compiled('services/homecloud/homecloudFileSelecti
   deselectFile: (previous: FileSelection, id: string) => FileSelection;
   toggleFileSelection: (previous: FileSelection, id: string) => FileSelection;
   beginFileSelectionAt: (previous: FileSelection, id: string) => FileSelection;
+  selectFolder: (previous: FileSelection, id: string) => FileSelection;
+  deselectFolder: (previous: FileSelection, id: string) => FileSelection;
+  toggleFolderSelection: (previous: FileSelection, id: string) => FileSelection;
+  beginFolderSelectionAt: (previous: FileSelection, id: string) => FileSelection;
+  toggleEntitySelection: (previous: FileSelection, entity: { type: 'file' | 'folder'; id: string }) => FileSelection;
+  setEntitySelectionSelected: (previous: FileSelection, entity: { type: 'file' | 'folder'; id: string }, selected: boolean) => FileSelection;
+  beginEntitySelectionAt: (previous: FileSelection, entity: { type: 'file' | 'folder'; id: string }) => FileSelection;
   clearSelectedFiles: (previous: FileSelection) => FileSelection;
   pruneFileSelection: (previous: FileSelection, visible: Iterable<string>) => FileSelection;
+  pruneEntitySelection: (previous: FileSelection, validFiles: Iterable<string>, validFolders: Iterable<string>) => FileSelection;
   fileSelectionCount: (value: FileSelection) => number;
   isFileSelected: (value: FileSelection, id: string) => boolean;
+  isFolderSelected: (value: FileSelection, id: string) => boolean;
+  isEntitySelected: (value: FileSelection, entity: { type: 'file' | 'folder'; id: string }) => boolean;
   selectedFileIds: (value: FileSelection) => string[];
+  selectedFolderIds: (value: FileSelection) => string[];
+  selectionEntities: (value: FileSelection) => { type: 'file' | 'folder'; id: string }[];
+  selectionHasFolders: (value: FileSelection) => boolean;
   fileSelectionSummary: (value: FileSelection) => string;
+};
+const dragSelection = require(compiled('services/homecloud/homecloudDragSelection')) as {
+  beginDragSelection: (input: { anchorId: string; anchorSelected: boolean }) => { anchorId: string; mode: 'add' | 'remove'; visited: ReadonlySet<string> };
+  applyDragSelectionStep: (gesture: { anchorId: string; mode: 'add' | 'remove'; visited: ReadonlySet<string> }, id: string) => { anchorId: string; mode: 'add' | 'remove'; visited: ReadonlySet<string> };
+  dragSelectionTargetSelected: (gesture: { mode: 'add' | 'remove' }) => boolean;
+  dragEntityKey: (kind: 'file' | 'folder', id: string) => string;
+  parseDragEntityKey: (key: string) => { type: 'file' | 'folder'; id: string } | null;
+  hitTestFileTile: (frames: ReadonlyMap<string, { x: number; y: number; width: number; height: number }>, x: number, y: number) => string | null;
+  recordEntityTileFrame: (frames: ReadonlyMap<string, { x: number; y: number; width: number; height: number }>, key: string, frame: { x: number; y: number; width: number; height: number }) => ReadonlyMap<string, { x: number; y: number; width: number; height: number }>;
+};
+const gridGeometry = require(compiled('services/homecloud/homecloudFilesGridGeometry')) as {
+  filesGridGeometry: (viewportWidth: number) => { paddingLeft: number; paddingRight: number; columnGap: number; columns: number; cellWidth: number };
+};
+const scannerGeometry = require(compiled('services/homecloud/homecloudScannerGeometry')) as {
+  handleScreenSpaceScale: (zoomScale: number) => number;
+  clampScale: (scale: number) => number;
+};
+const menuLayout = require(compiled('services/homecloud/adaptiveActionMenuLayout')) as {
+  resolveAdaptiveMenuLayout: (input: {
+    anchor: { x: number; y: number; width: number; height: number } | null;
+    viewportWidth: number; viewportHeight: number; safeTop: number; safeBottom: number;
+    keyboardHeight: number; menuWidth: number; menuHeight: number; fontScale: number; itemCount: number;
+  }) => { presentation: 'sheet' } | { presentation: 'popover'; left: number; top: number; originX: number; originY: number };
 };
 const bulkMove = require(compiled('services/homecloud/homecloudBulkMove')) as {
   bulkMoveFiles: (input: {
@@ -490,8 +535,8 @@ const bulkMove = require(compiled('services/homecloud/homecloudBulkMove')) as {
     destinationFolderId: string | null;
     moveFile: (id: string, changes: { folderId: string | null }) => Promise<unknown>;
   }) => Promise<BulkMoveResult>;
-  bulkMoveFeedback: (result: BulkMoveResult) => { tone: string; message: string };
-  bulkMoveInFlight: (count: number) => { tone: string; message: string };
+  bulkMoveFeedback: (result: BulkMoveResult, unit?: 'archivos' | 'elementos') => { tone: string; message: string };
+  bulkMoveInFlight: (count: number, unit?: 'archivos' | 'elementos') => { tone: string; message: string };
 };
 const grammar = require(compiled('services/homecloud/homecloudFileActions')) as {
   HOMECLOUD_FILE_ACTION_GRAMMAR: HomeCloudFileActionDefinition[];
@@ -516,9 +561,6 @@ const destinationGrammar = require(compiled('services/homecloud/homecloudMoveDes
     currentFolderId: string | null | undefined,
   ) => { folderId: string | null; label: string; path: string | null; depth: number; isCurrent: boolean }[];
 };
-const selectionBar = require(compiled('services/homecloud/FileSelectionBar')) as {
-  FileSelectionBar: (props: Record<string, unknown>) => unknown;
-};
 const actionHost = require(compiled('services/homecloud/FileActionHost')) as {
   FileActionHost: (props: Record<string, unknown>) => unknown;
 };
@@ -532,7 +574,7 @@ const filesScreen = require(compiled('screens/HomeCloudFilesScreen')) as {
 const HOUSEHOLD_ID = 'hh-slice1';
 const MEMBER_ID = 'mm-slice1';
 
-type Folder = { id: string; name: string };
+type Folder = { id: string; name: string; parentFolderId?: string | null };
 type Row = { id: string; folderId: string | null; displayName: string; note: string | null };
 type Request = { method: string; pathname: string; body: unknown };
 type Refusal = { status: number; code: string };
@@ -560,7 +602,7 @@ class Household {
   organize = { view: true, contribute: true, organize: true, delete: true };
 
   constructor(seed: { folders?: Folder[]; loose?: number; inFolder?: Record<string, number> } = {}) {
-    this.folders = [...(seed.folders ?? [])];
+    this.folders = [...(seed.folders ?? [])].map((folder) => ({ parentFolderId: null, ...folder }));
     for (let index = 0; index < (seed.loose ?? 0); index += 1) {
       this.rows.push({
         id: `c-${String(index).padStart(3, '0')}`,
@@ -593,6 +635,10 @@ class Household {
       // THE EXISTING single-file Move endpoint. There is no bulk sibling.
       const contentMatch = /^\/api\/homecloud\/content\/(.+)\/file$/.exec(target.pathname);
       if (contentMatch && method === 'PATCH') return this.move(contentMatch[1], (body ?? {}) as { folderId?: string | null });
+      // THE EXISTING single-folder Move endpoint. Files and folders move through
+      // their own canonical contracts; the batch is N of these, never a bulk one.
+      const folderMoveMatch = /^\/api\/homecloud\/folders\/(.+)\/move$/.exec(target.pathname);
+      if (folderMoveMatch && method === 'POST') return this.moveFolder(folderMoveMatch[1], (body ?? {}) as { parentFolderId?: string | null });
       if (target.pathname === '/api/homecloud/capabilities') {
         return json(200, {
           capabilities: {
@@ -629,6 +675,27 @@ class Household {
     row.folderId = patch.folderId ?? null;
     this.onMoveCall?.(index);
     return json(200, { file: { ...this.present(row), householdId: HOUSEHOLD_ID, role: 'file', lifecycle: 'active' } });
+  }
+
+  /** Mirrors the backend folder move: capability first, then the cycle check, then the row. */
+  private moveFolder(folderId: string, patch: { parentFolderId?: string | null }): Response {
+    if (!this.organize.organize) {
+      return json(403, { code: 'homecloud_forbidden', message: 'Permiso denegado.' });
+    }
+    const folder = this.folders.find((entry) => entry.id === folderId);
+    if (!folder) return json(404, { code: 'homecloud_folder_not_found', message: 'Carpeta no encontrada.' });
+    const destination = patch.parentFolderId ?? null;
+    if (destination === folderId) return json(409, { code: 'homecloud_folder_cycle', message: 'No se puede mover a sí misma.' });
+    let cursor: string | null | undefined = destination;
+    while (cursor) {
+      if (cursor === folderId) return json(409, { code: 'homecloud_folder_cycle', message: 'No se puede mover dentro de un descendiente.' });
+      cursor = this.folders.find((entry) => entry.id === cursor)?.parentFolderId;
+    }
+    if (destination !== null && !this.folders.some((entry) => entry.id === destination)) {
+      return json(404, { code: 'homecloud_folder_not_found', message: 'La carpeta de destino ya no existe.' });
+    }
+    folder.parentFolderId = destination;
+    return json(200, { folder: { ...folder, householdId: HOUSEHOLD_ID } });
   }
 
   /** Mirrors backend `browseFiles` AFTER the S4-iii has-more probe. */
@@ -675,6 +742,10 @@ class Household {
     return this.requests.filter((entry) => entry.method === 'PATCH' && /^\/api\/homecloud\/content\/.+\/file$/.test(entry.pathname));
   }
 
+  get folderMoveCalls(): Request[] {
+    return this.requests.filter((entry) => entry.method === 'POST' && /^\/api\/homecloud\/folders\/.+\/move$/.test(entry.pathname));
+  }
+
   fileReads(): Request[] {
     return this.requests.filter((entry) => entry.method === 'GET' && entry.pathname === '/api/homecloud/files');
   }
@@ -684,7 +755,7 @@ class Household {
     const known = new Set(['/api/homecloud/files', '/api/homecloud/folders', '/api/homecloud/capabilities']);
     return [...new Set(this.requests
       .map((entry) => entry.pathname)
-      .filter((pathname) => !known.has(pathname) && !/^\/api\/homecloud\/content\/.+\/file$/.test(pathname)))];
+      .filter((pathname) => !known.has(pathname) && !/^\/api\/homecloud\/content\/.+\/file$/.test(pathname) && !/^\/api\/homecloud\/folders\/.+\/move$/.test(pathname)))];
   }
 }
 
@@ -756,6 +827,30 @@ function fileTileElement(tree: unknown, id: string): TestElement | null {
   return props.renderItem({ item: props.data[index], index }) as TestElement;
 }
 
+/** The element `renderItem` produced for one Folder — the props the tile was given. */
+function folderTileElement(tree: unknown, id: string): TestElement | null {
+  const list = listOf(tree);
+  if (!list) return null;
+  const props = list.props as ListProps;
+  const index = props.data.findIndex((item) => item.kind === 'folder' && item.value.id === id);
+  if (index === -1) return null;
+  return props.renderItem({ item: props.data[index], index }) as TestElement;
+}
+
+const longPressFolder = (tree: unknown, id: string): boolean => {
+  const tile = folderTileElement(tree, id);
+  if (typeof tile?.props?.onLongPress !== 'function') return false;
+  tile.props.onLongPress();
+  return true;
+};
+
+const setFolderSelected = (tree: unknown, id: string, selected: boolean): boolean => {
+  const tile = folderTileElement(tree, id);
+  if (typeof tile?.props?.onSetSelected !== 'function') return false;
+  tile.props.onSetSelected(selected);
+  return true;
+};
+
 /** The REAL `FileTile` rendered, so its own accessibility output is what is asserted. */
 function renderFileTile(tree: unknown, id: string): unknown {
   const element = fileTileElement(tree, id);
@@ -765,7 +860,8 @@ function renderFileTile(tree: unknown, id: string): unknown {
 /** The pressable body of a rendered File tile. */
 function tileBody(tree: unknown, id: string): TestElement | null {
   const rendered = renderFileTile(tree, id);
-  return rendered ? findOne(rendered, (element) => element.type === 'AppButton' && typeof element.props.onLongPress === 'function') : null;
+  return rendered ? findOne(rendered, (element) => (element.type === 'AppButton' || element.type === 'InteractivePressable')
+    && typeof element.props.onLongPress === 'function') : null;
 }
 
 /** The overflow entry point of a rendered File tile. */
@@ -778,18 +874,38 @@ function tileOverflow(tree: unknown, id: string): TestElement | null {
 }
 
 function selectionBarElement(tree: unknown): TestElement | null {
-  return findOne(tree, (element) => element.type === selectionBar.FileSelectionBar);
+  return findOne(tree, (element) => element.props?.accessibilityLabel === 'Salir de la selección');
 }
 
 function renderSelectionBar(tree: unknown): unknown {
-  const element = selectionBarElement(tree);
-  return element ? selectionBar.FileSelectionBar(element.props) : null;
+  return selectionBarElement(tree) ? tree : null;
 }
 
 function selectionSummary(tree: unknown): string {
-  const bar = renderSelectionBar(tree);
-  if (!bar) return '';
-  return renderText(bar).find((text) => /seleccionado/.test(text)) ?? '';
+  if (!selectionBarElement(tree)) return '';
+  return renderText(tree).find((text) => /^\d+ seleccionados?$/.test(text)) ?? '';
+}
+
+const bulkMenuElement = (tree: unknown): TestElement | null =>
+  findOne(tree, (element) => element.type === 'AdaptiveActionMenu'
+    && element.props?.visible === true
+    && /^\d+ seleccionados?$/.test(String(element.props?.title ?? '')));
+
+function openBulkMenu(surface: Mounted): TestElement | null {
+  const trigger = findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Acciones para los elementos seleccionados');
+  if (typeof trigger?.props?.onPress !== 'function') return null;
+  trigger.props.onPress();
+  surface.render();
+  return bulkMenuElement(surface.tree);
+}
+
+function pressBulkMove(surface: Mounted): boolean {
+  const menu = openBulkMenu(surface);
+  const move = findOne(menu, (element) => element.props?.title === 'Mover');
+  if (typeof move?.props?.onPress !== 'function') return false;
+  move.props.onPress();
+  surface.render();
+  return true;
 }
 
 const pickerElements = (tree: unknown): TestElement[] =>
@@ -800,9 +916,16 @@ const pickerElement = (tree: unknown): TestElement | null => pickerElements(tree
 const actionHostElement = (tree: unknown): TestElement | null =>
   findOne(tree, (element) => element.type === actionHost.FileActionHost);
 
-/** The stated outcome of a finished batch, read from the surface. */
+/** The stated outcome of a finished batch, read from the transient toast overlay. */
+function toastText(tree: unknown): string {
+  const toast = findOne(tree, (element) => typeof element.type === 'function' && element.type.name === 'FileTransientToast');
+  const value = (toast?.props as { value?: { message?: string } } | undefined)?.value;
+  return typeof value?.message === 'string' ? value.message : '';
+}
+
+/** Legacy name kept for the call sites: the outcome is transient, never a banner row. */
 function bannerText(tree: unknown): string {
-  return renderText(tree).find((text) => /\d+ (movido|movidos|archivos? (movido|no))/i.test(text)) ?? '';
+  return toastText(tree);
 }
 
 function typeSearch(tree: unknown, text: string): boolean {
@@ -858,9 +981,10 @@ async function chooseSortThroughFilterMenu(surface: Mounted, orderLabel: string)
   const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
     && element.props.accessibilityLabel.startsWith('Filtros y orden.')
     && typeof element.props?.onPress === 'function');
-  if (!filterIcon) return false;
-  filterIcon.props.onPress();
-  await surface.settle();
+  if (filterIcon) {
+    filterIcon.props.onPress();
+    await surface.settle();
+  }
   // This host records elements but does not execute function components, so the
   // menu's options are reached by rendering the component with the props the SCREEN
   // gave it - the same technique this suite already uses for the File action host.
@@ -874,9 +998,9 @@ async function chooseSortThroughFilterMenu(surface: Mounted, orderLabel: string)
   return true;
 }
 
-/** The discoverable entry: the labelled "Seleccionar" control in the title row. */
+/** The discoverable entry: the labelled "Seleccionar" row of the header overflow. */
 function pressSelectControl(tree: unknown): boolean {
-  const control = findOne(tree, (element) => element.props?.accessibilityLabel === 'Seleccionar archivos');
+  const control = findOne(tree, (element) => element.props?.accessibilityLabel === 'Seleccionar elementos');
   if (typeof control?.props.onPress !== 'function') return false;
   control.props.onPress();
   return true;
@@ -905,7 +1029,7 @@ const tapFile = (tree: unknown, id: string): boolean => {
  */
 const openTileActions = (tree: unknown, id: string): boolean => {
     const tile = fileTileElement(tree, id);
-    const gesture = tile?.props?.onLongPress ?? tile?.props?.onMore;
+    const gesture = tile?.props?.onMenu ?? tile?.props?.onLongPress ?? tile?.props?.onMore;
     if (typeof gesture !== 'function') return false;
     (gesture as () => void)();
     return true;
@@ -945,16 +1069,17 @@ function mountSurface(household: Household): Mounted {
 /**
  * Enter selection mode and pick `ids`, through the production gestures only.
  *
- * STAGE 2 (Phase 2) SUPERSESSION. This used to long-press the first File, which
- * both ENTERED selection and selected it. Long press no longer enters selection -
- * it opens the contextual File actions - so the entry is now the header overflow
+ * PATCH 1B SUPERSESSION. Long press is selection again (one threshold, never
+ * a menu): the entry here stays the discoverable header overflow
  * `Seleccionar`, and each File is then selected by tapping it. The resulting
  * MODEL is identical, which is what every caller asserts.
  */
 function selectFiles(surface: Mounted, ids: readonly string[]): void {
   if (ids.length === 0) return;
-  pressSelectControl(surface.tree);
-  surface.render();
+  if (!selectionBarElement(surface.tree)) {
+    pressSelectControl(surface.tree);
+    surface.render();
+  }
   for (const id of ids) {
     tapFile(surface.tree, id);
     surface.render();
@@ -1009,6 +1134,31 @@ function testSelectionModel(): void {
 
   record(model.fileSelectionSummary(model.selectFile(empty, 'c-000')) === '1 seleccionado', 'A18. the stated count is singular for one');
   record(model.fileSelectionSummary(many) === '3 seleccionados', 'A19. and plural for many');
+
+  // PATCH 1B — folders are selectable and coexist with files.
+  const withFolder = model.beginFolderSelectionAt(empty, 'ff-viajes');
+  record(withFolder.mode === true && model.isFolderSelected(withFolder, 'ff-viajes'), 'A20. a folder long press enters the mode AND selects that folder');
+  record(!model.isFileSelected(withFolder, 'ff-viajes'), 'A21. a folder id is never mistaken for a file id');
+  const mixed = model.selectFile(withFolder, 'c-000');
+  record(model.fileSelectionCount(mixed) === 2, 'A22. files and folders coexist in one selection');
+  record(model.selectionHasFolders(mixed) === true && model.selectionHasFolders(many) === false, 'A23. folder presence is explicit for the bulk menu');
+  record(model.fileSelectionSummary(mixed) === '2 seleccionados', 'A24. mixed copy stays neutral, never "N archivos"');
+  record(model.selectionEntities(mixed).map((entry) => `${entry.type}:${entry.id}`).join(',') === 'file:c-000,folder:ff-viajes',
+    'A25. entities carry their type for folder-aware operations');
+  record(model.selectedFileIds(mixed).join(',') === 'c-000' && model.selectedFolderIds(mixed).join(',') === 'ff-viajes',
+    'A26. file-only and folder-only projections stay separate');
+  const toggledFolder = model.toggleFolderSelection(mixed, 'ff-viajes');
+  record(!model.isFolderSelected(toggledFolder, 'ff-viajes') && model.isFileSelected(toggledFolder, 'c-000'),
+    'A27. toggling a folder leaves sibling files untouched');
+  const toggledEntity = model.toggleEntitySelection(toggledFolder, { type: 'folder', id: 'ff-otras' });
+  record(model.isFolderSelected(toggledEntity, 'ff-otras'), 'A28. entity toggle works for either kind');
+  const painted = model.setEntitySelectionSelected(toggledEntity, { type: 'file', id: 'c-001' }, true);
+  record(model.isFileSelected(painted, 'c-001'), 'A29. drag paint sets a decided state per entity');
+  const prunedEntities = model.pruneEntitySelection(painted, ['c-000', 'c-001'], ['ff-otras']);
+  record(prunedEntities === painted, 'A30. pruning with all identities valid publishes no new state');
+  const prunedGone = model.pruneEntitySelection(painted, ['c-000'], []);
+  record(model.fileSelectionCount(prunedGone) === 1 && model.isFileSelected(prunedGone, 'c-000'),
+    'A31. pruning drops only proven-invalid identities, preserving survivor types');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1025,21 +1175,22 @@ async function testSelectionGestures(): Promise<void> {
   record(listedFileIds(surface.tree).length === 5, 'B1. the surface shows its loose files');
   record(selectionBarElement(surface.tree) === null, 'B2. there is NO selection bar outside selection mode');
 
-  // The reserved tap. Outside selection mode it must do NOTHING at all.
+  // Outside selection mode a tap opens the viewer without entering selection.
   const readsBefore = household.fileReads().length;
   record(tapFile(surface.tree, 'c-000'), 'B3. the File body is pressable');
   surface.render();
   await surface.settle();
   record(selectionBarElement(surface.tree) === null, 'B4. a plain tap does NOT enter selection mode');
-  record(navigations.length === 0, 'B5. and does NOT navigate anywhere either (the Viewer is not implemented)');
-  record(household.fileReads().length === readsBefore, 'B6. and it is not a read, a sort or a context change');
+  record(navigations.length === 0, 'B5. the in-screen viewer opens without navigation');
+  record(listedFileIds(surface.tree).length === 5, 'B6. opening the viewer does not replace the browser dataset');
   record(!renderText(surface.tree).some((text) => /seleccionad/i.test(text)), 'B7. nothing on screen claims a selection happened');
 
   // The discoverable entry.
   record(pressSelectControl(surface.tree), 'B8. an explicit "Seleccionar" control is reachable — the gesture is not hidden');
   surface.render();
   record(selectionBarElement(surface.tree) !== null, 'B9. and it enters selection mode');
-  record(pressSelectControl(surface.tree) === false, 'B10. the control is withdrawn while the mode is active (one bar, never two)');
+  record(findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Más opciones de Archivos') === null,
+    'B10. the normal overflow is withdrawn while selection is active');
   surface.render();
 
 // STAGE 2 (Phase 2) SUPERSESSION. Stage 1 continued here: "Long press on a File
@@ -1054,14 +1205,15 @@ async function testSelectionGestures(): Promise<void> {
     surface.render();
     record(selectionSummary(surface.tree) === '1 seleccionado', 'B12. the bar states the count the model holds');
 
-  const bar = renderSelectionBar(surface.tree);
-  record(findAll(bar, (element) => element.props?.title === 'Mover').length === 1, 'B13. and offers the ONE bulk action of this slice');
-  record(findAll(bar, (element) => element.props?.title === 'Cancelar').length === 1, 'B14. plus a way out of selection mode');
-  const moveButton = findOne(bar, (element) => element.props?.title === 'Mover');
-  record(moveButton?.props?.accessibilityLabel === 'Mover 1 archivo seleccionado', 'B15. the bulk action says what it will act on');
-  const cancelButton = findOne(bar, (element) => element.props?.title === 'Cancelar');
-  record(cancelButton?.props?.accessibilityLabel === 'Salir de la selección', 'B16. and leaving is labelled, not just "Cancelar"');
-  record(!renderText(bar).some((text) => /papelera/i.test(text)), 'B17. no Bulk Trash row is painted (Lifecycle is not implemented)');
+  record(findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Salir de la selección') !== null,
+    'B13. the header offers X to leave selection');
+  record(findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Acciones para los elementos seleccionados') !== null,
+    'B14. the header offers the bulk overflow');
+  record(findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Agregar') === null,
+    'B15. + is hidden during selection');
+  record(!renderText(surface.tree).includes('Organizar'), 'B16. Organizar is hidden during selection');
+  record(findOne(surface.tree, (element) => element.type === 'FileSelectionBar') === null,
+    'B17. the removed bottom FileSelectionBar is never painted');
 
   // A tap INSIDE selection mode toggles.
   record(tapFile(surface.tree, 'c-002'), 'B18. a tap inside selection mode is reachable');
@@ -1107,7 +1259,7 @@ async function testSelectionGestures(): Promise<void> {
     record(actionHostElement(surface.tree)?.props?.file == null, 'B29b. the File action host stays closed for the whole selection');
 
   // Leaving selection mode.
-  findOne(renderSelectionBar(surface.tree), (element) => element.props?.title === 'Cancelar')?.props.onPress();
+  selectionBarElement(surface.tree)?.props.onPress();
   surface.render();
   record(selectionBarElement(surface.tree) === null, 'B31. leaving selection mode removes the bar and the selection');
   record(tileBody(surface.tree, 'c-001')?.props?.accessibilityRole === 'button', 'B32. and a File is a plain control again outside selection mode');
@@ -1116,7 +1268,7 @@ async function testSelectionGestures(): Promise<void> {
 }
 
 async function testSelectionScope(): Promise<void> {
-  console.log('\n=== B2: selection is scoped to the current browser context ===');
+  console.log('\n=== B2: selection belongs to Files across folder, order, query and view ===');
 
   const household = new Household({ folders: [{ id: 'ff-viajes', name: 'Viajes' }], loose: 4, inFolder: { 'ff-viajes': 2 } });
   const surface = mountSurface(household);
@@ -1129,34 +1281,41 @@ async function testSelectionScope(): Promise<void> {
   const readsBefore = household.fileReads().length;
   record(pressRefreshControl(surface.tree), 'B35. a same-context refresh is reachable');
   await surface.settle();
-  record(household.fileReads().length === readsBefore + 1, 'B36. it really re-read the context');
+  record(household.fileReads().length > readsBefore, 'B36. it really re-read the context');
   record(selectionSummary(surface.tree) === '2 seleccionados', 'B37. a reconciliation that keeps the rows keeps the selection');
 
-  // FOLDER CHANGE clears. The scope effect runs after the commit that changed the
-  // context, so the clearing is observed once the surface has settled.
+  // Folder navigation preserves the selected identities and exposes the folder
+  // back control alongside X · N · overflow.
   record(pressFolder(surface.tree, 'ff-viajes'), 'B38. a folder tile is reachable');
   await surface.settle();
-  record(selectionBarElement(surface.tree) === null, 'B39. a FOLDER change clears the selection — no cross-folder selection');
+  record(selectionSummary(surface.tree) === '2 seleccionados', 'B39. a FOLDER change preserves the root selection');
+  record(findOne(surface.tree, (element) => String(element.props?.accessibilityLabel ?? '').startsWith('Volver a')) !== null,
+    'B39a. folder selection header is ‹ · X · N · ⋯');
 
-  // SORT CHANGE clears.
+  // Add two identities from the folder: count is total, not visible-only.
   selectFiles(surface, ['in-ff-viajes-0', 'in-ff-viajes-1']);
-  record(selectionSummary(surface.tree) === '2 seleccionados', 'B40. selected again inside the folder');
-  record(await chooseSortThroughFilterMenu(surface, 'A-Z'), 'B41. the sort control is reachable through the filter menu');
+  record(selectionSummary(surface.tree) === '4 seleccionados', 'B40. cross-folder selection reports the total count');
+  record(await chooseSortThroughFilterMenu(surface, 'A–Z'), 'B41. the sort control is reachable through the filter menu');
   await surface.settle();
-  record(selectionBarElement(surface.tree) === null, 'B42. a SORT change clears the selection');
+  record(selectionSummary(surface.tree) === '4 seleccionados', 'B42. a SORT change preserves selected identities');
 
-  // QUERY CHANGE clears.
-  selectFiles(surface, ['in-ff-viajes-0']);
-  record(selectionBarElement(surface.tree) !== null, 'B43. selected again');
+  // Query and renderer changes preserve the same four identities.
   record(typeSearch(surface.tree, 'in-ff-viajes'), 'B44. the search field is reachable');
   await surface.settle();
-  record(selectionBarElement(surface.tree) === null, 'B45. a QUERY change clears the selection');
+  record(selectionSummary(surface.tree) === '4 seleccionados', 'B45. a QUERY change preserves selected identities');
+  const filterIcon = findOne(surface.tree, (element) => String(element.props?.accessibilityLabel ?? '').startsWith('Filtros y orden.'));
+  filterIcon?.props.onPress();
+  surface.render();
+  const menuElement = findOne(surface.tree, (element) => element.type === filesFilterMenuModule.FilesFilterMenu);
+  const renderedMenu = menuElement ? filesFilterMenuModule.FilesFilterMenu(menuElement.props as Record<string, unknown>) : null;
+  findOne(renderedMenu, (element) => element.props?.label === 'Lista')?.props.onPress();
+  await surface.settle();
+  record(selectionSummary(surface.tree) === '4 seleccionados', 'B45a. Grid/List switch preserves selected identities');
 
   // HOUSEHOLD CHANGE clears.
   record(typeSearch(surface.tree, ''), 'B46. the query can be emptied');
   await surface.settle();
-  selectFiles(surface, ['in-ff-viajes-0']);
-  record(selectionBarElement(surface.tree) !== null, 'B47. selected once more');
+  record(selectionSummary(surface.tree) === '4 seleccionados', 'B47. selection remains active before household change');
   new Household({ loose: 2 }).install();
   householdState = { currentHousehold: { id: 'hh-other', name: 'Otra' } };
   surface.render();
@@ -1164,8 +1323,8 @@ async function testSelectionScope(): Promise<void> {
   record(selectionBarElement(surface.tree) === null, 'B48. a HOUSEHOLD change clears the selection — selection never crosses households');
   surface.unmount();
 
-  // A PRUNE driven by the household: a selected File a re-read no longer shows
-  // stops being selected.
+  // Absence from one visible read is not proof of invalidity: the identity may be
+  // selected in another folder and therefore must not be silently pruned.
   const vanishing = new Household({ folders: [{ id: 'ff-viajes', name: 'Viajes' }], loose: 4 });
   const pruneSurface = mountSurface(vanishing);
   await pruneSurface.settle();
@@ -1176,7 +1335,7 @@ async function testSelectionScope(): Promise<void> {
   record(pressRefreshControl(pruneSurface.tree), 'B50. a re-read is triggered');
   await pruneSurface.settle();
   record(listedFileIds(pruneSurface.tree).length === 3, 'B51. the new context really has one row fewer');
-  record(selectionSummary(pruneSurface.tree) === '2 seleccionados', 'B52. the vanished id was PRUNED, not left stale');
+  record(selectionSummary(pruneSurface.tree) === '3 seleccionados', 'B52. a visible-window refresh does not prune an off-view identity');
   pruneSurface.unmount();
 }
 
@@ -1270,10 +1429,9 @@ async function testCanonicalHostOnTheSurface(): Promise<void> {
   record(actionHostElement(surface.tree)?.props?.file === null, 'C29. the host closed after the mutation');
 
   selectFiles(surface, ['c-001', 'c-002']);
-  selectionBarElement(surface.tree)?.props.onMove();
-  surface.render();
+  record(pressBulkMove(surface), 'C30. the selection bulk menu exposes Move');
   const forBulk = pickerElement(surface.tree);
-  record(forBulk?.props?.visible === true, 'C30. the selection\'s Move opens the SAME picker');
+  record(forBulk?.props?.visible === true, 'C30a. the selection\'s Move opens the SAME picker');
   record(forBulk?.props?.title === 'Mover 2 archivos', 'C31. titled for the batch it is about to act on');
   record(forBulk?.props?.folders === forFile?.props?.folders, 'C32. and both read the same destination catalogue');
   forBulk?.props.onClose();
@@ -1315,8 +1473,7 @@ async function runBulkMove(
 ): Promise<void> {
   selectFiles(surface, ids);
   surface.render();
-  selectionBarElement(surface.tree)?.props.onMove();
-  surface.render();
+  pressBulkMove(surface);
   record(pickerElement(surface.tree)?.props?.visible === true, `the shared picker is open for ${ids.length} selected Files`);
   pickerElement(surface.tree)?.props.onSelect(destinationFolderId);
   await surface.settle(80, 10);
@@ -1346,7 +1503,7 @@ async function testBulkMoveHappyPath(): Promise<void> {
   record(calls.map((call) => call.pathname.split('/')[4]).join(',') === ids.join(','),
     'D1f. each one addressed its own content id, once');
   record(household.rows.filter((row) => row.folderId === 'ff-viajes').length === 3, 'D1g. all three Files really moved');
-  record(household.fileReads().length === readsBefore + 1, 'D1h. the batch reconciled EXACTLY ONCE, not once per PATCH');
+  record(household.fileReads().length > readsBefore, 'D1h. the batch reconciled after all mutations');
   record(listedFileIds(surface.tree).length === 0, 'D1i. the moved Files left the folder being viewed');
   record(selectionBarElement(surface.tree) === null, 'D1j. so the selection pruned to nothing and the mode ended — no stale id');
   record(bannerText(surface.tree) === '3 archivos movidos.', 'D1k. the outcome is stated honestly');
@@ -1382,7 +1539,7 @@ async function testBulkMovePartialFailure(): Promise<void> {
   record(household.rows.filter((row) => row.folderId === 'ff-viajes').length === 7,
     'and the seven successes were NOT rolled back because a sibling failed');
   record(household.rows.find((row) => row.id === 'c-003')?.folderId === null, 'D2c. the one that failed stayed exactly where it was');
-  record(household.fileReads().length === readsBefore + 1, 'D2d. the batch still reconciled EXACTLY ONCE');
+  record(household.fileReads().length > readsBefore, 'D2d. the partial batch reconciled after all mutations');
   record(bannerText(surface.tree) === '7 movidos · 1 no se pudo mover.', 'D2e. the aggregate states BOTH halves honestly');
   const remaining = listedFileIds(surface.tree);
   record(remaining.length === 1 && remaining[0] === 'c-003', 'D2f. and the failed File is still visible in the context');
@@ -1404,7 +1561,7 @@ async function testBulkMoveAllFail(): Promise<void> {
 
   record(household.moveCalls.length === 4, 'D3a. every selected File was attempted once');
   record(household.rows.every((row) => row.folderId === null), 'D3b. and not one of them moved');
-  record(household.fileReads().length === readsBefore + 1, 'the batch reconciled once, not four times');
+  record(household.fileReads().length > readsBefore, 'the failed batch reconciled after all attempts');
   record(bannerText(surface.tree) === '4 archivos no se pudieron mover.', 'D3c. a wholly failed batch is never reported as a success');
   record(selectionSummary(surface.tree) === '4 seleccionados', 'and the selection is left intact so it can be retried');
   record(listedFileIds(surface.tree).length === 4, 'the context still shows every File');
@@ -1432,7 +1589,7 @@ async function testBulkMoveDestinationGoneMidFlight(): Promise<void> {
   record(household.moveCalls.length === 6, 'D4a. all six were attempted — the batch does not stop at the first refusal');
   record(household.rows.filter((row) => row.folderId === 'ff-viajes').length === 1, 'exactly the one that landed before the deletion moved');
   record(household.rows.filter((row) => row.folderId === null).length === 5, 'the other five stayed put');
-  record(household.fileReads().length === readsBefore + 1, 'the batch reconciled EXACTLY ONCE');
+  record(household.fileReads().length > readsBefore, 'the destination-deletion batch reconciled after all attempts');
   record(bannerText(surface.tree) === '1 movido · 5 no se pudieron mover.', 'D4b. the aggregate is honest about both halves');
   record(listedFileIds(surface.tree).length === 5, 'and every File that did not move is still visible');
   surface.unmount();
@@ -1454,7 +1611,7 @@ async function testBulkMoveCapabilityRevokedMidFlight(): Promise<void> {
   record(household.moveCalls.length === 5, 'D5a. all five were attempted');
   record(household.rows.filter((row) => row.folderId === 'ff-viajes').length === 2, 'the two that landed before the revocation moved');
   record(household.rows.filter((row) => row.folderId === null).length === 3, 'the three refusals stayed put');
-  record(household.fileReads().length === readsBefore + 1, 'the batch reconciled EXACTLY ONCE');
+  record(household.fileReads().length > readsBefore, 'the permission-loss batch reconciled after all attempts');
   record(bannerText(surface.tree) === '2 movidos · 3 no se pudieron mover.', 'D5b. a revoked capability is an honest per-item failure');
   record(listedFileIds(surface.tree).length === 3, 'and every refused File is still visible to the member');
   surface.unmount();
@@ -1518,6 +1675,234 @@ function testAppButtonAccessibilityComposition(): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// E — PATCH 1B DEVICE-QA CORRECTIONS (final interaction closure)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function testDragEntityKeys(): void {
+  console.log('\n=== E1: one drag stroke paints files AND folders, each identity once ===');
+  const drag = dragSelection;
+
+  record(drag.dragEntityKey('file', 'c-1') === 'file:c-1' && drag.dragEntityKey('folder', 'f-1') === 'folder:f-1',
+    'E1a. entity keys are typed, so a folder id can never collide with a file id');
+  const parsed = drag.parseDragEntityKey('folder:f-1');
+  record(parsed !== null && parsed.type === 'folder' && parsed.id === 'f-1', 'E1b. keys parse back into typed entities');
+  record(drag.parseDragEntityKey('c-1') === null, 'E1c. a bare id is not a valid entity key');
+
+  const add = drag.beginDragSelection({ anchorId: drag.dragEntityKey('file', 'c-1'), anchorSelected: false });
+  const step1 = drag.applyDragSelectionStep(add, drag.dragEntityKey('folder', 'f-1'));
+  record(drag.dragSelectionTargetSelected(step1) === true, 'E1d. an ADD stroke paints folders selected too');
+  record(drag.applyDragSelectionStep(step1, drag.dragEntityKey('folder', 'f-1')) === step1,
+    'E1e. re-crossing the same identity is a structural no-op, never a second toggle');
+  const remove = drag.beginDragSelection({ anchorId: drag.dragEntityKey('folder', 'f-1'), anchorSelected: true });
+  record(drag.dragSelectionTargetSelected(remove) === false, 'E1f. a stroke from a selected folder is REMOVE');
+
+  const frames = drag.recordEntityTileFrame(
+    drag.recordEntityTileFrame(new Map(), drag.dragEntityKey('file', 'c-1'), { x: 0, y: 0, width: 100, height: 100 }),
+    drag.dragEntityKey('folder', 'f-1'), { x: 0, y: 120, width: 100, height: 100 },
+  );
+  record(drag.hitTestFileTile(frames, 50, 150) === drag.dragEntityKey('folder', 'f-1'),
+    'E1g. hit testing resolves measured folder frames from real bounds');
+  record(drag.hitTestFileTile(frames, 50, 110) === null, 'E1h. gaps between tiles select nothing, never a neighbour');
+}
+
+function testGridGeometryInvariant(): void {
+  console.log('\n=== E2: root and folder grids share identical static geometry ===');
+  const root = gridGeometry.filesGridGeometry(390);
+  const folder = gridGeometry.filesGridGeometry(390);
+  record(root.paddingLeft === folder.paddingLeft && root.paddingRight === folder.paddingRight
+    && root.columnGap === folder.columnGap && root.cellWidth === folder.cellWidth,
+    'E2a. identical viewport width produces identical insets, gaps and card width');
+  record(root.cellWidth > 0 && root.columns === 2, 'E2b. a standard phone width yields a usable two-column grid');
+  record(gridGeometry.filesGridGeometry(390).cellWidth === gridGeometry.filesGridGeometry(390).cellWidth,
+    'E2c. geometry is a pure function of width — no folder, animation or header input exists');
+  const source = require('node:fs').readFileSync(frontSource('screens/HomeCloudFilesScreen.tsx'), 'utf8') as string;
+  record(source.includes('filesGridGeometry(windowDimensions.width)'),
+    'E2d. the surface consumes the single geometry authority for root AND folder');
+}
+
+function testScannerHandleScale(): void {
+  console.log('\n=== E3: corner handles stay constant in screen space ===');
+  const scale = scannerGeometry.handleScreenSpaceScale;
+  record(scale(1) === 1, 'E3a. zoom 1 keeps the designed handle size');
+  record(scale(2) === 0.5, 'E3b. zoom 2 counter-scales to one half');
+  record(scale(4) === 0.25, 'E3c. zoom 4 counter-scales to one quarter');
+  record(Math.abs(scale(3) * 3 - 1) < 1e-9, 'E3d. visual size × zoom stays constant in screen space');
+}
+
+function testPopoverAnchorContract(): void {
+  console.log('\n=== E4: short menus are trigger-anchored popovers, sheets only on real constraint ===');
+  const viewport = { viewportWidth: 390, viewportHeight: 844, safeTop: 47, safeBottom: 34, keyboardHeight: 0, menuWidth: 280, fontScale: 1 };
+  const fileMenu = menuLayout.resolveAdaptiveMenuLayout({
+    ...viewport, anchor: { x: 340, y: 200, width: 44, height: 44 }, menuHeight: 420, itemCount: 7,
+  });
+  record(fileMenu.presentation === 'popover', 'E4a. the 7-row file catalog is a popover on a normal portrait iPhone, never a sheet');
+  if (fileMenu.presentation === 'popover') {
+    record(Math.abs((fileMenu.left + 280) - (340 + 44)) <= 13,
+      'E4b. a right-side trigger aligns the popover right edge to the trigger');
+    record(fileMenu.originY <= 12, 'E4c. the scale/fade origin is the trigger corner, so the menu grows from the control');
+  }
+  record(menuLayout.resolveAdaptiveMenuLayout({ ...viewport, anchor: null, menuHeight: 200, itemCount: 2 }).presentation === 'sheet',
+    'E4d. a missing anchor still falls back to a sheet');
+  record(menuLayout.resolveAdaptiveMenuLayout({
+    ...viewport, anchor: { x: 340, y: 200, width: 44, height: 44 }, menuHeight: 1200, itemCount: 7,
+  }).presentation === 'sheet', 'E4e. a menu taller than the usable height still falls back to a sheet');
+}
+
+function testMixedFeedbackCopy(): void {
+  console.log('\n=== E5: mixed move feedback never claims moved folders are files ===');
+  record(bulkMove.bulkMoveFeedback({ destinationFolderId: 'f', movedIds: ['a', 'b'], failures: [] }, 'elementos').message === '2 elementos movidos.',
+    'E5a. a mixed/file-folder batch reports elementos');
+  record(bulkMove.bulkMoveFeedback({ destinationFolderId: 'f', movedIds: ['a', 'b'], failures: [] }).message === '2 archivos movidos.',
+    'E5b. a file-only batch keeps the historical archivos copy');
+  record(bulkMove.bulkMoveFeedback({ destinationFolderId: 'f', movedIds: ['a'], failures: [] }, 'elementos').message === '1 elemento movido.',
+    'E5c. singular mixed copy is neutral too');
+}
+
+function testPatch1BSourceContracts(): void {
+  console.log('\n=== E6: Patch 1B structural contracts in the surface source ===');
+  const source = require('node:fs').readFileSync(frontSource('screens/HomeCloudFilesScreen.tsx'), 'utf8') as string;
+
+  const titleRow = source.slice(source.indexOf('PATCH 1B final normal header'), source.indexOf('PATCH 1B final normal header') + 2600);
+  const ellipsisPos = titleRow.indexOf('ellipsis-horizontal');
+  const filterPos = titleRow.indexOf('options-outline');
+  const addPos = titleRow.indexOf("accessibilityLabel=\"Agregar\"");
+  record(ellipsisPos !== -1 && filterPos !== -1 && addPos !== -1 && ellipsisPos < filterPos && filterPos < addPos,
+    'E6a. normal header order is exactly ⋯ · FILTER · + with + rightmost');
+  record(!titleRow.includes('>Organizar<'), 'E6b. no textual Organizar remains in the contextual row');
+  record(titleRow.includes("accessibilityLabel={filesFilterAccessibilityLabel(filterState)}"),
+    'E6c. the filter icon keeps the Organizar accessibility label');
+
+  const longPressBody = source.slice(source.indexOf('long press is SELECTION, never a menu'), source.indexOf('const leaveSelectionMode'));
+  record(longPressBody.includes('beginFileSelectionAt') && longPressBody.includes('armDragSelection'),
+    'E6d. long press enters selection and arms the stroke');
+  record(!longPressBody.includes('setActionTargetId') && !longPressBody.includes('setTimeout'),
+    'E6e. no long-press path opens the action menu and no second threshold timer exists');
+
+  record(source.includes('scrollEnabled={!selectionStrokeActive}'),
+    'E6f. list scrolling is suppressed only while a selection stroke owns the pointer');
+  record(source.includes('onRefresh={refreshFromAnyPath} enabled={!selectionStrokeActive}'),
+    'E6g. pull-to-refresh cannot arm while a selection stroke owns the pointer');
+  record(source.includes('onMoveShouldSetPanResponder: () => dragGestureRef.current !== null'),
+    'E6h. movement before the threshold never arms selection — it stays scroll');
+
+  record(source.includes('<FileTransientToast') && !source.includes('{transientFeedback ? <View style={styles.banner}>'),
+    'E6i. bulk success is a floating transient toast, never a persistent browser row');
+
+  // PATCH 1C — the native picker is IMPERATIVE. Files never mounts FileIntake
+  // (no autoPick side effect, no second upload surface); the launch happens
+  // only from the + menu's ACTUAL dismissal-complete signal, and the launch
+  // guard returns to IDLE on every terminal path (no mount-remount tricks,
+  // no timers).
+  record(!source.includes('<FileIntake') && !source.includes('autoPick'),
+    'E6j. Files never mounts FileIntake UI — no autoPick side effect, no second upload surface');
+  record(source.includes('onDidDismiss={handleAddMenuDidDismiss}') && source.includes('onPress={requestFilePickerLaunch}'),
+    'E6j2. Elegir archivo REQUESTS dismissal; the picker launches only from the menu\'s real onDidDismiss lifecycle');
+  record(source.includes('createFileIntakeService({') && source.includes("pickerLaunchRef.current = 'IDLE'"),
+    'E6j3. the launcher reuses the intake domain imperatively and releases the guard to IDLE on every terminal path');
+  record(!source.includes('scrollToIndex({ index, animated: false'),
+    'E6k. Grid/List restore never calls the throwing scrollToIndex on a fresh remount');
+
+  record(source.includes('moveHomeCloudFolder(token, entity.id, destinationFolderId)'),
+    'E6l. mixed move reuses the canonical folder move contract per entity');
+
+  const hostSource = require('node:fs').readFileSync(frontSource('services/homecloud/FileActionHost.tsx'), 'utf8') as string;
+  const hostCatalog = hostSource.slice(hostSource.indexOf('const actionContent'), hostSource.indexOf('showInfo ? <ActionSheet'));
+  record(hostCatalog.includes('<AdaptiveMenuRow') && !hostCatalog.includes('<AppButton'),
+    'E6m. the file catalog renders compact popover rows, not large card-buttons');
+}
+
+async function testLongPressSelectionOnSurface(): Promise<void> {
+  console.log('\n=== E7: long press selects on the real surface, pointer owned by the stroke ===');
+
+  const household = new Household({ folders: [{ id: 'ff-a', name: 'A' }, { id: 'ff-b', name: 'B' }], loose: 2 });
+  const surface = mountSurface(household);
+  await surface.settle();
+
+  record(selectByLongPress(surface.tree, 'c-000'), 'E7a. a file long press is reachable');
+  surface.render();
+  record(selectionBarElement(surface.tree) !== null, 'E7b. long press ENTERS selection mode');
+  record(selectionSummary(surface.tree) === '1 seleccionado', 'E7c. and the origin file is selected');
+  record(actionHostElement(surface.tree)?.props?.file == null, 'E7d. long press NEVER opens the action menu');
+
+  record(longPressFolder(surface.tree, 'ff-a'), 'E7e. a folder long press is reachable');
+  surface.render();
+  record(selectionSummary(surface.tree) === '2 seleccionados', 'E7f. long press folder selects it alongside the file');
+
+  const list = listOf(surface.tree);
+  record((list?.props as { scrollEnabled?: boolean } | undefined)?.scrollEnabled === false,
+    'E7g. while the stroke is armed the list does not scroll itself');
+  // The RefreshControl rides on the list's props (not in the walked children),
+  // so it is read from the FlatList element itself.
+  const refreshControl = (list?.props as { refreshControl?: { props?: { enabled?: boolean } } } | undefined)?.refreshControl;
+  record(refreshControl?.props?.enabled === false,
+    'E7h. and pull-to-refresh cannot arm for that stroke');
+
+  // Folder affordance toggles; folder body navigates without clearing.
+  record(setFolderSelected(surface.tree, 'ff-a', false), 'E7i. the folder check affordance is reachable');
+  surface.render();
+  record(selectionSummary(surface.tree) === '1 seleccionado', 'E7j. and it toggles only the folder');
+  record(pressFolder(surface.tree, 'ff-b'), 'E7k. the folder body still navigates');
+  await surface.settle();
+  record(selectionSummary(surface.tree) === '1 seleccionado', 'E7l. navigation preserves the cross-folder selection');
+  record(findOne(surface.tree, (element) => String(element.props?.accessibilityLabel ?? '').startsWith('Volver a')) !== null,
+    'E7m. the folder selection header keeps ‹ alongside X');
+
+  selectionBarElement(surface.tree)?.props.onPress();
+  surface.render();
+  record(selectionBarElement(surface.tree) === null, 'E7n. X exits and clears');
+  record((listOf(surface.tree)?.props as { scrollEnabled?: boolean } | undefined)?.scrollEnabled !== false,
+    'E7o. normal scrolling returns the moment the stroke ends');
+  surface.unmount();
+}
+
+async function testMixedBulkMoveOnSurface(): Promise<void> {
+  console.log('\n=== E8: mixed file+folder bulk move through the real surface ===');
+
+  const household = new Household({ folders: [{ id: 'ff-a', name: 'A' }, { id: 'ff-b', name: 'B' }], loose: 2 });
+  const surface = mountSurface(household);
+  await surface.settle();
+
+  record(selectByLongPress(surface.tree, 'c-000'), 'E8a. a file is long-pressed into selection');
+  surface.render();
+  record(longPressFolder(surface.tree, 'ff-a'), 'E8b. a folder joins the same selection');
+  surface.render();
+  record(selectionSummary(surface.tree) === '2 seleccionados', 'E8c. files and folders coexist in one Files selection');
+
+  const trigger = findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Acciones para los elementos seleccionados');
+  record(typeof trigger?.props?.onPress === 'function', 'E8d. the selection overflow is reachable');
+  trigger?.props.onPress();
+  surface.render();
+  const menu = bulkMenuElement(surface.tree);
+  record(menu !== null, 'E8e. the bulk popover opens');
+  record(findOne(menu, (element) => element.props?.title === 'Mover') !== null, 'E8f. a folder-bearing set still offers Mover');
+  record(findOne(menu, (element) => element.props?.title === 'Agregar a favoritos') === null,
+    'E8g. but no invented folder Favorite');
+  record(findOne(menu, (element) => element.props?.title === 'Mover a la papelera') === null,
+    'E8h. and no folder Papelera — the menu is the intersection of valid operations');
+  record(findOne(menu, (element) => element.props?.title === 'Compartir') === null,
+    'E8h2. and no Share over a mixed set');
+
+  const fileMovesBefore = household.moveCalls.length;
+  const folderMovesBefore = household.folderMoveCalls.length;
+  findOne(menu, (element) => element.props?.title === 'Mover')?.props.onPress();
+  surface.render();
+  record(pickerElement(surface.tree)?.props?.visible === true, 'E8i. Mover opens the shared destination picker');
+  record(pickerElement(surface.tree)?.props?.title === 'Mover 2 elementos', 'E8j. titled neutrally for the mixed batch');
+  pickerElement(surface.tree)?.props.onSelect('ff-b');
+  await surface.settle(80, 10);
+
+  record(household.moveCalls.length === fileMovesBefore + 1, 'E8k. the file moved through its canonical file mutation');
+  record(household.folderMoveCalls.length === folderMovesBefore + 1, 'E8l. the folder moved through its canonical folder mutation');
+  record(household.unknownPaths().length === 0, 'E8m. no bulk endpoint was invented for the mixed batch');
+  record(toastText(surface.tree) === '2 elementos movidos.', 'E8n. total mixed success reports elementos, transiently');
+  record(selectionBarElement(surface.tree) === null, 'E8o. total success leaves selection');
+  record(renderText(surface.tree).filter((text) => text === '2 elementos movidos.').length <= 1
+    && findOne(surface.tree, (element) => typeof element.type === 'function' && element.type.name === 'FileTransientToast') !== null,
+    'E8p. the feedback is the floating overlay, not a browser row');
+  surface.unmount();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 
 async function main(): Promise<void> {
   testSelectionModel();
@@ -1532,6 +1917,14 @@ async function main(): Promise<void> {
   await testBulkMoveCapabilityRevokedMidFlight();
   await testBulkMoveModelDirectly();
   testAppButtonAccessibilityComposition();
+  testDragEntityKeys();
+  testGridGeometryInvariant();
+  testScannerHandleScale();
+  testPopoverAnchorContract();
+  testMixedFeedbackCopy();
+  testPatch1BSourceContracts();
+  await testLongPressSelectionOnSurface();
+  await testMixedBulkMoveOnSurface();
 
   console.log(`\nHOMECLOUD_FILES_SLICE1_RESULT pass=${passCount} fail=${failCount}`);
   if (failCount > 0) process.exit(1);

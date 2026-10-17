@@ -42,6 +42,7 @@ export type MoreStackParamList = {
      * editor confirms; the Scanner adopts it once and clears it.
      */
     scannerEditOutcome?: import('../services/homecloud/homecloudScanner').ScannerPageEditOutcome;
+    scannerRetakePageId?: string;
   } | undefined;
   /**
    * Scanner image editor (B1). Pushed from HomeCloudScanner; params are fully

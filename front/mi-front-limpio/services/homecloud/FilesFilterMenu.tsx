@@ -5,9 +5,10 @@ import { spacing } from '../../constants/theme';
 import {
   FILES_SHOW_OPTIONS,
   FILES_SORT_OPTIONS,
-  filesFilterDescription,
+  FILES_VIEW_OPTIONS,
   type FilesFilterState,
   type FilesShowMode,
+  type FilesViewMode,
 } from './homecloudFilesFilters';
 import type { FileSort } from './homecloudFilesService';
 
@@ -29,6 +30,7 @@ export interface FilesFilterMenuProps {
   busy?: boolean;
   onChangeShow: (show: FilesShowMode) => void;
   onChangeSort: (sort: FileSort) => void;
+  onChangeView: (view: FilesViewMode) => void;
   onClose: () => void;
 }
 
@@ -38,10 +40,11 @@ export function FilesFilterMenu({
   busy = false,
   onChangeShow,
   onChangeSort,
+  onChangeView,
   onClose,
 }: FilesFilterMenuProps) {
   return (
-    <ActionSheet visible={visible} title="Filtros y orden" onRequestClose={onClose} size="content">
+    <ActionSheet visible={visible} title="Organizar" onRequestClose={onClose} size="content">
       <View style={styles.groups}>
         <View style={styles.group}>
           <AppText variant="caption" tone="secondary" weight="800">MOSTRAR</AppText>
@@ -71,9 +74,14 @@ export function FilesFilterMenu({
             ))}
           </View>
         </View>
-        <AppText variant="caption" tone="secondary" accessibilityLabel={filesFilterDescription(state)}>
-          {filesFilterDescription(state)}
-        </AppText>
+        <View style={styles.group}>
+          <AppText variant="caption" tone="secondary" weight="800">VISTA</AppText>
+          <View style={styles.chips}>
+            {FILES_VIEW_OPTIONS.map((option) => (
+              <FilterChip key={option.value} label={option.label} selected={state.view === option.value} disabled={busy} onPress={() => onChangeView(option.value)} />
+            ))}
+          </View>
+        </View>
       </View>
     </ActionSheet>
   );

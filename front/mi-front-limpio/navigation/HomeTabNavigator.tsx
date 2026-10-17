@@ -16,6 +16,7 @@ import { HomeCloudScreen } from '../screens/HomeCloudScreen';
 import { HomeCloudFilesTrashScreen } from '../screens/HomeCloudFilesTrashScreen';
 import { HomeCloudScannerScreen } from '../screens/HomeCloudScannerScreen';
 import { ScannerImageEditorScreen } from '../screens/ScannerImageEditorScreen';
+import { isHomeCloudImmersiveChromeHidden, subscribeHomeCloudImmersiveChrome } from '../services/homecloud/homecloudImmersiveChrome';
 import { FinanceScreen } from '../screens/finance/FinanceScreen';
 import { InventarioScreen } from '../screens/inventory/InventarioScreen';
 import { PlannerScreen } from '../screens/planner/PlannerScreen';
@@ -232,7 +233,18 @@ function MoreStackScreen() {
   <MoreStack.Screen name="HomeCloud" component={HomeCloudScreen} />
   <MoreStack.Screen name="HomeCloudFilesTrash" component={HomeCloudFilesTrashScreen} />
   <MoreStack.Screen name="HomeCloudScanner" component={HomeCloudScannerScreen} />
-  <MoreStack.Screen name="ScannerImageEditor" component={ScannerImageEditorScreen} />
+  {/* PATCH 1C — the scanner editor is TRUE FULLSCREEN. The previous `card`
+      push was claimed fullscreen but physical QA showed a blank upper half:
+      a card nested in the tab-embedded More stack does not own the whole
+      window. `fullScreenModal` is presented at window level, which guarantees
+      the editor covers the entire viewport (no partial sheet/card semantics,
+      no parent chrome). The screen itself owns the column: safe-area top
+      header, flex canvas, safe-area bottom controls. */}
+  <MoreStack.Screen
+    name="ScannerImageEditor"
+    component={ScannerImageEditorScreen}
+    options={{ presentation: 'fullScreenModal', headerShown: false, contentStyle: { backgroundColor: colors.background.base } }}
+  />
       <MoreStack.Screen name="Inventory" component={InventarioScreen} />
       <MoreStack.Screen name="Finance" component={FinanceScreen} />
       <MoreStack.Screen name="FinanceAccounts" component={FinanceAccountsScreen} />
@@ -305,6 +317,8 @@ export function HomeTabNavigator() {
   const [showAccountSheet, setShowAccountSheet] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(isMemoryViewerOpen());
   useEffect(() => subscribeMemoryViewerOpen(() => setViewerOpen(isMemoryViewerOpen())), []);
+  const [homeCloudImmersive, setHomeCloudImmersive] = useState(isHomeCloudImmersiveChromeHidden());
+  useEffect(() => subscribeHomeCloudImmersiveChrome(() => setHomeCloudImmersive(isHomeCloudImmersiveChromeHidden())), []);
   /**
    * ST-4: global chrome UNMOUNTS while the Viewer is open inside MoreTab. The
    * Viewer/tab state stays owned by Memories; this only mirrors the flag. The
@@ -312,7 +326,7 @@ export function HomeTabNavigator() {
    * navigator's state listener can start stale when the More stack is already
    * focused, leaving the physical bottom navbar mounted over the Viewer.
    */
-  const chromeHidden = viewerOpen;
+  const chromeHidden = viewerOpen || homeCloudImmersive;
 
   const personName = authMe?.person?.display_name ?? 'Usuario';
   const personAvatarUrl = authMe?.person?.avatar_url ?? null;

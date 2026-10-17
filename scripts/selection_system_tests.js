@@ -78,17 +78,19 @@ try {
 
   // ── Files selection: the CURRENT contract, not the one the Stage-3 freeze had.
   //
-  // STAGE 2 (Phase 2) SUPERSESSION, recorded explicitly. Stage 1 stated: "Selection
-  // is ENTERED by a long press or by the explicit, labelled 'Seleccionar' control".
-  // Stage 2 removes the long-press entry outright, because long press now owns the
-  // contextual File actions. The remaining guarantees are unchanged and still
-  // asserted here:
+  // PATCH 1B SUPERSESSION, recorded explicitly. The Stage-2 rule ("long press
+  // opens the contextual File actions; selection is entered ONLY from the
+  // header overflow") is superseded by physical QA: long press is SELECTION
+  // again — ONE threshold, never a menu — and folders ARE selectable alongside
+  // files in one Files-wide selection. The remaining guarantees are unchanged
+  // and still asserted here:
   //   - a File tap stays RESERVED for the Viewer and is never a selection gesture;
-  //   - selection is entered ONLY through the labelled "Seleccionar" control, so
-  //     nobody has to know a hidden gesture;
+  //   - selection is entered by long press or through the labelled "Seleccionar"
+  //     control, so nobody has to know a hidden gesture;
   //   - only while the mode is active does a tap toggle;
-  //   - a long press inside selection opens NOTHING;
-  //   - selection stays scoped to one context and is pruned on reconciliation.
+  //   - a long press opens NOTHING (no menu, no Viewer) and arms the sweep;
+  //   - selection is Files-wide: folder, query, sort, Grid/List and window
+  //     changes preserve it; only a household change clears it.
   // STAGE 2 (Phase 3): the tap is no longer a reserved no-op seam - it OPENS the
   // Viewer. The guarantee Stage 1 protected is unchanged and still asserted: a tap
   // OUTSIDE selection never selects anything, and inside selection it only toggles.
@@ -97,10 +99,16 @@ try {
   // now asserted as what it actually is: it opens NOTHING (no File menu, no navigation,
   // no Viewer) and hands the gesture to the sweep instead.
   assert.doesNotMatch(files, /beginSelectionAt/);
-  assert.doesNotMatch(files, /beginFileSelectionAt/);
+  assert.match(files, /beginFileSelectionAt/);
+  assert.match(files, /beginFolderSelectionAt/);
   assert.match(
     files,
-    /const handleFileLongPress = useCallback[\s\S]*?if \(selection\.mode\) \{[\s\S]*?armDragSelection\(fileId\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?setActionTargetId\(fileId\);/,
+    /const handleFileLongPress = useCallback[\s\S]*?beginFileSelectionAt[\s\S]*?armDragSelection/,
+  );
+  assert.doesNotMatch(
+    files,
+    /const handleFileLongPress[\s\S]{0,600}?setActionTargetId/,
+    'a long press must never open the action menu',
   );
   assert.doesNotMatch(
     files,
@@ -109,14 +117,20 @@ try {
   );
   assert.match(files, /const handleFileTap = useCallback[\s\S]*?if \(selection\.mode\) \{[\s\S]*?toggleFileSelection[\s\S]*?return;[\s\S]*?setViewerTargetId\(fileId\);/);
   assert.doesNotMatch(files, /if \(!selection\.mode\) return;\s*\n\s*\/\/ Outside selection the tap is the Viewer/);
-  assert.match(files, /accessibilityLabel="Seleccionar archivos"/);
+  assert.match(files, /accessibilityLabel="Seleccionar elementos"/);
   assert.match(files, /previous\.mode \? toggleFileSelection\(previous, fileId\) : previous/);
   assert.match(files, /selectionScope/);
-  assert.match(files, /pruneFileSelection\(previous, files\.map\(\(file\) => file\.id\)\)/);
+  // Cross-folder selection is Files-wide: no reconciliation prunes an identity
+  // merely because it is not on screen. Invalid identities are dropped only at
+  // bulk execution time, with evidence.
+  assert.doesNotMatch(files, /pruneFileSelection\(previous, files\.map\(\(file\) => file\.id\)\)/);
   // Selection has exactly ONE entry point, and the overflow withdraws it while the
   // mode is active, so there is never a second way in.
   assert.equal((files.match(/enterSelectionMode\(\)/g) || []).length, 1);
-  assert.match(files, /\{!selection\.mode \? <AppButton title="Seleccionar"/);
+  // PATCH 1B/1C contract: the discoverable entry is a compact popover row in
+  // the header overflow (AdaptiveMenuRow), and the overflow trigger itself is
+  // withdrawn while selection is active — one entry, never a second way in.
+  assert.match(files, /<AdaptiveMenuRow title="Seleccionar"/);
 
   // ONE canonical action host, ONE shared move destination picker: no second menu
   // can perform a File operation, and a move has a single destination grammar.
@@ -159,8 +173,14 @@ try {
   assert.match(files, /favoritesOnly: context\.favoritesOnly/);
   const filesClient = read('front/mi-front-limpio/services/homecloud/homecloudFilesService.ts');
   assert.match(filesClient, /params\.set\('favoritesOnly', 'true'\)/);
-  assert.doesNotMatch(files, /papelera|trash/i);
-  assert.doesNotMatch(files, /navigate\(['"]Viewer|HomeCloudViewer/);
+   // LIFECYCLE V1 SUPERSESSION (recorded): the old "no trash in Files V1" rule
+   // is gone — the Papelera IS the product (FF-021). The single-surface
+   // guarantees that survive: exactly ONE Papelera route entry, and every trash
+   // mutation goes through the canonical lifecycle service. The full trash
+   // contract is covered by homecloud_files_trash_ui_tests.
+   assert.equal((files.match(/navigate\('HomeCloudFilesTrash'\)/g) || []).length, 1);
+   assert.match(files, /trashHomeCloudFile/);
+   assert.doesNotMatch(files, /navigate\(['"]Viewer|HomeCloudViewer/);
 
   // Bulk Move is N of the EXISTING single-file mutation, with one reconciliation.
   const bulk = read('front/mi-front-limpio/services/homecloud/homecloudBulkMove.ts');
@@ -169,7 +189,7 @@ try {
   assert.match(bulk, /import \{ ApiError \} from '\.\.\/api'/);
   assert.doesNotMatch(bulk, /requestJson|fetch\(|XMLHttpRequest|axios/);
   assert.match(bulk, /await input\.moveFile\(contentId, \{ folderId: input\.destinationFolderId \}\)/);
-  const moveBody = files.slice(files.indexOf('const moveSelectedFiles'), files.indexOf('const moveSelectedFiles') + 1400);
+   const moveBody = files.slice(files.indexOf('const moveSelectedFiles'), files.indexOf('const handleMoveDestination'));
   assert.match(moveBody, /updateHomeCloudFile/);
   assert.match(moveBody, /await refresh\(\)/);
   assert.equal((moveBody.match(/await refresh\(\)/g) || []).length, 1);

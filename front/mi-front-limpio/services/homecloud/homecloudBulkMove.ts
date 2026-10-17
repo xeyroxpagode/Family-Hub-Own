@@ -91,9 +91,9 @@ export interface BulkMoveFeedback {
 }
 
 /** The progress statement while the batch is in flight. */
-export const bulkMoveInFlight = (count: number): BulkMoveFeedback => ({
+export const bulkMoveInFlight = (count: number, unit: 'archivos' | 'elementos' = 'archivos'): BulkMoveFeedback => ({
   tone: 'secondary',
-  message: count === 1 ? 'Moviendo 1 archivo…' : `Moviendo ${count} archivos…`,
+  message: count === 1 ? `Moviendo 1 ${unit === 'archivos' ? 'archivo' : 'elemento'}…` : `Moviendo ${count} ${unit}…`,
 });
 
 /**
@@ -101,20 +101,25 @@ export const bulkMoveInFlight = (count: number): BulkMoveFeedback => ({
  * states both halves: the seven stay moved, and the one did not happen. A batch
  * that partly failed is never presented as a failure of the whole, and the
  * failures of one batch are never presented as the success of another.
+ *
+ * PATCH 1B — `unit` names what moved. File-only batches keep the historical
+ * `archivos` copy; batches holding folders (or mixed) use the neutral
+ * `elementos`, so a moved folder is never reported as a moved file.
  */
-export function bulkMoveFeedback(result: BulkMoveResult): BulkMoveFeedback {
+export function bulkMoveFeedback(result: BulkMoveResult, unit: 'archivos' | 'elementos' = 'archivos'): BulkMoveFeedback {
   const moved = result.movedIds.length;
   const failed = result.failures.length;
+  const one = unit === 'archivos' ? 'archivo' : 'elemento';
   if (failed === 0) {
     return {
       tone: 'success',
-      message: moved === 0 ? 'No había archivos para mover.' : moved === 1 ? '1 archivo movido.' : `${moved} archivos movidos.`,
+      message: moved === 0 ? 'No había elementos para mover.' : moved === 1 ? `1 ${one} movido.` : `${moved} ${unit} movidos.`,
     };
   }
   if (moved === 0) {
     return {
       tone: 'danger',
-      message: failed === 1 ? '1 archivo no se pudo mover.' : `${failed} archivos no se pudieron mover.`,
+      message: failed === 1 ? `1 ${one} no se pudo mover.` : `${failed} ${unit} no se pudieron mover.`,
     };
   }
   const movedPart = moved === 1 ? '1 movido' : `${moved} movidos`;

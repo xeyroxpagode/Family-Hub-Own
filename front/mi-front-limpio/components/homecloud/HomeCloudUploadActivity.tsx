@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppButton, AppText } from '../ui';
 import { HomePlusIcon } from '../../constants/icons';
@@ -89,6 +89,20 @@ export function HomeCloudUploadActivity({ householdId }: { householdId: string |
     >
       {expanded ? (
         <View style={styles.panel} accessibilityLabel={`Detalles de ${activity.jobs.length} subidas`}>
+          {/* PATCH 1B — collapsed and expanded are TWO STATES OF THE SAME
+              mounted surface (same host, same anchor, same subscription). The
+              header collapses; the surface never becomes a modal, sheet,
+              popover or second tray, and the browser stays visible. */}
+          <Pressable
+            onPress={() => setExpanded(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Ocultar los detalles de las subidas"
+            style={({ pressed }) => [styles.panelHeader, pressed && styles.pillPressed]}
+          >
+            <AppText variant="body" weight="800">Subidas</AppText>
+            <HomePlusIcon name="chevron-down" size={18} color={colors.text.secondary} />
+          </Pressable>
+          <ScrollView style={styles.queueScroll} contentContainerStyle={styles.queueContent} showsVerticalScrollIndicator>
           {activity.jobs.map((job) => (
             <View key={job.id} style={styles.jobRow}>
               <View style={styles.jobCopy}>
@@ -117,6 +131,7 @@ export function HomeCloudUploadActivity({ householdId }: { householdId: string |
               ) : null}
             </View>
           ))}
+          </ScrollView>
         </View>
       ) : null}
       <Pressable
@@ -138,6 +153,11 @@ export function HomeCloudUploadActivity({ householdId }: { householdId: string |
           <AppText variant="caption" weight="700" numberOfLines={1} style={activity.failedCount > 0 ? styles.pillLabelDanger : styles.pillLabel}>
             {activity.label}
           </AppText>
+          {activity.jobs.length > 1 ? (
+            <AppText variant="caption" tone="secondary" numberOfLines={1}>
+              {activity.jobs.length} en cola
+            </AppText>
+          ) : null}
           {typeof activity.percent === 'number' ? (
             <View style={styles.progressTrack}>
               <View style={[styles.progressFill, { width: `${Math.min(100, Math.max(0, activity.percent))}%` }]} />
@@ -204,21 +224,25 @@ function summarizeActivity(snapshot: UploadCoordinatorSnapshot | null): UploadAc
 function jobStateLabel(job: UploadJob, snapshot: UploadCoordinatorSnapshot | null): string {
   switch (job.state) {
     case 'pending':
+      return 'En cola';
     case 'registering':
+      return 'Preparando';
     case 'registered':
-      return 'Pendiente';
+      return 'Preparando';
     case 'uploading': {
       if (snapshot?.activeUpload?.jobId === job.id) {
         return `Subiendo ${Math.round(snapshot.activeUpload.progress * 100)}%`;
       }
-      return 'Subiendo…';
+      return 'Subiendo';
     }
     case 'verifying':
-      return 'Verificando…';
+      return 'Verificando';
     case 'finalizing':
-      return 'Guardando…';
+      return 'Finalizando';
+    case 'completed':
+      return 'Completado';
     case 'failed':
-      return job.error?.message ?? 'No se pudo subir';
+      return job.error?.message ?? 'Error';
     case 'cancelled':
       return 'Cancelado';
     default:
@@ -283,6 +307,16 @@ const styles = StyleSheet.create({
     gap: spacing[2],
     alignSelf: 'center',
   },
+  panelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 44,
+    paddingHorizontal: spacing[2],
+    borderRadius: radius.md,
+  },
+  queueScroll: { maxHeight: 250 },
+  queueContent: { gap: spacing[2] },
   jobRow: {
     flexDirection: 'row',
     alignItems: 'center',

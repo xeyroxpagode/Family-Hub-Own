@@ -508,6 +508,29 @@ export function clampScale(scale: number): number {
 }
 
 /**
+ * PATCH 1B — corner-handle SCREEN-SPACE invariant.
+ *
+ * Handles are rendered INSIDE the zoomed image container, so without
+ * compensation a zoom of `S` would draw them `S` times larger. The visual
+ * handle size must stay approximately constant in SCREEN SPACE:
+ *
+ *   visualScale ≈ 1 / S
+ *
+ * This function is VISUAL ONLY: it never touches the crop point, the
+ * normalized quad, the image-space coordinates or the perspective output. The
+ * logical handle stays attached to the same point of the transformed image;
+ * only the drawn dot (and its container-unit hit box, which the screen keeps
+ * at a constant screen-space size too) is counter-scaled.
+ *
+ * Clamped for numerical/UX safety: below 1/MAX_ZOOM the dot would become
+ * sub-pixel, above 1 it would exceed its designed size.
+ */
+export function handleScreenSpaceScale(zoomScale: number): number {
+  const scale = clampScale(zoomScale);
+  return clamp(1 / scale, 1 / MAX_ZOOM, 1);
+}
+
+/**
  * Pan bounds. At zoom 1 the image exactly fills the box, so it must not move.
  * When zoomed, the image may not be dragged away from its edges.
  */

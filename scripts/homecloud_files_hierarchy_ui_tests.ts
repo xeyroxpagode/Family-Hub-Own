@@ -316,14 +316,19 @@ console.log('\n--- H-I: the screen actually uses the derived hierarchy ---');
   record(!/const leaveFolder = useCallback\(\(\) => \{\s*setFolder\(null\)/.test(screen), 'back is NOT a jump to the root');
   record(/trail\.length >= 2 \? trail\[trail\.length - 2\]/.test(screen), 'back pops exactly ONE level');
   record(screen.includes('resolveNearestExistingFolderId(allFolders, folder)'), 'a folder that vanished remotely is resolved, from the STALE object, to the nearest one that still exists');
-  record(screen.includes('folderDisplayPath(allFolders, folder?.id ?? null)'), 'the browser renders the computed path as a breadcrumb');
+  // PATCH 1B §8 — NO breadcrumb row: the folder name appears ONCE in the
+  // contextual row (Freeze FF-009). The computed path lives in destination
+  // labels, never as a browser breadcrumb.
+  record(!screen.includes('folderDisplayPath(allFolders, folder?.id ?? null)'), 'the browser renders no breadcrumb path');
+  record(screen.includes("{folder?.name ?? 'Archivos'}"), 'the folder name appears once, in the contextual row');
   record(screen.includes('folderWithDescendantIds(allFolders, moveIntent.folderId)'), 'a folder move excludes itself and its whole subtree');
   record(screen.includes('createHomeCloudFolder(token, folderName, folder?.id ?? null)'), 'creating a folder inherits the OPEN folder');
   record(!screen.includes('disabled={!!folder || !canOrganize}'), 'creating a folder is no longer disabled inside a folder');
-  record(screen.includes('moveHomeCloudFolder(token, folderActions.id, destinationFolderId)'), 'a folder can be reparented');
+  record(screen.includes('moveHomeCloudFolder(token, moveIntent.folderId, destinationFolderId)'), 'a folder can be reparented through the ONE shared move intent');
   // The delete copy must be honest: a nested delete PROMOTES, it does not recurse.
-  record(screen.includes('no se borra ningún archivo'), 'the delete confirmation says no File is deleted');
-  record(screen.includes('su contenido directo pasa a'), 'the delete confirmation says the direct contents move to the parent');
+  // (PATCH-1 frozen copy: contents are preserved and move to the parent.)
+  record(screen.includes('se conservarán'), 'the delete confirmation says no File is deleted');
+  record(screen.includes('pasarán a la carpeta superior'), 'the delete confirmation says the direct contents move to the parent');
   record(!screen.includes('volverán a Archivos'), 'the old always-to-root delete copy is gone');
   record(screen.includes('title="Mover"'), 'a folder offers Mover as one of its actions');
   // ONE picker INSTANCE for all three Move intents. Two instances would restore the

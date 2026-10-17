@@ -94,18 +94,18 @@ console.log('\n=== HOMECLOUD FILES: UX / REFRESH / PAGINATION / SELECTION (STAGE
 console.log('--- X-D: display filters compose server-side (pure) ---');
 record(DEFAULT_FILES_FILTER_STATE.show === 'all' && DEFAULT_FILES_FILTER_STATE.sort === 'recent', 'X-D1. the default is Todos + Recientes');
 record(filesFavoritesOnly(DEFAULT_FILES_FILTER_STATE) === false, 'X-D2. the default is NOT favorites-only');
-record(filesFavoritesOnly({ show: 'favorites', sort: 'recent' }) === true, 'X-D3. Favoritos maps to the server favoritesOnly flag');
+record(filesFavoritesOnly({ show: 'favorites', sort: 'recent', view: 'grid' }) === true, 'X-D3. Favoritos maps to the server favoritesOnly flag');
 record(hasNonDefaultFilesFilter(DEFAULT_FILES_FILTER_STATE) === false, 'X-D4. the default looks clean and unaccented');
-record(hasNonDefaultFilesFilter({ show: 'favorites', sort: 'recent' }) === true, 'X-D5. Favoritos alone is a non-default filter');
-record(hasNonDefaultFilesFilter({ show: 'all', sort: 'name' }) === true, 'X-D6. A-Z alone is a non-default filter');
+record(hasNonDefaultFilesFilter({ show: 'favorites', sort: 'recent', view: 'grid' }) === true, 'X-D5. Favoritos alone is a non-default filter');
+record(hasNonDefaultFilesFilter({ show: 'all', sort: 'name', view: 'grid' }) === true, 'X-D6. A-Z alone is a non-default filter');
 record(FILES_SHOW_OPTIONS.map((option) => option.label).join(',') === 'Todos,Favoritos', 'X-D7. MOSTRAR offers exactly Todos and Favoritos');
-record(FILES_SORT_OPTIONS.map((option) => option.label).join(',') === 'Recientes,A-Z', 'X-D8. ORDENAR offers exactly Recientes and A-Z');
-record(filesShowLabel({ show: 'favorites', sort: 'recent' }) === 'Favoritos', 'X-D9. the show axis labels itself');
-record(filesSortLabel({ show: 'all', sort: 'name' }) === 'A-Z', 'X-D10. the order axis labels itself');
+record(FILES_SORT_OPTIONS.map((option) => option.label).join(',') === 'Recientes,A–Z', 'X-D8. ORDENAR offers exactly Recientes and A–Z (PATCH-1 frozen vocabulary)');
+record(filesShowLabel({ show: 'favorites', sort: 'recent', view: 'grid' }) === 'Favoritos', 'X-D9. the show axis labels itself');
+record(filesSortLabel({ show: 'all', sort: 'name', view: 'grid' }) === 'A–Z', 'X-D10. the order axis labels itself (PATCH-1 frozen vocabulary)');
 record(/todos los archivos/.test(filesFilterDescription(DEFAULT_FILES_FILTER_STATE)), 'X-D11. the description names the show axis in product words');
 record(/más recientes/.test(filesFilterDescription(DEFAULT_FILES_FILTER_STATE)), 'X-D12. the description names the order axis');
-record(/tus favoritos/.test(filesFilterDescription({ show: 'favorites', sort: 'recent' })), 'X-D13. the description is honest when Favoritos is on');
-record(filesFilterAccessibilityLabel(DEFAULT_FILES_FILTER_STATE).startsWith('Filtros y orden.'), 'X-D14. the filter icon announces what it is before it is used');
+record(/tus favoritos/.test(filesFilterDescription({ show: 'favorites', sort: 'recent', view: 'grid' })), 'X-D13. the description is honest when Favoritos is on');
+record(filesFilterAccessibilityLabel(DEFAULT_FILES_FILTER_STATE).startsWith('Organizar.'), 'X-D14. the filter icon announces what it is before it is used (PATCH-1 frozen vocabulary)');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // X-F0: the sweep model, executed (PURE_UNIT)
@@ -527,9 +527,13 @@ const uiStub: Record<string, unknown> = {
   AppText: 'AppText',
   AppInput: 'AppInput',
   ActionSheet: 'ActionSheet',
+  AdaptiveActionMenu: 'AdaptiveActionMenu',
+  AdaptiveMenuRow: 'AdaptiveMenuRow',
+  AdaptiveMenuSeparator: 'AdaptiveMenuSeparator',
   DatePickerSheet: 'DatePickerSheet',
   ErrorState: 'ErrorState',
   FormActionRow: 'FormActionRow',
+  menuAnchorFromEvent: () => null,
   /**
    * The header controls are `InteractivePressable`s, so the boundary has to EXIST.
    *
@@ -855,10 +859,12 @@ function registerFrame(surface: Mounted, id: string, layout: { x: number; y: num
 }
 
 function enterSelection(surface: Mounted): boolean {
-  const control = findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Seleccionar archivos');
+  const control = findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Seleccionar elementos');
   (control?.props?.onPress as (() => void) | undefined)?.();
   surface.render();
-  return findOne(surface.tree, (element) => element.type === selectionBar.FileSelectionBar) !== null;
+  // The selection header (X · N seleccionados · ⋯) is the mode signal. The
+  // bottom FileSelectionBar is long removed; asserting on it would never pass.
+  return findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Salir de la selección') !== null;
 }
 
 function selectionIds(tree: unknown): string[] {
@@ -882,17 +888,27 @@ function selectedTileIds(tree: unknown): string[] {
 }
 
 /**
- * The RENDERED File tile's outer View — the node that actually carries the sweep's
- * pan responder.
- *
- * The list's `renderItem` produces the `FileTile` ELEMENT, so the handlers that the
- * sweep depends on only exist after the tile is rendered. Driving the element's
- * props instead of the rendered View's would test a prop that no device ever sees.
+ * The RENDERED File tile's outer View — the node that publishes the measured
+ * frame. PATCH 1C: the tile DETECTS the long press and registers its frame,
+ * but the sweep's pan responder lives on the BROWSER/LIST WRAPPER
+ * (`browserResponder`), so the tile no longer carries any responder prop.
  */
 function renderedTile(tree: unknown, id: string): TestElement | null {
   const rendered = renderFileTile(tree, id);
   if (rendered === null) return null;
-  return findOne(rendered, (element) => typeof element.props?.onMoveShouldSetPanResponder === 'function');
+  return findOne(rendered, (element) => typeof element.props?.onLayout === 'function');
+}
+
+/**
+ * PATCH 1C — the BROWSER-LEVEL responder owner: the list wrapper View that
+ * carries BOTH the drag-selection pan responder and the accessibility refresh
+ * actions. The side-index rail also has responder props, so the
+ * `accessibilityActions` discriminator pins THIS wrapper.
+ */
+function browserResponder(tree: unknown): TestElement | null {
+  return findOne(tree, (element) => element.type === 'View'
+    && typeof element.props?.onMoveShouldSetPanResponder === 'function'
+    && Array.isArray(element.props?.accessibilityActions));
 }
 
 /** Long-press a File tile the way a member does, through the pressable body. */
@@ -1008,7 +1024,8 @@ async function main(): Promise<void> {
   record(screen.includes('name="options-outline"'), 'X-A4. one compact filter/order ICON opens the display filters');
   record(screen.includes('name="add" size={22}') && screen.includes('name="ellipsis-horizontal" size={22}'),
     'X-A5. both donor icon sizes are preserved');
-  record((screen.match(/ellipsis-horizontal/g) ?? []).length === 1, 'X-A6. exactly ONE ellipsis remains: the header overflow');
+  record((screen.match(/ellipsis-horizontal/g) ?? []).length === 6,
+    'X-A6. PATCH 1B: one ellipsis per surface that owns contextual actions — normal ⋯, selection ⋯, file ⋯ (grid+list), folder ⋯ (grid+list); actions open exclusively from visible ⋯ controls, never from long press');
   record(screen.includes('headerIconButton: { width: 44, height: 44, borderRadius: radius.full'),
     'X-A7. Files uses the donor icon-button geometry verbatim');
   record(screen.includes('width: 8, height: 8, borderRadius: 4'), 'X-A8. and the donor small-dot active indicator');
@@ -1024,9 +1041,12 @@ async function main(): Promise<void> {
     const household = new Household({ loose: 4 });
     const surface = mountSurface(household);
     await surface.settle();
-    const overflow = findOne(surface.tree, (element) => element.type === 'ActionSheet'
-      && findAll(element, (inner) => inner.props?.accessibilityLabel === 'Seleccionar archivos').length > 0);
-    record(overflow !== null, 'X-B1. the header overflow is a screen-level sheet');
+    // PATCH 1B SUPERSESSION. The overflow is a trigger-anchored POPOVER, never
+    // a sheet: short command catalogs (global ⋯, +, file ⋯, folder ⋯) expand
+    // from their trigger; sheets are reserved for forms and secondary work.
+    const overflow = findOne(surface.tree, (element) => element.type === 'AdaptiveActionMenu'
+      && findAll(element, (inner) => inner.props?.accessibilityLabel === 'Seleccionar elementos').length > 0);
+    record(overflow !== null, 'X-B1. the header overflow is a trigger-anchored popover');
     const overflowTitles = overflow === null ? [] : findAll(overflow, (inner) => typeof inner.props?.title === 'string').map((inner) => String(inner.props.title));
     record(overflowTitles.includes('Seleccionar'), 'X-B2. Seleccionar lives in the overflow');
     record(overflowTitles.includes('Actualizar') === false,
@@ -1056,12 +1076,12 @@ async function main(): Promise<void> {
     // out of band.
     (hint?.props?.onPress as (() => void) | undefined)?.();
     surface.render();
-    record(findAll(surface.tree, (element) => element.type === 'ActionSheet'
-      && findAll(element, (inner) => inner.props?.accessibilityLabel === 'Seleccionar archivos').length > 0).length === 1,
-      'X-B6d. pressing the mounted control really opens the overflow sheet');
+    record(findAll(surface.tree, (element) => element.type === 'AdaptiveActionMenu'
+      && findAll(element, (inner) => inner.props?.accessibilityLabel === 'Seleccionar elementos').length > 0).length === 1,
+      'X-B6d. pressing the mounted control really opens the overflow popover');
     record(findAll(surface.tree, (element) => element.props?.title === 'Seleccionar').length === 1,
-      'X-B6e. whose only item is `Seleccionar`');
-    (findOne(surface.tree, (element) => element.type === 'ActionSheet'
+      'X-B6e. whose first item is `Seleccionar`');
+    (findOne(surface.tree, (element) => element.type === 'AdaptiveActionMenu'
       && findAll(element, (inner) => inner.props?.title === 'Seleccionar').length > 0)?.props?.onRequestClose as (() => void) | undefined)?.();
     surface.render();
     record(findAll(surface.tree, (element) => /Actualizar archivos/.test(JSON.stringify(element.props?.accessibilityActions ?? []))).length === 1,
@@ -1165,7 +1185,8 @@ async function main(): Promise<void> {
     const surface = mountSurface(household);
     await surface.settle();
 
-    // OUTSIDE selection: tap -> Viewer, long press -> contextual File actions.
+    // PATCH 1B — OUTSIDE selection: tap -> Viewer, long press -> SELECTION.
+    // A plain tap stays RESERVED for the Viewer and never selects anything.
     tapTile(surface.tree, 'c-000');
     surface.render();
     record(findOne(surface.tree, (element) => element.type === 'HomeCloudFileViewer') !== null,
@@ -1173,32 +1194,37 @@ async function main(): Promise<void> {
     (findOne(surface.tree, (element) => element.type === 'HomeCloudFileViewer')?.props?.onClose as (() => void) | undefined)?.();
     surface.render();
     record(findOne(surface.tree, (element) => element.type === 'HomeCloudFileViewer') === null, 'X-E2. and closing it returns to the browser');
+    // Long press has ONE purpose now: it enters selection mode, selects the
+    // origin, and arms the stroke. It NEVER opens contextual actions.
     armOn(surface.tree, 'c-001', 40, viewport.pageY + 200);
     surface.render();
+    record(findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Salir de la selección') !== null,
+      'X-E3. OUTSIDE selection a long press ENTERS selection mode');
+    record(selectedTileIds(surface.tree).join(',') === 'c-001',
+      'X-E3b. and the origin file is selected in the same intent');
     const hostOutside = findOne(surface.tree, (element) => element.type === fileActionHostModule.FileActionHost);
-    record(hostOutside?.props?.file?.id === 'c-001',
-      'X-E3. OUTSIDE selection a long press opens that File\'s contextual actions');
-    record(selectedTileIds(surface.tree).length === 0, 'X-E4. and a long press is NEVER a selection gesture');
-    // Close it again, the way the member would, before entering selection mode.
-    (hostOutside?.props?.onClose as (() => void) | undefined)?.();
-    surface.render();
-    record(findOne(surface.tree, (element) => element.type === fileActionHostModule.FileActionHost && element.props?.file !== null) === null,
-      'X-E4a. and the sheet closes again');
+    record(hostOutside?.props?.file == null,
+      'X-E4. and it NEVER opens contextual actions — long press is not a menu');
 
-    // INSIDE selection: tap toggles, long press arms the sweep (not a menu).
-    record(enterSelection(surface), 'X-E5. `Seleccionar` in the overflow is the discoverable entry into selection mode');
-    tapTile(surface.tree, 'c-001');
+    // INSIDE selection: tap toggles, long press ensures selected + arms the sweep (not a menu).
+    // The overflow TRIGGER is withdrawn while selection is active: one entry,
+    // never a second way in. (The closed menu element itself stays mounted but
+    // invisible, like every popover on this surface.)
+    record(findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Más opciones de Archivos') === null,
+      'X-E5. the overflow trigger is withdrawn while selection is active');
+    tapTile(surface.tree, 'c-002');
     await surface.settle();
-    record(selectedTileIds(surface.tree).join(',') === 'c-001', 'X-E6. INSIDE selection a tap toggles that File');
-    tapTile(surface.tree, 'c-001');
+    record(selectedTileIds(surface.tree).slice().sort().join(',') === 'c-001,c-002', 'X-E6. INSIDE selection a tap toggles that File on');
+    tapTile(surface.tree, 'c-002');
     await surface.settle();
-    record(selectedTileIds(surface.tree).length === 0, 'X-E7. and tapping it again deselects it');
-    armOn(surface.tree, 'c-001', 40, viewport.pageY + 200);
+    record(selectedTileIds(surface.tree).join(',') === 'c-001', 'X-E7. and tapping it again deselects it');
+    // Arming on an UNSELECTED file starts an ADD stroke and applies the anchor.
+    armOn(surface.tree, 'c-002', 40, viewport.pageY + 200);
     surface.render();
     record(findOne(surface.tree, (element) => element.type === fileActionHostModule.FileActionHost && element.props?.file !== null) === null,
       'X-E8. INSIDE selection a long press opens NO File menu — a batch cannot destroy one of its own Files');
-    record(selectedTileIds(surface.tree).join(',') === 'c-001', 'X-E9. instead it ARMS the sweep and applies the anchor');
-    endResponder(renderedTile(surface.tree, 'c-001'), 'onPanResponderRelease');
+    record(selectedTileIds(surface.tree).slice().sort().join(',') === 'c-001,c-002', 'X-E9. instead it ARMS the sweep and applies the anchor');
+    endResponder(renderedTile(surface.tree, 'c-002'), 'onPanResponderRelease');
     surface.unmount();
   }
 
@@ -1213,25 +1239,29 @@ async function main(): Promise<void> {
     const ids = listedFileIds(surface.tree);
     record(enterSelection(surface), 'X-G1. selection mode is active');
     layoutGrid(surface, ids);
-    let tile = renderedTile(surface.tree, ids[0]);
-    record(responderWouldClaimStart(tile) === false,
+    // PATCH 1C — responder ownership is BROWSER-LEVEL: the claims are asked on
+    // the list wrapper, not on any tile.
+    let wrapper = browserResponder(surface.tree);
+    record(wrapper !== null,
+      'X-G1a. the drag-selection responder is owned by the browser/list wrapper, not by a tile');
+    record(responderWouldClaimStart(wrapper) === false,
       'X-G2. BEFORE any long press the responder refuses to claim a touch at all — a normal scroll is never stolen');
-    record(responderWouldClaimMove(tile) === false,
+    record(responderWouldClaimMove(wrapper) === false,
       'X-G3. and it refuses a MOVE too, so a flick scrolls the list');
-    record(responderBlocksNative(tile) === false,
+    record(responderBlocksNative(wrapper) === false,
       'X-G4. while unarmed it does not block the native scroll recognizer');
     armOn(surface.tree, ids[0], 40, viewport.pageY + 200);
     surface.render();
-    tile = renderedTile(surface.tree, ids[0]);
-    record(responderWouldClaimMove(tile) === true,
+    wrapper = browserResponder(surface.tree);
+    record(responderWouldClaimMove(wrapper) === true,
       'X-G5. AFTER the long press arms it, the SAME responder claims the movement stream');
-    record(responderWouldClaimStart(tile) === false,
+    record(responderWouldClaimStart(wrapper) === false,
       'X-G6. and it still never claims at touch start — arming, not moving, is what starts the sweep');
-    record(responderBlocksNative(tile) === true,
+    record(responderBlocksNative(wrapper) === true,
       'X-G7. it blocks the native scroll recognizer, which is the only way to keep a stationary finger on a tile that is scrolling underneath it');
-    record((tile?.props?.onPanResponderTerminationRequest as (() => boolean) | undefined)?.() === false,
+    record((wrapper?.props?.onPanResponderTerminationRequest as (() => boolean) | undefined)?.() === false,
       'X-G8. and it refuses termination, so the list cannot take the gesture back mid-sweep');
-    endResponder(renderedTile(surface.tree, ids[0]), 'onPanResponderRelease');
+    endResponder(browserResponder(surface.tree), 'onPanResponderRelease');
     surface.unmount();
   }
 
@@ -1249,7 +1279,7 @@ async function main(): Promise<void> {
     layoutGrid(surface, ids);
 
     // ADD sweep: anchor on an UNSELECTED tile, sweep down two columns.
-const anchor = renderedTile(surface.tree, ids[0]);
+const anchor = browserResponder(surface.tree);
     const anchorPoint = pagePoint(surface, centreOf(0));
     armOn(surface.tree, ids[0], anchorPoint.x, anchorPoint.y);
     await surface.settle();
@@ -1258,7 +1288,7 @@ const anchor = renderedTile(surface.tree, ids[0]);
       'X-F33. holding an unselected File selects it immediately (ADD)');
     const crossed = [1, 2, 3, 4, 5].map((index) => pagePoint(surface, centreOf(index)));
     for (const point of crossed) {
-      moveResponder(renderedTile(surface.tree, ids[0]), point.x, point.y);
+      moveResponder(browserResponder(surface.tree), point.x, point.y);
       await surface.settle(3, 2);
     }
     const afterSweep = selectedTileIds(surface.tree);
@@ -1268,13 +1298,13 @@ const anchor = renderedTile(surface.tree, ids[0]);
 
     // Re-crossing is a no-op.
     const backOverRow1 = pagePoint(surface, centreOf(2));
-    moveResponder(renderedTile(surface.tree, ids[0]), backOverRow1.x, backOverRow1.y);
+    moveResponder(browserResponder(surface.tree), backOverRow1.x, backOverRow1.y);
     await surface.settle(3, 2);
     record(selectedTileIds(surface.tree).length === 6, 'X-F36. re-crossing a File the gesture already visited changes NOTHING');
-    endResponder(renderedTile(surface.tree, ids[0]), 'onPanResponderRelease');
+    endResponder(browserResponder(surface.tree), 'onPanResponderRelease');
 
     // REMOVE sweep: anchor on a SELECTED tile.
-    const anchorSelected = renderedTile(surface.tree, ids[0]);
+    const anchorSelected = browserResponder(surface.tree);
     const removePoint = pagePoint(surface, centreOf(0));
     armOn(surface.tree, ids[0], removePoint.x, removePoint.y);
     await surface.settle();
@@ -1282,7 +1312,7 @@ const anchor = renderedTile(surface.tree, ids[0]);
       `X-F37. holding a SELECTED File DESELECTS it and everything crossed (REMOVE) — ${selectedTileIds(surface.tree).length} left`);
     record(selectedTileIds(surface.tree).join(',') === ids.slice(1, 6).join(','),
       'X-F38. and the mode never flipped mid-gesture');
-    endResponder(renderedTile(surface.tree, ids[0]), 'onPanResponderTerminate');
+    endResponder(browserResponder(surface.tree), 'onPanResponderTerminate');
 
     // Non-zero scroll offset: the sweep follows the CONTENT, not the viewport.
     record(selectedTileIds(surface.tree).length === 5, 'X-F39. after the sweep, five are still selected');
@@ -1295,11 +1325,11 @@ const anchor = renderedTile(surface.tree, ids[0]);
     record(selectedTileIds(surface.tree).includes(ids[8]),
       'X-F40. at a 4-row scroll offset a long press resolves the File the finger is actually over');
     const nextPoint = pagePoint(surface, centreOf(9));
-    moveResponder(renderedTile(surface.tree, ids[8]), nextPoint.x, nextPoint.y);
+    moveResponder(browserResponder(surface.tree), nextPoint.x, nextPoint.y);
     await surface.settle(3, 2);
     record(selectedTileIds(surface.tree).includes(ids[9]),
       'X-F41. and a crossing at that offset is converted with the measured origin plus the content offset');
-    endResponder(renderedTile(surface.tree, ids[8]), 'onPanResponderRelease');
+    endResponder(browserResponder(surface.tree), 'onPanResponderRelease');
     await surface.settle();
     surface.unmount();
   }
@@ -1307,7 +1337,7 @@ const anchor = renderedTile(surface.tree, ids[0]);
   // ═══════════════════════════════════════════════════════════════════════════
   // X-F5: folders are invisible to the sweep
   // ═══════════════════════════════════════════════════════════════════════════
-  console.log('--- X-F5: a Folder row is ignored by the sweep ---');
+  console.log('--- X-F5: a Folder row joins the same sweep ---');
   {
     const household = new Household({ folders: [{ id: 'ff-1', name: 'Garantías', parentFolderId: null }], loose: 6 });
     const surface = mountSurface(household);
@@ -1316,11 +1346,15 @@ const anchor = renderedTile(surface.tree, ids[0]);
     const props = list?.props as ListProps | undefined;
     record(props?.data[0]?.kind === 'folder', 'X-F42. the folder really is the first row of the grid');
     const folderTile = props?.renderItem({ item: props.data[0], index: 0 }) as TestElement;
-    record(typeof folderTile.props?.onLayout === 'undefined' && folderTile.props?.panHandlers === undefined,
-      'X-F43. a Folder tile neither registers a frame nor carries the pan responder — it is structurally unreachable by a sweep');
+    // PATCH 1C — folders ARE selectable: the tile registers its measured frame
+    // under its entity key, and the BROWSER wrapper owns the one responder, so
+    // a single stroke can traverse files and folders. Headers, icons and blank
+    // space register nothing and stay unreachable.
+    record(typeof folderTile.props?.onMeasure === 'function' && browserResponder(surface.tree) !== null,
+      'X-F43. a Folder tile registers a frame and the browser wrapper owns the one responder — a stroke paints files and folders');
     record(enterSelection(surface), 'X-F44. selection mode is active');
     layoutGrid(surface, listedFileIds(surface.tree));
-    const firstFile = renderedTile(surface.tree, listedFileIds(surface.tree)[0]);
+    const firstFile = browserResponder(surface.tree);
     const folderPoint = pagePoint(surface, { x: GRID_LEFT + COLUMN_WIDTH / 2, y: -40 });
     armOn(surface.tree, listedFileIds(surface.tree)[0], folderPoint.x, folderPoint.y);
     await surface.settle();
@@ -1346,7 +1380,7 @@ const anchor = renderedTile(surface.tree, ids[0]);
     record(enterSelection(surface), 'X-F46. selection mode is active');
     layoutGrid(surface, ids);
 
-    const anchor = renderedTile(surface.tree, ids[0]);
+    const anchor = browserResponder(surface.tree);
     armOn(surface.tree, ids[0], 40, viewport.pageY + 300);
     await surface.settle();
     const atRest = surface.offset.value;
@@ -1387,8 +1421,8 @@ const anchor = renderedTile(surface.tree, ids[0]);
     armOn(surface.tree, ids[0], 40, viewport.pageY + 300);
     moveResponder(anchor, 40, bottomEdgeY);
     await new Promise((resolve) => setTimeout(resolve, 40));
-    const bar = findOne(surface.tree, (element) => element.type === selectionBar.FileSelectionBar);
-    (bar?.props?.onCancel as (() => void) | undefined)?.();
+    // The header X exits selection (the bottom bar is long removed).
+    (findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Salir de la selección')?.props?.onPress as (() => void) | undefined)?.();
     surface.render();
     const afterExit = surface.offset.value;
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -1408,8 +1442,11 @@ const anchor = renderedTile(surface.tree, ids[0]);
     record(outside?.props?.accessibilityRole === 'button', 'X-H1. outside selection the tile is a button');
     record(typeof outside?.props?.accessibilityHint === 'string' && /Mantené presionado/.test(outside.props.accessibilityHint),
       'X-H2. and it explains both gestures');
-    record(JSON.stringify(outside?.props?.accessibilityActions ?? []).includes('longpress'),
-      'X-H3. long press is not the only route to the File actions');
+    // PATCH 1B — the ⋯ popover is the visual route to actions; selection is the
+    // long-press route. Assistive technology gets the same select intent, so a
+    // sweep is never the only path and no hidden menu gesture is required.
+    record(JSON.stringify(outside?.props?.accessibilityActions ?? []).includes('select'),
+      'X-H3. selection is offered to assistive technology without any hidden menu gesture');
     record(enterSelection(surface), 'X-H4. selection mode is active');
     const inside = tileBody(surface.tree, 'c-000');
     record(inside?.props?.accessibilityRole === 'checkbox', 'X-H5. inside selection the tile is a CHECKBOX');
@@ -1427,8 +1464,9 @@ const anchor = renderedTile(surface.tree, ids[0]);
     tapTile(surface.tree, 'c-000');
     await surface.settle();
     record(selectedTileIds(surface.tree).join(',') === 'c-000', 'X-H10. and the plain tap still toggles');
-    record(findOne(surface.tree, (element) => element.type === selectionBar.FileSelectionBar)?.props?.summary === '1 seleccionado',
-      'X-H11. the bar states the count');
+    record(findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Salir de la selección') !== null
+      && renderText(surface.tree).includes('1 seleccionado'),
+      'X-H11. the header states the count');
     surface.unmount();
   }
 

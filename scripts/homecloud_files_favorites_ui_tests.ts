@@ -437,9 +437,13 @@ let uiStub: Record<string, unknown> = {
   AppText: 'AppText',
   AppInput: 'AppInput',
   ActionSheet: 'ActionSheet',
+  AdaptiveActionMenu: 'AdaptiveActionMenu',
+  AdaptiveMenuRow: 'AdaptiveMenuRow',
+  AdaptiveMenuSeparator: 'AdaptiveMenuSeparator',
   DatePickerSheet: 'DatePickerSheet',
   ErrorState: 'ErrorState',
   FormActionRow: 'FormActionRow',
+  menuAnchorFromEvent: () => null,
 };
 const iconsStub = { HomePlusIcon: 'HomePlusIcon' };
 const fileIntakeStub = { FileIntake: 'FileIntake' };
@@ -447,13 +451,15 @@ const fileIntakeStub = { FileIntake: 'FileIntake' };
 /**
  * U-I — the REAL presentational chain for the File action host.
  *
- * Replacing `ActionSheet` and `AppButton` with strings is what made the previous
- * reachability claim worthless: a string is always "reachable", because it has no
- * viewport, no content box and no clipping. These stubs exist so the REAL
- * `ActionSheet`, `AppButton`, `AppText` and `InteractivePressable` can be executed
- * against a real window size and real safe-area insets. What stays stubbed is only
- * what a node host cannot have: the calendar widget, the insets reader, the theme
- * provider and the haptics bridge.
+ * PATCH 1B SUPERSESSION. The short command catalog is a trigger-anchored
+ * COMPACT POPOVER, never a modal sheet of large card-buttons: the old
+ * "scrollable sheet" fix for the unreachable Favorite is superseded by the
+ * surface the catalog actually uses. Only secondary work (Información,
+ * Renombrar) becomes a sheet. These stubs exist so the REAL
+ * `AdaptiveActionMenu`, `AdaptiveMenuRow`, `ActionSheet`, `AppText` and
+ * `InteractivePressable` can be executed against a real window size and real
+ * safe-area insets. What stays stubbed is only what a node host cannot have:
+ * the insets reader, the theme provider and the haptics bridge.
  */
 const themeStub = { useAppTheme: () => require(compiledEarly('constants/theme')).theme };
 const calendarsStub = {
@@ -663,6 +669,7 @@ function realUiHostStub(): Record<string, unknown> {
   const button = require(compiledEarly('components/ui/AppButton')) as Record<string, unknown>;
   const text = require(compiledEarly('components/ui/AppText')) as Record<string, unknown>;
   const pressable = require(compiledEarly('components/ui/InteractivePressable')) as Record<string, unknown>;
+  const menu = require(compiledEarly('components/ui/AdaptiveActionMenu')) as Record<string, unknown>;
   return {
     ...uiStub,
     ActionSheet: sheet.ActionSheet,
@@ -671,6 +678,9 @@ function realUiHostStub(): Record<string, unknown> {
     AppButton: button.AppButton,
     AppText: text.AppText,
     InteractivePressable: pressable.InteractivePressable,
+    AdaptiveActionMenu: menu.AdaptiveActionMenu,
+    AdaptiveMenuRow: menu.AdaptiveMenuRow,
+    AdaptiveMenuSeparator: menu.AdaptiveMenuSeparator,
   };
 }
 
@@ -982,10 +992,12 @@ function tileBody(tree: unknown, id: string): TestElement | null {
  * fallback so the helper keeps describing "open this File's actions".
  */
 function openTileActions(tree: unknown, id: string): boolean {
+    // PATCH 1B — contextual actions open exclusively from the visible ⋯
+    // control. Long press is selection now and never opens the menu.
     const tile = fileTileElement(tree, id);
-    const gesture = tile?.props?.onLongPress ?? tile?.props?.onMore;
-    if (typeof gesture !== 'function') return false;
-    (gesture as () => void)();
+    const menu = tile?.props?.onMenu;
+    if (typeof menu !== 'function') return false;
+    (menu as (event: unknown) => void)({ nativeEvent: { pageX: 0, pageY: 0 } });
     return true;
   }
 
@@ -1002,7 +1014,9 @@ function pressHostFavorite(tree: unknown, title: string): boolean {
   const host = actionHostElement(tree);
   if (!host || !host.props?.file) return false;
   const rendered = actionHost.FileActionHost({ ...(host.props as Record<string, unknown>) });
-  const button = findOne(rendered, (element) => element.type === 'AppButton' && element.props?.title === title && typeof element.props?.onPress === 'function');
+  // PATCH 1B — the row is a compact popover row, not a card-button. The title
+  // is the contract; the component carrying it is presentation.
+  const button = findOne(rendered, (element) => element.props?.title === title && typeof element.props?.onPress === 'function');
   if (!button) return false;
   button.props.onPress();
   return true;
@@ -1020,7 +1034,7 @@ function pressHostFavorite(tree: unknown, title: string): boolean {
  */
 async function pressFavoritesToggle(surface: { tree: unknown; settle: (rounds?: number, waitMs?: number) => Promise<void> }, show: 'all' | 'favorites'): Promise<boolean> {
     const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
-      && element.props.accessibilityLabel.startsWith('Filtros y orden.')
+      && element.props.accessibilityLabel.startsWith('Organizar.')
       && typeof element.props?.onPress === 'function');
     if (!filterIcon) return false;
     filterIcon.props.onPress();
@@ -1183,23 +1197,24 @@ async function testFavoriteHost(): Promise<void> {
   const loved = { ...plain, isFavorite: true };
 
   const renderedPlain = actionHost.FileActionHost({ ...base, file: plain });
-  record(findAll(renderedPlain, (element) => element.type === 'AppButton' && element.props?.title === 'Agregar a favoritos').length === 1,
+  // PATCH 1B — one compact popover row per command (never large card-buttons).
+  record(findAll(renderedPlain, (element) => element.props?.title === 'Agregar a favoritos').length === 1,
     'U-B1. an unfavorited File offers exactly one "Agregar a favoritos" row');
   const renderedLoved = actionHost.FileActionHost({ ...base, file: loved });
-  record(findAll(renderedLoved, (element) => element.type === 'AppButton' && element.props?.title === 'Quitar de favoritos').length === 1,
+  record(findAll(renderedLoved, (element) => element.props?.title === 'Quitar de favoritos').length === 1,
     'U-B2. a favorite File offers exactly one "Quitar de favoritos" row');
   record(findAll(renderedPlain, (element) => element.type === 'AppButton' && /^Abrir$/.test(element.props?.title ?? '')).length === 0,
     'U-B3. no seam row is painted beside it');
 
   let dispatched: boolean | null = null;
   const wired = actionHost.FileActionHost({ ...base, file: plain, onFavorite: (next: boolean) => { dispatched = next; } });
-  const addButton = findOne(wired, (element) => element.type === 'AppButton' && element.props?.title === 'Agregar a favoritos');
+  const addButton = findOne(wired, (element) => element.props?.title === 'Agregar a favoritos');
   addButton?.props.onPress();
   record(dispatched === true, 'U-B4. tapping it dispatches the ADD intent the label promised');
 
   dispatched = null;
   const wiredLoved = actionHost.FileActionHost({ ...base, file: loved, onFavorite: (next: boolean) => { dispatched = next; } });
-  const removeButton = findOne(wiredLoved, (element) => element.type === 'AppButton' && element.props?.title === 'Quitar de favoritos');
+  const removeButton = findOne(wiredLoved, (element) => element.props?.title === 'Quitar de favoritos');
   removeButton?.props.onPress();
   record(dispatched === false, 'U-B5. and tapping the other label dispatches the REMOVE intent');
 
@@ -1232,7 +1247,7 @@ async function testFavoritesFilter(): Promise<void> {
    // The assertions are made against the control that now owns it, and they are
    // not weaker.
    const filterControlLabel = () => String(findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
-     && element.props.accessibilityLabel.startsWith('Filtros y orden.'))?.props?.accessibilityLabel ?? '');
+     && element.props.accessibilityLabel.startsWith('Organizar.'))?.props?.accessibilityLabel ?? '');
    record(filterControlLabel().length > 0, 'U-C3. the display filter control that owns Favoritos is reachable');
    record(filterControlLabel().includes('todos los archivos'), 'U-C4. and it announces the state in effect right now (no favorites yet)');
   record(await pressFavoritesToggle(surface, 'favorites'), 'U-C5. Favoritos is chosen in the filter menu');
@@ -1441,25 +1456,35 @@ async function testFavoriteMutationOnSurface(): Promise<void> {
  *      is replaced by a string anywhere in this block.
  */
 function testActionSheetReachability(): void {
-  console.log('\n=== U-I: the File action sheet scrolls, so every action is reachable ===');
+  console.log('\n=== U-I: the File action catalog is a trigger-anchored popover, so every action is reachable ===');
 
   const rows = FILE_ACTION_RENDERED_ROW_COUNT;
   record(rows === 7, `U-I1. the grammar renders seven action rows, the Favorite among them (${rows})`);
 
-  // 1. THE OVERFLOW IS REAL (pure policy, real tokens).
-  const small = { viewportHeightDp: 640, insetTopDp: 44, insetBottomDp: 34 };
-  const atOne = fileActionSheetLayoutPolicy({ ...small, fontScale: 1, actionCount: rows });
-  const atOneThree = fileActionSheetLayoutPolicy({ ...small, fontScale: 1.3, actionCount: rows });
-  const atTwo = fileActionSheetLayoutPolicy({ ...small, fontScale: 2, actionCount: rows });
-  record(atOne.intrinsicContentDp >= atOne.contentBoxDp,
-    `U-I2. on a 360x640 notched phone at fontScale 1.0 the six rows already fill the content box (${atOne.intrinsicContentDp}dp wanted vs ${atOne.contentBoxDp}dp available)`);
-  record(atOneThree.overflows && atOneThree.clippedDp > 0,
-    `U-I3. at fontScale 1.3 a bounded box WOULD clip ${atOneThree.clippedDp}dp — which is how the last row disappeared`);
-  record(atTwo.overflows && atTwo.clippedDp > 2 * FILE_ACTION_SHEET_LAYOUT.actionRowMinHeightDp,
-    `U-I4. at fontScale 2.0 a bounded box would clip ${atTwo.clippedDp}dp — more than two whole rows, Favorite included`);
-  const roomy = fileActionSheetLayoutPolicy({ viewportHeightDp: 800, insetTopDp: 44, insetBottomDp: 34, fontScale: 1, actionCount: rows });
-  record(!roomy.overflows,
-    'U-I5. and on a tall phone it does NOT overflow — so the bug was viewport-dependent, which is exactly why it survived review');
+  // 1. THE ANCHOR POLICY IS REAL (pure layout, real viewport inputs).
+  // A short catalog is a popover on a normal portrait iPhone; a sheet happens
+  // ONLY for a genuine physical constraint (no anchor, or taller than usable).
+  const menuLayout = require(compiledEarly('services/homecloud/adaptiveActionMenuLayout')) as {
+    resolveAdaptiveMenuLayout: (input: {
+      anchor: { x: number; y: number; width: number; height: number } | null;
+      viewportWidth: number; viewportHeight: number; safeTop: number; safeBottom: number;
+      keyboardHeight: number; menuWidth: number; menuHeight: number; fontScale: number; itemCount: number;
+    }) => { presentation: string; left?: number; top?: number; originX?: number; originY?: number };
+  };
+  const phone = { viewportWidth: 390, viewportHeight: 844, safeTop: 47, safeBottom: 34, keyboardHeight: 0, menuWidth: 280, fontScale: 1 };
+  const fileMenu = menuLayout.resolveAdaptiveMenuLayout({
+    ...phone, anchor: { x: 346, y: 200, width: 44, height: 44 }, menuHeight: 420, itemCount: rows,
+  });
+  record(fileMenu.presentation === 'popover',
+    'U-I2. the seven-row file catalog is a popover on a normal portrait iPhone, never a sheet');
+  record(menuLayout.resolveAdaptiveMenuLayout({ ...phone, anchor: null, menuHeight: 200, itemCount: 2 }).presentation === 'sheet',
+    'U-I3. a missing anchor still falls back to a sheet');
+  record(menuLayout.resolveAdaptiveMenuLayout({
+    ...phone, anchor: { x: 346, y: 200, width: 44, height: 44 }, menuHeight: 1200, itemCount: rows,
+  }).presentation === 'sheet',
+    'U-I4. and a menu taller than the usable height still falls back to a sheet');
+  record(fileMenu.presentation === 'popover' && (fileMenu.left ?? -1) + 280 <= 346 + 44 + 13,
+    'U-I5. the popover right edge aligns to the trigger, expanding left/down from it');
 
   // 2. THE FIX IS MOUNTED (real components, this viewport).
   const scratch = mountSurface(new Household({ loose: 1 }));
@@ -1480,41 +1505,44 @@ function testActionSheetReachability(): void {
   const plain = { id: 'c-000', displayName: 'contrato.txt', mimeType: 'text/plain', folderId: null, note: null, documentDate: null, isFavorite: false };
 
   withRealActionSheet((realHost) => {
-    windowDimensions = { ...windowDimensions, width: 360, height: 640 };
-    safeAreaInsets = { top: 44, bottom: 34, left: 0, right: 0 };
-    const rendered = realHost.FileActionHost({ ...hostProps, file: plain }) as TestElement;
+    windowDimensions = { ...windowDimensions, width: 390, height: 844 };
+    safeAreaInsets = { top: 47, bottom: 34, left: 0, right: 0 };
+    // A real trigger anchor: the popover must attach to it, not float near it.
+    const anchor = { x: 346, y: 200, width: 44, height: 44 };
+    const rendered = realHost.FileActionHost({ ...hostProps, file: plain, anchor }) as TestElement;
 
-    const sheetElement = findOne(rendered, (element) => typeof element.type === 'function' && (element.type as { name?: string }).name === 'ActionSheet');
-    record(sheetElement !== null, 'U-I6. the REAL ActionSheet is what the host mounts — no string stand-in');
-    record(sheetElement?.props?.size === 'scrollable-content',
-      'U-I7. and it is asked for the SCROLLABLE content box, not the bounded intrinsic one');
+    const menuElement = findOne(rendered, (element) => typeof element.type === 'function' && (element.type as { name?: string }).name === 'AdaptiveActionMenu');
+    record(menuElement !== null, 'U-I6. the REAL AdaptiveActionMenu is what the host mounts for the catalog — no string stand-in');
+    record(findOne(rendered, (element) => typeof element.type === 'function' && (element.type as { name?: string }).name === 'ActionSheet') === null,
+      'U-I7. and no ActionSheet is mounted for the short catalog — sheets are reserved for secondary work');
 
-    // Execute the real sheet so its own size logic runs at this viewport.
-    const sheetModule = require(compiledEarly('components/ui/ActionSheet')) as { ActionSheet: (props: Record<string, unknown>) => unknown };
-    const executed = sheetModule.ActionSheet({ ...(sheetElement?.props as Record<string, unknown>) }) as TestElement;
+    // Execute the real menu so its own anchor logic runs at this viewport.
+    const menuModule = require(compiledEarly('components/ui/AdaptiveActionMenu')) as {
+      AdaptiveActionMenu: (props: Record<string, unknown>) => unknown;
+      AdaptiveMenuRow: (props: Record<string, unknown>) => unknown;
+    };
+    const executed = menuModule.AdaptiveActionMenu({ ...(menuElement?.props as Record<string, unknown>) }) as TestElement;
 
-    // The scrollable content container is `{ flexGrow: 1, flexShrink: 1, minHeight: 0 }`;
-    // the intrinsic one is `{ flexShrink: 1, minHeight: 0 }`. Asserting the container
-    // actually received the scrollable shape is what makes "it scrolls" a claim about
-    // the mounted tree rather than about a prop that nobody applied.
-    const boxes = findAll(executed, (element) => element.type === 'View' && isPlainStyleObject(element.props?.style));
-    const containerStyles = boxes.map((box) => flattenStyle(box.props.style as unknown));
-    const scrollableBox = containerStyles.find((style) => style?.flexGrow === 1 && style?.flexShrink === 1);
-    record(scrollableBox !== undefined,
-      'U-I8. the real sheet applied the scrollable content style (flexGrow 1 + flexShrink 1)');
-    // The intrinsic content box is `{ flexShrink: 1, minHeight: 0 }` with NO flexGrow.
-    // It is the exact style that silently clipped the Favorite, so its absence is the
-    // assertion — a sheet can still be asked for the wrong box in two other ways.
-    record(!containerStyles.some((style) => style?.minHeight === 0 && style?.flexShrink === 1 && style?.flexGrow === undefined),
-      'U-I9. nowhere in that sheet is the intrinsic, non-growable content box used');
+    // The popover branch renders a Modal with an absolutely positioned menu;
+    // the sheet branch would render an ActionSheet instead.
+    record(findOne(executed, (element) => element.type === 'Modal') !== null
+      && findOne(executed, (element) => typeof element.type === 'function' && (element.type as { name?: string }).name === 'ActionSheet') === null,
+      'U-I8. the executed menu is a floating popover, not a bottom sheet');
+    const popover = findOne(executed, (element) => element.type === 'Animated.View');
+    // The popover style is an array (base + anchored box + shadow): merge it.
+    const popoverMerged: Record<string, unknown> = {};
+    for (const part of (Array.isArray(popover?.props?.style) ? popover?.props?.style as unknown[] : [popover?.props?.style])) {
+      if (part !== null && typeof part === 'object' && !Array.isArray(part)) Object.assign(popoverMerged, part);
+    }
+    const popoverLeft = popoverMerged.left as number | undefined;
+    const popoverTop = popoverMerged.top as number | undefined;
+    record(typeof popoverLeft === 'number' && typeof popoverTop === 'number'
+      && Math.abs(popoverLeft + 280 - (anchor.x + anchor.width)) <= 13,
+      `U-I9. positioned from the trigger: right edge at the trigger (left=${popoverLeft}, top=${popoverTop})`);
 
-    // The scroll container must actually WRAP the actions, not sit beside them.
+    // A tall catalog scrolls INSIDE the popover instead of becoming a sheet.
     const scroll = findOne(executed, (element) => element.type === 'ScrollView');
-    record(scroll !== null, 'U-I10. a scroll container is mounted inside the sheet');
-    record(flattenStyle(scroll?.props?.style as unknown)?.flexShrink === 1,
-      'U-I11. and it is bounded by the sheet (flexShrink 1), which is what lets it scroll instead of overflowing');
-    record(scroll !== null && scroll === (sheetElement?.props?.children as unknown),
-      'U-I12. the scroll container IS what the host put inside the sheet, so the actions it wraps can be scrolled to');
+    record(scroll !== null, 'U-I10. a scroll container is mounted inside the popover');
 
     // Every row, in canonical order, is present at this viewport and font scale.
     const titles = findAll(scroll as unknown, (element) => typeof element.props?.title === 'string')
@@ -1523,15 +1551,14 @@ function testActionSheetReachability(): void {
       `U-I13. all seven rows render in canonical order, the Favorite present and the Papelera last (${titles.join('|')})`);
     record(titles.includes('Agregar a favoritos'),
       'U-I14. the Favorite the audit could not reach is in the mounted tree');
-    record(titles.length === rows, 'U-I15. and no row was deleted to make the sheet fit');
+    record(titles.length === rows, 'U-I15. and no row was deleted to make the popover fit');
 
-    // The real button, executed, is what proves the row is pressable rather than clipped.
-    const buttonModule = require(compiledEarly('components/ui/AppButton')) as { AppButton: (props: Record<string, unknown>) => unknown };
+    // The real row, executed, is what proves the row is pressable rather than clipped.
     const favoriteRow = findOne(scroll as unknown, (element) => element.props?.title === 'Agregar a favoritos');
-    const executedButton = buttonModule.AppButton({ ...(favoriteRow?.props as Record<string, unknown>) }) as TestElement;
-    const pressable = findOne(executedButton, (element) => element.props?.accessibilityRole === 'button');
+    const executedRow = menuModule.AdaptiveMenuRow({ ...(favoriteRow?.props as Record<string, unknown>) }) as TestElement;
+    const pressable = findOne(executedRow, (element) => element.props?.accessibilityRole === 'button');
     record(pressable !== null && pressable?.props?.disabled !== true,
-      'U-I16. the Favorite row mounts as an ENABLED control, so it is a real target and not a painted row');
+      'U-I16. the Favorite row mounts as an ENABLED compact control, so it is a real target and not a painted row');
     record(pressable?.props?.accessibilityLabel === 'Agregar a favoritos contrato.txt',
       'U-I17. and it names the File it acts on, so an assistive technology can find it too');
   });
@@ -1575,17 +1602,32 @@ async function testFavoriteBusyIsPerAction(): Promise<void> {
   record(actionHostElement(surface.tree)?.props?.saving === false,
     'U-J5. and NOT that the whole surface is saving — the screen-wide flag stays false');
 
-  // The host, rendered with the REAL sheet, must show exactly ONE busy row.
+  // The host, rendered with the REAL menu, must show exactly ONE busy row.
   withRealActionSheet((realHost) => {
     const hostProps = actionHostElement(surface.tree)?.props as Record<string, unknown>;
     const rendered = realHost.FileActionHost({ ...hostProps }) as TestElement;
-    const scroll = findOne(rendered, (element) => element.type === 'ScrollView');
+    // Execute the real popover so the ScrollView and rows a device would mount
+    // are asserted — the unexecuted menu element carries none of them.
+    const menuModule = require(compiledEarly('components/ui/AdaptiveActionMenu')) as {
+      AdaptiveActionMenu: (props: Record<string, unknown>) => unknown;
+      AdaptiveMenuRow: (props: Record<string, unknown>) => unknown;
+    };
+    const menuElement = findOne(rendered, (element) => typeof element.type === 'function' && (element.type as { name?: string }).name === 'AdaptiveActionMenu');
+    const executedMenu = menuElement ? menuModule.AdaptiveActionMenu({ ...(menuElement.props as Record<string, unknown>) }) as TestElement : null;
+    const scroll = executedMenu ? findOne(executedMenu, (element) => element.type === 'ScrollView') : null;
     const rows = findAll(scroll as unknown, (element) => typeof element.props?.title === 'string');
-    const busy = rows.filter((element) => element.props?.accessibilityState?.busy === true);
+    // PATCH 1B — compact rows carry their own busy/disabled state (no button
+    // chrome, no shared saving flag): exactly the Favorite row is busy.
+    const busy = rows.filter((element) => element.props?.busy === true);
     const disabled = rows.filter((element) => element.props?.disabled === true);
     record(busy.length === 1 && busy[0]?.props?.title === 'Agregar a favoritos',
       'U-J6. exactly one row reports itself busy: the Favorite');
-    record(busy[0]?.props?.loading === true,
+    // The busy row shows its own progress instead of pretending nothing
+    // happened: execute the real row and read what a device would mount.
+    const executedBusy = busy.length === 1
+      ? menuModule.AdaptiveMenuRow({ ...(busy[0]?.props as Record<string, unknown>) }) as TestElement
+      : null;
+    record(executedBusy !== null && JSON.stringify(executedBusy).includes('Agregar a favoritos…'),
       'U-J7. and it shows its own progress instead of pretending nothing happened');
     record(disabled.length === 1 && disabled[0]?.props?.title === 'Agregar a favoritos',
       `U-J8. only that row is disabled — Renombrar, Mover, Guardar una copia and Compartir stay live while it works (disabled: ${disabled.map((row) => String(row.props?.title)).join(', ') || 'none'})`);
@@ -1953,18 +1995,16 @@ async function testRegressionSmoke(): Promise<void> {
   const surface = mountSurface(household);
   await surface.settle();
 
-// STAGE 2 (Phase 2) SUPERSESSION. Stage 1 used a long press to ENTER selection.
-   // Stage 2 supersedes that outright: a long press now opens the contextual File
-   // actions, and selection is entered only from the header overflow. The behavior
-   // this block exists to protect - that the Favorite signal survives a Host
-   // remount - is now proven through the surviving entry.
+// PATCH 1B SUPERSESSION. Long press is selection again (one threshold, never
+   // a menu): it enters selection mode AND selects the pressed File. The
+   // behavior this block exists to protect - that the Favorite signal survives
+   // entering selection - is now proven through the gesture itself.
    const tile = fileTileElement(surface.tree, 'c-001');
    record(typeof tile?.props?.onLongPress === 'function', 'U-H1. a long press is available on the tile');
-   const selectControl = findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Seleccionar archivos');
-   (selectControl?.props?.onPress as (() => void) | undefined)?.();
+   tile?.props?.onLongPress();
    surface.render();
-  const bar = findOne(surface.tree, (element) => element.type === selectionBar.FileSelectionBar);
-  record(bar !== null, 'U-H2. and the selection bar appears');
+   record(findOne(surface.tree, (element) => element.props?.accessibilityLabel === 'Salir de la selección') !== null,
+     'U-H2. and the selection header appears with the mode entered by long press');
 
   record(findAll(surface.tree, (element) => element.type === actionHost.FileActionHost).length === 1,
     'U-H3. exactly ONE canonical action host still serves a File');

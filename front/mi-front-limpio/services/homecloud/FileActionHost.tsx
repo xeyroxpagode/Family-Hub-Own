@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { ActionSheet, AppButton, AppInput, AppText, DatePickerSheet, InteractivePressable } from '../../components/ui';
+import { ActionSheet, AdaptiveActionMenu, AdaptiveMenuRow, AdaptiveMenuSeparator, AppButton, AppInput, AppText, InteractivePressable, type MenuAnchor } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, motion, spacing } from '../../constants/theme';
 import {
@@ -30,6 +30,7 @@ export interface FileTransferFeedback {
 
 export interface FileActionHostProps {
   file: HomeCloudFile | null;
+  anchor?: MenuAnchor | null;
   /** The household folder catalogue — the ONLY source that can answer a move. */
   folders: readonly HomeCloudFolder[];
   permissions: HomeCloudFileActionPermissions;
@@ -90,7 +91,7 @@ export interface FileActionHostProps {
   onShare: () => void;
 }
 
-type HostView = 'actions' | 'info';
+type HostView = 'actions' | 'info' | 'rename';
 
 /**
  * HC-POL-024 — ONE information row, with the hierarchy metadata needs.
@@ -140,7 +141,12 @@ function FileInfoRow({
 /**
  * HomeCloud Files — THE CANONICAL FILE ACTION HOST.
  *
- * One ActionSheet-based host owns the action grammar for a File: it renders what
+ * PATCH 1B — the short command catalog is a trigger-anchored COMPACT POPOVER
+ * (one 44 pt row per command), never a modal sheet of large card-buttons.
+ * Only secondary work becomes a sheet: Información and Renombrar replace the
+ * popover in the same commit (one host, one visible surface — menu and sheet
+ * never coexist, no overlapping backdrop, no stale button), and Mover hands
+ * off to the surface's shared destination picker. It renders what
  * `resolveFileActions` returns, in canonical order, capability-gated, and every
  * control carries a meaningful accessibility label. There is no second menu that
  * can perform a File operation, so "rename this file" has exactly one home.
@@ -151,6 +157,7 @@ function FileInfoRow({
  */
 export function FileActionHost({
   file,
+  anchor = null,
   folders,
   permissions,
   saving,
@@ -168,8 +175,6 @@ export function FileActionHost({
 }: FileActionHostProps) {
   const [view, setView] = useState<HostView>('actions');
   const [name, setName] = useState('');
-  const [note, setNote] = useState('');
-  const [datePicker, setDatePicker] = useState(false);
   // Which fields the member has actually typed into. Until they do, what a field
   // shows is the File's CURRENT state and not a snapshot — and it is per field,
   // because a name being edited has nothing to say about a note that is not.
@@ -178,14 +183,12 @@ export function FileActionHost({
   // each field follow the File on its own, without re-publishing when an
   // unrelated part of the File changed.
   const currentName = file?.displayName ?? '';
-  const currentNote = file?.note ?? '';
 
   // A different File is a different subject: the host reopens on the action list
   // with that File's own metadata, never with the previous File's draft.
   useEffect(() => {
     setView('actions');
     setName(file?.displayName ?? '');
-    setNote(file?.note ?? '');
     setDraft({ name: false, note: false });
   }, [file?.id]);
 
@@ -202,9 +205,6 @@ export function FileActionHost({
   useEffect(() => {
     if (!draft.name) setName(currentName);
   }, [currentName, draft.name]);
-  useEffect(() => {
-    if (!draft.note) setNote(currentNote);
-  }, [currentNote, draft.note]);
 
   if (!file) return null;
 
@@ -214,6 +214,7 @@ export function FileActionHost({
   const actions = resolveFileActions(permissions, { isFavorite: file.isFavorite === true });
   const currentFolderLabel = folders.find((folder) => folder.id === file.folderId)?.name ?? ROOT_DESTINATION_LABEL;
   const showInfo = view === 'info';
+  const showRename = view === 'rename';
 
   const run = (id: HomeCloudFileActionId): void => {
     // One row, one guard. A row that is already busy does not re-dispatch: a
@@ -221,8 +222,10 @@ export function FileActionHost({
     if (id === 'favorite' ? favoriteBusy : id === 'trash' ? trashBusy : saving) return;
     switch (id) {
       case 'info':
-      case 'rename':
         setView('info');
+        return;
+      case 'rename':
+        setView('rename');
         return;
       case 'move':
         onMoveRequest();
@@ -250,16 +253,16 @@ export function FileActionHost({
     <>
       <AppText variant="caption" tone="secondary">{currentFolderLabel}</AppText>
       {actions.map((action) => (
-        <AppButton
-          key={action.id}
+        <React.Fragment key={action.id}>
+        {(action.id === 'download' || action.id === 'trash') ? <AdaptiveMenuSeparator /> : null}
+        <AdaptiveMenuRow
           title={action.label}
-          variant={action.intent === 'danger' ? 'danger' : action.intent}
+          variant={action.intent === 'danger' ? 'danger' : action.intent === 'primary' ? 'primary' : 'neutral'}
           disabled={!action.available || (action.id === 'favorite' ? favoriteBusy : action.id === 'trash' ? trashBusy : saving)}
-          loading={(action.id === 'favorite' && favoriteBusy) || (action.id === 'trash' && trashBusy)}
+          busy={(action.id === 'favorite' && favoriteBusy) || (action.id === 'trash' && trashBusy)}
           accessibilityLabel={`${action.label} ${file.displayName}`}
-          accessibilityState={{ busy: action.id === 'favorite' ? favoriteBusy : action.id === 'trash' ? trashBusy : saving }}
           onPress={() => run(action.id)}
-        />
+        /></React.Fragment>
       ))}
       {actionError ? <AppText variant="bodySmall" tone="danger" accessibilityRole="alert" accessibilityLabel={`Error: ${actionError}`} testID="file-action-error">{actionError}</AppText> : null}
       {downloadFeedback ? <AppText variant="bodySmall" tone={downloadFeedback.tone}>{downloadFeedback.message}</AppText> : null}
@@ -273,16 +276,6 @@ export function FileActionHost({
         title="Información del archivo"
         onRequestClose={onClose}
         size="scrollable-content"
-        footer={(
-          <View style={styles.list}>
-            <AppButton
-              title="Guardar cambios"
-              disabled={!permissions.organize || saving}
-              onPress={() => onSave({ displayName: name, note })}
-              accessibilityLabel={`Guardar cambios de ${file.displayName}`}
-            />
-          </View>
-        )}
       >
         <ScrollView
           style={styles.scroll}
@@ -296,25 +289,12 @@ export function FileActionHost({
           <AppText variant="caption" tone="secondary" accessibilityLabel={`Tipo: ${file.mimeType ?? 'desconocido'}`}>
             {[file.mimeType, file.sizeBytes ? `${Math.max(1, Math.round(file.sizeBytes / 1024))} KB` : null].filter(Boolean).join(' · ')}
           </AppText>
-          <AppInput label="Nombre" value={name} onChangeText={(next) => { setDraft((previous) => ({ ...previous, name: true })); setName(next); }} editable={permissions.organize} />
-          <AppInput label="Nota" value={note} onChangeText={(next) => { setDraft((previous) => ({ ...previous, note: true })); setNote(next); }} editable={permissions.organize} multiline />
-          <FileInfoRow label="Carpeta" value={currentFolderLabel} onPress={onMoveRequest} disabled={!permissions.organize} />
-          <FileInfoRow label="Fecha del documento" value={file.documentDate ?? 'Agregar fecha'} onPress={() => setDatePicker(true)} disabled={!permissions.organize} />
+          <FileInfoRow label="Nombre" value={file.displayName} />
+          <FileInfoRow label="Carpeta" value={currentFolderLabel} />
+          {file.documentDate ? <FileInfoRow label="Fecha del documento" value={file.documentDate} /> : null}
+          {file.note ? <FileInfoRow label="Nota" value={file.note} /> : null}
         </ScrollView>
-      </ActionSheet> : <ActionSheet visible title={file.displayName} onRequestClose={onClose} size="scrollable-content">
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.list} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
-          {actionContent}
-        </ScrollView>
-      </ActionSheet>}
-      <DatePickerSheet
-        visible={datePicker}
-        value={file.documentDate ?? new Date().toISOString().slice(0, 10)}
-        onClose={() => setDatePicker(false)}
-        onConfirm={(documentDate) => {
-          setDatePicker(false);
-          onSave({ documentDate });
-        }}
-      />
+      </ActionSheet> : showRename ? <ActionSheet visible title="Renombrar" onRequestClose={onClose} size="content" footer={<AppButton title="Guardar" disabled={!permissions.organize || saving || !name.trim()} onPress={() => onSave({ displayName: name.trim() })} accessibilityLabel={`Guardar nombre de ${file.displayName}`} />}><AppInput label="Nombre" value={name} onChangeText={(next) => { setDraft((previous) => ({ ...previous, name: true })); setName(next); }} autoFocus /></ActionSheet> : <AdaptiveActionMenu visible title={file.displayName} anchor={anchor} itemCount={actions.length} onRequestClose={onClose}><View style={styles.list}>{actionContent}</View></AdaptiveActionMenu>}
     </>
   );
 }
@@ -325,6 +305,7 @@ const styles = StyleSheet.create({
   // would measure its full content and clip the overflow it exists to expose.
   scroll: { flexShrink: 1 },
   list: { gap: spacing[3], paddingBottom: spacing[2] },
+  separator: { height: 1, backgroundColor: colors.border.default },
   /** HC-POL-024 — the row is >=52 pt so a metadata sheet is thumb-reachable. */
   row: {
     minHeight: 52,

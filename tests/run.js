@@ -161,10 +161,15 @@ const commands = {
       ...process.env,
       NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
     };
+    runCommand(
+      'HomeCloud 2A upload job runtime compile',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_2a_upload_job_test.json'],
+    );
     return runCommand(
       'HomeCloud 2A upload job runtime tests',
       'node',
-      ['scripts/compiled/scripts/homecloud_2a_upload_job_runtime_tests.js'],
+      ['scripts/compiled-uploadjob/scripts/homecloud_2a_upload_job_runtime_tests.js'],
       { env },
     );
   },
@@ -288,7 +293,7 @@ const commands = {
       ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_w1c_scanner_test.json'],
     );
     return runCommand(
-      'HomeCloud W1-C scanner accept -> detach regression tests',
+      'HomeCloud W1-C scanner acceptance -> completed-save regression tests',
       'node',
       ['scripts/compiled-w1cscanner/scripts/homecloud_w1c_scanner_acceptance_tests.js'],
       { env },
