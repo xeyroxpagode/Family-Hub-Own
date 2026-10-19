@@ -1,6 +1,12 @@
 import { requestJson } from './api';
 
-export type TrashItemType = 'task' | 'event' | 'goal' | 'milestone';
+export type TrashItemType =
+  | 'task'
+  | 'event'
+  | 'goal'
+  | 'milestone'
+  | 'event_series'
+  | 'responsibility';
 
 export type TrashItemParent = {
   type: 'goal';
@@ -27,7 +33,13 @@ export type TrashListResponse = {
   items: TrashItem[];
 };
 
-export type TrashFilterType = 'all' | 'tasks' | 'events' | 'goals';
+export type TrashFilterType =
+  | 'all'
+  | 'tasks'
+  | 'events'
+  | 'goals'
+  | 'event_series'
+  | 'responsibilities';
 
 export const listTrash = (
   accessToken: string,

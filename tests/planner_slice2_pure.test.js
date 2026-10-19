@@ -59,33 +59,10 @@ const validateLifecycleTransition = (fromLifecycle, toLifecycle) => {
   }
 };
 
-const toPlanDto = (goal, milestones) => {
-  const progress = goal.progress_percentage ?? null;
-  const tasksTotal = goal.tasks_total ?? null;
-  const tasksCompleted = goal.tasks_completed ?? null;
-  const tasksPending = goal.tasks_pending ?? null;
-  const milestonesTotal = goal.milestones_total ?? (milestones?.length ?? 0);
-  const milestonesCompleted = goal.milestones_completed ?? (milestones?.filter(m => m.achieved).length ?? 0);
-
-  return {
-    id: goal.id,
-    title: goal.title,
-    description: goal.description,
-    scope: goal.visibility,
-    targetDate: goal.target_date ?? goal.ends_at,
-    lifecycle: goal.lifecycle,
-    archivedAt: goal.archived_at,
-    trashedAt: goal.trashed_at,
-    createdAt: goal.created_at,
-    updatedAt: goal.updated_at,
-    version: goal.version,
-    progress: progress !== null ? {
-      percentage: progress,
-      tasks: tasksTotal !== null ? { total: tasksTotal, completed: tasksCompleted, pending: tasksPending } : undefined,
-      milestones: milestonesTotal !== null ? { total: milestonesTotal, completed: milestonesCompleted } : undefined,
-    } : undefined,
-  };
-};
+// The production DTO is the single authority. A local copy here could only ever
+// confirm itself and would silently encode the retired percentage/milestone
+// progress shape.
+const { toPlanDto } = require('../backend/src/services/planner.plans.v1.dto');
 
 // Semantic projection: lifecycle -> status (legacy compatibility)
 const projectStatusFromLifecycle = (lifecycle) => {
@@ -298,17 +275,16 @@ console.log('Test 15: Plan V1 DTO uses Plan terminology');
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
     version: 1,
-    progress_percentage: 50,
-    tasks_total: 10,
-    tasks_completed: 5,
-    tasks_pending: 5,
-    milestones_total: 4,
-    milestones_completed: 2,
   };
   const dto = toPlanDto(mockGoal, []);
   assertEqual(dto.scope, 'household', 'dto uses scope not visibility');
   assertEqual(dto.targetDate, '2026-12-31', 'dto uses targetDate not ends_at');
   assertEqual(dto.lifecycle, 'active', 'dto uses lifecycle not status');
+  // Legacy percentage/milestone columns exist on the row but must NOT be
+  // projected: no universal percentage, milestones are not Plan V1 (§20).
+  const legacy = toPlanDto({ ...mockGoal, progress_percentage: 50, milestones_total: 4, milestones_completed: 2 }, []);
+  assertEqual(legacy.progress, undefined, 'dto ignores legacy percentage columns');
+  assert(!('milestones' in legacy), 'dto publishes no milestone list');
   console.log('  PASS: DTO uses Plan terminology');
 }
 

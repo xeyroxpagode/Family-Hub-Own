@@ -49,6 +49,8 @@
     "outbox:retry": "node backend/scripts/retry-outbox.js",
     "purge:process": "node backend/scripts/process-purges.js",
     "purge:process:watch": "node backend/scripts/process-purges.js --interval=30",
+    "planner:evidence:purge": "node backend/scripts/purge-planner-evidence.js",
+    "test:planner:evidence:db": "node scripts/planner_tasks_patch2_evidence_database_tests.js",
     "seed:finance": "node backend/scripts/seed-finance-comprehensive.js"
   },
   "devDependencies": {

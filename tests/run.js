@@ -1076,6 +1076,21 @@ const commands = {
     ['scripts/homecloud_slice01_storage_runtime_tests.js'],
   ),
   'compile-frontend-tests': () => runCommand('Compile frontend tests', 'npm', compileFrontendTests),
+  'compile-planner-runtime-tests': () => runCommand(
+    'Compile Planner runtime (render) tests',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.planner_runtime_test.json'],
+  ),
+  'planner-v1-root-menu-runtime': () => runCommand(
+    'Planner V1 root Task menu runtime tests',
+    'node',
+    ['scripts/compiled-planner-runtime/scripts/planner_v1_root_menu_runtime_tests.js'],
+  ),
+  'planner-v1-feedback-runtime': () => runCommand(
+    'Planner V1 productive feedback runtime tests',
+    'node',
+    ['scripts/compiled-planner-runtime/scripts/planner_v1_feedback_runtime_tests.js'],
+  ),
   'compile-planner-reliability-tests': () => runCommand(
     'Compile Planner Reliability tests',
     'npm',
@@ -1107,6 +1122,31 @@ const commands = {
     'Planner V1 M3 sheet state tests',
     'node',
     ['scripts/compiled/scripts/planner_v1_sheet_state_tests.js'],
+  ),
+  'planner-v1-sheet-guard': () => runCommand(
+    'Planner V1 sheet guard tests',
+    'node',
+    ['scripts/compiled/scripts/planner_v1_sheet_guard_tests.js'],
+  ),
+  'planner-tasks-patch1-1': () => runCommand(
+    'Planner Tasks Patch 1.1 focused tests',
+    'node',
+    ['scripts/compiled/scripts/planner_tasks_patch1_1_tests.js'],
+  ),
+  'planner-tasks-patch3': () => runCommand(
+    'Planner Tasks Patch 3 multi-selection focused tests',
+    'node',
+    ['scripts/compiled/scripts/planner_tasks_patch3_multiselect_tests.js'],
+  ),
+  'planner-tasks-patch2': () => runCommand(
+    'Planner Tasks Patch 2 Evidence focused tests',
+    'node',
+    ['--test', 'tests/planner_tasks_patch2_evidence.test.js', 'tests/planner_evidence_upload_coordinator.test.js'],
+  ),
+  'planner-v1-datetime-primitives': () => runCommand(
+    'Planner V1 date/time primitives tests',
+    'node',
+    ['scripts/compiled/scripts/planner_v1_datetime_primitives_tests.js'],
   ),
   'planner-v1-m4': () => runCommand(
     'Planner V1 M4 quick actions tests',
@@ -1235,6 +1275,49 @@ const commands = {
       { env },
     );
   },
+  'planner-plans-single-root': () => {
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Planner Plans single root tests',
+      'node',
+      ['scripts/compiled/scripts/planner_plans_single_root_tests.js'],
+      { env },
+    );
+  },
+  'planner-slice1-components': () => runCommand(
+    'Planner Slice 1 component reader tests',
+    'node',
+    ['--test', 'tests/planner_plan_components_service.test.js'],
+  ),
+  'planner-slice5-measurements': () => runCommand(
+    'Planner Slice 5 Measurement product contract',
+    'node',
+    ['--test', 'tests/planner_slice5_measurements.test.js'],
+  ),
+  'planner-slice6-hardening': () => runCommand(
+    'Planner Slice 6 cross-consumer hardening contract',
+    'node',
+    ['--test', 'tests/planner_slice6_hardening.test.js'],
+  ),
+  'planner-fresh-adversarial-audit': () => runCommand(
+    'Planner fresh adversarial product audit',
+    'node',
+    ['--test', 'tests/planner_fresh_adversarial_audit.test.js'],
+  ),
+  'planner-slice1-schema-db': () => runCommand(
+    'Planner Slice 1 schema-drift test',
+    'node',
+    ['scripts/planner_slice1_schema_database_tests.js'],
+    {
+      env: {
+        ...process.env,
+        LOCAL_DATABASE_URL: process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres',
+      },
+    },
+  ),
   'planner-v1-presets-drafts': () => {
     const env = {
       ...process.env,
@@ -1321,6 +1404,78 @@ const commands = {
     'Planner P1 structure database tests',
     'node',
     ['scripts/planner_p1_structure_database_tests.js'],
+    {
+      env: {
+        ...process.env,
+        LOCAL_DATABASE_URL:
+          process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres',
+        HOMEPLUS_TEST_REQUIRE_LOCAL_DB: '1',
+      },
+    },
+  ),
+  'planner-event-series-contract': () => runCommand(
+    'Planner Event Series core contract tests',
+    'node',
+    ['--test', 'tests/planner_event_series_core.test.js'],
+  ),
+  'planner-event-core-contract': () => runCommand(
+    'Planner Event core closure contract tests',
+    'node',
+    ['--test', 'tests/planner_event_core_closure.test.js'],
+  ),
+  'planner-plan-root-foundation-db': () => runCommand(
+    'Planner Plans root foundation database tests',
+    'node',
+    ['scripts/planner_plan_root_foundation_database_tests.js'],
+    {
+      env: {
+        ...process.env,
+        LOCAL_DATABASE_URL:
+          process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres',
+        HOMEPLUS_TEST_REQUIRE_LOCAL_DB: '1',
+      },
+    },
+  ),
+  'planner-plan-write-authority-db': () => runCommand(
+    'Planner Plans write authority database tests',
+    'node',
+    ['scripts/planner_plan_write_authority_database_tests.js'],
+    {
+      env: {
+        ...process.env,
+        LOCAL_DATABASE_URL:
+          process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres',
+        HOMEPLUS_TEST_REQUIRE_LOCAL_DB: '1',
+      },
+    },
+  ),
+  'planner-event-series-bound-db': () => runCommand(
+    'Planner Event Series materialization bound database tests',
+    'node',
+    ['scripts/planner_event_series_materialization_bound_database_tests.js'],
+    {
+      env: {
+        ...process.env,
+        LOCAL_DATABASE_URL:
+          process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres',
+        HOMEPLUS_TEST_REQUIRE_LOCAL_DB: '1',
+      },
+    },
+  ),
+  // Planner overnight closure: REAL HTTP journeys (J1..J15) against the local
+  // backend with real auth context and synthetic, exactly-cleaned fixtures.
+  // LOCAL ONLY: the suite refuses a non-loopback API base.
+  'planner-overnight-http-journeys': () => runCommand(
+    'Planner overnight closure HTTP journeys',
+    'node',
+    ['scripts/planner_overnight_http_journeys.js'],
+    {
+      env: {
+        ...process.env,
+        API_BASE_URL: process.env.API_BASE_URL || 'http://127.0.0.1:3001',
+        HOMEPLUS_TEST_REQUIRE_LOCAL: '1',
+      },
+    },
   ),
   'finance-1b-contract': () => runCommand(
     'Finance 1B financial context authority contract tests',
@@ -1992,11 +2147,24 @@ typecheck: ['frontend-typecheck', 'test-typecheck'],
     'homecloud-slice01-storage-runtime',
   ],
 
-  planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-plan-duplicate-dispatch', 'planner-p1-structure-contract', 'planner-p2a-milestone-editor', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration', 'planner-v1-s2-runtime-owner', 'planner-v1-s2-terminal-contract', 'planner-v1-s2-runtime-composition'],
+  planner: ['compile-frontend-tests', 'g0.3', 'planner-plans-single-root', 'planner-slice1-components', 'planner-slice1-schema-db', 'planner-slice5-measurements', 'planner-slice6-hardening', 'planner-fresh-adversarial-audit', 'planner-tasks-patch2', 'planner-tasks-patch3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-sheet-guard', 'planner-v1-datetime-primitives', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-plan-duplicate-dispatch', 'planner-p1-structure-contract', 'planner-p2a-milestone-editor', 'planner-event-core-contract', 'planner-event-series-contract', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration', 'planner-v1-s2-runtime-owner', 'planner-v1-s2-terminal-contract', 'planner-v1-s2-runtime-composition', 'planner-phase1-runtime'],
   home: ['planner-v1-m9'],
   'planner-m1': ['compile-frontend-tests', 'planner-v1-m1'],
+  'planner-plans-single-root': ['compile-frontend-tests', 'planner-plans-single-root'],
+  'planner-slice1': ['compile-frontend-tests', 'planner-plans-single-root', 'planner-slice1-components', 'planner-slice1-schema-db'],
+  'planner-slice5': ['compile-frontend-tests', 'planner-slice5-measurements'],
+  'planner-slice6': ['compile-frontend-tests', 'planner-slice6-hardening'],
+  'planner-fresh-audit': ['compile-frontend-tests', 'planner-fresh-adversarial-audit'],
   'planner-m2': ['compile-frontend-tests', 'planner-v1-m2'],
   'planner-m3': ['compile-frontend-tests', 'planner-v1-m3'],
+  'planner-sheet-guard': ['compile-frontend-tests', 'planner-v1-sheet-guard'],
+  'planner-tasks-patch1-1': ['compile-frontend-tests', 'planner-tasks-patch1-1'],
+  'planner-tasks-patch2': ['planner-tasks-patch2'],
+  'planner-tasks-patch3': ['compile-frontend-tests', 'planner-tasks-patch3'],
+  'planner-menu-runtime': ['compile-planner-runtime-tests', 'planner-v1-root-menu-runtime'],
+  'planner-feedback-runtime': ['compile-planner-runtime-tests', 'planner-v1-feedback-runtime'],
+  'planner-phase1-runtime': ['compile-planner-runtime-tests', 'planner-v1-root-menu-runtime', 'planner-v1-feedback-runtime'],
+  'planner-datetime-primitives': ['compile-frontend-tests', 'planner-v1-datetime-primitives'],
   'planner-m4': ['compile-frontend-tests', 'planner-v1-m4'],
   'planner-m5': ['compile-frontend-tests', 'planner-v1-m5'],
   'planner-m6': ['compile-frontend-tests', 'planner-v1-m6'],
@@ -2017,6 +2185,10 @@ typecheck: ['frontend-typecheck', 'test-typecheck'],
   'planner-p1-structure-contract': ['compile-frontend-tests', 'planner-p1-structure-contract'],
   'planner-p2a-milestone-editor': ['compile-frontend-tests', 'planner-p2a-milestone-editor'],
   'planner-p1-structure-db': ['planner-p1-structure-db'],
+  'planner-plan-root-foundation-db': ['planner-plan-root-foundation-db'],
+  'planner-plan-write-authority-db': ['planner-plan-write-authority-db'],
+  'planner-event-series-bound-db': ['planner-event-series-bound-db'],
+  'planner-overnight-closure': ['planner-overnight-http-journeys'],
   'finance-1b-contract': ['finance-1b-contract'],
   'finance-1b-database': ['finance-1b-database'],
   'finance-1c-ownership-privacy': ['finance-1c-ownership-privacy'],

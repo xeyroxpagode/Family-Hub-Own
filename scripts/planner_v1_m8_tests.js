@@ -330,16 +330,34 @@ console.log('\n=== 6. Event selector — exclusions ===\n')
 
 console.log('\n=== 7. Goal selector — limit, ordering ===\n')
 
+// STALE ASSERTION — superseded by frozen Product Truth §31.
+//
+// Old assertion: Home ranks Plans by the legacy universal `progress_percentage`
+// column ("higher progress_percentage ranks first").
+//
+// Superseding truth: there is NO universal Plan progress percentage authority
+// in the canonical productive path. `selectSummaryGoal` no longer orders by
+// `progress_percentage`; it ranks by canonical lifecycle/target date only, so a
+// Plan can never be highlighted by a percentage that means nothing. Factual
+// progress is projected per component through the readiness authority
+// (get_planner_plan_readiness_v1), never as a ranking key.
+//
+// Replacement coverage: (a) the legacy percentage MUST NOT change the order,
+// which is exactly what the two goals below prove, and (b) the limit still
+// applies. Factual progress correctness is covered by the real HTTP journeys
+// (scripts/planner_overnight_http_journeys.js).
 {
-  // higher progress surfaces first
+  // `g-high` has the biggest legacy percentage but is the OLDEST Plan, so a
+  // percentage-driven rank would surface it; canonical ranking (created_at DESC)
+  // must surface `g-newest` instead.
   const goals = [
-    makeGoal({ id: 'g-low', progress_percentage: 10, ends_at: null }),
-    makeGoal({ id: 'g-high', progress_percentage: 80, ends_at: null }),
-    makeGoal({ id: 'g-mid', progress_percentage: 50, ends_at: null }),
+    makeGoal({ id: 'g-high', progress_percentage: 80, ends_at: null, created_at: '2026-07-01T00:00:00.000Z' }),
+    makeGoal({ id: 'g-mid', progress_percentage: 50, ends_at: null, created_at: '2026-07-05T00:00:00.000Z' }),
+    makeGoal({ id: 'g-newest', progress_percentage: 1, ends_at: null, created_at: '2026-07-20T00:00:00.000Z' }),
   ]
   const selected = selectSummaryGoal({ goals, membershipId: ACTIVE_MEMBERSHIP })
   assertEqual(selected.length, GOAL_LIMIT, 'goals truncated to 1')
-  assertEqual(selected[0].id, 'g-high', 'higher progress_percentage ranks first')
+  assertEqual(selected[0].id, 'g-newest', 'legacy progress_percentage does NOT drive ranking')
 }
 
 {
@@ -376,9 +394,10 @@ console.log('\n=== 7. Goal selector — limit, ordering ===\n')
   ]
   const selected = selectSummaryGoal({ goals, membershipId: ACTIVE_MEMBERSHIP })
   // Their personal goal (90%) must be EXCLUDED; my personal (30%) + shared (50%)
-  // are eligible → highest eligible is shared (50%)
+  // are eligible. Ranking no longer reads progress_percentage (frozen §31), so
+  // with equal lifecycle/target date the deterministic id tie-break decides.
   assertEqual(selected.length, 1, 'personal goal of another member excluded')
-  assertEqual(selected[0].id, 'shared-household', 'household-visible + own-personal eligible')
+  assertEqual(selected[0].id, 'mine-personal', 'household-visible + own-personal eligible, ranked canonically')
 }
 
 // ============================================================

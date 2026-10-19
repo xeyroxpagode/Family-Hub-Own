@@ -12,7 +12,7 @@
  *
  * Stored fields (frozen contract):
  *   title, note, type (template_key + category), priority,
- *   estimated_duration_minutes, checklist template (labels/order only),
+ *   checklist template (labels/order only),
  *   requires_verification, requires_evidence.
  *
  * Never stored / never overwritten by application:
@@ -86,12 +86,6 @@ function normalizePriority(value: unknown, fallback: PresetTaskPriority = 'norma
     : fallback;
 }
 
-function normalizePositiveInt(value: unknown): number | null {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return Math.floor(parsed);
-}
-
 /** Checklist template normalization: keeps labels/order, drops completion. */
 export function normalizePresetChecklistTemplate(
   items: ReadonlyArray<{ text?: unknown; checked?: unknown } | string> | unknown,
@@ -120,7 +114,9 @@ export function normalizePresetTaskPayload(payload: unknown): PlannerPresetTaskP
     template_key: normalizeString(source.template_key) || null,
     category: normalizeString(source.category) || null,
     priority: normalizePriority(source.priority),
-    estimated_duration_minutes: normalizePositiveInt(source.estimated_duration_minutes),
+    // Legacy revisions may still carry duration. It is intentionally ignored
+    // by the current Task UI and never copied into a new draft.
+    estimated_duration_minutes: null,
     checklist: normalizePresetChecklistTemplate(source.checklist),
     requires_verification: Boolean(source.requires_verification),
     requires_evidence: Boolean(source.requires_evidence),
@@ -166,7 +162,8 @@ export function applyPresetToTaskDraft<TDraft extends PresetApplicableTaskDraft>
   next.template_key = preset.template_key;
   next.category = preset.category;
   next.priority = preset.priority;
-  next.estimated_duration_minutes = preset.estimated_duration_minutes;
+  // Preserve legacy duration fields already present in compatibility payloads;
+  // presets no longer apply a duration to a Task draft.
   next.checklist = preset.checklist.map((item) => ({ text: item.text, checked: false }));
   next.requires_verification = preset.requires_verification;
   next.requires_evidence = preset.requires_evidence;
@@ -188,7 +185,6 @@ export function hasMeaningfulStableDraftValues(draft: unknown): boolean {
   if (category.length > 0 && category.toLowerCase() !== 'general') return true;
   const priority = normalizeString(source.priority);
   if (priority && priority !== 'normal') return true;
-  if (normalizePositiveInt(source.estimated_duration_minutes) !== null) return true;
   const checklist = Array.isArray(source.checklist) ? source.checklist : [];
   if (checklist.some((item) => normalizeString(isPlainObject(item) ? item.text : item).length > 0)) return true;
   if (source.requires_verification === true) return true;
@@ -213,9 +209,6 @@ export function detectApplyConflict(draft: unknown, payload: unknown): boolean {
     && candidate.category.toLowerCase() !== normalizeString(current.category).toLowerCase()) return true;
   if (candidate.priority !== 'normal' && normalizeString(current.priority) && normalizeString(current.priority) !== 'normal'
     && candidate.priority !== normalizeString(current.priority)) return true;
-  if (candidate.estimated_duration_minutes !== null
-    && normalizePositiveInt(current.estimated_duration_minutes) !== null
-    && candidate.estimated_duration_minutes !== normalizePositiveInt(current.estimated_duration_minutes)) return true;
   const currentChecklist = Array.isArray(current.checklist) ? current.checklist : [];
   const currentLabels = currentChecklist
     .map((item) => normalizeString(isPlainObject(item) ? item.text : item))
@@ -239,7 +232,7 @@ export function taskToPresetPayload(task: unknown): PlannerPresetTaskPayload {
     template_key: normalizeString(source.template_key) || null,
     category: normalizeString(source.category) || null,
     priority: normalizePriority(source.priority),
-    estimated_duration_minutes: normalizePositiveInt(source.estimated_duration_minutes),
+    estimated_duration_minutes: null,
     checklist: normalizePresetChecklistTemplate(source.checklist),
     requires_verification: Boolean(source.requires_verification),
     requires_evidence: Boolean(source.requires_evidence),

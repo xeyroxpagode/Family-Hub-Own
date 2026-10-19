@@ -1,10 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppButton, AppText, EmptyState, SegmentedControl } from '../../components/ui';
 import { HomePlusIcon } from '../../constants/icons';
 import { colors, radius, shadows, spacing } from '../../constants/theme';
+import { usePlannerSheet } from '../../context/PlannerSheetContext';
+import {
+  buildPlanDraftSnapshot,
+  samePlanDraft,
+  type PlannerPlanDraftSnapshot,
+} from '../../services/planner/plannerSheetGuard';
 import {
   buildMinimalPlanCreateWrite,
   buildPlanStructureChangesetWrite,
@@ -258,6 +264,20 @@ export function PlannerPlanMinimalCreateSurface({
   const [objective, setObjective] = useState('');
   const [scope, setScope] = useState<MinimalPlanCreatePayload['scope']>(initialScope);
   const [finalizationKind, setFinalizationKind] = useState<NonNullable<MinimalPlanCreatePayload['finalizationKind']>>('none');
+
+  // --- Dirty guard derivation (Phase 1 / Figma §23.7) ---
+  const currentDraftRef = useRef<PlannerPlanDraftSnapshot | null>(null);
+  currentDraftRef.current = buildPlanDraftSnapshot({ objective, scope, finalizationKind });
+  const { registerDirtyProbe } = usePlannerSheet();
+  useEffect(() => {
+    const opening: PlannerPlanDraftSnapshot = buildPlanDraftSnapshot({ objective: '', scope: initialScope, finalizationKind: 'none' });
+    return registerDirtyProbe(() => {
+      const current = currentDraftRef.current;
+      if (!current) return false;
+      return !samePlanDraft(current, opening);
+    });
+  }, [registerDirtyProbe, initialScope]);
+
   const payload: MinimalPlanCreatePayload = {
     objective,
     scope,

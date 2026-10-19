@@ -16,11 +16,32 @@
 
 import type { PlannerNavigationSource } from '../../navigation/plannerNavigationContract';
 
+/** Inline type definitions to avoid cross-module import issues */
+export type PlannerConfirmSheetData = {
+  readonly title: string;
+  readonly body: string;
+  readonly safeLabel: string;
+  readonly destructiveLabel: string;
+  readonly destructiveTone?: boolean;
+  readonly onConfirm: () => void;
+  readonly onCancel: () => void;
+};
+
+export type PlannerDestructiveConfirm = {
+  readonly verb: string;
+  readonly objectName: string;
+  readonly body: string;
+  readonly destructiveLabel: string;
+  readonly safeLabel: string;
+  readonly onConfirm: () => void;
+  readonly onCancel: () => void;
+};
+
 // ---------------------------------------------------------------------------
 // 1. Sheet kind — closed discriminated union
 // ---------------------------------------------------------------------------
 
-export type PlannerSheetKind = 'closed' | 'actions' | 'task_form' | 'event_form' | 'goal_form' | 'plan_form';
+export type PlannerSheetKind = 'closed' | 'actions' | 'task_form' | 'event_form' | 'goal_form' | 'plan_form' | 'confirm' | 'confirm_destructive';
 
 // ---------------------------------------------------------------------------
 // 2. PlannerSheetState — a single discrimated union (no representing
@@ -56,6 +77,14 @@ export type PlannerSheetState =
       readonly kind: 'plan_form';
       readonly mode: 'create';
       readonly source: PlannerNavigationSource;
+    }
+  | {
+      readonly kind: 'confirm';
+      readonly data: PlannerConfirmSheetData;
+    }
+  | {
+      readonly kind: 'confirm_destructive';
+      readonly data: PlannerDestructiveConfirm;
     };
 
 // ---------------------------------------------------------------------------
@@ -88,6 +117,14 @@ export type OpenPlanInput = {
   readonly source: PlannerNavigationSource;
 };
 
+export type OpenConfirmInput = {
+  readonly data: PlannerConfirmSheetData;
+};
+
+export type OpenConfirmDestructiveInput = {
+  readonly data: PlannerDestructiveConfirm;
+};
+
 // ---------------------------------------------------------------------------
 // 4. Close reason — closed enum
 // ---------------------------------------------------------------------------
@@ -111,6 +148,8 @@ export type PlannerSheetEvent =
   | { readonly type: 'OPEN_EVENT'; readonly input: OpenEventInput }
   | { readonly type: 'OPEN_GOAL'; readonly input: OpenGoalInput }
   | { readonly type: 'OPEN_PLAN'; readonly input: OpenPlanInput }
+  | { readonly type: 'OPEN_CONFIRM'; readonly input: OpenConfirmInput }
+  | { readonly type: 'OPEN_CONFIRM_DESTRUCTIVE'; readonly input: OpenConfirmDestructiveInput }
   | { readonly type: 'REPLACE'; readonly next: PlannerSheetState }
   | { readonly type: 'REQUEST_CLOSE'; readonly reason: PlannerSheetCloseReason }
   | { readonly type: 'FORCE_CLOSE'; readonly reason: PlannerSheetCloseReason }
@@ -218,6 +257,32 @@ export function sheetMachineReducer(
         source: event.input.source,
       };
       if (state.kind === 'plan_form') return noChange(state, context);
+      return {
+        state: desired,
+        isSubmitting: context.isSubmitting,
+        activeIntentId: context.activeIntentId,
+      };
+    }
+
+    case 'OPEN_CONFIRM': {
+      const desired: PlannerSheetState = {
+        kind: 'confirm',
+        data: event.input.data,
+      };
+      if (state.kind === 'confirm' && state.data === event.input.data) return noChange(state, context);
+      return {
+        state: desired,
+        isSubmitting: context.isSubmitting,
+        activeIntentId: context.activeIntentId,
+      };
+    }
+
+    case 'OPEN_CONFIRM_DESTRUCTIVE': {
+      const desired: PlannerSheetState = {
+        kind: 'confirm_destructive',
+        data: event.input.data,
+      };
+      if (state.kind === 'confirm_destructive' && state.data === event.input.data) return noChange(state, context);
       return {
         state: desired,
         isSubmitting: context.isSubmitting,

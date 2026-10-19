@@ -27,7 +27,7 @@
  * - Selecting a preset opens Detail; it NEVER creates an entity.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 
@@ -51,6 +51,8 @@ import {
 } from './plannerPresetLibraryViewState';
 import { presetTaskPayloadFromPreset } from '../../../services/planner/plannerPresetTaskDomain';
 import type { PlannerPreset } from '../../../types/plannerPresetsDrafts';
+import { PRESET_TYPE_OPTIONS, presetTypeIdFromPayload } from './PlannerPresetEditorScreen';
+import { FilterChip } from '../../ui';
 
 type Props = {
   onOpenPreset?: (preset: PlannerPreset) => void;
@@ -82,6 +84,8 @@ export function PlannerPresetLibraryScreen({
   const [isOffline, setIsOffline] = useState(false);
   const [errorKind, setErrorKind] = useState<'none' | 'partial' | 'fatal' | null>('none');
   const [homeplusExpanded, setHomeplusExpanded] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   // P2.2A-R1 (defecto 2G): la biblioteca solo cargaba al montar. Al volver
   // con goBack desde Crear/Editar/Duplicar (el screen ya estaba montado en
   // el stack) la lista quedaba stale y el preset del hogar recién creado no
@@ -160,12 +164,22 @@ export function PlannerPresetLibraryScreen({
     [presets, isLoading, isRefreshing, isStale, isOffline, errorKind],
   );
 
-  const groups = useMemo(() => canonicalPresetLibraryGroups(presets ?? []), [presets]);
+  const filteredPresets = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase('es');
+    return (presets ?? []).filter((preset) => {
+      if (normalizedQuery && !preset.name.toLocaleLowerCase('es').includes(normalizedQuery)) return false;
+      if (typeFilter === 'all') return true;
+      const payload = presetTaskPayloadFromPreset(preset);
+      return payload ? presetTypeIdFromPayload(payload) === typeFilter : false;
+    });
+  }, [presets, searchQuery, typeFilter]);
+  const groups = useMemo(() => canonicalPresetLibraryGroups(filteredPresets), [filteredPresets]);
   const trashedCount = useMemo(() => partitionPresets(presets ?? []).trashed.length, [presets]);
   const canonicalEmpty = isCanonicalLibraryEmpty(groups);
 
   const showList =
     visualState === 'loaded'
+    || visualState === 'empty'
     || visualState === 'refreshing_with_data_preserved'
     || visualState === 'partial_error'
     || visualState === 'offline'
@@ -203,6 +217,28 @@ export function PlannerPresetLibraryScreen({
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={styles.searchWrap}>
+          <HomePlusIcon name="search" size={18} color={colors.text.tertiary} />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Buscar presets"
+            placeholderTextColor={colors.text.muted}
+            accessibilityLabel="Buscar presets"
+            style={[styles.searchInput, { color: colors.text.primary }]}
+          />
+          {searchQuery ? (
+            <Pressable onPress={() => setSearchQuery('')} accessibilityRole="button" accessibilityLabel="Limpiar búsqueda" style={styles.clearSearch}>
+              <HomePlusIcon name="close-circle" size={18} color={colors.text.tertiary} />
+            </Pressable>
+          ) : null}
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+          <FilterChip label="Todos" selected={typeFilter === 'all'} onPress={() => setTypeFilter('all')} />
+          {PRESET_TYPE_OPTIONS.map((option) => (
+            <FilterChip key={option.id} label={option.label} selected={typeFilter === option.id} onPress={() => setTypeFilter(option.id)} />
+          ))}
+        </ScrollView>
         {visualState === 'initial_loading' ? (
           <View style={styles.centerState}>
             <ActivityIndicator color={colors.terracotta[500]} />
@@ -232,7 +268,9 @@ export function PlannerPresetLibraryScreen({
         {showList && canonicalEmpty ? (
           <View style={styles.centerState}>
             <AppText variant="body" tone="tertiary" align="center">
-              {'Todavía no tenés presets.\nCreá el primero con el + de arriba.'}
+              {searchQuery || typeFilter !== 'all'
+                ? 'No hay presets que coincidan con esta búsqueda.'
+                : 'Todavía no tenés presets.\nCreá el primero con el + de arriba.'}
             </AppText>
           </View>
         ) : null}
@@ -339,7 +377,6 @@ function PresetFlatRows({
         const metaParts: string[] = [];
         if (typeLabel) metaParts.push(typeLabel);
         if (payload && payload.checklist.length > 0) metaParts.push(`${payload.checklist.length} pasos`);
-        if (payload?.estimated_duration_minutes) metaParts.push(`${payload.estimated_duration_minutes} min`);
         const meta = metaParts.join(' · ');
         return (
           <Pressable
@@ -430,9 +467,24 @@ function createStyles(theme: AppResolvedTheme) {
       borderColor: colors.border.default,
     },
     content: {
-      paddingHorizontal: 16,
+      paddingHorizontal: 20,
       paddingBottom: 96,
     },
+    searchWrap: {
+      minHeight: 44,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 12,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border.default,
+      backgroundColor: colors.surface.card,
+      marginBottom: 8,
+    },
+    searchInput: { flex: 1, minHeight: 44, fontSize: 15, paddingVertical: 8 },
+    clearSearch: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -12 },
+    filters: { gap: 8, paddingBottom: 8 },
     centerState: {
       paddingVertical: 48,
       alignItems: 'center',

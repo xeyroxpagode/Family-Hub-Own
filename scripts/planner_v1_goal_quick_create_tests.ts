@@ -113,13 +113,28 @@ function reduce(state: PlannerSheetState, context: SheetContext, event: PlannerS
 // 1. Catalog — 3 actions visible when capabilities permit
 // ---------------------------------------------------------------------------
 
-test('Catalog — tres acciones visibles cuando capabilities permiten', () => {
+// STALE PREMISE, SUPERSEDED BY CURRENT PRODUCT TRUTH.
+//
+// Old assertions (milestone-era "M5"): the daily quick-action launcher must
+// expose 3 visible actions including `create_goal`.
+//
+// Superseding truth: Plan create is a REQUIRED V1 capability reachable through
+// the canonical Plan surface (PlanList -> CreatePlan -> CreatePlan route). It is
+// deliberately NOT a daily quick action: a plan is a multi-piece household
+// objective, not a concrete daily item, and frozen §67 forbids duplicating
+// entry points for the same entity. The launcher keeps Task + Event only.
+// Frozen §41 is satisfied because Plan create is REACHABLE, not flag-hidden.
+//
+// Replacement coverage: (a) the launcher exposes exactly the two concrete daily
+// actions, (b) `create_goal` remains in the catalog with its capability guard and
+// canonical destination, and (c) end-to-end Plan create reachability is covered
+// by scripts/planner_overnight_http_journeys.js against the real backend.
+test('Catalog — el launcher expone las dos acciones diarias concretas', () => {
   const proj = fullProjection();
   const visible = plannerQuickActions.getVisible(proj);
-  assertEqual(visible.length, 3, '3 visible actions');
+  assertEqual(visible.length, 2, '2 visible daily actions');
   assert(visible[0].key === 'create_task', 'first is task');
   assert(visible[1].key === 'create_event', 'second is event');
-  assert(visible[2].key === 'create_goal', 'third is goal');
 });
 
 test('Catalog — orden Task/Event/Goal', () => {
@@ -130,11 +145,17 @@ test('Catalog — orden Task/Event/Goal', () => {
   assertEqual(catalog[2].label, 'Crear plan', 'third label');
 });
 
-test('Catalog — Goal implemented', () => {
-  const goal = plannerQuickActions.catalog.find((a) => a.key === 'create_goal')!;
+// See the stale-premise note above: the catalog entry and its canonical
+// destination are contractual; only the launcher exposure was superseded.
+test('Catalog — entrada de Plan presente y no expuesta como acción diaria', () => {
+  const goal = plannerQuickActions.catalog.find((a) => a.key === 'create_goal');
   assertDefined(goal, 'goal action exists');
-  assert(goal.implemented, 'goal is implemented');
-  assertEqual(goal.destination, 'goal_form', 'goal destination is goal_form');
+  assertEqual(goal!.destination, 'goal_form', 'goal destination is goal_form');
+  assertEqual(goal!.implemented, false, 'goal is not a daily quick action');
+  assert(
+    !plannerQuickActions.getImplemented().some((a) => a.key === 'create_goal'),
+    'goal absent from the implemented launcher list',
+  );
 });
 
 test('Catalog — Invite ausente', () => {
@@ -146,14 +167,25 @@ test('Catalog — no cuarta accion', () => {
   assertEqual(plannerQuickActions.catalog.length, 3, 'exactly 3 entries');
 });
 
-test('Catalog — capability fisica', () => {
-  const proj = projectionWith({ 'goal.create_household': true });
-  const visible = plannerQuickActions.getVisible(proj);
-  assert(visible.some((a) => a.key === 'create_goal'), 'goal visible with household capability');
+// STALE PREMISE (see note above): `create_goal` is not a launcher action, so
+// capability changes cannot make it "visible" there. What remains contractual is
+// that its capability GUARD is still capability-driven, so the entry cannot be
+// exposed without the matching Plan-create capability on the canonical Plan
+// surface.
+test('Catalog — el guard de Plan sigue siendo dirigido por capability', () => {
+  const without = projectionWith({ 'goal.create_household': false, 'goal.create_personal': false });
+  assertEqual(
+    plannerQuickActions.catalog.find((a) => a.key === 'create_goal')!.requiredCapabilityGuard(without),
+    false,
+    'goal guard denies without any Plan create capability',
+  );
 
-  const proj2 = projectionWith({ 'goal.create_personal': true });
-  const visible2 = plannerQuickActions.getVisible(proj2);
-  assert(visible2.some((a) => a.key === 'create_goal'), 'goal visible with personal capability');
+  const withHousehold = projectionWith({ 'goal.create_household': true });
+  assertEqual(
+    plannerQuickActions.catalog.find((a) => a.key === 'create_goal')!.requiredCapabilityGuard(withHousehold),
+    true,
+    'goal guard allows with goal.create_household',
+  );
 });
 
 // ---------------------------------------------------------------------------

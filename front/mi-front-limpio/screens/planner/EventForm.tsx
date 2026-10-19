@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -30,6 +30,13 @@ import { createIdempotencyKey } from '../../services/idempotency';
 import { omitUndefinedPlannerPayloadProperties } from '../../services/planner/plannerPayloadFilter';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
+import { usePlannerSheet } from '../../context/PlannerSheetContext';
+import {
+  buildEventDraftSnapshot,
+  sameEventDraft,
+  type PlannerEventDraftSnapshot,
+} from '../../services/planner/plannerSheetGuard';
+import { usePlannerScreenDirtyGuard } from '../../hooks/usePlannerScreenDirtyGuard';
 import { HomePlusIcon } from '../../constants/icons';
 import { buildLocalIso, dateToYMD, addDays, plannerStyles as S, recurrenceLabels } from './plannerShared';
 import { colors } from '../../constants/theme';
@@ -119,10 +126,13 @@ export function EventForm({
   const eventId = eventIdProp ?? route.params?.eventId as string | undefined;
   const routeReturnTo = (route.params?.returnTo as string) || undefined;
   const routeInitialTab = (route.params?.initialTab as string) || undefined;
+  const initialPlanId = route.params?.initialPlanId as string | undefined;
+  const initialPlanTitle = route.params?.initialPlanTitle as string | undefined;
 
   const [loading, setLoading] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [planClassification, setPlanClassification] = useState<'necessary' | 'supporting'>('necessary');
   const [editScope, setEditScope] = useState<'occurrence' | 'series'>('occurrence');
   const [title, setTitle] = useState('');
   const [titleTouched, setTitleTouched] = useState(false);
@@ -150,6 +160,60 @@ export function EventForm({
   const occurrenceOverrideKeyRef = useRef(createIdempotencyKey('planner.events.occurrences.override.create'));
   // Re-entry guard for the submit button (same rationale as TaskForm).
   const submitInFlightRef = useRef(false);
+
+  // --- Dirty guard derivation (Phase 1 / Figma §23.7 + §36.7) ---
+  // The prototype only flagged the title (registered contradiction C-08);
+  // Phase 1 derives dirty from the full normalized event draft vs the
+  // opening snapshot, captured after async hydration completes.
+  const currentDraftRef = useRef<PlannerEventDraftSnapshot | null>(null);
+  currentDraftRef.current = buildEventDraftSnapshot({
+    title,
+    description,
+    date,
+    startTime,
+    endTime,
+    allDay,
+    locationName,
+    recurrence,
+    planClassification,
+  });
+  const openingSnapshotRef = useRef<PlannerEventDraftSnapshot | null>(null);
+  const isEventDraftDirty = useCallback((): boolean => {
+    const opening = openingSnapshotRef.current;
+    const current = currentDraftRef.current;
+    if (!opening || !current) return false;
+    return !sameEventDraft(current, opening);
+  }, []);
+  useEffect(() => {
+    if (loading) return;
+    if (!openingSnapshotRef.current) {
+      openingSnapshotRef.current = currentDraftRef.current;
+    }
+  }, [loading]);
+
+  const { registerDirtyProbe } = usePlannerSheet();
+  useEffect(() => registerDirtyProbe(isEventDraftDirty), [registerDirtyProbe, isEventDraftDirty]);
+
+  const performScreenClose = () => {
+    if (routeReturnTo === 'PlannerHome') {
+      const tab = routeInitialTab ?? 'calendar';
+      const refreshKey = Date.now();
+      navigation.replace('PlannerHome', { refreshKey, initialTab: tab });
+      return;
+    }
+
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'calendar' });
+  };
+  const screenDirtyGuard = usePlannerScreenDirtyGuard({
+    enabled: !embedded,
+    isDirty: isEventDraftDirty,
+    onDiscard: performScreenClose,
+  });
 
   const isFormReadyForSubmit = React.useMemo(() => {
     if (authLoading || loading || saving) return false;
@@ -309,6 +373,8 @@ export function EventForm({
       all_day: allDay,
       location_name: locationName.trim() || undefined,
       recurrence,
+      goal_id: mode === 'create' ? initialPlanId : undefined,
+      plan_classification: mode === 'create' && initialPlanId ? planClassification : undefined,
       expected_version: mode === 'edit' ? entityVersion ?? undefined : undefined,
     });
 
@@ -438,20 +504,7 @@ onPress: async () => {
       onClose();
       return;
     }
-
-    if (routeReturnTo === 'PlannerHome') {
-      const tab = routeInitialTab ?? 'calendar';
-      const refreshKey = Date.now();
-      navigation.replace('PlannerHome', { refreshKey, initialTab: tab });
-      return;
-    }
-
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-      return;
-    }
-
-    navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'calendar' });
+    screenDirtyGuard.requestClose();
   };
 
   const handlePressOutside = () => {
@@ -493,6 +546,26 @@ onPress: async () => {
         {error ? (
           <View style={S.errorBox}>
             <Text style={S.errorText}>{error}</Text>
+          </View>
+        ) : null}
+
+        {mode === 'create' && initialPlanId ? (
+          <View style={S.eventFormSection}>
+            <Text style={S.formLabelHuman}>Plan: {initialPlanTitle ?? 'Plan actual'}</Text>
+            <View style={[S.row, { gap: 8 }]}>
+              {(['necessary', 'supporting'] as const).map((classification) => (
+                <TouchableOpacity
+                  key={classification}
+                  style={[S.eventFormChip, planClassification === classification && S.eventFormChipActive]}
+                  onPress={() => setPlanClassification(classification)}
+                  accessibilityState={{ selected: planClassification === classification }}
+                >
+                  <Text style={[S.eventFormChipText, planClassification === classification && S.eventFormChipTextActive]}>
+                    {classification === 'necessary' ? 'Requerido' : 'Opcional'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         ) : null}
 
@@ -667,6 +740,7 @@ onPress: async () => {
       <DatePickerSheet visible={activePicker === 'date'} value={date} onClose={() => setActivePicker(null)} onConfirm={(nextDate) => { setDate(nextDate); setDateTouched(true); setError(null); setActivePicker(null); }} />
       <TimePickerSheet visible={activePicker === 'start'} value={startTime} onClose={() => setActivePicker(null)} onConfirm={(nextTime) => { setStartTime(nextTime); setStartTimeTouched(true); setError(null); setActivePicker(null); }} />
       <TimePickerSheet visible={activePicker === 'end'} value={endTime} onClose={() => setActivePicker(null)} onConfirm={(nextTime) => { setEndTime(nextTime); setEndTimeTouched(true); setError(null); setActivePicker(null); }} />
+      {screenDirtyGuard.guardElement}
     </View>
   );
 

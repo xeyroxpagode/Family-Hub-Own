@@ -12,7 +12,7 @@ const {
   withIdempotency,
 } = require('../lib/plannerIdempotencyAdapter');
 const { resolveCapabilities, assertCapability } = require('../lib/plannerCapabilities');
-const { sendApiError } = require('../lib/httpErrors');
+const { createHttpError, sendApiError } = require('../lib/httpErrors');
 
 function buildCapabilities(context) {
   return resolveCapabilities({
@@ -51,9 +51,10 @@ const createEvent = async (req, res) => {
     const context = await getPlannerContext(req);
     const capabilities = buildCapabilities(context);
 
-    const isPersonal = req.body?.visibility === 'personal';
-    const requiredCap = isPersonal ? 'event.create_personal' : 'event.create_household';
-    assertCapability(capabilities, requiredCap);
+    if (req.body?.visibility === 'personal' || req.body?.scope === 'personal') {
+      throw createHttpError(400, 'Los eventos personales no están disponibles.', 'personal_events_not_supported');
+    }
+    assertCapability(capabilities, 'event.create_household');
 
     const operation = 'planner.events.create';
     const mutationId = requireMutationId(req);

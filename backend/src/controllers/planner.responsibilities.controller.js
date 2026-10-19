@@ -18,6 +18,10 @@ const run = (handler) => async (req, res) => {
 
 const list = run(async (req, res, context) => res.status(200).json(await service.listResponsibilities(context, req.query ?? {})))
 const get = run(async (req, res, context) => res.status(200).json(await service.getResponsibility(context, req.params.id)))
+const materializeDue = run(async (_req, res, context) => {
+  assertCapability(capabilities(context), 'task.create_household')
+  return res.status(200).json(await service.materializeHousehold(context))
+})
 const create = run(async (req, res, context) => {
   assertCapability(capabilities(context), 'task.create_household')
   return res.status(201).json(await service.createResponsibility(context, req.body ?? {}))
@@ -34,7 +38,7 @@ const replaceCurrentAssignee = run(async (req, res, context) => {
 })
 
 module.exports = {
-  archive: lifecycle('archived'), create, get, list, pause: lifecycle('paused'),
+  archive: lifecycle('archived'), create, get, list, materializeDue, pause: lifecycle('paused'),
   replaceCurrentAssignee, restore: lifecycle('active'), resume: lifecycle('active'),
   trash: lifecycle('trashed'), unarchive: lifecycle('active'), update,
 }

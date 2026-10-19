@@ -14,6 +14,7 @@ import { HomePlusIcon } from '../../constants/icons';
 import { colors } from '../../constants/theme';
 import { ApiError } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { usePlannerSheet } from '../../context/PlannerSheetContext';
 import {
   listTrash,
   type TrashItem,
@@ -25,6 +26,11 @@ import {
   enqueuePlannerGoalRestore,
   enqueuePlannerMilestoneRestore,
 } from '../../services/planner/reliability';
+import { restorePlannerEventSeries } from '../../services/plannerEventSeries';
+import { changeResponsibilityLifecycle } from '../../services/plannerResponsibilities';
+
+const restorePlannerResponsibility = (accessToken: string, id: string, version: number) =>
+  changeResponsibilityLifecycle(accessToken, id, 'restore', version);
 import { plannerStyles as S } from './plannerShared';
 
 type FilterTab = { key: TrashFilterType; label: string };
@@ -41,6 +47,8 @@ const TYPE_LABELS: Record<string, string> = {
   event: 'Evento',
   goal: 'Plan',
   milestone: 'Hito',
+  event_series: 'Horario',
+  responsibility: 'Responsabilidad',
 };
 
 const TYPE_ICONS: Record<string, string> = {
@@ -48,6 +56,8 @@ const TYPE_ICONS: Record<string, string> = {
   event: 'calendar',
   goal: 'flag',
   milestone: 'checkbox-outline',
+  event_series: 'repeat',
+  responsibility: 'people',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -75,6 +85,7 @@ export function PlannerTrashScreen() {
   const navigation = useNavigation<any>();
   const { session } = useAuth();
   const accessToken = session?.access_token;
+  const sheet = usePlannerSheet();
 
   const [filter, setFilter] = useState<TrashFilterType>('all');
   const [items, setItems] = useState<TrashItem[]>([]);
@@ -82,7 +93,6 @@ export function PlannerTrashScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
-  const [restoreToast, setRestoreToast] = useState<string | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!accessToken) return;
@@ -135,6 +145,13 @@ export function PlannerTrashScreen() {
           }
           await enqueuePlannerMilestoneRestore(item.parent.id, item.id, item.version);
           break;
+        case 'event_series':
+          // Event Series / Horarios restore through their own canonical writer.
+          await restorePlannerEventSeries(accessToken, item.id, item.version);
+          break;
+        case 'responsibility':
+          await restorePlannerResponsibility(accessToken, item.id, item.version);
+          break;
       }
       setItems((prev) => prev.filter((i) => i.id !== item.id));
       const typeMessage =
@@ -142,9 +159,11 @@ export function PlannerTrashScreen() {
         item.type === 'event' ? 'Evento restaurado.' :
         item.type === 'goal' ? 'Plan restaurado.' :
         item.type === 'milestone' ? 'Hito restaurado.' :
+        item.type === 'event_series' ? 'Horario restaurado.' :
+        item.type === 'responsibility' ? 'Responsabilidad restaurada.' :
         'Elemento restaurado.';
-      setRestoreToast(typeMessage);
-      setTimeout(() => setRestoreToast(null), 3000);
+      // Gate6: overlay toast (no in-flow banner pushing the list).
+      sheet.pushToast({ id: `trash-restore-${Date.now()}`, message: typeMessage, kind: 'success' });
     } catch (err) {
       if (err instanceof ApiError && err.code === 'version_conflict') {
         Alert.alert('Papelera', 'No pudimos restaurar el plan porque cambió recientemente. Actualizá y probá de nuevo.');
@@ -324,12 +343,6 @@ export function PlannerTrashScreen() {
           }
         />
       )}
-      {restoreToast ? (
-        <View style={S.toastBox}>
-          <HomePlusIcon name="checkmark-circle" size={18} color={colors.success.strong} />
-          <AppText variant="bodySmall" tone="success" weight="700" style={{ flex: 1 }}>{restoreToast}</AppText>
-        </View>
-      ) : null}
     </SafeAreaView>
   );
 }

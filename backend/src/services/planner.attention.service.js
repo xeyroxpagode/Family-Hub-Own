@@ -18,8 +18,10 @@ const ATTENTION_REASONS = Object.freeze({
   TASK_AWAITING_VERIFICATION: 'task_awaiting_verification',
   TASK_CORRECTION_REQUESTED: 'task_correction_requested',
   EVENT_RSVP_REQUIRED: 'event_rsvp_required',
-  PLAN_BLOCKER: 'plan_blocker',
-  PLAN_REVIEW_REQUIRED: 'plan_review_required',
+  // Canonical Plan attention: unresolved Required components (frozen §26).
+  // Replaces the retired `plan_blocker` / `plan_review_required` reasons, which
+  // described Plan states the canonical lifecycle never had.
+  PLAN_UNRESOLVED_REQUIRED: 'plan_unresolved_required',
   PAYMENT_OVERDUE: PAYMENT_ATTENTION_REASONS.OVERDUE,
   PAYMENT_DUE_TODAY: PAYMENT_ATTENTION_REASONS.DUE_TODAY,
   PAYMENT_DUE_SOON: PAYMENT_ATTENTION_REASONS.DUE_SOON,
@@ -28,12 +30,11 @@ const ATTENTION_REASONS = Object.freeze({
 const SEVERITY_ORDER = Object.freeze([
   ATTENTION_REASONS.TASK_CORRECTION_REQUESTED,
   ATTENTION_REASONS.PAYMENT_OVERDUE,
-  ATTENTION_REASONS.PLAN_BLOCKER,
+  ATTENTION_REASONS.PLAN_UNRESOLVED_REQUIRED,
   ATTENTION_REASONS.PAYMENT_DUE_TODAY,
   ATTENTION_REASONS.TASK_AWAITING_VERIFICATION,
   ATTENTION_REASONS.EVENT_RSVP_REQUIRED,
   ATTENTION_REASONS.PAYMENT_DUE_SOON,
-  ATTENTION_REASONS.PLAN_REVIEW_REQUIRED,
 ]);
 
 function severityRank(reason) {
@@ -138,11 +139,13 @@ async function loadAwaitingVerificationTasks(context) {
   const taskIds = [...new Set(data.map((f) => f.task_id))].filter(Boolean);
   if (taskIds.length === 0) return [];
 
+  // Frozen §38: ATTENTION excludes archived AND trashed.
   const { data: tasks, error: taskError } = await context.client
     .from('planner_tasks')
-    .select('id,household_id,title,due_date,due_time,created_by_person_id,created_at,updated_at,trashed_at')
+    .select('id,household_id,title,due_date,due_time,created_by_person_id,created_at,updated_at,trashed_at,archived_at')
     .in('id', taskIds)
     .is('trashed_at', null)
+    .is('archived_at', null)
     .neq('status', 'cancelled');
 
   if (taskError || !tasks || tasks.length === 0) return [];
@@ -189,11 +192,13 @@ async function loadCorrectionPendingTasks(context) {
   const taskIds = [...new Set(data.map((f) => f.task_id))].filter(Boolean);
   if (taskIds.length === 0) return [];
 
+  // Frozen §38: ATTENTION excludes archived AND trashed.
   const { data: tasks, error: taskError } = await context.client
     .from('planner_tasks')
-    .select('id,household_id,title,description,created_by_person_id,created_at,updated_at,trashed_at')
+    .select('id,household_id,title,description,created_by_person_id,created_at,updated_at,trashed_at,archived_at')
     .in('id', taskIds)
     .is('trashed_at', null)
+    .is('archived_at', null)
     .neq('status', 'cancelled');
 
   if (taskError || !tasks || tasks.length === 0) return [];
@@ -228,66 +233,66 @@ async function loadCorrectionPendingTasks(context) {
 
 // ---- PLAN SOURCES ----
 
-async function loadBlockedPlans(context) {
+// ---- PLAN SOURCES ----
+//
+// The retired `PLAN_BLOCKER` / `PLAN_REVIEW_REQUIRED` sources are gone: they
+// read `planner_plans` (the M11.3A legacy container, not the canonical root)
+// and filtered on `lifecycle in ('blocked','review')`, states the canonical
+// Plan lifecycle (preparation/active/paused/completed/cancelled) never has.
+// Both were structurally dead and are removed rather than repointed: Attention
+// is a CONSUMER of canonical authorities, it must not invent Plan states.
+//
+// A Plan is attention-worthy exactly when canonical Readiness says a Required
+// component is unresolved (frozen §26/§38: exclude archived + trashed).
+
+async function loadUnreadyPlans(context) {
   const { data, error } = await context.client
-    .from('planner_plans')
-    .select('id,scope,owner_person_id,household_id,objective,lifecycle,archived_at,trashed_at,updated_at,created_at')
-    .or(`household_id.eq.${context.householdId},owner_person_id.eq.${context.personId}`)
+    .from('planner_goals')
+    .select('id,visibility,owner_person_id,household_id,title,description,lifecycle,archived_at,trashed_at,version,updated_at,created_at')
+    .eq('visibility', 'household')
+    .eq('household_id', context.householdId)
+    .is('deleted_at', null)
     .is('trashed_at', null)
     .is('archived_at', null)
-    .eq('lifecycle', 'blocked')
+    .in('lifecycle', ['preparation', 'active', 'paused'])
     .limit(ATTENTION_LIMIT_MAX);
 
   if (error || !data || data.length === 0) return [];
 
   const accessContext = buildPlannerAccessContext(context);
-  return data
-    .filter((p) => isVisibleInPlannerContext(toVisibilityInput(p, 'plan'), accessContext))
-    .map((p) => toAttentionDTO({
-      attentionId: buildAttentionId(ATTENTION_REASONS.PLAN_BLOCKER, 'plan', p.id, context.personId),
-      dedupeKey: buildDedupeKey(ATTENTION_REASONS.PLAN_BLOCKER, 'plan', p.id, context.personId),
-      reason: ATTENTION_REASONS.PLAN_BLOCKER,
+  const candidates = data.filter((p) => isVisibleInPlannerContext(toVisibilityInput(p, 'plan'), accessContext));
+  if (candidates.length === 0) return [];
+
+  const items = [];
+  for (const plan of candidates) {
+    let readiness = null;
+    try {
+      const { data: readinessData, error: readinessError } = await context.client.rpc(
+        'get_planner_plan_readiness_v1',
+        { p_goal_id: plan.id, p_context_household_id: context.householdId },
+      );
+      if (!readinessError && readinessData?.success) readiness = readinessData.readiness;
+    } catch {
+      readiness = null;
+    }
+    if (!readiness || readiness.ready === true) continue;
+
+    items.push(toAttentionDTO({
+      attentionId: buildAttentionId(ATTENTION_REASONS.PLAN_UNRESOLVED_REQUIRED, 'plan', plan.id, context.personId),
+      dedupeKey: buildDedupeKey(ATTENTION_REASONS.PLAN_UNRESOLVED_REQUIRED, 'plan', plan.id, context.personId),
+      reason: ATTENTION_REASONS.PLAN_UNRESOLVED_REQUIRED,
       entityType: 'plan',
-      entityId: p.id,
-      title: titleOf(p, 'Plan sin titulo'),
-      summary: 'El plan esta bloqueado. Requiere revision.',
-      severity: 'high',
-      createdAt: p.updated_at || p.created_at,
-      updatedAt: p.updated_at || p.created_at,
+      entityId: plan.id,
+      title: titleOf(plan, 'Plan sin titulo'),
+      summary: `${readiness.pendingTotal} componente(s) requerido(s) sin resolver.`,
+      severity: readiness.pendingTotal > 1 ? 'high' : 'medium',
+      createdAt: plan.updated_at || plan.created_at,
+      updatedAt: plan.updated_at || plan.created_at,
       personRecipientId: context.personId,
       primaryAction: null,
     }));
-}
-
-async function loadReviewRequiredPlans(context) {
-  const { data, error } = await context.client
-    .from('planner_plans')
-    .select('id,scope,owner_person_id,household_id,objective,lifecycle,archived_at,trashed_at,updated_at,created_at')
-    .or(`household_id.eq.${context.householdId},owner_person_id.eq.${context.personId}`)
-    .is('trashed_at', null)
-    .is('archived_at', null)
-    .eq('lifecycle', 'review')
-    .limit(ATTENTION_LIMIT_MAX);
-
-  if (error || !data || data.length === 0) return [];
-
-  const accessContext = buildPlannerAccessContext(context);
-  return data
-    .filter((p) => isVisibleInPlannerContext(toVisibilityInput(p, 'plan'), accessContext))
-    .map((p) => toAttentionDTO({
-      attentionId: buildAttentionId(ATTENTION_REASONS.PLAN_REVIEW_REQUIRED, 'plan', p.id, context.personId),
-      dedupeKey: buildDedupeKey(ATTENTION_REASONS.PLAN_REVIEW_REQUIRED, 'plan', p.id, context.personId),
-      reason: ATTENTION_REASONS.PLAN_REVIEW_REQUIRED,
-      entityType: 'plan',
-      entityId: p.id,
-      title: titleOf(p, 'Plan sin titulo'),
-      summary: 'Requiere revision.',
-      severity: 'medium',
-      createdAt: p.updated_at || p.created_at,
-      updatedAt: p.updated_at || p.created_at,
-      personRecipientId: context.personId,
-      primaryAction: null,
-    }));
+  }
+  return items;
 }
 
 // ---- EVENT SOURCES ----
@@ -347,11 +352,10 @@ async function loadRsvpRequiredEvents(context) {
 async function listAttention(context, options = {}) {
   const limit = parseAttentionLimit(options.limit);
 
-  const [verifyingTasks, correctionTasks, blockedPlans, reviewPlans, rsvpEvents, paymentAttention] = await Promise.all([
+  const [verifyingTasks, correctionTasks, unreadyPlans, rsvpEvents, paymentAttention] = await Promise.all([
     loadAwaitingVerificationTasks(context),
     loadCorrectionPendingTasks(context),
-    loadBlockedPlans(context),
-    loadReviewRequiredPlans(context),
+    loadUnreadyPlans(context),
     loadRsvpRequiredEvents(context),
     loadPaymentAttention(context, { todayDate: options.todayDate, limit: ATTENTION_LIMIT_MAX }),
   ]);
@@ -359,8 +363,7 @@ async function listAttention(context, options = {}) {
   const allItems = [
     ...(verifyingTasks || []),
     ...(correctionTasks || []),
-    ...(blockedPlans || []),
-    ...(reviewPlans || []),
+    ...(unreadyPlans || []),
     ...(rsvpEvents || []),
     ...(paymentAttention || []).map(paymentSourceToAttentionDTO),
   ];

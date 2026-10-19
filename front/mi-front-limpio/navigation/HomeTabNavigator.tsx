@@ -28,14 +28,17 @@ import { CreateGoalScreen } from '../screens/planner/CreateGoalScreen';
 import { PlannerPlanStructureEditScreen } from '../screens/planner/PlannerPlanStructureEditScreen';
 import { PlannerPlanDetailScreen } from '../screens/planner/PlannerPlanDetailScreen';
 import { PlannerPlanCreateScreen } from '../screens/planner/PlannerPlanCreateScreen';
+import { PlannerPlanEditScreen } from '../screens/planner/PlannerPlanEditScreen';
 import { PlannerPlanListScreen } from '../screens/planner/PlannerPlanListScreen';
 import { PlannerPlanDetailScreen as PlannerPlanDetailScreenV1 } from '../screens/planner/PlannerPlanDetailScreenV1';
 import { PlannerTrashScreen } from '../screens/planner/PlannerTrashScreen';
 import { PlannerSearchScreen } from '../screens/planner/PlannerSearchScreen';
 import { PlannerAttentionActivityScreen } from '../screens/planner/PlannerAttentionActivityScreen';
 import { TaskDetailScreen } from '../screens/planner/TaskDetailScreen';
+import { EvidenceComposerScreen } from '../screens/planner/EvidenceComposerScreen';
 import { EventDetailScreen } from '../screens/planner/EventDetailScreen';
 import { ResponsibilitiesScreen } from '../screens/planner/ResponsibilitiesScreen';
+import { PlannerSeriesScreen } from '../screens/planner/PlannerSeriesScreen';
 import { ResponsibilityFormScreen } from '../screens/planner/ResponsibilityFormScreen';
 import { ResponsibilityDetailScreen } from '../screens/planner/ResponsibilityDetailScreen';
 import {
@@ -201,7 +204,7 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="CreateGoal" component={CreateGoalScreen} />
       <PlannerStack.Screen name="EditGoal" component={PlannerPlanStructureEditScreen} />
       <PlannerStack.Screen name="GoalDetail" component={PlannerPlanDetailScreen} />
-      <PlannerStack.Screen name="EditPlan" component={PlannerPlanStructureEditScreen} />
+      <PlannerStack.Screen name="EditPlan" component={PlannerPlanEditScreen} />
       <PlannerStack.Screen name="PlanList" component={PlannerPlanListScreen} />
       <PlannerStack.Screen name="PlanDetail" component={PlannerPlanDetailScreenV1} />
       <PlannerStack.Screen name="PlannerTrash" component={PlannerTrashScreen} />
@@ -215,11 +218,13 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="PlannerSearch" component={PlannerSearchScreen} />
       <PlannerStack.Screen name="PlannerAttentionActivity" component={PlannerAttentionActivityScreen} />
       <PlannerStack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <PlannerStack.Screen name="EvidenceComposer" component={EvidenceComposerScreen} options={{ animation: 'slide_from_bottom' }} />
       <PlannerStack.Screen name="EventDetail" component={EventDetailScreen} />
       <PlannerStack.Screen name="Responsibilities" component={ResponsibilitiesScreen} />
-      <PlannerStack.Screen name="ResponsibilityCreate" component={ResponsibilityFormScreen} />
-      <PlannerStack.Screen name="ResponsibilityEdit" component={ResponsibilityFormScreen} />
+      <PlannerStack.Screen name="ResponsibilityCreate" component={ResponsibilityFormScreen} options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+      <PlannerStack.Screen name="ResponsibilityEdit" component={ResponsibilityFormScreen} options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
       <PlannerStack.Screen name="ResponsibilityDetail" component={ResponsibilityDetailScreen} />
+      <PlannerStack.Screen name="PlannerSeries" component={PlannerSeriesScreen} />
       <PlannerStack.Screen name="CreatePlan" component={PlannerPlanCreateScreen} />
     </PlannerStack.Navigator>
   );

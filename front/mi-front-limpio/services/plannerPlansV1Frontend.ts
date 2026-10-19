@@ -2,8 +2,13 @@ import { OPERATION_KINDS, requestJson } from './api';
 import { createIdempotencyKey } from './idempotency';
 import type {
   PlannerPlanV1,
-  PlannerPlanMilestoneV1,
   CreatePlanInput,
+  CreatePlanMeasurementInput,
+  PlanFactualProgress,
+  PlanMeasurement,
+  PlanMeasurementsResponse,
+  PlanMeasurementHistoryEntry,
+  PlanReadiness,
   UpdatePlanInput,
   TransitionPlanInput,
   PlannerPlanFilters,
@@ -15,8 +20,13 @@ import type { PlanLifecycle, PlanScope } from '../types/PlannerPlanV1';
 
 export type {
   PlannerPlanV1,
-  PlannerPlanMilestoneV1,
   CreatePlanInput,
+  CreatePlanMeasurementInput,
+  PlanFactualProgress,
+  PlanMeasurement,
+  PlanMeasurementsResponse,
+  PlanMeasurementHistoryEntry,
+  PlanReadiness,
   UpdatePlanInput,
   TransitionPlanInput,
   PlannerPlanFilters,
@@ -74,15 +84,18 @@ export const updatePlanV1 = (
   accessToken: string,
   planId: string,
   payload: UpdatePlanInput,
-  options?: { idempotencyKey?: string },
+  options?: { idempotencyKey?: string; mutationId?: string },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.plans.v1.update');
+  const headers: Record<string, string> = { 'Idempotency-Key': key };
+  if (options?.mutationId) headers['X-Mutation-Id'] = options.mutationId;
   return requestJson<PlannerPlanResponse>(`/api/planner/v1/plans/${planId}`, {
     method: 'PATCH',
     operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     body: payload,
-    headers: { 'Idempotency-Key': key },
+    expectedVersion: payload.expectedVersion,
+    headers,
   });
 };
 
@@ -90,15 +103,22 @@ export const transitionPlanV1 = (
   accessToken: string,
   planId: string,
   payload: TransitionPlanInput,
-  options?: { idempotencyKey?: string },
+  options?: { idempotencyKey?: string; mutationId?: string },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey(`planner.plans.v1.${payload.transition}`);
+  const headers: Record<string, string> = { 'Idempotency-Key': key };
+  if (options?.mutationId) headers['X-Mutation-Id'] = options.mutationId;
+  // The optimistic version MUST travel as `If-Match`: the server reads it from
+  // the header (or snake_case body), and `requestJson` only emits the header when
+  // `expectedVersion` is passed explicitly. Sending it only as camelCase body
+  // produced 422 expected_version_required on every transition.
   return requestJson<PlannerPlanResponse>(`/api/planner/v1/plans/${planId}/transition`, {
     method: 'POST',
     operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
     body: payload,
-    headers: { 'Idempotency-Key': key },
+    expectedVersion: payload.expectedVersion,
+    headers,
   });
 };
 
@@ -125,7 +145,13 @@ export const restorePlanV1 = (
   accessToken: string,
   planId: string,
   expectedVersion: number,
-  options?: { idempotencyKey?: string; mutationId?: string },
+  options?: {
+    idempotencyKey?: string;
+    mutationId?: string;
+    signal?: AbortSignal | null;
+    timeoutMs?: number;
+    contextScope?: string | null;
+  },
 ) => {
   const key = options?.idempotencyKey ?? createIdempotencyKey('planner.plans.v1.restore');
   const headers: Record<string, string> = {
@@ -137,6 +163,9 @@ export const restorePlanV1 = (
     method: 'POST',
     operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
     accessToken,
+    signal: options?.signal,
+    timeoutMs: options?.timeoutMs,
+    contextScope: options?.contextScope,
     headers,
   });
 };
@@ -202,10 +231,12 @@ export const getScopeLabel = (scope: PlanScope): string => {
 };
 
 export const getAvailableTransitions = (lifecycle: PlanLifecycle): PlanTransition[] => {
+  // Fallback only: screens must prefer `plan.availableActions` from the
+  // server (single authority). Frozen §24: NO cancel in preparation.
   const transitions: Record<PlanLifecycle, PlanTransition[]> = {
-    preparation: ['active', 'cancelled'],
+    preparation: ['active'],
     active: ['paused', 'completed', 'cancelled'],
-    paused: ['active', 'completed', 'cancelled'],
+    paused: ['resume', 'completed', 'cancelled'],
     completed: ['reopen', 'archive'],
     cancelled: ['reopen', 'archive'],
   };
@@ -230,4 +261,173 @@ export const getTransitionVariant = (transition: PlanTransition): 'primary' | 's
   if (['active', 'resume', 'completed', 'reopen'].includes(transition)) return 'primary';
   if (['cancelled', 'archive'].includes(transition)) return 'danger';
   return 'secondary';
+};
+
+export const getPlanReadinessV1 = (accessToken: string, planId: string) =>
+  requestJson<{ readiness: PlanReadiness; progress: PlanFactualProgress }>(
+    `/api/planner/v1/plans/${planId}/readiness`,
+    { accessToken },
+  );
+
+export type PlanLinkedEvent = {
+  id: string;
+  title: string;
+  status: string;
+  lifecycle: string;
+  version: number;
+  plan_classification: string | null;
+  starts_at?: string | null;
+  start_date?: string | null;
+};
+
+export type PlanLinkedTask = {
+  id: string;
+  title: string;
+  status: string;
+  version: number;
+  plan_classification: string | null;
+  due_date?: string | null;
+};
+
+export const getPlanComponents = (accessToken: string, planId: string) =>
+  requestJson<{ tasks: PlanLinkedTask[]; events: PlanLinkedEvent[] }>(
+    `/api/planner/v1/plans/${planId}/components`,
+    { accessToken },
+  );
+
+export const listPlanMeasurementsV1 = (accessToken: string, planId: string) =>
+  requestJson<PlanMeasurementsResponse>(
+    `/api/planner/v1/plans/${planId}/measurements`,
+    { accessToken },
+  );
+
+export const listTrashedPlanMeasurementsV1 = (accessToken: string, planId: string) =>
+  requestJson<PlanMeasurementsResponse>(
+    `/api/planner/v1/plans/${planId}/measurements/trash`,
+    { accessToken },
+  );
+
+export const listPlanMeasurementHistoryV1 = (
+  accessToken: string,
+  planId: string,
+  measurementId: string,
+) => requestJson<{ history: PlanMeasurementHistoryEntry[] }>(
+  `/api/planner/v1/plans/${planId}/measurements/${measurementId}/history`,
+  { accessToken },
+);
+
+export const createPlanMeasurementV1 = (
+  accessToken: string,
+  planId: string,
+  payload: CreatePlanMeasurementInput,
+  options?: { idempotencyKey?: string; mutationId?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.plans.v1.measurements.create');
+  const headers: Record<string, string> = { 'Idempotency-Key': key };
+  if (options?.mutationId) headers['X-Mutation-Id'] = options.mutationId;
+  return requestJson<{ measurement: PlanMeasurement }>(`/api/planner/v1/plans/${planId}/measurements`, {
+    method: 'POST',
+    operationKind: OPERATION_KINDS.CREATE_IDEMPOTENT,
+    accessToken,
+    body: payload,
+    headers,
+  });
+};
+
+export const updatePlanMeasurementV1 = (
+  accessToken: string,
+  planId: string,
+  measurementId: string,
+  payload: Partial<CreatePlanMeasurementInput> & { expected_version: number },
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.plans.v1.measurements.update');
+  return requestJson<{ measurement: PlanMeasurement }>(
+    `/api/planner/v1/plans/${planId}/measurements/${measurementId}`,
+    {
+      method: 'PATCH',
+      operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
+      accessToken,
+      body: payload,
+      headers: { 'Idempotency-Key': key, 'If-Match': String(payload.expected_version) },
+    },
+  );
+};
+
+export const trashPlanMeasurementV1 = (
+  accessToken: string,
+  planId: string,
+  measurementId: string,
+  expectedVersion: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.plans.v1.measurements.trash');
+  return requestJson<{ measurement: PlanMeasurement }>(
+    `/api/planner/v1/plans/${planId}/measurements/${measurementId}/trash`,
+    {
+      method: 'POST',
+      operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
+      accessToken,
+      headers: { 'Idempotency-Key': key, 'If-Match': String(expectedVersion) },
+    },
+  );
+};
+
+export const restorePlanMeasurementV1 = (
+  accessToken: string,
+  planId: string,
+  measurementId: string,
+  expectedVersion: number,
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.plans.v1.measurements.restore');
+  return requestJson<{ measurement: PlanMeasurement }>(
+    `/api/planner/v1/plans/${planId}/measurements/${measurementId}/restore`,
+    {
+      method: 'POST',
+      operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
+      accessToken,
+      headers: { 'Idempotency-Key': key, 'If-Match': String(expectedVersion) },
+    },
+  );
+};
+
+export const linkPlanEventV1 = (
+  accessToken: string,
+  planId: string,
+  eventId: string,
+  payload: { plan_classification?: 'necessary' | 'supporting'; expected_version: number },
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.plans.v1.events.link');
+  return requestJson<{ event: unknown }>(
+    `/api/planner/v1/plans/${planId}/events/${eventId}/link`,
+    {
+      method: 'POST',
+      operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
+      accessToken,
+      body: payload,
+      headers: { 'Idempotency-Key': key },
+    },
+  );
+};
+
+export const unlinkPlanEventV1 = (
+  accessToken: string,
+  planId: string,
+  eventId: string,
+  payload: { expected_version: number },
+  options?: { idempotencyKey?: string },
+) => {
+  const key = options?.idempotencyKey ?? createIdempotencyKey('planner.plans.v1.events.unlink');
+  return requestJson<{ event: unknown }>(
+    `/api/planner/v1/plans/${planId}/events/${eventId}/unlink`,
+    {
+      method: 'POST',
+      operationKind: OPERATION_KINDS.VERSIONED_MUTATION,
+      accessToken,
+      body: payload,
+      headers: { 'Idempotency-Key': key },
+    },
+  );
 };

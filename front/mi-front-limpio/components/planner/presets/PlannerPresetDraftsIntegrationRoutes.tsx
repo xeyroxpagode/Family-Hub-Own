@@ -19,16 +19,16 @@ import {
   duplicatePlannerPresetToHousehold,
   getPlannerPreset,
   preparePlannerPresetApplication,
-  publishPlannerPresetRevision,
-  startPlannerPresetRevision,
-  updatePlannerPresetMetadata,
   updatePlannerPresetRevisionDraft,
 } from '../../../services/plannerPresets';
 import { getPlannerDraft } from '../../../services/plannerDrafts';
 import {
   enqueuePlannerPresetCreate,
+  enqueuePlannerPresetPublishRevision,
   enqueuePlannerPresetRestore,
+  enqueuePlannerPresetStartRevision,
   enqueuePlannerPresetTrash,
+  enqueuePlannerPresetUpdate,
 } from '../../../services/planner/reliability';
 import {
   presetTaskPayloadFromPreset,
@@ -62,6 +62,7 @@ const PRESET_CAPABILITIES = { use: true, manage: true };
 
 type Navigation = {
   navigate: (routeName: string, params?: Record<string, unknown>) => void;
+  popTo: (routeName: string, params?: Record<string, unknown>, options?: { merge?: boolean }) => void;
   goBack: () => void;
 };
 
@@ -88,8 +89,12 @@ export function PlannerPresetDetailRoute() {
   const [loading, setLoading] = useState(true);
   const [safeError, setSafeError] = useState<string | null>(null);
 
+  // Resolve the token/ids into stable primitives so the memoization the linter
+  // must preserve has plain, comparable dependencies.
+  const detailToken = session?.access_token ?? null;
+  const detailPresetId = presetId ?? null;
   const loadPreset = useCallback(async () => {
-    if (!session?.access_token || !presetId) {
+    if (!detailToken || !detailPresetId) {
       setSafeError('No pudimos abrir este preset.');
       setLoading(false);
       return;
@@ -97,14 +102,14 @@ export function PlannerPresetDetailRoute() {
     setLoading(true);
     setSafeError(null);
     try {
-      const response = await getPlannerPreset(session.access_token, presetId);
+      const response = await getPlannerPreset(detailToken, detailPresetId);
       setPreset(response.preset);
     } catch {
       setSafeError('No pudimos abrir este preset.');
     } finally {
       setLoading(false);
     }
-  }, [presetId, session?.access_token]);
+  }, [detailPresetId, detailToken]);
 
   useEffect(() => {
     void loadPreset();
@@ -137,6 +142,13 @@ export function PlannerPresetDetailRoute() {
             return;
           }
           navigation.navigate('CreateTask', { presetPayload });
+          return;
+        }
+        if (targetPreset.entity_type === 'plan') {
+          // A Plan preset is form prefill only. Always enter the canonical
+          // planner_goals create form; never open the retired planner_plans
+          // sheet writer.
+          navigation.navigate(ROUTE_NAMES.PlanCreate, { sourcePresetId: targetPreset.id });
           return;
         }
         try {
@@ -217,6 +229,8 @@ export function PlannerPresetCreateRoute() {
   const navigation = useNavigation<Navigation>();
   const duplicateFromPresetId = route.params?.duplicateFromPresetId as string | undefined;
   const presetPrefill = route.params?.presetPrefill as PlannerPresetTaskPayload | undefined;
+  const returnToTaskDraft = Boolean(route.params?.returnToTaskDraft);
+  const returnRouteName = route.params?.returnRouteName as string | undefined;
   const { session } = useAuth();
   const [initialPreset, setInitialPreset] = useState<PlannerPreset | undefined>(undefined);
   const [safeError, setSafeError] = useState<string | null>(null);
@@ -271,14 +285,21 @@ export function PlannerPresetCreateRoute() {
             idempotencyKey: identity.idempotencyKey,
           });
         }
-        navigation.goBack();
+        if (returnToTaskDraft && returnRouteName) {
+          navigation.popTo(returnRouteName, {
+            presetPayload: input.payload,
+            presetApplicationKey: Date.now(),
+          }, { merge: true });
+        } else {
+          navigation.goBack();
+        }
       } catch {
         setSafeError('No pudimos guardar el preset.');
       } finally {
         setSubmitting(false);
       }
     },
-    [initialPreset, navigation, session?.access_token, submitting],
+    [initialPreset, navigation, returnRouteName, returnToTaskDraft, session?.access_token, submitting],
   );
 
   // P2.2A-R1 (defecto 6): el editor inicializa su estado UNA vez al montar
@@ -316,15 +337,17 @@ export function PlannerPresetEditRoute() {
   const [safeError, setSafeError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const editToken = session?.access_token ?? null;
+  const editPresetId = presetId ?? null;
   const loadPreset = useCallback(async () => {
-    if (!session?.access_token || !presetId) return;
+    if (!editToken || !editPresetId) return;
     try {
-      const response = await getPlannerPreset(session.access_token, presetId);
+      const response = await getPlannerPreset(editToken, editPresetId);
       setPreset(response.preset);
     } catch {
       setSafeError('No pudimos abrir este preset.');
     }
-  }, [presetId, session?.access_token]);
+  }, [editPresetId, editToken]);
 
   useEffect(() => {
     void loadPreset();
@@ -341,27 +364,24 @@ export function PlannerPresetEditRoute() {
         const payloadChanged = presetTaskPayloadsDiffer(presetTaskPayloadFromPreset(preset), input.payload);
 
         if (nameChanged) {
+          // Productive Preset mutation goes through the reliability enqueue
+          // layer (the raw service is not a UI entry point).
           const identity = createPlannerPresetIdentity('planner.presets.update');
-          await updatePlannerPresetMetadata(
-            token,
-            preset.id,
-            { name: input.name.trim() },
-            {
-              expectedVersion: preset.version,
-              mutationId: identity.mutationId,
-              idempotencyKey: identity.idempotencyKey,
-            },
-          );
+          await enqueuePlannerPresetUpdate(preset.id, input.name.trim(), {
+            expectedVersion: preset.version,
+            mutationId: identity.mutationId,
+            idempotencyKey: identity.idempotencyKey,
+          });
         }
 
         if (payloadChanged) {
           // Canonical revision cycle: start draft → update payload → publish.
           const startIdentity = createPlannerPresetIdentity('planner.presets.revisions.start');
-          const started = await startPlannerPresetRevision(token, preset.id, {
+          const started = await enqueuePlannerPresetStartRevision(preset.id, {
             mutationId: startIdentity.mutationId,
             idempotencyKey: startIdentity.idempotencyKey,
           });
-          const draftRevision = started.data;
+          const draftRevision = started.preset;
           const updateIdentity = createPlannerPresetIdentity('planner.presets.revisions.update');
           const updated = await updatePlannerPresetRevisionDraft(
             token,
@@ -378,7 +398,7 @@ export function PlannerPresetEditRoute() {
             },
           );
           const publishIdentity = createPlannerPresetIdentity('planner.presets.revisions.publish');
-          await publishPlannerPresetRevision(token, draftRevision.id, {
+          await enqueuePlannerPresetPublishRevision(draftRevision.id, {
             expectedVersion: updated.data.version,
             mutationId: publishIdentity.mutationId,
             idempotencyKey: publishIdentity.idempotencyKey,
@@ -458,8 +478,8 @@ export function PlannerDraftResumeRoute() {
     void getPlannerDraft(session.access_token, draftId)
       .then((response) => {
         if (disposed) return;
-        openDraftInSheet(sheet, response.draft, authMe.person?.id ?? '');
-        navigation.goBack();
+        const openedCanonicalRoute = openDraftInSheet(sheet, response.draft, authMe.person?.id ?? '', navigation);
+        if (!openedCanonicalRoute) navigation.goBack();
       })
       .catch(() => {
         if (!disposed) setSafeError('No pudimos abrir este borrador.');
@@ -478,16 +498,20 @@ function openDraftInSheet(
   sheet: ReturnType<typeof usePlannerSheet>,
   draft: PlannerDraft,
   currentOwnerId: string,
-) {
+  navigation: Navigation,
+): boolean {
   const application = applyPlannerDraft(draft, currentOwnerId, EMPTY_RESOLVED);
-  if (!application.applicable) return;
-  openPresetDraftForm(
-    sheet,
-    draftApplicationToFormOpenRequest(application, draft.source_preset_id, draft.source_preset_revision_id, {
-      laneCorrelationId: createLaneCorrelationId('draft_resume'),
-      preserveSourceReference: true,
-    }),
-  );
+  if (!application.applicable) return false;
+  const request = draftApplicationToFormOpenRequest(application, draft.source_preset_id, draft.source_preset_revision_id, {
+    laneCorrelationId: createLaneCorrelationId('draft_resume'),
+    preserveSourceReference: true,
+  });
+  if (request.kind === 'plan') {
+    navigation.navigate(ROUTE_NAMES.PlanCreate, { sourceDraftId: draft.id });
+    return true;
+  }
+  openPresetDraftForm(sheet, request);
+  return false;
 }
 
 function openPresetDraftForm(

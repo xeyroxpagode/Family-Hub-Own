@@ -75,19 +75,21 @@ export function resolvePlannerSearchAccess(params: {
   // 2. Check the feature flag. If false or missing, entry is disabled.
   //    `canOpenPlannerSearch` already checks flag AND capability;
   //    we split here to distinguish disabled vs forbidden for UX.
-  const flagOn = flags?.[PLANNER_SEARCH_FLAG_KEY] === true;
-  if (!flagOn) {
-    return { kind: 'disabled' };
-  }
+  // 2. The former `planner.search_entry` flag was removed: Planner Search is a
+  //    required V1 capability, so gating it behind an off-by-default flag made a
+  //    live feature UNREACHABLE (frozen §41). Authority is now the canonical
+  //    capability alone. `flags` is still part of the signature so callers and
+  //    the loading contract stay unchanged.
+  void PLANNER_SEARCH_FLAG_KEY;
+  void flags;
 
-  // 3. Flag is true — now check capability. If missing or false, entry is
-  //    forbidden (the flag exists but the user/membership lacks permission).
+  // 3. Missing/false capability → forbidden (the membership lacks permission).
   const capOn = capabilities?.[PLANNER_SEARCH_CAPABILITY] === true;
   if (!capOn) {
     return { kind: 'forbidden' };
   }
 
-  // 4. Both flag and capability are true — entry is available.
+  // 4. Capability granted — entry is available.
   return { kind: 'available' };
 }
 

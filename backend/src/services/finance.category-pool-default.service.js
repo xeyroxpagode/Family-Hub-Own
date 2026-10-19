@@ -32,10 +32,6 @@ const SAFE_ERROR_MESSAGES = Object.freeze({
   invalid_finance_pool_currency: 'currency debe usar codigo canonico ISO-style de 3 letras en mayusculas.',
 });
 
-function hasOwn(object, key) {
-  return Object.prototype.hasOwnProperty.call(object ?? {}, key);
-}
-
 function normalizeCurrency(value) {
   if (value === undefined || value === null || value === '') {
     throw createHttpError(400, 'currency es obligatoria.', 'finance_pool_currency_required');

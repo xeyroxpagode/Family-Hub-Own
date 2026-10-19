@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -38,6 +38,8 @@ import {
 } from '../../services/planner/plannerPresetTaskDomain';
 import { PlannerPresetPickerSheet } from '../../components/planner/presets/PlannerPresetPickerSheet';
 import { PresetQuickRail } from '../../components/planner/presets/PresetQuickRail';
+import { PlannerChecklistEditor, makePlannerChecklistDraft, type PlannerChecklistDraftItem } from '../../components/planner/PlannerChecklistEditor';
+import { PlannerMemberPicker } from '../../components/planner/PlannerMemberPicker';
 import {
   enqueuePlannerTaskCreate,
   enqueuePlannerTaskUpdate,
@@ -47,14 +49,24 @@ import {
   type PlannerGoal,
 } from '../../services/plannerGoals';
 import { createIdempotencyKey } from '../../services/idempotency';
+import { ROUTE_NAMES, buildPlannerEntityDetailParams } from '../../navigation/plannerNavigationContract';
+import { openTaskDetail } from '../../navigation/plannerNavigationHelpers';
 import { omitUndefinedPlannerPayloadProperties } from '../../services/planner/plannerPayloadFilter';
 import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
+import { usePlannerSheet } from '../../context/PlannerSheetContext';
+import {
+  buildTaskDraftSnapshot,
+  sameTaskDraft,
+  type PlannerTaskDraftSnapshot,
+} from '../../services/planner/plannerSheetGuard';
+import { usePlannerScreenDirtyGuard } from '../../hooks/usePlannerScreenDirtyGuard';
+import { classifyPlannerError, toPlannerSafeErrorBehavior } from '../../services/planner/plannerErrorAdapter';
 import { addDays, dateToYMD, plannerStyles as S, priorityLabels } from './plannerShared';
 import { colors } from '../../constants/theme';
 import { HomePlusIcon, type HomePlusIconName } from '../../constants/icons';
-import { ActionSheet, AppButton, AppInput, DatePickerSheet, DurationPickerSheet, FilterChip, FormActionRow, TimePickerSheet, Toggle, formatHumanDate } from '../../components/ui';
+import { ActionSheet, AppButton, AppInput, DatePickerSheet, FilterChip, FormActionRow, TimePickerSheet, Toggle, formatHumanDate } from '../../components/ui';
 import { AppText } from '../../components/ui';
 
 type TaskFormProps = {
@@ -69,9 +81,26 @@ type TaskFormProps = {
   createMutationId?: string;
   onSubmitBegin?: (intentId: string) => void;
   onSubmitEnd?: (intentId: string) => void;
+  /** Initial intrinsic body height for the host's adaptive sheet detent. */
+  onEmbeddedContentSizeChange?: (height: number) => void;
 };
 
 type TaskTypeId = 'general' | PlannerTaskTemplateKey | 'other';
+
+type PresetLayerDraft = {
+  title: string;
+  titleTouched: boolean;
+  description: string;
+  priority: PlannerTaskPriority;
+  tipoId: TaskTypeId;
+  category: string;
+  checklist: PlannerChecklistDraftItem[];
+  requiresVerification: boolean;
+  showMore: boolean;
+};
+
+type PresetLayerField = 'title' | 'description' | 'priority' | 'type' | 'checklist' | 'requiresVerification';
+const ALL_PRESET_LAYER_FIELDS: readonly PresetLayerField[] = ['title', 'description', 'priority', 'type', 'checklist', 'requiresVerification'];
 
 type TaskTypeOption = {
   id: TaskTypeId;
@@ -173,6 +202,7 @@ export function TaskForm({
   createMutationId,
   onSubmitBegin,
   onSubmitEnd,
+  onEmbeddedContentSizeChange,
 }: TaskFormProps) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
@@ -217,18 +247,24 @@ export function TaskForm({
   const [selectorSheet, setSelectorSheet] = useState<'type' | 'responsible' | 'priority' | 'plan' | null>(null);
   const [legacyMissingDate, setLegacyMissingDate] = useState(false);
   const [inputFocus, setInputFocus] = useState<string | null>(null);
-  const [activePicker, setActivePicker] = useState<'date' | 'time' | 'duration' | null>(null);
+  const [activePicker, setActivePicker] = useState<'date' | 'time' | null>(null);
   const [goalId, setGoalId] = useState<string | null>(sheetPlanId ?? routeGoalId ?? null);
+  const [planClassification, setPlanClassification] = useState<'necessary' | 'supporting'>('necessary');
   const [goals, setGoals] = useState<PlannerGoal[]>([]);
   const [entityVersion, setEntityVersion] = useState<number>(1);
   const [assignmentVersion, setAssignmentVersion] = useState<number>(1);
-  const [checklist, setChecklist] = useState<Array<{ text: string; checked: boolean }>>([]);
-  const [estimatedDuration, setEstimatedDuration] = useState<number | null>(null);
+  const [checklist, setChecklist] = useState<PlannerChecklistDraftItem[]>([]);
   // P2.2A — Presets Foundation: canonical task preset integration (STEP 14).
   const [presets, setPresets] = useState<readonly PlannerPreset[]>([]);
+  const [presetsLoading, setPresetsLoading] = useState(mode === 'create');
   const [presetPickerVisible, setPresetPickerVisible] = useState(false);
-  const appliedRoutePresetRef = useRef(false);
+  const [appliedPresetId, setAppliedPresetId] = useState<string | null>(null);
+  const basePresetDraftRef = useRef<PresetLayerDraft | null>(null);
+  const appliedPresetProjectionRef = useRef<PresetLayerDraft | null>(null);
+  const derivedPresetFieldsRef = useRef<Set<PresetLayerField>>(new Set());
+  const appliedRoutePresetRef = useRef<unknown>(null);
   const routePresetPayload = route.params?.presetPayload as PlannerPresetTaskPayload | undefined;
+  const routePresetApplicationKey = route.params?.presetApplicationKey ?? routePresetPayload;
   const isPlanPreassigned = (sheetPlanId || routeGoalId) !== undefined;
   const planContextTitle = sheetPlanTitle ?? routeGoalTitle;
 
@@ -250,11 +286,92 @@ export function TaskForm({
 
   const taskCreateKeyRef = useRef(createIdempotencyKey('planner.tasks.create'));
   const taskUpdateKeyRef = useRef(createIdempotencyKey('planner.tasks.update'));
+  // Baseline assignment signature captured on edit-load to detect genuine
+  // assignment changes (avoids redundant V1 calls and history-transition
+  // conflicts on plain field edits).
+  const initialAssignmentSigRef = useRef<string | null>(null);
   // Re-entry guard for the submit button. `saving` state React flag is async
   // (the next render disables the button); within the same JS tick the form
   // could receive a second onPress from a double tap before re-render. The
   // ref is synchronous, so it blocks immediately.
   const submitInFlightRef = useRef(false);
+
+  // --- Dirty guard derivation (Phase 1 / Figma §23.7) ---
+  // `dirty` compares the normalized CURRENT draft against the OPENING
+  // snapshot, captured once hydration finishes (edit mode loads async; a
+  // hydration repaint must not raise the question). UI-ephemeral state
+  // (touched flags, open pickers, focus) is deliberately excluded.
+  const currentDraftRef = useRef<PlannerTaskDraftSnapshot | null>(null);
+  currentDraftRef.current = buildTaskDraftSnapshot({
+    title,
+    description,
+    tipoId,
+    priority,
+    category,
+    dueDate,
+    dueTime,
+    assignedMemberIds,
+    assignmentMode,
+    requiresVerification,
+    checklist,
+    estimatedDuration: null,
+    planClassification,
+    goalId,
+  });
+  const openingSnapshotRef = useRef<PlannerTaskDraftSnapshot | null>(null);
+  const isTaskDraftDirty = useCallback((): boolean => {
+    const opening = openingSnapshotRef.current;
+    const current = currentDraftRef.current;
+    if (!opening || !current) return false;
+    return !sameTaskDraft(current, opening);
+  }, []);
+  useEffect(() => {
+    if (loading) return;
+    if (!openingSnapshotRef.current) {
+      openingSnapshotRef.current = currentDraftRef.current;
+    }
+  }, [loading]);
+
+  const { registerDirtyProbe } = usePlannerSheet();
+  useEffect(() => registerDirtyProbe(isTaskDraftDirty), [registerDirtyProbe, isTaskDraftDirty]);
+
+  // Route-embedded forms (Home deep-links) raise the same question through the
+  // screen-level guard; sheets use the probe registered above.
+  const performScreenClose = () => {
+    const returnToPlanId = routeReturnToGoalId;
+    const fromPlan = sheetFromPlan || routeFromGoal;
+
+    if (fromPlan && returnToPlanId) {
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+        return;
+      }
+      navigation.replace(
+        ROUTE_NAMES.PlanDetail,
+        buildPlannerEntityDetailParams({ entityId: returnToPlanId, source: 'planner', returnTo: 'planner' }),
+      );
+      return;
+    }
+
+    if (routeReturnTo === 'PlannerHome') {
+      const tab = routeInitialTab ?? 'tasks';
+      const refreshKey = Date.now();
+      navigation.replace('PlannerHome', { refreshKey, initialTab: tab });
+      return;
+    }
+
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'tasks' });
+  };
+  const screenDirtyGuard = usePlannerScreenDirtyGuard({
+    enabled: !embedded,
+    isDirty: isTaskDraftDirty,
+    onDiscard: performScreenClose,
+  });
 
   const isFormReadyForSubmit = useMemo(() => {
     if (authLoading || loading || saving) return false;
@@ -306,9 +423,9 @@ export function TaskForm({
         setShowMore(Boolean(task.due_time || task.description || hasLegacyCategory || !hadDueDate));
         setNoteExpanded(Boolean(task.description));
         setGoalId(task.goal_id ?? null);
+        setPlanClassification(task.plan_classification === 'supporting' ? 'supporting' : 'necessary');
         setEntityVersion(task.version ?? 1);
-        setChecklist(Array.isArray(task.checklist) ? task.checklist : []);
-        setEstimatedDuration(typeof task.estimated_duration_minutes === 'number' ? task.estimated_duration_minutes : null);
+        setChecklist(makePlannerChecklistDraft(Array.isArray(task.checklist) ? task.checklist : []));
 
         try {
           const fulfillment = await getPlannerTaskFulfillmentV1(accessToken, taskId);
@@ -318,18 +435,22 @@ export function TaskForm({
             setAssignmentMode('claimable');
             setAssignmentModeSelection('claimable');
             setAssignedMemberIds([]);
+            initialAssignmentSigRef.current = 'claimable:';
           } else if (assigneeIds.length > 0) {
             setAssignmentMode('assigned');
             setAssignmentModeSelection('assigned');
             setAssignedMemberIds(assigneeIds);
+            initialAssignmentSigRef.current = `assigned:${[...assigneeIds].sort().join(',')}`;
           } else if (task.assigned_to_member_id) {
             setAssignmentMode('assigned');
             setAssignmentModeSelection('assigned');
             setAssignedMemberIds([task.assigned_to_member_id]);
+            initialAssignmentSigRef.current = `assigned:${task.assigned_to_member_id}`;
           } else {
             setAssignmentMode('unassigned');
             setAssignmentModeSelection('unassigned');
             setAssignedMemberIds([]);
+            initialAssignmentSigRef.current = 'unassigned:';
           }
           setAssignmentVersion(fulfillment.task.assignment.version ?? 1);
         } catch {
@@ -337,15 +458,17 @@ export function TaskForm({
             setAssignmentMode('assigned');
             setAssignmentModeSelection('assigned');
             setAssignedMemberIds([task.assigned_to_member_id]);
+            initialAssignmentSigRef.current = `assigned:${task.assigned_to_member_id}`;
           } else {
             setAssignmentMode('unassigned');
             setAssignmentModeSelection('unassigned');
             setAssignedMemberIds([]);
+            initialAssignmentSigRef.current = 'unassigned:';
           }
           setAssignmentVersion(1);
         }
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'No pudimos cargar la tarea.');
+        setError(toPlannerSafeErrorBehavior(classifyPlannerError(err)).message);
       } finally {
         setLoading(false);
       }
@@ -376,11 +499,13 @@ export function TaskForm({
 
   // P2.2A: canonical task presets for the quick rail / picker (create mode).
   useEffect(() => {
-    if (mode !== 'create' || !accessToken) return;
+    if (mode !== 'create' || !accessToken) { setPresetsLoading(false); return; }
     let disposed = false;
+    setPresetsLoading(true);
     void listPlannerPresets(accessToken, { entity_type: 'task' })
       .then((response) => { if (!disposed) setPresets(response.presets); })
-      .catch(() => { if (!disposed) setPresets([]); });
+      .catch(() => { if (!disposed) setPresets([]); })
+      .finally(() => { if (!disposed) setPresetsLoading(false); });
     return () => { disposed = true; };
   }, [accessToken, mode]);
 
@@ -405,25 +530,40 @@ export function TaskForm({
       return 'other';
     })();
     const tipoOption = TIPO_BY_ID[tipoIdFromPayload] ?? TIPO_BY_ID.general!;
-    if (typeof merged.title === 'string') setTitle(merged.title);
-    if (merged.title?.trim()) setTitleTouched(true);
-    // Domain `note` → this form's `description` field (the Task note).
-    setDescription(typeof merged.note === 'string' ? merged.note : '');
-    setPriority((merged.priority as PlannerTaskPriority) ?? 'normal');
-    setTipoId(tipoIdFromPayload);
-    setCategory(tipoIdFromPayload === 'other' ? (merged.category ?? '') : tipoOption.category);
-    // Copy-on-use: checklist items always start fresh and incomplete.
-    setChecklist((merged.checklist ?? []).map((item) => ({
+    const nextTitle = typeof merged.title === 'string' ? merged.title : '';
+    const nextTitleTouched = Boolean(merged.title?.trim()) || titleTouched;
+    const nextDescription = typeof merged.note === 'string' ? merged.note : '';
+    const nextPriority = (merged.priority as PlannerTaskPriority) ?? 'normal';
+    const nextCategory = tipoIdFromPayload === 'other' ? (merged.category ?? '') : tipoOption.category;
+    const nextChecklist = makePlannerChecklistDraft((merged.checklist ?? []).map((item) => ({
       text: typeof item === 'string' ? item : item.text,
       checked: false,
     })));
-    setEstimatedDuration(
-      typeof merged.estimated_duration_minutes === 'number' ? merged.estimated_duration_minutes : null,
-    );
-    setRequiresVerification(Boolean(merged.requires_verification));
-    if (merged.note || (merged.checklist?.length ?? 0) > 0 || merged.estimated_duration_minutes) {
-      setShowMore(true);
-    }
+    const nextRequiresVerification = Boolean(merged.requires_verification);
+    const nextShowMore = showMore || Boolean(merged.note) || (merged.checklist?.length ?? 0) > 0;
+    appliedPresetProjectionRef.current = {
+      title: nextTitle,
+      titleTouched: nextTitleTouched,
+      description: nextDescription,
+      priority: nextPriority,
+      tipoId: tipoIdFromPayload,
+      category: nextCategory,
+      checklist: nextChecklist.map((item) => ({ ...item })),
+      requiresVerification: nextRequiresVerification,
+      showMore: nextShowMore,
+    };
+    derivedPresetFieldsRef.current = new Set(ALL_PRESET_LAYER_FIELDS);
+    setTitle(nextTitle);
+    setTitleTouched(nextTitleTouched);
+    // Domain `note` → this form's `description` field (the Task note).
+    setDescription(nextDescription);
+    setPriority(nextPriority);
+    setTipoId(tipoIdFromPayload);
+    setCategory(nextCategory);
+    // Copy-on-use: checklist items always start fresh and incomplete.
+    setChecklist(nextChecklist);
+    setRequiresVerification(nextRequiresVerification);
+    setShowMore(nextShowMore);
     if (merged.title && error === 'Agregá un título para la tarea.') setError(null);
   };
 
@@ -433,21 +573,99 @@ export function TaskForm({
     template_key: TIPO_BY_ID[tipoId]?.templateKey ?? null,
     category,
     priority,
-    estimated_duration_minutes: estimatedDuration,
     checklist,
     requires_verification: requiresVerification,
   });
 
+  const capturePrePresetDraft = () => ({
+    title,
+    titleTouched,
+    description,
+    priority,
+    tipoId,
+    category,
+    checklist: checklist.map((item) => ({ ...item })),
+    requiresVerification,
+    showMore,
+  });
+
+  const currentManualDraftForConflict = () => {
+    const derived = derivedPresetFieldsRef.current;
+    return {
+      title: derived.has('title') ? '' : title,
+      description: derived.has('description') ? '' : description,
+      template_key: derived.has('type') ? null : (TIPO_BY_ID[tipoId]?.templateKey ?? null),
+      category: derived.has('type') ? null : category,
+      priority: derived.has('priority') ? 'normal' : priority,
+      checklist: derived.has('checklist') ? [] : checklist,
+      requires_verification: derived.has('requiresVerification') ? false : requiresVerification,
+    };
+  };
+
+  useEffect(() => {
+    if (!appliedPresetId || !basePresetDraftRef.current || !appliedPresetProjectionRef.current) return;
+    const base = basePresetDraftRef.current;
+    const projection = appliedPresetProjectionRef.current;
+    const derived = derivedPresetFieldsRef.current;
+    if (derived.has('title') && title !== projection.title) {
+      base.title = title; base.titleTouched = titleTouched; derived.delete('title');
+    }
+    if (derived.has('description') && description !== projection.description) {
+      base.description = description; derived.delete('description');
+    }
+    if (derived.has('priority') && priority !== projection.priority) {
+      base.priority = priority; derived.delete('priority');
+    }
+    if (derived.has('type') && (tipoId !== projection.tipoId || category !== projection.category)) {
+      base.tipoId = tipoId; base.category = category; derived.delete('type');
+    }
+    const checklistValue = (items: PlannerChecklistDraftItem[]) => JSON.stringify(items.map(({ text, checked }) => ({ text, checked })));
+    if (derived.has('checklist') && checklistValue(checklist) !== checklistValue(projection.checklist)) {
+      base.checklist = checklist.map((item) => ({ ...item })); derived.delete('checklist');
+    }
+    if (derived.has('requiresVerification') && requiresVerification !== projection.requiresVerification) {
+      base.requiresVerification = requiresVerification; derived.delete('requiresVerification');
+    }
+  }, [appliedPresetId, category, checklist, description, priority, requiresVerification, tipoId, title, titleTouched]);
+
+  const removeAppliedPreset = () => {
+    const previous = basePresetDraftRef.current;
+    if (!previous) return;
+    setTitle(previous.title);
+    setTitleTouched(previous.titleTouched);
+    setDescription(previous.description);
+    setPriority(previous.priority);
+    setTipoId(previous.tipoId);
+    setCategory(previous.category);
+    setChecklist(previous.checklist.map((item) => ({ ...item })));
+    setRequiresVerification(previous.requiresVerification);
+    setShowMore(previous.showMore);
+    setAppliedPresetId(null);
+    basePresetDraftRef.current = null;
+    appliedPresetProjectionRef.current = null;
+    derivedPresetFieldsRef.current.clear();
+  };
+
   const applyPreset = (preset: PlannerPreset) => {
+    if (appliedPresetId === preset.id) {
+      removeAppliedPreset();
+      setPresetPickerVisible(false);
+      return;
+    }
     const payload = presetTaskPayloadFromPreset(preset);
     if (!payload || !payload.title) {
       Alert.alert('Preset', 'No pudimos usar este preset con la versión actual.');
       return;
     }
-    const applyNow = () => applyPresetPayloadToForm(payload);
+    const applyNow = () => {
+      if (!basePresetDraftRef.current) basePresetDraftRef.current = capturePrePresetDraft();
+      applyPresetPayloadToForm(payload);
+      setAppliedPresetId(preset.id);
+      setPresetPickerVisible(false);
+    };
     // Contract §11: ONE compact confirmation when meaningful stable values
     // would be replaced. Context fields never trigger the conflict.
-    if (detectApplyConflict(currentDraftForConflict(), payload)) {
+    if (detectApplyConflict(appliedPresetId ? currentManualDraftForConflict() : currentDraftForConflict(), payload)) {
       Alert.alert(
         '¿Aplicar este preset?',
         'Va a reemplazar los detalles que ya completaste.',
@@ -465,20 +683,25 @@ export function TaskForm({
 
   // "Usar" from the Preset Detail/Portal applies the payload once on open.
   useEffect(() => {
-    if (mode !== 'create' || !routePresetPayload || appliedRoutePresetRef.current) return;
-    appliedRoutePresetRef.current = true;
+    if (mode !== 'create' || !routePresetPayload || appliedRoutePresetRef.current === routePresetApplicationKey) return;
+    appliedRoutePresetRef.current = routePresetApplicationKey;
+    const applyRoutePreset = () => {
+      if (!basePresetDraftRef.current) basePresetDraftRef.current = capturePrePresetDraft();
+      applyPresetPayloadToForm(routePresetPayload);
+      setAppliedPresetId(`route-${String(routePresetApplicationKey)}`);
+    };
     if (detectApplyConflict(currentDraftForConflict(), routePresetPayload)) {
       Alert.alert(
         '¿Aplicar este preset?',
         'Va a reemplazar los detalles que ya completaste.',
         [
           { text: 'Cancelar', style: 'cancel' },
-          { text: 'Aplicar', style: 'default', onPress: () => applyPresetPayloadToForm(routePresetPayload) },
+          { text: 'Aplicar', style: 'default', onPress: applyRoutePreset },
         ],
       );
       return;
     }
-    applyPresetPayloadToForm(routePresetPayload);
+    applyRoutePreset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, routePresetPayload]);
 
@@ -523,32 +746,7 @@ export function TaskForm({
       onClose();
       return;
     }
-
-    const returnToPlanId = routeReturnToGoalId;
-    const fromPlan = sheetFromPlan || routeFromGoal;
-
-    if (fromPlan && returnToPlanId) {
-      if (navigation.canGoBack()) {
-        navigation.goBack();
-        return;
-      }
-      navigation.replace('PlanDetail', { planId: returnToPlanId });
-      return;
-    }
-
-    if (routeReturnTo === 'PlannerHome') {
-      const tab = routeInitialTab ?? 'tasks';
-      const refreshKey = Date.now();
-      navigation.replace('PlannerHome', { refreshKey, initialTab: tab });
-      return;
-    }
-
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-      return;
-    }
-
-    navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'tasks' });
+    screenDirtyGuard.requestClose();
   };
 
   const handlePressOutside = () => {
@@ -624,10 +822,18 @@ export function TaskForm({
       category: normalizedCategory || undefined,
       due_date: dueDate.trim() || undefined,
       due_time: dueTime.trim() || undefined,
-      estimated_duration_minutes: estimatedDuration ?? undefined,
       requires_verification: requiresVerification,
       goal_id: goalId ?? null,
-      checklist: checklist.length > 0 ? checklist : undefined,
+      // Single logical operation (frozen §47): the RPC persists Task +
+      // Plan relation + classification atomically. Single assignee rides in
+      // the same payload (bootstrap configures members/1, no second call).
+      // On edit the classification travels too (unchanged values are noop).
+      plan_classification: goalId ? planClassification : undefined,
+      assigned_to_member_id:
+        mode === 'create' && assignmentMode === 'assigned' && assignedMemberIds.length === 1
+          ? assignedMemberIds[0]
+          : undefined,
+      checklist: checklist.length > 0 ? checklist.filter((item) => item.text.trim()).map((item) => ({ text: item.text.trim(), checked: Boolean(item.checked) })) : undefined,
     });
 
     if (tipoOption?.templateKey) {
@@ -674,35 +880,69 @@ export function TaskForm({
         taskCreateKeyRef.current = createIdempotencyKey('planner.tasks.create');
       }
 
-      // Handle V1 assignment after create/update
+      // Handle V1 assignment after create/update.
+      // Canonical rule: the create RPC already configures the common cases
+      // atomically (unassigned/claimable → anyone open; single assignee →
+      // members/1 via payload). A second V1 call is ONLY issued when it adds
+      // information: multi-member assignment on create, or a genuine
+      // assignment change on edit. `members: []` is NEVER sent (backend
+      // invalid_assignment); unassigned edits resolve to anyone (open).
       if (currentTaskId) {
         let assignmentPayload: UpdatePlannerTaskAssignmentV1Payload | null = null;
-        if (assignmentMode === 'claimable') {
-          assignmentPayload = {
-            assignmentKind: 'anyone',
-            fulfillmentMode: 'shared_once',
-            memberIds: [],
-          };
-        } else if (assignmentMode === 'assigned' && assignedMemberIds.length > 0) {
-          assignmentPayload = {
-            assignmentKind: 'members',
-            fulfillmentMode: 'shared_once',
-            memberIds: assignedMemberIds,
-          };
-        } else if (assignmentMode === 'unassigned') {
-          // For unassigned, we use legacy_unassigned (only on create) or members with empty array
-          // The backend will handle this appropriately
-          if (mode === 'create') {
+        if (mode === 'create') {
+          if (assignmentMode === 'assigned' && assignedMemberIds.length > 1) {
             assignmentPayload = {
               assignmentKind: 'members',
               fulfillmentMode: 'shared_once',
-              memberIds: [],
+              memberIds: assignedMemberIds,
             };
+          }
+        } else {
+          const currentSig = assignmentMode === 'assigned'
+            ? `assigned:${[...assignedMemberIds].sort().join(',')}`
+            : `${assignmentMode}:`;
+          const baselineSig = initialAssignmentSigRef.current;
+          const changed = baselineSig === null || baselineSig === undefined
+            ? assignmentMode !== assignmentModeSelection
+            : currentSig !== baselineSig;
+          if (changed) {
+            if (assignmentMode === 'assigned' && assignedMemberIds.length > 0) {
+              assignmentPayload = {
+                assignmentKind: 'members',
+                fulfillmentMode: 'shared_once',
+                memberIds: assignedMemberIds,
+              };
+            } else {
+              assignmentPayload = {
+                assignmentKind: 'anyone',
+                fulfillmentMode: 'shared_once',
+                memberIds: [],
+              };
+            }
           }
         }
 
         if (assignmentPayload) {
-          await updatePlannerTaskAssignmentV1(accessToken, currentTaskId, assignmentVersion, assignmentPayload);
+          try {
+            await updatePlannerTaskAssignmentV1(accessToken, currentTaskId, assignmentVersion, assignmentPayload);
+          } catch (assignmentErr) {
+            // No silent partial success: the Task exists (single atomic
+            // create); only the extra assignment step failed. Surface it
+            // explicitly and land on the created Task so retry continues
+            // from a visible, refreshable state.
+            if (mode === 'create') {
+              taskCreateKeyRef.current = createIdempotencyKey('planner.tasks.create');
+              Alert.alert(
+                'Tarea creada',
+                'La tarea se creó pero no pudimos aplicar la asignación múltiple. Podés ajustarla desde el detalle.',
+              );
+              if (!onSaved) {
+                openTaskDetail(navigation, { entityId: currentTaskId, source: 'planner', returnTo: 'planner' });
+                return;
+              }
+            }
+            throw assignmentErr;
+          }
         }
       }
 
@@ -711,7 +951,14 @@ export function TaskForm({
           if (navigation.canGoBack()) {
             navigation.goBack();
           } else {
-            navigation.replace('GoalDetail', { goalId: routeReturnToGoalId });
+            navigation.replace(
+              ROUTE_NAMES.PlanDetail,
+              buildPlannerEntityDetailParams({
+                entityId: routeReturnToGoalId,
+                source: 'planner',
+                returnTo: 'planner',
+              }),
+            );
           }
         } else if (routeReturnTo === 'PlannerHome') {
           const tab = routeInitialTab ?? 'tasks';
@@ -744,7 +991,7 @@ export function TaskForm({
         }
         return;
       }
-      const message = err instanceof ApiError ? err.message : 'No pudimos guardar la tarea. Probá de nuevo.';
+      const message = toPlannerSafeErrorBehavior(classifyPlannerError(err)).message;
       setError(message);
       Alert.alert('Planner', message);
     } finally {
@@ -766,6 +1013,9 @@ export function TaskForm({
           contentContainerStyle={embedded
             ? [styles.embeddedContent, { paddingBottom: 112 + insets.bottom }]
             : S.content}
+          onContentSizeChange={(_width, height) => {
+            if (embedded && height > 0) onEmbeddedContentSizeChange?.(height);
+          }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           enableOnAndroid={true}
@@ -788,12 +1038,29 @@ export function TaskForm({
             </View>
           ) : null}
 
-          {mode === 'create' ? (
-            <PresetQuickRail
-              presets={quickRailPresets}
-              onSelect={applyPreset}
-              onShowAll={() => setPresetPickerVisible(true)}
-            />
+          {goalId || planContextTitle ? (
+            <View style={styles.planClassificationRow}>
+              <TouchableOpacity
+                style={[styles.planClassificationOption, planClassification === 'necessary' && styles.planClassificationActive]}
+                onPress={() => setPlanClassification('necessary')}
+                accessibilityRole="button"
+                accessibilityState={{ selected: planClassification === 'necessary' }}
+              >
+                <Text style={[styles.planClassificationLabel, planClassification === 'necessary' && styles.planClassificationLabelActive]}>
+                  Requerida
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.planClassificationOption, planClassification === 'supporting' && styles.planClassificationActive]}
+                onPress={() => setPlanClassification('supporting')}
+                accessibilityRole="button"
+                accessibilityState={{ selected: planClassification === 'supporting' }}
+              >
+                <Text style={[styles.planClassificationLabel, planClassification === 'supporting' && styles.planClassificationLabelActive]}>
+                  Opcional
+                </Text>
+              </TouchableOpacity>
+            </View>
           ) : null}
 
           {error ? (
@@ -810,10 +1077,27 @@ export function TaskForm({
               placeholder={selectedTipo.placeholder}
               errorText={!title.trim() && titleTouched ? 'Agregá un título para la tarea.' : undefined}
             />
-            <FormActionRow label="Tipo" value={selectedTipo.label} onPress={() => setSelectorSheet('type')} />
-            <FormActionRow label="Responsable" value={responsibleLabel} onPress={() => setSelectorSheet('responsible')} />
+            {mode === 'create' ? (
+              presetsLoading ? (
+                <View style={styles.presetRailReserve} accessibilityLabel="Cargando presets">
+                  <View style={styles.presetRailSkeletonRow}>
+                    {[0, 1, 2].map((key) => (
+                      <View key={key} style={styles.presetRailSkeletonCard} />
+                    ))}
+                  </View>
+                </View>
+              ) : (
+                <PresetQuickRail
+                  presets={quickRailPresets}
+                  selectedPresetId={appliedPresetId}
+                  onSelect={applyPreset}
+                  onShowAll={() => setPresetPickerVisible(true)}
+                />
+              )
+            ) : null}
             <FormActionRow label="Fecha" value={dueDate ? formatHumanDate(dueDate) : 'Sin fecha'} onPress={() => setActivePicker('date')} />
-            <FormActionRow label="Prioridad" value={priorityLabels[priority]} onPress={() => setSelectorSheet('priority')} />
+            <FormActionRow label="Responsables" value={responsibleLabel} onPress={() => setSelectorSheet('responsible')} />
+            <FormActionRow label="Hora" value={dueTime || 'Sin hora'} onPress={() => setActivePicker('time')} />
           </View>
 
           {false ? (
@@ -950,59 +1234,26 @@ export function TaskForm({
               </TouchableOpacity>
             </View>
 
-            {/* People selector - only shown when 'assigned' mode */}
+            {/* People selector - only shown when 'assigned' mode.
+                Shared primitive (same UX/semantics as batch multi-selection). */}
             {assignmentModeSelection === 'assigned' && (
-              <ScrollView style={styles.horizontalScroller} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.assigneeScroller}>
-                {myMembershipId ? (
-                  <TouchableOpacity style={styles.avatarOption} onPress={() => {
-                    const current = assignedMemberIds.includes(myMembershipId);
-                    setAssignedMemberIds(current
-                      ? assignedMemberIds.filter((id) => id !== myMembershipId)
-                      : [...assignedMemberIds, myMembershipId]);
-                  }}>
-                    <View style={[styles.avatarWrap, assignedMemberIds.includes(myMembershipId) && styles.avatarSelected]}>
-                      {activeMembers.find((member) => member.id === myMembershipId)?.user?.avatar_url ? (
-                        <Image
-                          source={{ uri: activeMembers.find((member) => member.id === myMembershipId)?.user?.avatar_url ?? '' }}
-                          style={styles.avatarImage}
-                        />
-                      ) : (
-                        <Text style={styles.avatarInitials}>Yo</Text>
-                      )}
-                    </View>
-                    <Text style={[styles.avatarLabel, assignedMemberIds.includes(myMembershipId) && styles.avatarLabelActive]} numberOfLines={1}>
-                      Yo
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
-
-                {activeMembers
-                  .filter((member) => member.id !== myMembershipId)
-                  .map((member) => {
-                    const active = assignedMemberIds.includes(member.id);
-                    const memberName = getMemberName(member);
-                    const initials = memberName.trim().slice(0, 2).toUpperCase();
-                    return (
-                      <TouchableOpacity key={member.id} style={styles.avatarOption} onPress={() => {
-                        const current = assignedMemberIds.includes(member.id);
-                        setAssignedMemberIds(current
-                          ? assignedMemberIds.filter((id) => id !== member.id)
-                          : [...assignedMemberIds, member.id]);
-                      }}>
-                        <View style={[styles.avatarWrap, active && styles.avatarSelected]}>
-                          {member.user?.avatar_url ? (
-                            <Image source={{ uri: member.user.avatar_url }} style={styles.avatarImage} />
-                          ) : (
-                            <Text style={styles.avatarInitials}>{initials}</Text>
-                          )}
-                        </View>
-                        <Text style={[styles.avatarLabel, active && styles.avatarLabelActive]} numberOfLines={1}>
-                          {memberName}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-              </ScrollView>
+              <PlannerMemberPicker
+                members={activeMembers.map((member) => ({
+                  id: member.id,
+                  name: getMemberName(member),
+                  avatarUrl: member.user?.avatar_url ?? null,
+                }))}
+                selectedIds={assignedMemberIds}
+                myMembershipId={myMembershipId}
+                onToggle={(memberId) => {
+                  setAssignedMemberIds((current) => (
+                    current.includes(memberId) ? current.filter((id) => id !== memberId) : [...current, memberId]
+                  ));
+                }}
+                allowEmpty={false}
+                showSharedNote={false}
+                showSemanticsNote={false}
+              />
             )}
 
             {assignmentModeSelection === 'assigned' && assignedMemberIds.length === 0 && (
@@ -1107,18 +1358,8 @@ export function TaskForm({
           ) : null}
 
           <View style={styles.section}>
-            <View style={styles.verificationRow}>
-              <View style={{ flex: 1, marginRight: 12 }}>
-                <Text style={styles.verificationTitle}>Pedir revisión</Text>
-                <Text style={styles.verificationHelper}>Para tareas que alguien tiene que confirmar.</Text>
-              </View>
-              <Toggle value={requiresVerification} onValueChange={setRequiresVerification} accessibilityLabel="Pedir revisión" />
-            </View>
-          </View>
-
-          <View style={styles.section}>
             <TouchableOpacity style={styles.detailsHeader} onPress={() => setShowMore((value) => !value)}>
-              <Text style={styles.sectionLabel}>Detalles opcionales</Text>
+              <Text style={styles.sectionLabel}>Más detalles</Text>
               <HomePlusIcon name={showMore ? 'chevron-up' : 'chevron-down'} size={18} color={colors.text.tertiary} />
             </TouchableOpacity>
 
@@ -1126,36 +1367,20 @@ export function TaskForm({
               <View style={styles.detailsBody}>
                 <View style={{ gap: 8 }}>
                   <AppInput label="Nota" value={description} onChangeText={setDescription} placeholder="Agregar una nota" multiline />
-                  <FormActionRow label="Fecha" value={formatHumanDate(dueDate)} onPress={() => setActivePicker('date')} />
-                  <FormActionRow label="Hora" value={dueTime || 'Sin hora'} onPress={() => setActivePicker('time')} />
-                  <FormActionRow label="Duración estimada" value={estimatedDuration ? `${estimatedDuration} min` : 'Sin duración'} onPress={() => setActivePicker('duration')} />
+                  <FormActionRow label="Tipo" value={selectedTipo.label} onPress={() => setSelectorSheet('type')} />
+                  <FormActionRow label="Plan" value={goals.find((goal) => goal.id === goalId)?.title ?? 'Sin plan'} onPress={() => setSelectorSheet('plan')} />
+                  <FormActionRow label="Prioridad" value={priorityLabels[priority]} onPress={() => setSelectorSheet('priority')} />
                 </View>
 
                 <Text style={styles.fieldLabel}>Checklist</Text>
-                <View style={styles.checklistContainer}>
-                  {checklist.map((item, index) => (
-                    <View key={index} style={styles.checklistItem}>
-                      <TextInput
-                        style={[styles.input, styles.checklistItemInput]}
-                        value={item.text}
-                        onChangeText={(text) => {
-                          const newChecklist = [...checklist];
-                          newChecklist[index] = { ...item, text };
-                          setChecklist(newChecklist);
-                        }}
-                        placeholder="Elemento del checklist"
-                        placeholderTextColor={colors.text.muted}
-                      />
-                      <TouchableOpacity onPress={() => setChecklist(checklist.filter((_, i) => i !== index))}>
-                        <HomePlusIcon name="trash" size={18} color={colors.danger.base} />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                  <TouchableOpacity style={styles.addChecklistItemBtn} onPress={() => setChecklist([...checklist, { text: '', checked: false }])}>
-                    <HomePlusIcon name="add" size={18} color={colors.terracotta[600]} />
-                    <Text style={styles.addChecklistItemText}>Agregar elemento</Text>
-                  </TouchableOpacity>
+                <PlannerChecklistEditor items={checklist} onChange={setChecklist} />
+
+                <View style={styles.verificationRow}>
+                  <View style={{ flex: 1, marginRight: 12 }}><Text style={styles.verificationTitle}>Pedir revisión</Text><Text style={styles.verificationHelper}>Para tareas que alguien tiene que confirmar.</Text></View>
+                  <Toggle value={requiresVerification} onValueChange={setRequiresVerification} accessibilityLabel="Pedir revisión" />
                 </View>
+
+                {mode === 'create' ? <FormActionRow label="Repetir" value="Convertir en Responsabilidad" onPress={() => Alert.alert('Crear una Responsabilidad', 'Se transferirán el título, la nota, el checklist, la prioridad y la revisión. La fecha puntual y las personas elegidas no se conservan porque la Responsabilidad define su propia frecuencia y reparto.', [{ text: 'Seguir con la tarea', style: 'cancel' }, { text: 'Continuar', onPress: () => navigation.navigate('ResponsibilityCreate', { prefill: { title: title.trim(), description: description.trim(), priority, checklist: checklist.map((item) => ({ text: item.text, checked: false })), requiresVerification } }) }])} /> : null}
 
                 {tipoId === 'other' ? (
                   <>
@@ -1176,7 +1401,7 @@ export function TaskForm({
           </View>
         </KeyboardAwareScrollView>
 
-        <View style={[styles.footer, embedded && { paddingBottom: Math.max(insets.bottom, 4) }]}>
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 4) }]}>
           <AppButton title="Cancelar" variant="ghost" onPress={closeForm} disabled={saving} style={{ flex: 1 }} />
           <AppButton title={mode === 'edit' ? 'Guardar cambios' : 'Crear tarea'} onPress={() => void submit()} loading={saving} disabled={loading || authLoading || !isFormReadyForSubmit} style={{ flex: 1 }} />
         </View>
@@ -1187,21 +1412,45 @@ export function TaskForm({
           <View style={styles.selectorChips}>
             <FilterChip label="Sin responsable" selected={assignmentMode === 'unassigned'} onPress={() => { setAssignmentMode('unassigned'); setAssignmentModeSelection('unassigned'); setAssignedMemberIds([]); setSelectorSheet(null); }} />
             <FilterChip label="Disponible para tomar" selected={assignmentMode === 'claimable'} onPress={() => { setAssignmentMode('claimable'); setAssignmentModeSelection('claimable'); setAssignedMemberIds([]); setSelectorSheet(null); }} />
-            {activeMembers.map((member) => <FilterChip key={member.id} label={getMemberName(member)} selected={assignedMemberIds.includes(member.id)} onPress={() => { setAssignmentMode('assigned'); setAssignmentModeSelection('assigned'); setAssignedMemberIds([member.id]); setSelectorSheet(null); }} />)}
+            {activeMembers.map((member) => <FilterChip key={member.id} label={getMemberName(member)} selected={assignedMemberIds.includes(member.id)} onPress={() => { setAssignmentMode('assigned'); setAssignmentModeSelection('assigned'); setAssignedMemberIds((current) => current.includes(member.id) ? current.filter((id) => id !== member.id) : [...current, member.id]); }} />)}
           </View>
         </ActionSheet>
         <ActionSheet visible={selectorSheet === 'priority'} title="Prioridad" onRequestClose={() => setSelectorSheet(null)} size="content">
           <View style={styles.selectorChips}>{priorityOptions.map((item) => <FilterChip key={item} label={priorityLabels[item]} selected={priority === item} onPress={() => { setPriority(item); setSelectorSheet(null); }} />)}</View>
         </ActionSheet>
-        <DatePickerSheet visible={activePicker === 'date'} value={dueDate} onClose={() => setActivePicker(null)} onConfirm={(nextDate) => { selectDate(nextDate); setActivePicker(null); }} />
+        <ActionSheet visible={selectorSheet === 'plan'} title="Plan" onRequestClose={() => setSelectorSheet(null)} size="content">
+          <View style={styles.selectorChips}><FilterChip label="Sin plan" selected={!goalId} onPress={() => { setGoalId(null); setSelectorSheet(null); }} />{goals.map((goal) => <FilterChip key={goal.id} label={goal.title} selected={goalId === goal.id} onPress={() => { setGoalId(goal.id); setSelectorSheet(null); }} />)}</View>
+        </ActionSheet>
+        <DatePickerSheet
+          visible={activePicker === 'date'}
+          value={dueDate}
+          onClose={() => setActivePicker(null)}
+          onConfirm={(nextDate) => { selectDate(nextDate); setActivePicker(null); }}
+          onClear={() => { selectDate(''); setActivePicker(null); }}
+        />
         <TimePickerSheet visible={activePicker === 'time'} value={dueTime || '09:00'} onClose={() => setActivePicker(null)} onConfirm={(nextTime) => { setDueTime(nextTime); setActivePicker(null); }} />
-        <DurationPickerSheet visible={activePicker === 'duration'} value={estimatedDuration} onClose={() => setActivePicker(null)} onConfirm={(nextDuration: number | null) => { setEstimatedDuration(nextDuration); setActivePicker(null); }} />
         <PlannerPresetPickerSheet
           visible={presetPickerVisible}
           accessToken={accessToken}
           onSelect={applyPreset}
+          onCreate={() => navigation.navigate('PlannerPresetCreate', {
+            presetPrefill: {
+              title: title.trim(),
+              note: description.trim(),
+              template_key: TIPO_BY_ID[tipoId]?.templateKey ?? null,
+              category: category.trim() || null,
+              priority,
+              estimated_duration_minutes: null,
+              checklist: checklist.filter((item) => item.text.trim()).map((item) => ({ text: item.text.trim() })),
+              requires_verification: requiresVerification,
+              requires_evidence: false,
+            },
+            returnToTaskDraft: true,
+            returnRouteName: route.name,
+          })}
           onClose={() => setPresetPickerVisible(false)}
         />
+        {screenDirtyGuard.guardElement}
       </View>
     </Pressable>
   );
@@ -1232,13 +1481,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   financeFormStack: { gap: 10, marginBottom: 16 },
+  // Gate6: reserve the quick-rail geometry (header ~28 + cards 72 + margin 16)
+  // while presets load so fields never jump on late insertion.
+  presetRailReserve: { minHeight: 116, marginBottom: 16, justifyContent: 'flex-end' },
+  presetRailSkeletonRow: { flexDirection: 'row', gap: 8 },
+  presetRailSkeletonCard: { width: 96, height: 72, borderRadius: 16, backgroundColor: colors.surface.soft },
   selectorChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   embeddedScroll: {
     flex: 1,
     width: '100%',
   },
   embeddedContent: {
-    flexGrow: 1,
     width: '100%',
     minWidth: 0,
   },
@@ -1634,6 +1887,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     flex: 1,
+  },
+  planClassificationRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  planClassificationOption: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.card,
+  },
+  planClassificationActive: {
+    borderColor: colors.terracotta[500],
+    backgroundColor: colors.terracotta[50],
+  },
+  planClassificationLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text.secondary,
+  },
+  planClassificationLabelActive: {
+    color: colors.terracotta[700],
   },
   multiAssigneeNote: {
     color: colors.terracotta[700],

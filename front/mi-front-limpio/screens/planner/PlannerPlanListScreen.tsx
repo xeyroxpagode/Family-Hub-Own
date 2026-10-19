@@ -11,7 +11,6 @@ import {
   getScopeLabel,
   listPlansV1,
   type PlanLifecycle,
-  type PlanScope,
   type PlannerPlanV1,
 } from '../../services/plannerPlansV1Frontend';
 
@@ -19,21 +18,16 @@ type Props = {
   readonly refreshKey?: number;
 };
 
-type PlanView = 'open' | 'completed' | 'cancelled' | 'all';
-type ScopeFilter = 'all' | PlanScope;
+type PlanView = 'open' | 'completed' | 'cancelled' | 'archived' | 'all';
 
 const VIEW_OPTIONS: Array<{ key: PlanView; label: string }> = [
   { key: 'open', label: 'Abiertos' },
   { key: 'completed', label: 'Completados' },
   { key: 'cancelled', label: 'Cancelados' },
+  { key: 'archived', label: 'Archivados' },
   { key: 'all', label: 'Todos' },
 ];
 
-const SCOPE_OPTIONS: Array<{ key: ScopeFilter; label: string }> = [
-  { key: 'all', label: 'Todos' },
-  { key: 'personal', label: 'Personal' },
-  { key: 'household', label: 'Hogar' },
-];
 
 const OPEN_LIFECYCLES: PlanLifecycle[] = ['active', 'preparation', 'paused'];
 
@@ -50,7 +44,6 @@ export function PlannerPlanListScreen({ refreshKey }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<PlanView>('open');
-  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all');
   const [viewSheetVisible, setViewSheetVisible] = useState(false);
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
 
@@ -59,16 +52,14 @@ export function PlannerPlanListScreen({ refreshKey }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const filters: { scope?: PlanScope } = {};
-      if (scopeFilter !== 'all') filters.scope = scopeFilter;
-      const response = await listPlansV1(accessToken, filters);
+      const response = await listPlansV1(accessToken, { scope: 'household', archived: 'all' });
       setPlans(response.plans);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No pudimos cargar los planes.');
     } finally {
       setLoading(false);
     }
-  }, [accessToken, authLoading, scopeFilter]);
+  }, [accessToken, authLoading]);
 
   useEffect(() => {
     if (!authLoading && !accessToken) {
@@ -91,8 +82,10 @@ export function PlannerPlanListScreen({ refreshKey }: Props) {
 
   const visiblePlans = useMemo(() => {
     return plans
-      .filter((plan) => !plan.trashedAt && !plan.archivedAt)
+      .filter((plan) => !plan.trashedAt)
       .filter((plan) => {
+        if (view === 'archived') return Boolean(plan.archivedAt);
+        if (plan.archivedAt) return false;
         const lifecycle = planLifecycle(plan);
         if (view === 'open') return OPEN_LIFECYCLES.includes(lifecycle);
         if (view === 'completed') return lifecycle === 'completed';
@@ -108,7 +101,7 @@ export function PlannerPlanListScreen({ refreshKey }: Props) {
   }), [visiblePlans]);
 
   const viewLabel = VIEW_OPTIONS.find((option) => option.key === view)?.label ?? 'Abiertos';
-  const activeFilterCount = scopeFilter !== 'all' ? 1 : 0;
+  const activeFilterCount = 0;
 
   if (loading) {
     return (
@@ -144,7 +137,7 @@ export function PlannerPlanListScreen({ refreshKey }: Props) {
 
       {visiblePlans.length === 0 ? (
         <EmptyState
-          title={view === 'open' ? 'No hay planes abiertos' : view === 'completed' ? 'No hay planes completados' : 'No hay planes cancelados'}
+          title={view === 'open' ? 'No hay planes abiertos' : view === 'completed' ? 'No hay planes completados' : view === 'archived' ? 'No hay planes archivados' : 'No hay planes cancelados'}
           description={view === 'open' ? 'Los objetivos que estés organizando van a aparecer acá.' : 'Todavía no hay planes en esta vista.'}
           actionLabel="Crear plan"
           onAction={createPlan}
@@ -168,14 +161,7 @@ export function PlannerPlanListScreen({ refreshKey }: Props) {
       </ActionSheet>
 
       <ActionSheet visible={filterSheetVisible} title="Filtros" onRequestClose={() => setFilterSheetVisible(false)} size="content">
-        <View style={styles.sheet}>
-          <AppText variant="caption" tone="secondary" weight="800">Alcance</AppText>
-          <View style={styles.chips}>
-            {SCOPE_OPTIONS.map((option) => (
-              <FilterChip key={option.key} label={option.label} selected={scopeFilter === option.key} onPress={() => setScopeFilter(option.key)} />
-            ))}
-          </View>
-        </View>
+        <View style={styles.sheet}><AppText variant="caption" tone="secondary">Los Planes se muestran para el hogar actual.</AppText></View>
       </ActionSheet>
     </View>
   );
@@ -196,19 +182,12 @@ function PlanRow({ plan, onOpen }: { plan: PlannerPlanV1; onOpen: (plan: Planner
   const theme = useAppTheme();
   const { colors, spacing } = theme;
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const progress = typeof plan.progress?.percentage === 'number' ? Math.max(0, Math.min(plan.progress.percentage, 100)) : null;
   const meta = [getScopeLabel(plan.scope), plan.targetDate ? `objetivo ${plan.targetDate}` : null].filter(Boolean).join(' · ');
   return (
     <TouchableOpacity style={styles.planRow} onPress={() => onOpen(plan)} accessibilityRole="button" accessibilityLabel={plan.title}>
       <View style={{ flex: 1, gap: spacing[2] }}>
         <AppText variant="body" weight="800" numberOfLines={2}>{plan.title}</AppText>
         <AppText variant="caption" tone="secondary" numberOfLines={1}>{meta}</AppText>
-        {progress !== null ? (
-          <View style={styles.progressLine}>
-            <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
-            <AppText variant="caption" tone="secondary" weight="700">{progress}%</AppText>
-          </View>
-        ) : null}
       </View>
       <HomePlusIcon name="chevron-forward" size={18} color={colors.text.tertiary} />
     </TouchableOpacity>
@@ -225,9 +204,6 @@ function createStyles({ colors, radius, spacing }: ReturnType<typeof useAppTheme
   section: { gap: spacing[1], marginBottom: spacing[3] },
   sectionTitle: { marginTop: spacing[2], marginBottom: spacing[1] },
   planRow: { minHeight: 82, flexDirection: 'row', alignItems: 'center', gap: spacing[3], paddingVertical: spacing[3], borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border.subtle },
-  progressLine: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] },
-  progressTrack: { flex: 1, height: 6, borderRadius: radius.full, backgroundColor: colors.surface.soft, overflow: 'hidden' },
-  progressFill: { height: 6, borderRadius: radius.full, backgroundColor: colors.terracotta[500] },
   loadingRows: { gap: spacing[5], paddingVertical: spacing[4] },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing[2] },
   sheet: { gap: spacing[2] },

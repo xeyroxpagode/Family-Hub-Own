@@ -2,7 +2,9 @@
 
 const crypto = require('crypto');
 
-const ENTITY_TYPES = Object.freeze(['task', 'event', 'plan']);
+// Frozen §33: the ONE preset foundation supports exactly these entity types.
+// `measurement` is intentionally absent (Plan-local state, not a form template).
+const ENTITY_TYPES = Object.freeze(['task', 'responsibility', 'event', 'event_series', 'plan']);
 const PRESET_SOURCES = Object.freeze(['homeplus', 'personal', 'household']);
 const DRAFT_INTENDED_SCOPES = Object.freeze(['personal', 'household']);
 const PAYLOAD_SCHEMA = 'planner.template_payload';

@@ -24,6 +24,7 @@ export const statusLabels: Record<PlannerTaskStatus, string> = {
   pending: 'Pendiente',
   completed: 'Completada',
   awaiting_verification: 'En verificación',
+  correction_requested: 'Requiere corrección',
   verified: 'Verificada',
   cancelled: 'Cancelada',
 };
@@ -500,9 +501,18 @@ export const plannerStyles = StyleSheet.create({
     backgroundColor: colors.surface.overlayStrong,
     justifyContent: 'flex-end',
   },
+  // Layer variant for the animated planner host: absolute-fill scrim under the
+  // panel (the panel is a sibling, not a child, so inner taps never leak to it).
+  sheetBackdropLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.surface.overlayStrong,
+  },
   sheetPanel: {
     maxHeight: '92%',
-    minHeight: '72%',
     backgroundColor: colors.background.base,
     borderTopLeftRadius: radius.xxl,
     borderTopRightRadius: radius.xxl,
@@ -512,6 +522,7 @@ export const plannerStyles = StyleSheet.create({
     ...shadows.sheet,
   },
   sheetHandleContainer: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
