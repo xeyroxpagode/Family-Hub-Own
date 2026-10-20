@@ -445,7 +445,15 @@ test('the production Homi module keeps no forbidden dependency', () => {
     'inventory',
     'presence',
   ];
-  const allowedRequires = ['./toolContract', './toolRegistry'];
+  const canonicalContextAuthoritySpecifier = '../services/planner.context.service';
+  const allowedRequires = [
+    './toolContract',
+    './toolRegistry',
+    './contextContract',
+    './contextResolver',
+    canonicalContextAuthoritySpecifier,
+  ];
+  const pureSources = ['toolContract.js', 'toolRegistry.js'];
   const sources = listHomiSources();
 
   assert.ok(sources.length > 0, 'expected production Homi sources');
@@ -462,6 +470,13 @@ test('the production Homi module keeps no forbidden dependency', () => {
         allowedRequires.includes(specifier),
         `${fileName} must not require "${specifier}"`
       );
+      if (specifier === canonicalContextAuthoritySpecifier) {
+        assert.equal(
+          fileName,
+          'contextResolver.js',
+          `only contextResolver.js may require the canonical HomePlus context authority`
+        );
+      }
       for (const token of forbidden) {
         assert.equal(
           specifier.toLowerCase().includes(token.toLowerCase()),
@@ -485,6 +500,15 @@ test('the production Homi module keeps no forbidden dependency', () => {
     assert.doesNotMatch(source, /\bdelete\s+from\b/i, `${fileName} must not embed SQL`);
     assert.doesNotMatch(source, /\bupdate\b[\s\S]*\bset\b/i, `${fileName} must not embed SQL`);
     assert.doesNotMatch(source, /\b(fetch|XMLHttpRequest)\b/, `${fileName} must not perform network calls`);
+  }
+
+  for (const fileName of pureSources) {
+    const source = readHomiSource(fileName);
+    assert.doesNotMatch(
+      source,
+      /contextContract|contextResolver/,
+      `${fileName} must stay independent from the Homi context boundary`
+    );
   }
 });
 

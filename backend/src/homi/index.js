@@ -3,13 +3,15 @@
 /**
  * HomePlus Homi Tool Layer — public foundation surface.
  *
- * This slice exposes the Tool Contract v1 primitives and the Tool Registry
- * constructor only. It intentionally registers no business tool: the
- * production registry starts empty.
+ * This slice exposes the Tool Contract v1 primitives, the Tool Registry
+ * constructor and the authoritative Homi context boundary. It intentionally
+ * registers no business tool: the production registry starts empty.
  */
 
 const toolContract = require('./toolContract');
 const toolRegistry = require('./toolRegistry');
+const contextContract = require('./contextContract');
+const contextResolver = require('./contextResolver');
 
 module.exports = {
   HOMI_TOOL_CONTRACT_VERSION: toolContract.HOMI_TOOL_CONTRACT_VERSION,
@@ -27,4 +29,15 @@ module.exports = {
   HOMI_TOOL_DUPLICATE: toolRegistry.HOMI_TOOL_DUPLICATE,
   HomiToolRegistry: toolRegistry.HomiToolRegistry,
   createHomiToolRegistry: toolRegistry.createHomiToolRegistry,
+  HOMI_CONTEXT_FIELDS: contextContract.HOMI_CONTEXT_FIELDS,
+  HOMI_CLAIM_FIELDS: contextContract.HOMI_CLAIM_FIELDS,
+  HOMI_AUTH_CONTEXT_INVALID: contextContract.HOMI_AUTH_CONTEXT_INVALID,
+  HOMI_CONTEXT_UNAVAILABLE: contextContract.HOMI_CONTEXT_UNAVAILABLE,
+  HOMI_CONTEXT_MISMATCH: contextContract.HOMI_CONTEXT_MISMATCH,
+  HOMI_CLAIM_INVALID: contextContract.HOMI_CLAIM_INVALID,
+  HomiContextError: contextContract.HomiContextError,
+  validateHomiIdentityClaims: contextContract.validateHomiIdentityClaims,
+  createHomiContextResolver: contextResolver.createHomiContextResolver,
+  defaultResolveHomePlusContext: contextResolver.defaultResolveHomePlusContext,
+  resolveHomiContext: contextResolver.resolveHomiContext,
 };
