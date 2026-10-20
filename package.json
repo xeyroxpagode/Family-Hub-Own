@@ -21,6 +21,7 @@
     "test:planner": "node tests/run.js planner",
     "test:inventory-v2": "node tests/run.js inventory-v2-foundation",
     "test:inventory-v2-products": "node tests/run.js inventory-v2-products",
+    "test:inventory-v2-shopping-purchase": "node tests/run.js inventory-v2-shopping-purchase",
     "test:planner:m1": "node tests/run.js planner-m1",
     "test:planner:m2": "node tests/run.js planner-m2",
     "test:planner:m3": "node tests/run.js planner-m3",

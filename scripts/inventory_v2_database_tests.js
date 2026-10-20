@@ -175,7 +175,69 @@ async function main(){
     const autoItem=(await actor.query("select public.inventory_product_create($1::jsonb,'auto-create','auto-create-key') body",[JSON.stringify({name:'Auto restock',quantity:0,low_stock_threshold:1,target_quantity:4,auto_restock_enabled:true})])).rows[0].body.item;
     check(Number((await admin.query('select requested_quantity from public.inventory_shopping_list_items where inventory_item_id=$1',[autoItem.id])).rows[0].requested_quantity),4,'auto-restock creates needed quantity');
     await actor.query("select public.inventory_adjust_quantity($1,5,'auto-fill','auto-fill-key')",[autoItem.id]);
-    check(Number((await admin.query('select count(*) from public.inventory_shopping_list_items where inventory_item_id=$1',[autoItem.id])).rows[0].count),0,'auto-restock line is removed above threshold');
+    check(Number((await admin.query('select count(*) from public.inventory_shopping_list_items where inventory_item_id=$1 and removed_at is null',[autoItem.id])).rows[0].count),0,'auto-restock line is softly removed above threshold');
+    check(Number((await admin.query('select count(*) from public.inventory_shopping_list_items where inventory_item_id=$1 and removed_at is not null',[autoItem.id])).rows[0].count),1,'auto-restock history remains as a removed snapshot');
+    const episodeItem=(await actor.query("select public.inventory_product_create($1::jsonb,'episode-create','episode-create-key') body",[JSON.stringify({name:'Auto episode',quantity:0,low_stock_threshold:1,target_quantity:4,auto_restock_enabled:true})])).rows[0].body.item;
+    const episodeRow=(await admin.query('select * from public.inventory_shopping_list_items where inventory_item_id=$1 and removed_at is null',[episodeItem.id])).rows[0];
+    await actor.query("select public.inventory_shopping_item_mutate($1,'remove','{}'::jsonb,$2)",[episodeRow.id,episodeRow.version]);
+    await admin.query('select public.inventory_reconcile_auto_restock($1)',[episodeItem.id]);
+    check(Number((await admin.query('select count(*) from public.inventory_shopping_list_items where inventory_item_id=$1 and removed_at is null',[episodeItem.id])).rows[0].count),0,'manual removal suppresses recreation in the same low-stock episode');
+    await actor.query("select public.inventory_adjust_quantity($1,5,'episode-fill','episode-fill-key')",[episodeItem.id]);
+    check((await admin.query('select removed_by_person_id from public.inventory_shopping_list_items where id=$1',[episodeRow.id])).rows[0].removed_by_person_id,null,'rising above threshold closes the manual suppression episode');
+    await actor.query("select public.inventory_adjust_quantity($1,-5,'episode-drop','episode-drop-key')",[episodeItem.id]);
+    check(Number((await admin.query('select count(*) from public.inventory_shopping_list_items where inventory_item_id=$1 and removed_at is null',[episodeItem.id])).rows[0].count),1,'a later low-stock episode creates a fresh automatic row');
+    check(Number((await admin.query('select count(*) from public.inventory_shopping_list_items where inventory_item_id=$1',[episodeItem.id])).rows[0].count),2,'soft-deleted episode history remains alongside the fresh row');
+
+    // Block 3 Shopping -> Purchase -> Inventory -> Finance tracked-source loop.
+    check(Number((await admin.query('select count(*) from public.inventory_shopping_lists where household_id=$1',[ids.household1])).rows[0].count),1,'household owns exactly one shopping list');
+    const shoppingAdd1=(await actor.query('select public.inventory_shopping_item_add($1::jsonb,$2,$3) body',[JSON.stringify({source:'inventory',inventory_item_id:itemId,quantity:1}),'shop-add-1','shop-add-key-1'])).rows[0].body.item;
+    const shoppingAdd2=(await actor.query('select public.inventory_shopping_item_add($1::jsonb,$2,$3) body',[JSON.stringify({source:'inventory',inventory_item_id:itemId,quantity:2}),'shop-add-2','shop-add-key-2'])).rows[0].body.item;
+    check(shoppingAdd2.id,shoppingAdd1.id,'same inventory identity dedupes to one active row');
+    check(Number(shoppingAdd2.requested_quantity),3,'dedupe increments requested quantity');
+    check(Number((await admin.query('select count(*) from public.inventory_shopping_list_items where inventory_item_id=$1 and removed_at is null',[itemId])).rows[0].count),1,'dedupe leaves one active shopping row');
+    const started=(await actor.query("select public.inventory_purchase_start('purchase-start','purchase-start-key') body")).rows[0].body;
+    check(started.outcome,'created','purchase start creates the open session');
+    const sessionId=started.session.id;
+    const purchaseLine=(await admin.query('select * from public.inventory_purchase_lines where purchase_session_id=$1 and shopping_list_item_id=$2',[sessionId,shoppingAdd2.id])).rows[0];
+    check(Number(purchaseLine.requested_quantity),3,'purchase snapshots requested quantity');
+    check(purchaseLine.details_snapshot.shopping_item_version_at_snapshot,Number(shoppingAdd2.version),'purchase snapshots shopping version');
+    await actor.query("select public.inventory_shopping_item_mutate($1,'edit',$2::jsonb,$3)",[shoppingAdd2.id,JSON.stringify({requested_quantity:7}),shoppingAdd2.version]);
+    check(Number((await admin.query('select requested_quantity from public.inventory_purchase_lines where id=$1',[purchaseLine.id])).rows[0].requested_quantity),3,'shopping edit does not rewrite purchase snapshot');
+    const changedLine=(await actor.query('select public.inventory_purchase_line_set($1,$2,2,$3) body',[sessionId,purchaseLine.id,purchaseLine.version])).rows[0].body.line;
+    await assert.rejects(()=>actor.query('select public.inventory_purchase_line_set($1,$2,3,$3)',[sessionId,purchaseLine.id,purchaseLine.version]),/version_conflict_v2/);assertions+=1;
+    const beforeFinalizeQuantity=Number((await admin.query('select quantity from public.inventory_items where id=$1',[itemId])).rows[0].quantity);
+    const finalized=(await actor.query('select public.inventory_finalize_purchase($1,$2,12300,$3,false,$4,$5) body',[sessionId,started.session.version,'2026-10-20','purchase-finalize','purchase-finalize-key'])).rows[0].body;
+    check(finalized.session.status,'completed','finalize completes session');
+    check(Number((await admin.query('select quantity from public.inventory_items where id=$1',[itemId])).rows[0].quantity),beforeFinalizeQuantity+2,'finalize increments current locked stock by purchased quantity');
+    check(Number((await admin.query('select requested_quantity from public.inventory_shopping_list_items where id=$1',[shoppingAdd2.id])).rows[0].requested_quantity),7,'finalize preserves newer shopping intent');
+    const replayFinalize=(await actor.query('select public.inventory_finalize_purchase($1,$2,12300,$3,false,$4,$5) body',[sessionId,started.session.version,'2026-10-20','purchase-finalize','purchase-finalize-key'])).rows[0].body;
+    check(replayFinalize,finalized,'double finalize replays the atomic result');
+    check(Number((await admin.query("select count(*) from public.inventory_item_movements where purchase_session_id=$1 and movement_type='purchase_add'",[sessionId])).rows[0].count),1,'double finalize writes stock once');
+    const finance1=(await actor.query('select public.finance_create_inventory_purchase_expense_v1($1) body',[sessionId])).rows[0].body;
+    const finance2=(await actor.query('select public.finance_create_inventory_purchase_expense_v1($1) body',[sessionId])).rows[0].body;
+    check(finance2.transaction_id,finance1.transaction_id,'Finance retry replays one tracked transaction');
+    check(Number((await admin.query("select count(*) from public.finance_transaction_sources where source_module='inventory' and source_entity_id=$1",[sessionId])).rows[0].count),1,'Finance source identity is unique');
+
+    // Explicit regressions for the defects found in the last Block 3 QA round.
+    const activeRead=(await actor.query('select public.inventory_purchase_get(null) body')).rows[0].body;
+    check(activeRead,null,'A: active purchase read returns null (not an empty object) when there is no active purchase');
+    const shoppingVolatility=(await admin.query("select provolatile from pg_proc where proname='inventory_shopping_list_get' limit 1")).rows[0].provolatile;
+    check(shoppingVolatility,'v','C: shopping singleton read is VOLATILE because it may create the singleton row');
+    await admin.query('delete from public.inventory_shopping_lists where household_id=$1',[ids.household2]);
+    const freshList=(await actor2.query('select public.inventory_shopping_list_get() body')).rows[0].body;
+    check(Boolean(freshList&&freshList.list&&freshList.list.id),true,'C: fresh household without a list gets its singleton created on read');
+    check(Array.isArray(freshList.items),true,'C: fresh household read returns an empty item array');
+    check(freshList.active_purchase,null,'C: fresh household read reports no active purchase');
+    const restarted=(await actor.query("select public.inventory_purchase_start('purchase-restart','purchase-restart-key') body")).rows[0].body;
+    check(restarted.outcome,'created','D: start purchase succeeds without a composite-row mismatch');
+    const activeShoppingRows=Number((await admin.query('select count(*) from public.inventory_shopping_list_items where household_id=$1 and removed_at is null',[ids.household1])).rows[0].count);
+    check(Number((await admin.query('select count(*) from public.inventory_purchase_lines where purchase_session_id=$1',[restarted.session.id])).rows[0].count),activeShoppingRows,'D: the restarted session snapshots every active shopping row');
+    check(Number((await admin.query("select count(*) from public.finance_transactions t join public.finance_transaction_sources s on s.transaction_id=t.id where s.source_module='inventory' and s.source_entity_id=$1",[sessionId])).rows[0].count),1,'E: exactly one Finance transaction exists for the finalized purchase');
+    const immutable=await clientFor(ids.auth1,true);
+    await assert.rejects(()=>immutable.query('update public.inventory_purchase_lines set purchased_quantity=99 where id=$1',[changedLine.id]),/permission denied/);assertions+=1;
+    await immutable.query('reset role');await immutable.end();
+    await admin.query('delete from public.finance_transaction_sources where transaction_id=$1',[finance1.transaction_id]);
+    await admin.query('delete from public.finance_transactions where id=$1',[finance1.transaction_id]);
 
     const auditRls=await clientFor(ids.auth1,true);
     await assert.rejects(()=>auditRls.query("insert into public.inventory_item_movements(household_id,movement_type) values($1,'create')",[ids.household1]),/permission denied/);assertions+=1;
@@ -198,7 +260,7 @@ async function main(){
   } finally {
     await Promise.allSettled(openedClients.map((client)=>client.end()));
     try{await admin.query('rollback');}catch{}
-    try{await admin.query('reset role');await admin.query('update public.people set active_household_id=null where id=any($1::uuid[])',[createdPeople]);await admin.query('delete from public.households where id=any($1::uuid[])',[[ids.household1,ids.household2]]);await admin.query('delete from public.people where id=any($1::uuid[])',[createdPeople]);await admin.query('delete from auth.users where id=any($1::uuid[])',[createdAuth]);}catch(error){console.error('Fixture cleanup failed:',error.message);process.exitCode=1;}await admin.end();
+    try{await admin.query('reset role');await admin.query('update public.people set active_household_id=null where id=any($1::uuid[])',[createdPeople]);await admin.query("delete from public.finance_transaction_sources where source_module='inventory' and source_entity_id in (select id from public.inventory_purchase_sessions where household_id=any($1::uuid[]))",[[ids.household1,ids.household2]]);await admin.query('delete from public.households where id=any($1::uuid[])',[[ids.household1,ids.household2]]);await admin.query('delete from public.people where id=any($1::uuid[])',[createdPeople]);await admin.query('delete from auth.users where id=any($1::uuid[])',[createdAuth]);}catch(error){console.error('Fixture cleanup failed:',error.message);process.exitCode=1;}await admin.end();
   }
 }
 main().catch((error)=>{console.error(error);process.exitCode=1;});
