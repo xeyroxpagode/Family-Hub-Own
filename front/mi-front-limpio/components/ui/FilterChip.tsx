@@ -13,9 +13,10 @@ export type FilterChipProps = {
   onPress?: () => void;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
+  onClear?: () => void;
 };
 
-export function FilterChip({ label, selected = false, icon, onPress, disabled = false, style }: FilterChipProps) {
+export function FilterChip({ label, selected = false, icon, onPress, onClear, disabled = false, style }: FilterChipProps) {
   const content = (
     <View
       style={[
@@ -39,6 +40,7 @@ export function FilterChip({ label, selected = false, icon, onPress, disabled = 
       <AppText variant="bodySmall" weight="500" style={{ color: selected ? colors.brand : colors.text.secondary }}>
         {label}
       </AppText>
+      {onClear ? <InteractivePressable accessibilityRole="button" accessibilityLabel={`Quitar filtro ${label}`} onPress={onClear} hitSlop={{ left: 8, right: 4, top: 8, bottom: 8 }} style={{ minWidth: 44, minHeight: 44, marginVertical: -8, marginRight: -8, padding: 4, marginLeft: 4, borderRadius: 999, backgroundColor: selected ? colors.brandSoft : undefined, alignItems: 'center', justifyContent: 'center' }}><HomePlusIcon name="close" size={16} color={selected ? colors.brand : colors.text.tertiary} /></InteractivePressable> : null}
     </View>
   );
 

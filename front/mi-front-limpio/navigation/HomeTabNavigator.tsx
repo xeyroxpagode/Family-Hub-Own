@@ -19,6 +19,7 @@ import { ScannerImageEditorScreen } from '../screens/ScannerImageEditorScreen';
 import { isHomeCloudImmersiveChromeHidden, subscribeHomeCloudImmersiveChrome } from '../services/homecloud/homecloudImmersiveChrome';
 import { FinanceScreen } from '../screens/finance/FinanceScreen';
 import { InventarioScreen } from '../screens/inventory/InventarioScreen';
+import { InventoryV2StackScreen } from './InventoryV2Stack';
 import { PlannerScreen } from '../screens/planner/PlannerScreen';
 import { CreateTaskScreen } from '../screens/planner/CreateTaskScreen';
 import { EditTaskScreen } from '../screens/planner/EditTaskScreen';
@@ -251,6 +252,7 @@ function MoreStackScreen() {
     options={{ presentation: 'fullScreenModal', headerShown: false, contentStyle: { backgroundColor: colors.background.base } }}
   />
       <MoreStack.Screen name="Inventory" component={InventarioScreen} />
+      {__DEV__ ? <MoreStack.Screen name="InventoryV2Preview" component={InventoryV2StackScreen} /> : null}
       <MoreStack.Screen name="Finance" component={FinanceScreen} />
       <MoreStack.Screen name="FinanceAccounts" component={FinanceAccountsScreen} />
       <MoreStack.Screen name="FinancePapelera" component={FinancePapeleraScreen} />

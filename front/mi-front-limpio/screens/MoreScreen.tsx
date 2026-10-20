@@ -55,6 +55,16 @@ const MODULES = [
 export function MoreScreen() {
   const navigation = useNavigation<any>();
 
+  // QA/dev-only navigation hook: __DEV__ builds expose a window callback so
+  // visual QA can reach dev-only preview routes (e.g. InventoryV2Preview)
+  // WITHOUT any visible production button in More.
+  React.useEffect(() => {
+    if (typeof __DEV__ === 'undefined' || !__DEV__) return;
+    const target = global as Record<string, unknown>;
+    target.__hpMoreDevNavigate = (screen: string) => navigation.navigate(screen);
+    return () => { delete target.__hpMoreDevNavigate; };
+  }, [navigation]);
+
   const handleModulePress = (screen: string | null | undefined) => {
     if (!screen) {
       return;

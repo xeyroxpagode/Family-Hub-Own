@@ -30,6 +30,7 @@ export type HomeTabParamList = {
 export type MoreStackParamList = {
   MoreHome: undefined;
   Inventory: undefined;
+  InventoryV2Preview: undefined;
   Family: undefined;
   HomeCloud: undefined;
   HomeCloudFilesTrash: undefined;

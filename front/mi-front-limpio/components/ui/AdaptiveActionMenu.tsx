@@ -100,6 +100,12 @@ export function AdaptiveActionMenu({
   closeDisabled = false,
   children,
   width = 280,
+  openDurationMs = MOTION.state,
+  closeDurationMs = MOTION.stateExit,
+  initialScale = 0.97,
+  initialTranslateY = 0,
+  popoverRadius = 18,
+  transparentBackdrop = false,
 }: {
   visible: boolean;
   title: string;
@@ -118,6 +124,12 @@ export function AdaptiveActionMenu({
   closeDisabled?: boolean;
   children: React.ReactNode;
   width?: number;
+  openDurationMs?: number;
+  closeDurationMs?: number;
+  initialScale?: number;
+  initialTranslateY?: number;
+  popoverRadius?: number;
+  transparentBackdrop?: boolean;
 }) {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -128,7 +140,8 @@ export function AdaptiveActionMenu({
   const estimatedHeight = Math.min(520, 64 + itemCount * Math.max(48, 48 * fontScale));
   const menuHeight = measuredHeight ?? estimatedHeight;
   const opacity = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(reducedMotion ? 1 : 0.97)).current;
+  const scale = useRef(new Animated.Value(reducedMotion ? 1 : initialScale)).current;
+  const translateY = useRef(new Animated.Value(reducedMotion ? 0 : initialTranslateY)).current;
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', (event) => setKeyboardHeight(event.endCoordinates.height));
@@ -167,12 +180,14 @@ export function AdaptiveActionMenu({
   useEffect(() => {
     if (!visible || layout.presentation !== 'popover' || measuredHeight === null) return;
     opacity.setValue(0);
-    scale.setValue(reducedMotion ? 1 : 0.97);
+    scale.setValue(reducedMotion ? 1 : initialScale);
+    translateY.setValue(reducedMotion ? 0 : initialTranslateY);
     Animated.parallel([
-      Animated.timing(opacity, { toValue: 1, duration: reducedMotion ? MOTION.reducedFade : MOTION.state, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(scale, { toValue: 1, duration: reducedMotion ? 0 : MOTION.state, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: reducedMotion ? Math.min(100,openDurationMs) : openDurationMs, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(scale, { toValue: 1, duration: reducedMotion ? 0 : openDurationMs, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 0, duration: reducedMotion ? 0 : openDurationMs, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
     ]).start();
-  }, [layout.presentation, measuredHeight, opacity, reducedMotion, scale, visible]);
+  }, [initialScale, initialTranslateY, layout.presentation, measuredHeight, opacity, openDurationMs, reducedMotion, scale, translateY, visible]);
 
   const requestAnimatedClose = () => {
     if (closeDisabled) return;
@@ -181,8 +196,9 @@ export function AdaptiveActionMenu({
       return;
     }
     Animated.parallel([
-      Animated.timing(opacity, { toValue: 0, duration: MOTION.stateExit, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(scale, { toValue: 0.99, duration: MOTION.stateExit, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 0, duration: closeDurationMs, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(scale, { toValue: initialScale, duration: closeDurationMs, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: initialTranslateY, duration: closeDurationMs, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
     ]).start(({ finished }) => { if (finished) onRequestClose(); });
   };
 
@@ -193,7 +209,7 @@ export function AdaptiveActionMenu({
   const menuWidth = Math.min(width, viewportWidth - 24);
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={requestAnimatedClose} statusBarTranslucent>
-      <View style={styles.overlay} pointerEvents="box-none">
+      <View style={[styles.overlay,transparentBackdrop&&styles.transparentOverlay]} pointerEvents="box-none">
         <Pressable style={StyleSheet.absoluteFill} onPress={requestAnimatedClose} disabled={closeDisabled} accessibilityRole="button" accessibilityLabel={title ? `Cerrar ${title}` : 'Cerrar menú'} />
         <Animated.View
           accessibilityViewIsModal
@@ -207,6 +223,7 @@ export function AdaptiveActionMenu({
               maxHeight: viewportHeight - insets.top - insets.bottom - keyboardHeight - 24,
               backgroundColor: theme.colors.background.base,
               borderColor: theme.colors.border.subtle,
+              borderRadius: popoverRadius,
               opacity,
               transform: [
                 { translateX: layout.originX - menuWidth / 2 },
@@ -214,6 +231,7 @@ export function AdaptiveActionMenu({
                 { scale },
                 { translateX: -(layout.originX - menuWidth / 2) },
                 { translateY: -(layout.originY - menuHeight / 2) },
+                { translateY },
               ],
             },
             theme.shadows.floating,
@@ -229,6 +247,7 @@ export function AdaptiveActionMenu({
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.12)' },
+  transparentOverlay: { backgroundColor: 'transparent' },
   popover: { position: 'absolute', borderWidth: 1, borderRadius: 18, padding: 12, overflow: 'hidden' },
   title: { paddingHorizontal: 8, paddingVertical: 6 },
   list: { gap: 8 },

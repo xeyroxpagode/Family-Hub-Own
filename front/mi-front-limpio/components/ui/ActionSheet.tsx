@@ -170,9 +170,11 @@ export type ActionSheetProps = {
   openDurationMs?: number;
   closeDurationMs?: number;
   onDidDismiss?: () => void;
+  topRadius?: number;
+  horizontalPadding?: number;
 };
 
-export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer, size = 'full', keyboardAware = false, transition = 'native', openDurationMs = 220, closeDurationMs = 190, onDidDismiss }: ActionSheetProps) {
+export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer, size = 'full', keyboardAware = false, transition = 'native', openDurationMs = 220, closeDurationMs = 190, onDidDismiss, topRadius, horizontalPadding }: ActionSheetProps) {
   const theme = useAppTheme();
   const { colors, spacing } = theme;
   const styles = createActionSheetStyles(theme);
@@ -240,7 +242,7 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
     : 0;
   const sheet = (
     <Animated.View
-      style={[styles.modalSheet, sheetSizing, { transform: [{ translateY: Animated.add(drag.rise, controlledTranslate) }] }]}
+      style={[styles.modalSheet, sheetSizing, topRadius === undefined ? null : { borderTopLeftRadius: topRadius, borderTopRightRadius: topRadius }, horizontalPadding === undefined ? null : { paddingHorizontal: horizontalPadding }, { transform: [{ translateY: Animated.add(drag.rise, controlledTranslate) }] }]}
       onLayout={(event) => {
         drag.heightRef.current = event.nativeEvent.layout.height;
       }}

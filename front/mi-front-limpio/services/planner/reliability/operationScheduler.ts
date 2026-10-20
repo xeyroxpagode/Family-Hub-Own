@@ -8,7 +8,10 @@ export class PlannerOperationScheduler {
 
   constructor(
     private readonly queue: PlannerOperationQueue,
-    private readonly clock: PlannerClock = { now: () => new Date(), setTimeout, clearTimeout },
+    // Web fix: a bare `setTimeout` reference loses its global receiver and
+    // browsers throw "Illegal invocation". Wrap it so every platform calls
+    // the global timer with the correct receiver. Behavior is unchanged.
+    private readonly clock: PlannerClock = { now: () => new Date(), setTimeout: (callback, delayMs) => setTimeout(callback, delayMs), clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>) },
     private readonly intervalMs = 1_000,
   ) {}
 
