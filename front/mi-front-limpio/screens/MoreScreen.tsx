@@ -60,9 +60,19 @@ export function MoreScreen() {
   // WITHOUT any visible production button in More.
   React.useEffect(() => {
     if (typeof __DEV__ === 'undefined' || !__DEV__) return;
-    const target = global as Record<string, unknown>;
+    const target = (typeof window !== 'undefined' ? window : globalThis) as unknown as Record<string, unknown>;
     target.__hpMoreDevNavigate = (screen: string) => navigation.navigate(screen);
-    return () => { delete target.__hpMoreDevNavigate; };
+    const openPreviewFromHash = () => {
+      if (typeof window !== 'undefined' && window.location.hash === '#inventory-v2-preview') {
+        navigation.navigate('InventoryV2Preview');
+      }
+    };
+    if (typeof window !== 'undefined') window.addEventListener('hashchange', openPreviewFromHash);
+    openPreviewFromHash();
+    return () => {
+      delete target.__hpMoreDevNavigate;
+      if (typeof window !== 'undefined') window.removeEventListener('hashchange', openPreviewFromHash);
+    };
   }, [navigation]);
 
   const handleModulePress = (screen: string | null | undefined) => {

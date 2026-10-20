@@ -5,7 +5,7 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { AppText } from './AppText';
 import { InteractivePressable } from './InteractivePressable';
 
-export type AppToast = { id: string; message: string; kind?: 'success' | 'warning' | 'error' | 'info'; undoLabel?: string; onUndo?: () => void; durationMs?: number };
+export type AppToast = { id: string; message: string; kind?: 'success' | 'warning' | 'error' | 'info'; undoLabel?: string; onUndo?: () => void; actionLabel?: string; onAction?: () => void; durationMs?: number };
 export type AppToastHostProps = { toast: AppToast | null; onDismiss: () => void; sheetOpen?: boolean; bottomOffset?: number };
 
 export function AppToastHost({ toast, onDismiss, sheetOpen = false, bottomOffset = 104 }: AppToastHostProps) {
@@ -46,6 +46,8 @@ export function AppToastHost({ toast, onDismiss, sheetOpen = false, bottomOffset
     <View style={styles.content}><AppText variant="bodySmall" weight="500" style={styles.message}>{shown.message}</AppText>
       {shown.onUndo ? <InteractivePressable style={styles.undo} onPress={() => { shown.onUndo?.(); onDismiss(); }} accessibilityRole="button" accessibilityLabel={shown.undoLabel ?? 'Deshacer'}>
         <AppText variant="bodySmall" weight="700" tone="inverse">{shown.undoLabel ?? 'Deshacer'}</AppText>
+      </InteractivePressable> : shown.onAction ? <InteractivePressable style={styles.undo} onPress={() => { shown.onAction?.(); onDismiss(); }} accessibilityRole="button" accessibilityLabel={shown.actionLabel ?? 'Ver'}>
+        <AppText variant="bodySmall" weight="700" tone="inverse">{shown.actionLabel ?? 'Ver'}</AppText>
       </InteractivePressable> : null}</View>
   </Animated.View>;
 }

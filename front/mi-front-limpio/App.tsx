@@ -20,6 +20,7 @@ import { registerLifecycleHandlers } from './services/registerLifecycleHandlers'
 import { FeatureFlagsProvider } from './context/FeatureFlagsContext';
 import { AuthLoadingScreen } from './screens/AuthLoading';
 import { AppThemeProvider } from './context/AppThemeContext';
+import { INVENTORY_V2_DEV_PREVIEW_MORE_SCREENS } from './navigation/inventoryV2DevLink';
 
 registerLifecycleHandlers();
 
@@ -52,6 +53,15 @@ const linking: LinkingOptions<RootStackParamList> = {
               PlanDetail: 'goals/:entityId',
               PlannerSearch: 'search',
             },
+          },
+          MoreTab: {
+            path: 'more',
+            // DEV-ONLY: the Inventory V2 preview route and its linking config
+            // exist only in development. A production build never exposes
+            // `/home/more/inventory-v2-preview`.
+            ...(__DEV__
+              ? { screens: { ...INVENTORY_V2_DEV_PREVIEW_MORE_SCREENS } }
+              : {}),
           },
         },
       },

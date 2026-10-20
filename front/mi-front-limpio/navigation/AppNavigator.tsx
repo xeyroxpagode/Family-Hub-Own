@@ -23,6 +23,7 @@ import { ExperienceSelectorScreen } from '../screens/ExperienceSelectorScreen';
 import { ExperienceResolver } from './ExperienceResolver';
 import { useExperience } from '../context/ExperienceContext';
 import { runtimeTrace } from '../services/runtimeTrace';
+import { InventoryV2DevPreviewLink } from './InventoryV2DevPreviewLink';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const PrivateStack = createNativeStackNavigator<PrivateStackParamList>();
@@ -311,6 +312,9 @@ const PrivateNavigator = () => {
       <PrivateStack.Screen name="ProfileScreen" component={ProfileScreen} />
       <PrivateStack.Screen name="FeedFamiliar" component={FeedFamiliarScreen} />
     </PrivateStack.Navigator>
+    {/* DEV-ONLY: applies the deterministic `/home/more/inventory-v2-preview`
+        deep link once the private tree is ready. It renders nothing. */}
+    <InventoryV2DevPreviewLink />
     </PrivateStackInstance>
     </PlannerReliabilityRuntimeOwner>
     </HomeCloudUploadRuntimeOwner>
