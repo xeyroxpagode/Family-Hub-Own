@@ -4,14 +4,19 @@
  * HomePlus Homi Tool Layer — public foundation surface.
  *
  * This slice exposes the Tool Contract v1 primitives, the Tool Registry
- * constructor and the authoritative Homi context boundary. It intentionally
- * registers no business tool: the production registry starts empty.
+ * constructor, the authoritative Homi context boundary and the factory of
+ * the production default tool registry.
+ *
+ * The generic registry factory stays empty on purpose: it is the neutral
+ * constructor of the foundation. The production business catalog lives in
+ * the default registry module and is reached through its own factory.
  */
 
 const toolContract = require('./toolContract');
 const toolRegistry = require('./toolRegistry');
 const contextContract = require('./contextContract');
 const contextResolver = require('./contextResolver');
+const defaultRegistry = require('./defaultRegistry');
 
 module.exports = {
   HOMI_TOOL_CONTRACT_VERSION: toolContract.HOMI_TOOL_CONTRACT_VERSION,
@@ -29,6 +34,7 @@ module.exports = {
   HOMI_TOOL_DUPLICATE: toolRegistry.HOMI_TOOL_DUPLICATE,
   HomiToolRegistry: toolRegistry.HomiToolRegistry,
   createHomiToolRegistry: toolRegistry.createHomiToolRegistry,
+  createDefaultHomiToolRegistry: defaultRegistry.createDefaultHomiToolRegistry,
   HOMI_CONTEXT_FIELDS: contextContract.HOMI_CONTEXT_FIELDS,
   HOMI_CLAIM_FIELDS: contextContract.HOMI_CLAIM_FIELDS,
   HOMI_AUTH_CONTEXT_INVALID: contextContract.HOMI_AUTH_CONTEXT_INVALID,

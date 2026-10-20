@@ -17,6 +17,7 @@ const {
   normalizeToolDefinition,
   HomiToolRegistry,
   createHomiToolRegistry,
+  createDefaultHomiToolRegistry,
 } = require('../../backend/src/homi');
 
 const repositoryRoot = path.join(__dirname, '..', '..');
@@ -26,11 +27,24 @@ function readHomiSource(fileName) {
   return fs.readFileSync(path.join(homiSourceDirectory, fileName), 'utf8');
 }
 
-function listHomiSources() {
-  return fs
-    .readdirSync(homiSourceDirectory)
-    .filter((name) => name.endsWith('.js'))
-    .sort();
+function listHomiSources(directory = homiSourceDirectory, prefix = '') {
+  const entries = fs.readdirSync(directory, { withFileTypes: true });
+  const files = [];
+
+  for (const entry of entries) {
+    const relativeName = prefix ? `${prefix}/${entry.name}` : entry.name;
+
+    if (entry.isDirectory()) {
+      files.push(...listHomiSources(path.join(directory, entry.name), relativeName));
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.endsWith('.js')) {
+      files.push(relativeName);
+    }
+  }
+
+  return files.sort();
 }
 
 function buildDefinition(overrides) {
@@ -451,6 +465,9 @@ test('the production Homi module keeps no forbidden dependency', () => {
     './toolRegistry',
     './contextContract',
     './contextResolver',
+    './defaultRegistry',
+    './tools/plannerReadTools',
+    '../toolContract',
     canonicalContextAuthoritySpecifier,
   ];
   const pureSources = ['toolContract.js', 'toolRegistry.js'];
@@ -512,12 +529,18 @@ test('the production Homi module keeps no forbidden dependency', () => {
   }
 });
 
-test('the production Homi module exposes no business tool', () => {
+test('the production Homi module keeps registration out of the public surface', () => {
   const source = readHomiSource('index.js');
   assert.doesNotMatch(source, /\.register\(/);
   assert.doesNotMatch(source, /planner|finance|homecloud|inventory/i);
 
+  // S1 guarantee: the neutral foundation factory stays empty. The production
+  // business catalog is reachable only through the default registry factory.
   const registry = createHomiToolRegistry();
   assert.equal(registry.size, 0);
   assert.deepEqual(registry.list(), []);
+
+  const defaultRegistry = createDefaultHomiToolRegistry();
+  assert.ok(defaultRegistry instanceof HomiToolRegistry);
+  assert.ok(defaultRegistry.size > 0, 'the production catalog must expose tools');
 });
