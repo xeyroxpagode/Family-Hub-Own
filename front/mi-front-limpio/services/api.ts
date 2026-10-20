@@ -75,6 +75,7 @@ export const createIdempotencyKey = (operation: string): string => {
 export const OPERATION_KINDS = {
   READ_ONLY: 'READ_ONLY',
   CREATE_IDEMPOTENT: 'CREATE_IDEMPOTENT',
+  IDEMPOTENT_MUTATION: 'IDEMPOTENT_MUTATION',
   VERSIONED_MUTATION: 'VERSIONED_MUTATION',
   NON_VERSIONED_MUTATION: 'NON_VERSIONED_MUTATION',
   AUTH_SESSION_MUTATION: 'AUTH_SESSION_MUTATION',
@@ -417,6 +418,7 @@ export async function requestJson<T>(path: string, options: RequestJsonOptions =
   const carriesMutationIdentity = operationKind !== OPERATION_KINDS.READ_ONLY
     && operationKind !== OPERATION_KINDS.AUTH_SESSION_MUTATION;
   const requiresIdempotency = operationKind === OPERATION_KINDS.CREATE_IDEMPOTENT
+    || operationKind === OPERATION_KINDS.IDEMPOTENT_MUTATION
     || operationKind === OPERATION_KINDS.VERSIONED_MUTATION;
 
   if (carriesMutationIdentity) {

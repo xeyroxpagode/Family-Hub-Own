@@ -99,16 +99,13 @@ const getItemOrThrow = async (context, itemId) => {
 
 const logMovement = async (context, item, movementType, quantityBefore, quantityDelta, quantityAfter, metadata = {}) => {
   const { error } = await context.client
-    .from('inventory_item_movements')
-    .insert({
-      household_id: context.householdId,
-      inventory_item_id: item.id,
-      movement_type: movementType,
-      quantity_before: quantityBefore,
-      quantity_delta: quantityDelta,
-      quantity_after: quantityAfter,
-      actor_person_id: context.personId,
-      metadata,
+    .rpc('inventory_legacy_log_movement', {
+      p_inventory_item_id: item.id,
+      p_movement_type: movementType,
+      p_quantity_before: quantityBefore,
+      p_quantity_delta: quantityDelta,
+      p_quantity_after: quantityAfter,
+      p_metadata: metadata,
     })
 
   if (error) {
