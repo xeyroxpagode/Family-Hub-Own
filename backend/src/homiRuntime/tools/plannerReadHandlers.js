@@ -43,6 +43,20 @@ const TASK_NOT_FOUND = Object.freeze({
 });
 
 /**
+ * The canonical "event not found" outcome of the current Planner event read.
+ *
+ * The current Planner event read answers an absent event with this status,
+ * message and code. A malformed identifier is answered like an absent one, so
+ * it is indistinguishable from an absent event and never reaches the data
+ * layer.
+ */
+const EVENT_NOT_FOUND = Object.freeze({
+  status: 404,
+  message: 'Evento no encontrado.',
+  code: 'event_not_found',
+});
+
+/**
  * Resolve the business service modules of this slice.
  *
  * The require calls are lazy on purpose: the Homi module graph must be
@@ -187,6 +201,12 @@ function createPlannerReadHandlers(services) {
 
       const service = resolveServices().events;
 
+      // The canonical Planner event identifier is a uuid. A malformed
+      // identifier is answered like an absent event, exactly like the
+      // canonical task read does for a task, so it never reaches the data
+      // layer and it never exposes a driver error.
+      assertUuid(args.eventId, EVENT_NOT_FOUND);
+
       return service.getEventById(context, args.eventId);
     },
 
@@ -252,6 +272,7 @@ function createPlannerReadHandlers(services) {
 
 module.exports = {
   TASK_NOT_FOUND,
+  EVENT_NOT_FOUND,
   createPlannerReadHandlers,
   defaultPlannerServices,
 };
