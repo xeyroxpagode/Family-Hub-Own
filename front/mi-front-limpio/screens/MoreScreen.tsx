@@ -119,6 +119,38 @@ export function MoreScreen() {
         </AppCard>
       </View>
 
+      {__DEV__ ? (
+        <View style={styles.devSection}>
+          <View style={styles.devHeader}>
+            <AppText variant="caption" tone="secondary" weight="700">
+              QA / Desarrollo
+            </AppText>
+          </View>
+          <AppCard variant="quiet" padding="compact">
+            <InteractivePressable
+              onPress={() => handleModulePress('InventoryV2Preview')}
+              style={styles.modulePressable}
+              accessibilityLabel="Abrir Inventario V2 (QA / Desarrollo)"
+            >
+              <View style={styles.moduleRow}>
+                <View style={[styles.moduleIcon, { backgroundColor: colors.info.soft }]}>
+                  <HomePlusIcon name="construct-outline" size={22} color={colors.info.base} />
+                </View>
+                <View style={styles.moduleInfo}>
+                  <AppText variant="body" weight="700">
+                    Inventario V2
+                  </AppText>
+                  <AppText variant="caption" tone="secondary">
+                    Preview de Productos y Compras
+                  </AppText>
+                </View>
+                <HomePlusIcon name="chevron-forward-outline" size={20} color={colors.text.tertiary} />
+              </View>
+            </InteractivePressable>
+          </AppCard>
+        </View>
+      ) : null}
+
     </AppScreen>
   );
 }
