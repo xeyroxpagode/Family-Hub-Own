@@ -16,11 +16,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MOTION } from '../../constants/theme';
 import { useAppTheme } from '../../context/AppThemeContext';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
-import { resolveAdaptiveMenuLayout, type MenuAnchor } from '../../services/homecloud/adaptiveActionMenuLayout';
+import { resolveAdaptiveMenuLayout, type MenuAnchor } from '../../services/core/adaptiveActionMenuLayout';
 import { ActionSheet } from './ActionSheet';
 import { AppText } from './AppText';
 
-export type { MenuAnchor } from '../../services/homecloud/adaptiveActionMenuLayout';
+export type { MenuAnchor } from '../../services/core/adaptiveActionMenuLayout';
 
 export function menuAnchorFromEvent(event: GestureResponderEvent, size = 44): MenuAnchor {
   return {

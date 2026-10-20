@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HomePlusIcon } from '../../constants/icons';
 import { useAppTheme } from '../../context/AppThemeContext';
 import { useKeyboardVisible } from '../../hooks/useKeyboardVisible';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { resolveDragDismiss } from '../../services/planner/plannerSheetGuard';
 import { todayYMD } from '../../utils/civilDate';
 import { buildMinuteWheelValues } from '../../utils/timeWheel';
@@ -164,15 +165,50 @@ export type ActionSheetProps = {
    * never destroy what the user was writing.
    */
   keyboardAware?: boolean;
+  /** Opt-in explicit open/close motion. Existing consumers keep native slide. */
+  transition?: 'native' | 'controlled';
+  openDurationMs?: number;
+  closeDurationMs?: number;
+  onDidDismiss?: () => void;
 };
 
-export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer, size = 'full', keyboardAware = false }: ActionSheetProps) {
+export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer, size = 'full', keyboardAware = false, transition = 'native', openDurationMs = 220, closeDurationMs = 190, onDidDismiss }: ActionSheetProps) {
   const theme = useAppTheme();
   const { colors, spacing } = theme;
   const styles = createActionSheetStyles(theme);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const keyboardVisible = useKeyboardVisible();
+  const reducedMotion = useReducedMotion();
+  const [controlledMounted, setControlledMounted] = useState(visible);
+  const controlledProgress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const onDidDismissRef = useRef(onDidDismiss);
+  onDidDismissRef.current = onDidDismiss;
+  useEffect(() => {
+    if (transition !== 'controlled') return;
+    if (visible) {
+      setControlledMounted(true);
+      Animated.timing(controlledProgress, {
+        toValue: 1,
+        duration: reducedMotion ? 0 : openDurationMs,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+    if (!controlledMounted) return;
+    Animated.timing(controlledProgress, {
+      toValue: 0,
+      duration: reducedMotion ? 0 : closeDurationMs,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        setControlledMounted(false);
+        onDidDismissRef.current?.();
+      }
+    });
+  }, [visible, transition, controlledMounted, controlledProgress, reducedMotion, openDurationMs, closeDurationMs]);
   // Leave a real top breathing room instead of choosing a device-specific sheet
   // height. Short sheets stay intrinsic; only catalog surfaces claim this space.
   const safeSheetHeight = Math.max(360, Math.round(height * 0.9) - insets.top);
@@ -199,9 +235,12 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
     }
     requestClose();
   };
+  const controlledTranslate = transition === 'controlled'
+    ? controlledProgress.interpolate({ inputRange: [0, 1], outputRange: [80, 0] })
+    : 0;
   const sheet = (
     <Animated.View
-      style={[styles.modalSheet, sheetSizing, { transform: [{ translateY: drag.rise }] }]}
+      style={[styles.modalSheet, sheetSizing, { transform: [{ translateY: Animated.add(drag.rise, controlledTranslate) }] }]}
       onLayout={(event) => {
         drag.heightRef.current = event.nativeEvent.layout.height;
       }}
@@ -219,8 +258,8 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
     </Animated.View>
   );
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={requestClose}>
-      <View style={styles.modalOverlay}>
+    <Modal visible={transition === 'controlled' ? controlledMounted : visible} transparent animationType={transition === 'controlled' ? 'none' : 'slide'} onRequestClose={requestClose} onDismiss={transition === 'native' ? onDidDismiss : undefined}>
+      <Animated.View style={[styles.modalOverlay, transition === 'controlled' ? { opacity: controlledProgress } : null]}>
         <Pressable
           style={styles.backdropDismiss}
           onPress={handleBackdropPress}
@@ -233,7 +272,7 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
             {sheet}
           </KeyboardAvoidingView>
         ) : sheet}
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

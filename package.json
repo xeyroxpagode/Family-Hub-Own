@@ -19,6 +19,7 @@
     "test:core:backend": "node tests/run.js core-backend",
     "test:core": "node tests/run.js core",
     "test:planner": "node tests/run.js planner",
+    "test:inventory-v2": "node tests/run.js inventory-v2-foundation",
     "test:planner:m1": "node tests/run.js planner-m1",
     "test:planner:m2": "node tests/run.js planner-m2",
     "test:planner:m3": "node tests/run.js planner-m3",
