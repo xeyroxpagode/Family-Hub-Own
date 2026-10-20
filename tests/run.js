@@ -144,6 +144,7 @@ function runClassifiedCommand(commandName) {
 const commands = {
   'inventory-v2-foundation-contract': () => runCommand('Inventory V2 foundation contracts', 'node', ['scripts/inventory_v2_foundation_tests.js']),
   'inventory-v2-database': () => runCommand('Inventory V2 real database/RLS/concurrency', 'node', ['scripts/inventory_v2_database_tests.js']),
+  'inventory-v2-products-ui': () => runCommand('Inventory V2 products UI contracts', 'node', ['scripts/inventory_v2_products_ui_tests.js']),
   'backend-syntax': () => runCommand('Backend/test syntax', 'node', ['tests/static/backend-syntax.js']),
   'migration-uniqueness': () => runCommand('Migration uniqueness guard', 'node', ['tests/static/migration-uniqueness.js']),
   'backend-eslint': () => runCommand('Backend ESLint', 'npm', ['exec', 'eslint', '--', '.'], { cwd: backendRoot }),
@@ -1818,6 +1819,7 @@ const commands = {
 
 const suites = {
   'inventory-v2-foundation': ['inventory-v2-foundation-contract', 'inventory-v2-database', 'frontend-typecheck', 'backend-syntax', 'migration-uniqueness', 'whitespace'],
+  'inventory-v2-products': ['inventory-v2-foundation-contract', 'inventory-v2-products-ui', 'inventory-v2-database', 'frontend-typecheck', 'test-typecheck', 'backend-syntax', 'migration-uniqueness', 'whitespace'],
 typecheck: ['frontend-typecheck', 'test-typecheck'],
   'homecloud-hc2b-media-viewer': ['homecloud-hc2b-media-viewer-contract'],
   // HC2-C Run A gate. It carries BOTH the new Foundation evidence AND the whole

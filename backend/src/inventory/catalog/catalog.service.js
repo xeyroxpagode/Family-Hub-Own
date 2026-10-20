@@ -13,6 +13,9 @@ async function search(context, query = {}) {
   return data;
 }
 async function discovery(context, query = {}) {
-  return search(context, { ...query, q: '' });
+  requireCapability(context, 'inventory.view');
+  const { data, error } = await context.client.rpc('inventory_catalog_discovery');
+  if (error) throwInventoryDatabaseError(error);
+  return data;
 }
 module.exports = { search, discovery };

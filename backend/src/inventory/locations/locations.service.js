@@ -4,10 +4,9 @@ const { throwInventoryDatabaseError } = require('../shared/inventory.errors');
 
 async function list(context) {
   requireCapability(context, 'inventory.view');
-  const { data, error } = await context.client.from('inventory_locations').select('*')
-    .eq('household_id', context.householdId).order('sort_order').order('name').order('id');
+  const { data, error } = await context.client.rpc('inventory_locations_list');
   if (error) throwInventoryDatabaseError(error);
-  return { locations: data || [] };
+  return data;
 }
 async function rpc(context, name, args) {
   requireCapability(context, 'inventory.manage');

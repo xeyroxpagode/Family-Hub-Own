@@ -32,4 +32,5 @@ module.exports={
   productsRestoreTrash:handler((c,r)=>products.lifecycle(c,r.params.id,'restore_from_trash',contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
   productsPermanent:handler((c,r)=>products.lifecycle(c,r.params.id,'permanent',contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
   productsBatch:handler((c,r)=>products.batch(c,r.body??{},contract(r,OPERATION_KINDS.IDEMPOTENT_MUTATION))),
+  productsEmptyTrash:handler((c,r)=>products.emptyTrash(c,contract(r,OPERATION_KINDS.IDEMPOTENT_MUTATION))),
 };

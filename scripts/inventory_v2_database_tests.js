@@ -48,8 +48,9 @@ async function main(){
     const discovery2=(await actor.query("select public.inventory_catalog_search('',5,5,$1) body",[ids.household1])).rows[0].body;
     check(discovery.items.some((a)=>discovery2.items.some((b)=>a.id===b.id)),false,'catalog pagination is stable without overlap');
     check(Number((await admin.query("select count(*) from public.inventory_catalog_items where external_source='legacy_inventory_template'")).rows[0].count),Number((await admin.query('select count(*) from public.inventory_item_templates')).rows[0].count),'catalog seed has one stable row per legacy template');
-    const created=await actor.query("select public.inventory_product_create($1::jsonb,$2,$3) body",[JSON.stringify({name:'Leche concurrente',quantity:5,low_stock_threshold:1,category_key:'kitchen'}),'create-1','create-key-1']);
+    const created=await actor.query("select public.inventory_product_create($1::jsonb,$2,$3) body",[JSON.stringify({name:'Leche concurrente',quantity:5,low_stock_threshold:1,category_key:'food_drink'}),'create-1','create-key-1']);
     const itemId=created.rows[0].body.item.id;
+    await admin.query("update public.inventory_items set category_key='kitchen' where id=$1",[itemId]);
     check(Number(created.rows[0].body.item.quantity),5,'create quantity');
     const legacyActor=await clientFor(ids.auth1,true);
     await legacyActor.query("select public.inventory_legacy_log_movement($1,'edit',5,null,5,$2::jsonb)",[itemId,JSON.stringify({compatibility_test:true})]);
@@ -96,18 +97,69 @@ async function main(){
     check((await admin.query('select location_id from public.inventory_items where id=$1',[itemId])).rows[0].location_id,null,'location delete moves product to no location');
     check(Number((await admin.query('select count(*) from public.inventory_locations where id=$1',[location.id])).rows[0].count),0,'location deletion commits atomically');
 
-    const item2=(await actor.query("select public.inventory_product_create($1::jsonb,$2,$3) body",[JSON.stringify({name:'Arroz batch',quantity:2,low_stock_threshold:1,category_key:'kitchen'}),'create-2','create-key-2'])).rows[0].body.item;
-    const listed=(await actor.query("select public.inventory_products_list(null,null,false,'all',null,'active',1,null) body")).rows[0].body;
+    const item2=(await actor.query("select public.inventory_product_create($1::jsonb,$2,$3) body",[JSON.stringify({name:'Arroz batch',quantity:2,low_stock_threshold:1,category_key:'food_drink'}),'create-2','create-key-2'])).rows[0].body.item;
+    const block2Summary=(await actor.query('select public.inventory_summary() body')).rows[0].body;
+    check(Number(block2Summary.archived_count),0,'summary returns archived count');
+    check(Number(block2Summary.trashed_count),0,'summary returns trash count');
+    check(Number(block2Summary.unlocated_count),2,'summary returns unlocated active count');
+    const block2Discovery=(await actor.query('select public.inventory_catalog_discovery() body')).rows[0].body;
+    check(block2Discovery.recents.length<=8,true,'discovery recents is bounded');
+    check(block2Discovery.suggestions.length<=12,true,'discovery suggestions is bounded');
+    check(block2Discovery.recents.some((row)=>row.id===catalogId),true,'discovery uses household recency authority');
+    check(block2Discovery.suggestions.some((row)=>block2Discovery.recents.some((recent)=>recent.id===row.id)),false,'discovery excludes recents from suggestions');
+    const countedLocation=(await actor.query("select public.inventory_location_create('Alacena','file-tray-stacked-outline','loc-count','loc-count-key') body")).rows[0].body.location;
+    const item2BeforeEdit=(await admin.query('select * from public.inventory_items where id=$1',[item2.id])).rows[0];
+    const edited=(await actor.query('select public.inventory_product_edit($1,$2,$3::jsonb,$4,$5) body',[item2.id,item2BeforeEdit.version,JSON.stringify({name:'Arroz editado',quantity:4,notes:'nota',location_id:countedLocation.id,catalog_item_id:catalogId}),'editor-both','editor-both-key'])).rows[0].body.item;
+    check(Number(edited.version),Number(item2BeforeEdit.version)+1,'editor metadata and quantity increment version once');
+    check(Number(edited.quantity),4,'editor quantity is applied atomically');
+    check(Number((await admin.query("select count(*) from public.inventory_item_movements where correlation_id='editor-both' and movement_type='quantity_set'")).rows[0].count),1,'editor writes quantity_set movement');
+    check(Number((await admin.query("select count(*) from public.inventory_item_movements where correlation_id='editor-both' and movement_type='metadata_update'")).rows[0].count),1,'editor writes metadata_update movement');
+    const locationsRead=(await actor.query('select public.inventory_locations_list() body')).rows[0].body;
+    const counted=locationsRead.locations.find((row)=>row.id===countedLocation.id);
+    check(Number(counted.active_product_count),1,'locations list returns active product count');
+    check(Number(counted.managed_product_count),1,'locations list returns managed product count');
+    check(Number(locationsRead.unlocated_count),1,'locations list returns synthetic unlocated count');
+    const catalogFiltered=(await actor.query("select public.inventory_products_list(null,null,false,'all',null,'active',$1,50,null) body",[catalogId])).rows[0].body;
+    check(catalogFiltered.items.map((row)=>row.id),[item2.id],'product catalog_item_id filter is exact');
+    const canonicalFiltered=(await actor.query("select public.inventory_products_list(null,null,false,'all','food_drink','active',null,50,null) body")).rows[0].body;
+    check(canonicalFiltered.items.some((row)=>row.id===itemId),true,'canonical food category includes legacy kitchen rows');
+    const firstNamePage=(await actor.query("select public.inventory_products_list(null,null,false,'all',null,'active',null,1,null) body")).rows[0].body;
+    const secondNamePage=(await actor.query("select public.inventory_products_list(null,null,false,'all',null,'active',null,1,$1) body",[firstNamePage.next_cursor])).rows[0].body;
+    check(firstNamePage.items[0].name,'Arroz editado','product list sorts by normalized name');
+    check(firstNamePage.items.some((row)=>secondNamePage.items.some((other)=>other.id===row.id)),false,'name keyset pages never overlap');
+    const listed=(await actor.query("select public.inventory_products_list(null,null,false,'all',null,'active',null,1,null) body")).rows[0].body;
     check(listed.items.length,1,'product list enforces requested page size');check(Boolean(listed.next_cursor),true,'product list emits stable cursor');
     const beforeBatch=(await admin.query('select id,category_key,version from public.inventory_items where id=any($1::uuid[]) order by id',[[itemId,item2.id]])).rows;
     const batchItems=beforeBatch.map((row,index)=>({id:row.id,expected_version:Number(row.version)+(index===1?1:0)}));
-    await assert.rejects(()=>actor.query('select public.inventory_products_batch($1::jsonb,$2,$3::jsonb,$4,$5)',[JSON.stringify(batchItems),'set_category',JSON.stringify({category_key:'general'}),'batch-stale','batch-stale-key']),/version_conflict_v2/);assertions+=1;
+    await assert.rejects(()=>actor.query('select public.inventory_products_batch($1::jsonb,$2,$3::jsonb,$4,$5)',[JSON.stringify(batchItems),'set_category',JSON.stringify({category_key:'other'}),'batch-stale','batch-stale-key']),/version_conflict_v2/);assertions+=1;
     const afterBatch=(await admin.query('select id,category_key,version from public.inventory_items where id=any($1::uuid[]) order by id',[[itemId,item2.id]])).rows;
     check(afterBatch,beforeBatch,'one stale entity rolls back full batch');
     check(Number((await admin.query("select count(*) from public.inventory_item_movements where correlation_id='batch-stale'")).rows[0].count),0,'batch rollback removes audit too');
     const goodBatch=afterBatch.map((row)=>({id:row.id,expected_version:Number(row.version)}));
-    const batchResult=(await actor.query('select public.inventory_products_batch($1::jsonb,$2,$3::jsonb,$4,$5) body',[JSON.stringify(goodBatch),'set_category',JSON.stringify({category_key:'general'}),'batch-ok','batch-ok-key'])).rows[0].body;
-    check(batchResult.items.every((item)=>item.category_key==='general'),true,'batch success updates all rows atomically');
+    const batchResult=(await actor.query('select public.inventory_products_batch($1::jsonb,$2,$3::jsonb,$4,$5) body',[JSON.stringify(goodBatch),'set_category',JSON.stringify({category_key:'other'}),'batch-ok','batch-ok-key'])).rows[0].body;
+    check(batchResult.items.every((item)=>item.category_key==='other'),true,'batch success updates all rows atomically');
+
+    let batchLifecycle=(await admin.query('select id,version from public.inventory_items where id=$1',[itemId])).rows[0];
+    batchLifecycle=(await actor.query("select public.inventory_products_batch($1::jsonb,'archive','{}'::jsonb,'batch-archive','batch-archive-key') body",[JSON.stringify([{id:itemId,expected_version:Number(batchLifecycle.version)}])])).rows[0].body.items[0];
+    batchLifecycle=(await actor.query("select public.inventory_products_batch($1::jsonb,'restore','{}'::jsonb,'batch-restore','batch-restore-key') body",[JSON.stringify([{id:itemId,expected_version:Number(batchLifecycle.version)}])])).rows[0].body.items[0];
+    check(batchLifecycle.archived_at,null,'batch restore returns product to active lifecycle');
+    batchLifecycle=(await actor.query("select public.inventory_products_batch($1::jsonb,'trash','{}'::jsonb,'batch-trash','batch-trash-key') body",[JSON.stringify([{id:itemId,expected_version:Number(batchLifecycle.version)}])])).rows[0].body.items[0];
+    batchLifecycle=(await actor.query("select public.inventory_products_batch($1::jsonb,'restore_from_trash','{}'::jsonb,'batch-restore-trash','batch-restore-trash-key') body",[JSON.stringify([{id:itemId,expected_version:Number(batchLifecycle.version)}])])).rows[0].body.items[0];
+    check(batchLifecycle.trashed_at,null,'batch restore_from_trash returns product to prior lifecycle');
+
+    const batchPermanentItem=(await actor.query("select public.inventory_product_create($1::jsonb,'batch-perm-create','batch-perm-create-key') body",[JSON.stringify({name:'Batch permanent',quantity:1})])).rows[0].body.item;
+    const batchPermanentTrashed=(await actor.query("select public.inventory_product_lifecycle($1,'trash',$2,'batch-perm-trash','batch-perm-trash-key') body",[batchPermanentItem.id,batchPermanentItem.version])).rows[0].body.item;
+    await actor.query("select public.inventory_products_batch($1::jsonb,'permanent','{}'::jsonb,'batch-permanent','batch-permanent-key')",[JSON.stringify([{id:batchPermanentItem.id,expected_version:Number(batchPermanentTrashed.version)}])]);
+    check(Number((await admin.query('select count(*) from public.inventory_items where id=$1',[batchPermanentItem.id])).rows[0].count),0,'batch permanent deletes trashed rows');
+
+    const emptyTrashItem=(await actor.query("select public.inventory_product_create($1::jsonb,'empty-create','empty-create-key') body",[JSON.stringify({name:'Vaciar test',quantity:1})])).rows[0].body.item;
+    await actor.query("select public.inventory_product_lifecycle($1,'trash',$2,'empty-trash','empty-trash-key')",[emptyTrashItem.id,emptyTrashItem.version]);
+    const emptyResult=(await actor.query("select public.inventory_empty_trash('empty-run','empty-run-key') body")).rows[0].body;
+    check(Number(emptyResult.deleted_count),1,'empty trash reports only trashed rows');
+    check(Number((await admin.query('select count(*) from public.inventory_items where id=$1',[itemId])).rows[0].count),1,'empty trash preserves active products');
+    await admin.query("update public.households set config=jsonb_build_object('permissions',jsonb_build_object('inventory.destroy',jsonb_build_object('adult',false))) where id=$1",[ids.household1]);
+    await assert.rejects(()=>actor.query("select public.inventory_empty_trash('empty-denied','empty-denied-key')"),/inventory_forbidden/);assertions+=1;
+    await admin.query("update public.households set config='{}'::jsonb where id=$1",[ids.household1]);
 
     let lifecycleItem=(await admin.query('select * from public.inventory_items where id=$1',[item2.id])).rows[0];
     await assert.rejects(()=>actor.query("select public.inventory_product_lifecycle($1,'permanent',$2,'perm-bad','perm-bad-key')",[item2.id,lifecycleItem.version]),/permanent_delete_requires_trash/);assertions+=1;
@@ -117,7 +169,7 @@ async function main(){
     await actor.query("select public.inventory_product_lifecycle($1,'permanent',$2,'perm-ok','perm-ok-key')",[item2.id,lifecycleItem.version]);
     check(Number((await admin.query('select count(*) from public.inventory_items where id=$1',[item2.id])).rows[0].count),0,'permanent delete only succeeds from trash');
     const preservedAudit=(await admin.query("select inventory_item_id,item_name_snapshot from public.inventory_item_movements where correlation_id='perm-ok'")).rows[0];
-    check(preservedAudit.inventory_item_id,null,'permanent delete preserves movement with null item FK');check(preservedAudit.item_name_snapshot,'Arroz batch','permanent delete preserves name snapshot');
+    check(preservedAudit.inventory_item_id,null,'permanent delete preserves movement with null item FK');check(preservedAudit.item_name_snapshot,'Arroz editado','permanent delete preserves name snapshot');
 
     await assert.rejects(()=>actor.query("select public.inventory_product_create($1::jsonb,'bad-target','bad-target-key')",[JSON.stringify({name:'Target inválido',quantity:0,low_stock_threshold:2,target_quantity:2,auto_restock_enabled:true})]),/invalid_target/);assertions+=1;
     const autoItem=(await actor.query("select public.inventory_product_create($1::jsonb,'auto-create','auto-create-key') body",[JSON.stringify({name:'Auto restock',quantity:0,low_stock_threshold:1,target_quantity:4,auto_restock_enabled:true})])).rows[0].body.item;
