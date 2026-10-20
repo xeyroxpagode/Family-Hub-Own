@@ -15,6 +15,17 @@ const ERROR_MAP = Object.freeze({
   invalid_catalog_item: [400, 'El producto de catálogo no es válido.'],
   invalid_target: [400, 'El objetivo debe ser mayor que el umbral.'],
   validation_error: [400, 'Los datos enviados no son válidos.'],
+  inventory_invalid_assignee: [400, 'La persona no es miembro activo de este hogar.'],
+  inventory_shopping_item_not_found: [404, 'Producto de la lista no encontrado.'],
+  inventory_shopping_item_removed: [409, 'El producto ya no está en la lista.'],
+  inventory_shopping_restore_conflict: [409, 'No pudimos deshacer porque la lista cambió.'],
+  inventory_purchase_empty: [422, 'Agregá productos antes de iniciar la compra.'],
+  inventory_purchase_not_found: [404, 'Compra no encontrada.'],
+  inventory_purchase_line_not_found: [404, 'Producto de compra no encontrado.'],
+  inventory_purchase_not_open: [409, 'La compra ya no está abierta.'],
+  inventory_purchase_not_active: [409, 'La compra no está activa.'],
+  inventory_purchase_invalid_transition: [409, 'La compra cambió de estado.'],
+  inventory_purchase_nothing_purchased: [422, 'Marcá al menos un producto como comprado.'],
 });
 
 function throwInventoryDatabaseError(error) {

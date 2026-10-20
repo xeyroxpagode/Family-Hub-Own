@@ -6,9 +6,12 @@ const catalog = require('./catalog/catalog.service');
 const locations = require('./locations/locations.service');
 const products = require('./products/products.service');
 const summary = require('./summary/summary.service');
+const shopping = require('./shopping/shopping.service');
+const purchases = require('./purchases/purchases.service');
+const integrations = require('./integrations');
 
 function sendError(res,error){const status=error.statusCode??500;if(status>=500)console.error('[inventory-v2]',{message:error.message,code:error.code,details:error.details});return res.status(status).json({error:status<500?error.message:'Error interno.',code:error.code??'internal_error'});}
-const handler=(fn,status=200)=>async(req,res)=>{try{const context=await getHouseholdRequestContext(req);const body=await fn(context,req);return res.status(status).json(body??{});}catch(error){return sendError(res,error);}};
+const handler=(fn,status=200)=>async(req,res)=>{try{const context=await getHouseholdRequestContext(req);const body=await fn(context,req);return res.status(status).json(body===undefined?{}:body);}catch(error){return sendError(res,error);}};
 const contract=(req,kind)=>requireMutationContract(req,kind);
 
 module.exports={
@@ -33,4 +36,22 @@ module.exports={
   productsPermanent:handler((c,r)=>products.lifecycle(c,r.params.id,'permanent',contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
   productsBatch:handler((c,r)=>products.batch(c,r.body??{},contract(r,OPERATION_KINDS.IDEMPOTENT_MUTATION))),
   productsEmptyTrash:handler((c,r)=>products.emptyTrash(c,contract(r,OPERATION_KINDS.IDEMPOTENT_MUTATION))),
+  integrations:handler((c)=>integrations.status(c)),
+  shoppingGet:handler((c)=>shopping.get(c)), shoppingDiscovery:handler((c,r)=>shopping.discovery(c,r.query)),
+  shoppingAssign:handler((c,r)=>shopping.assign(c,r.body??{},contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
+  shoppingAdd:handler((c,r)=>shopping.add(c,r.body??{},contract(r,OPERATION_KINDS.IDEMPOTENT_MUTATION))),
+  shoppingEdit:handler((c,r)=>shopping.edit(c,r.params.id,r.body??{},contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
+  shoppingRemove:handler((c,r)=>shopping.remove(c,r.params.id,contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
+  shoppingRestore:handler((c,r)=>shopping.restore(c,r.params.id,contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
+  shoppingBatch:handler((c,r)=>shopping.batch(c,r.body??{},contract(r,OPERATION_KINDS.IDEMPOTENT_MUTATION))),
+  shoppingClear:handler((c,r)=>shopping.clear(c,contract(r,OPERATION_KINDS.IDEMPOTENT_MUTATION))),
+  shoppingPlannerTask:handler((c,r)=>shopping.plannerTask(c,r.body??{},contract(r,OPERATION_KINDS.CREATE_IDEMPOTENT))),
+  purchasesActive:handler((c)=>purchases.active(c)), purchasesHistory:handler((c,r)=>purchases.history(c,r.query)), purchasesDetail:handler((c,r)=>purchases.detail(c,r.params.id)),
+  purchasesStart:handler((c,r)=>purchases.start(c,r.body??{},contract(r,OPERATION_KINDS.CREATE_IDEMPOTENT)),201),
+  purchaseLineSet:handler((c,r)=>purchases.setLine(c,r.params.id,r.params.lineId,r.body??{},contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
+  purchasePause:handler((c,r)=>purchases.pause(c,r.params.id,r.body??{},contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
+  purchaseResume:handler((c,r)=>purchases.resume(c,r.params.id,r.body??{},contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
+  purchaseCancel:handler((c,r)=>purchases.cancel(c,r.params.id,r.body??{},contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
+  purchaseFinalize:handler((c,r)=>purchases.finalize(c,r.params.id,r.body??{},contract(r,OPERATION_KINDS.VERSIONED_MUTATION))),
+  purchaseFinanceRetry:handler((c,r)=>purchases.retryFinance(c,r.params.id,r.body??{},contract(r,OPERATION_KINDS.IDEMPOTENT_MUTATION))),
 };
