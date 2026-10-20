@@ -44,6 +44,8 @@ module.exports = {
   HomiContextError: contextContract.HomiContextError,
   validateHomiIdentityClaims: contextContract.validateHomiIdentityClaims,
   createHomiContextResolver: contextResolver.createHomiContextResolver,
+  createHomiExecutionContextResolver: contextResolver.createHomiExecutionContextResolver,
   defaultResolveHomePlusContext: contextResolver.defaultResolveHomePlusContext,
   resolveHomiContext: contextResolver.resolveHomiContext,
+  resolveHomiExecutionContext: contextResolver.resolveHomiExecutionContext,
 };

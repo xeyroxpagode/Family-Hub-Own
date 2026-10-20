@@ -169,6 +169,44 @@ function buildHomiContext(canonical, authUserId) {
 }
 
 /**
+ * Resolve the canonical HomePlus context for an authenticated authority.
+ *
+ * Shared step of the two public resolvers below. It never reads the caller
+ * identity claims: the canonical context is always derived from the
+ * authenticated principal and its bearer token.
+ *
+ * @param {Function} resolveHomePlusContext canonical context authority
+ * @param {{ user: object, accessToken: string }} input authenticated authority
+ * @returns {Promise<{ user: object, canonical: object }>} the resolved pair
+ * @throws {HomiContextError} HOMI_AUTH_CONTEXT_INVALID / HOMI_CONTEXT_UNAVAILABLE
+ */
+async function resolveCanonicalContext(resolveHomePlusContext, input) {
+  const { user, accessToken } = validateAuthenticatedInput(input);
+
+  let canonical;
+  try {
+    canonical = await resolveHomePlusContext({ user, accessToken });
+  } catch (error) {
+    throw createHomiContextError(
+      HOMI_CONTEXT_UNAVAILABLE,
+      'The authoritative HomePlus context could not be resolved for the authenticated user.',
+      { reason: 'homeplus_context_resolution_failed' },
+      error
+    );
+  }
+
+  if (!isPlainObject(canonical)) {
+    throw createHomiContextError(
+      HOMI_CONTEXT_UNAVAILABLE,
+      'The authoritative HomePlus context could not be resolved for the authenticated user.',
+      { reason: 'canonical_context_invalid' }
+    );
+  }
+
+  return { user, canonical };
+}
+
+/**
  * Build a Homi context resolver bound to a canonical HomePlus context
  * dependency.
  *
@@ -186,29 +224,44 @@ function createHomiContextResolver(options) {
   }
 
   return async function resolveHomiContext(input) {
-    const { user, accessToken } = validateAuthenticatedInput(input);
-
-    let canonical;
-    try {
-      canonical = await resolveHomePlusContext({ user, accessToken });
-    } catch (error) {
-      throw createHomiContextError(
-        HOMI_CONTEXT_UNAVAILABLE,
-        'The authoritative HomePlus context could not be resolved for the authenticated user.',
-        { reason: 'homeplus_context_resolution_failed' },
-        error
-      );
-    }
-
-    if (!isPlainObject(canonical)) {
-      throw createHomiContextError(
-        HOMI_CONTEXT_UNAVAILABLE,
-        'The canonical HomePlus context could not be resolved for the authenticated user.',
-        { reason: 'canonical_context_invalid' }
-      );
-    }
+    const { user, canonical } = await resolveCanonicalContext(resolveHomePlusContext, input);
 
     return buildHomiContext(canonical, user.id.trim());
+  };
+}
+
+/**
+ * Build an execution context resolver bound to a canonical HomePlus context
+ * dependency.
+ *
+ * It returns BOTH:
+ *   - `context`: the public, sanitized five field Homi context. This is the
+ *     only shape that may leave the Homi boundary.
+ *   - `canonical`: the canonical HomePlus context produced by the existing
+ *     context authority. It is retained for the duration of exactly one tool
+ *     invocation so the current business service layer can be reused, and it
+ *     is never returned to a caller nor serialized into a tool result.
+ *
+ * @param {{ resolveHomePlusContext: Function }} options dependency injection
+ * @returns {Function} `async (input) => { context, canonical }`
+ */
+function createHomiExecutionContextResolver(options) {
+  const resolveHomePlusContext = isPlainObject(options) ? options.resolveHomePlusContext : null;
+
+  if (typeof resolveHomePlusContext !== 'function') {
+    throw createHomiContextError(
+      HOMI_CONTEXT_UNAVAILABLE,
+      'A canonical HomePlus context dependency is required.'
+    );
+  }
+
+  return async function resolveHomiExecutionContext(input) {
+    const { user, canonical } = await resolveCanonicalContext(resolveHomePlusContext, input);
+
+    return {
+      context: buildHomiContext(canonical, user.id.trim()),
+      canonical,
+    };
   };
 }
 
@@ -223,6 +276,18 @@ const resolveHomiContext = createHomiContextResolver({
   resolveHomePlusContext: defaultResolveHomePlusContext,
 });
 
+/**
+ * Production execution context resolver: bound to the existing canonical
+ * HomePlus context authority.
+ *
+ * @param {{ user: object, accessToken: string }} input authenticated authority
+ * @returns {Promise<{ context: object, canonical: object }>} the sanitized
+ *   public Homi context plus the canonical context retained for one invocation
+ */
+const resolveHomiExecutionContext = createHomiExecutionContextResolver({
+  resolveHomePlusContext: defaultResolveHomePlusContext,
+});
+
 module.exports = {
   HOMI_AUTH_CONTEXT_INVALID,
   HOMI_CONTEXT_UNAVAILABLE,
@@ -231,7 +296,9 @@ module.exports = {
   HomiContextError,
   createHomiContextError,
   createHomiContextResolver,
+  createHomiExecutionContextResolver,
   defaultResolveHomePlusContext,
   resolveHomiContext,
+  resolveHomiExecutionContext,
   validateHomiIdentityClaims,
 };

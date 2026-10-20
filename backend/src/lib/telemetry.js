@@ -2,7 +2,13 @@
 
 const { assertSafeStructuredData } = require('./dataPrivacy');
 
-const EVENT_NAME_RE = /^[a-z][a-z0-9_]{2,80}$/;
+// Event names are lowercase and dot separated (`domain.event`). The dot
+// separator is the canonical spelling of a logical event name; the plain
+// underscore spelling used by the existing core and planner catalogs stays
+// valid because a dot separated name accepts the same segment characters.
+const EVENT_NAME_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/;
+const EVENT_NAME_MIN_LENGTH = 3;
+const EVENT_NAME_MAX_LENGTH = 80;
 const CORRELATION_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 
 function validateProperty(value, rule, key) {
@@ -21,7 +27,14 @@ function createTelemetryCatalog() {
     register(definitions) {
       if (!Array.isArray(definitions)) throw new TypeError('Telemetry definitions must be an array.');
       for (const definition of definitions) {
-        if (!EVENT_NAME_RE.test(definition?.name ?? '')) throw new TypeError(`Invalid telemetry event: ${String(definition?.name)}`);
+        const name = String(definition?.name ?? '');
+        if (
+          !EVENT_NAME_RE.test(name) ||
+          name.length < EVENT_NAME_MIN_LENGTH ||
+          name.length > EVENT_NAME_MAX_LENGTH
+        ) {
+          throw new TypeError(`Invalid telemetry event: ${String(definition?.name)}`);
+        }
         if (!definition.domain?.trim()) throw new TypeError(`Telemetry event ${definition.name} needs a domain.`);
         if (events.has(definition.name)) throw new TypeError(`Duplicate telemetry event: ${definition.name}`);
         const properties = Object.freeze({ ...(definition.properties ?? {}) });

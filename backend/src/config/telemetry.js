@@ -8,10 +8,12 @@ const {
 } = require('../lib/telemetry');
 const { CORE_TELEMETRY_EVENTS } = require('../constants/coreTelemetryEvents');
 const { PLANNER_TELEMETRY_EVENTS } = require('../constants/plannerTelemetryEvents');
+const { HOMI_TELEMETRY_EVENTS } = require('../constants/homiTelemetryEvents');
 
 const telemetryCatalog = createTelemetryCatalog();
 telemetryCatalog.register(CORE_TELEMETRY_EVENTS);
 telemetryCatalog.register(PLANNER_TELEMETRY_EVENTS);
+telemetryCatalog.register(HOMI_TELEMETRY_EVENTS);
 
 const telemetrySink = process.env.HOMEPLUS_TELEMETRY_SINK === 'console'
   ? createConsoleTelemetrySink()
