@@ -658,7 +658,6 @@ const restoreGoal = async (context, goalId, expectedVersion) => {
     {
       p_goal_id: goalId,
       p_expected_version: expectedVersion ?? null,
-      p_member_id: context.membershipId,
       p_context_household_id: context.householdId,
     },
     WRITER_MESSAGES,

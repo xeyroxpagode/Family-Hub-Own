@@ -154,6 +154,19 @@ function validateNoForbidden(payload, forbidden) {
   return success(payload);
 }
 
+// Frozen §33: runtime identity/state is an entity-level concern, so it is
+// rejected at the payload root only. Template-local structures (placeholder
+// ids required by the shared contract, Plan graph node ids) are structural
+// references validated by their own schemas, never entity instance state.
+function validateNoRuntimeState(payload) {
+  for (const key of Object.keys(payload)) {
+    if (FORBIDDEN_RUNTIME_STATE_FIELDS.has(key)) {
+      return failure('payload_schema_invalid', `Forbidden operational field: ${key}.`, { path: key });
+    }
+  }
+  return success(payload);
+}
+
 function createAdapter({ key, entityType, requiredField, presetForbidden, draftForbidden, normalize }) {
   const adapter = {
     key,
@@ -163,15 +176,15 @@ function createAdapter({ key, entityType, requiredField, presetForbidden, draftF
     validatePresetPayload(input) {
       const object = ensureObjectPayload(input);
       if (!object.ok) return object;
-      // Per-type list PLUS the shared runtime-state list (frozen §33): a Preset
-      // is form prefill, so no entity id, authorship, version, archive/trash
-      // state or concrete-Plan/Series/Responsibility link may survive.
-      const forbidden = validateNoForbidden(
-        object.value,
-        new Set([...presetForbidden, ...FORBIDDEN_RUNTIME_STATE_FIELDS]),
-      );
+      // Per-type forbidden fields are scanned recursively; the shared
+      // runtime-state list (frozen §33) applies to the payload root so a
+      // Preset stays FORM PREFILL without rejecting template-local
+      // placeholder/graph ids.
+      const forbidden = validateNoForbidden(object.value, presetForbidden);
       if (!forbidden.ok) return forbidden;
-      const normalized = normalizeCommonTemplatePayload(normalize(forbidden.value, 'preset'));
+      const runtimeState = validateNoRuntimeState(forbidden.value);
+      if (!runtimeState.ok) return runtimeState;
+      const normalized = normalizeCommonTemplatePayload(normalize(runtimeState.value, 'preset'));
       if (!normalized.ok) return normalized;
       if (!normalizeString(normalized.value[requiredField]) && entityType !== 'plan') {
         return failure('payload_schema_invalid', `${requiredField} is required.`);
@@ -185,12 +198,11 @@ function createAdapter({ key, entityType, requiredField, presetForbidden, draftF
     validateDraftPayload(input) {
       const object = ensureObjectPayload(input);
       if (!object.ok) return object;
-      const forbidden = validateNoForbidden(
-        object.value,
-        new Set([...draftForbidden, ...FORBIDDEN_RUNTIME_STATE_FIELDS]),
-      );
+      const forbidden = validateNoForbidden(object.value, draftForbidden);
       if (!forbidden.ok) return forbidden;
-      const normalized = normalizeCommonTemplatePayload(normalize(forbidden.value, 'draft'));
+      const runtimeState = validateNoRuntimeState(forbidden.value);
+      if (!runtimeState.ok) return runtimeState;
+      const normalized = normalizeCommonTemplatePayload(normalize(runtimeState.value, 'draft'));
       if (!normalized.ok) return normalized;
       return success(normalized.value);
     },

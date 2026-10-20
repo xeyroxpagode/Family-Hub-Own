@@ -171,8 +171,8 @@ function testRuntimeWiring() {
   check(!/restore_milestone_rpc[\s\S]{0,220}p_member_id/.test(goalService), 'Milestone restore backend does not send actor member id');
   check(/restoreGoal = \([\s\S]{0,120}expectedVersion: number/.test(goalFrontend), 'Goal restore service requires a version');
   check(/restoreGoalMilestone = \([\s\S]{0,160}expectedVersion: number/.test(goalFrontend), 'Milestone restore service requires a version');
-  check(trashScreen.includes('restoreGoal(accessToken, item.id, item.version)'), 'Trash sends Goal version');
-  check(trashScreen.includes('restoreGoalMilestone(accessToken, item.parent.id, item.id, item.version)'), 'Trash sends Milestone version');
+  check(trashScreen.includes('enqueuePlannerGoalRestore(item.id, item.version)'), 'Trash sends Goal version');
+  check(trashScreen.includes('enqueuePlannerMilestoneRestore(item.parent.id, item.id, item.version)'), 'Trash sends Milestone version');
   check(taskService.includes("personal_tasks_not_supported"), 'Task service exposes the stable personal-task limitation code');
   check(taskController.includes("personal_tasks_not_supported"), 'Task controller exposes the same personal-task limitation code');
   check(taskService.includes("assignment_history_requires_explicit_transition"), 'Task service maps historical reassignment to the stable application code');
