@@ -10,6 +10,7 @@ const SAFE_CORRELATION_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const OPERATION_KINDS = Object.freeze({
   READ_ONLY: 'READ_ONLY',
   CREATE_IDEMPOTENT: 'CREATE_IDEMPOTENT',
+  IDEMPOTENT_MUTATION: 'IDEMPOTENT_MUTATION',
   VERSIONED_MUTATION: 'VERSIONED_MUTATION',
   NON_VERSIONED_MUTATION: 'NON_VERSIONED_MUTATION',
   AUTH_SESSION_MUTATION: 'AUTH_SESSION_MUTATION',
@@ -22,6 +23,11 @@ const OPERATION_POLICIES = Object.freeze({
     version: 'not_applicable',
   }),
   [OPERATION_KINDS.CREATE_IDEMPOTENT]: Object.freeze({
+    mutationId: 'required',
+    idempotency: 'required',
+    version: 'not_applicable',
+  }),
+  [OPERATION_KINDS.IDEMPOTENT_MUTATION]: Object.freeze({
     mutationId: 'required',
     idempotency: 'required',
     version: 'not_applicable',
