@@ -63,7 +63,7 @@ export function filesOwnedUploadProgress(
 }
 
 export function createFileIntakeService(config: FileIntakeConfig, dependencies: FileIntakeDependencies = {}) {
-  const { householdId, accessToken, getAccessToken = () => accessToken, capabilities, initialFolderId, initialFolderName } = config;
+  const { householdId, accessToken, getAccessToken = () => accessToken, capabilities, initialFolderId, initialFolderName, intakeRequestId } = config;
 
   // Shared process-wide store: every intake surface (Files, Scanner, dev)
   // observes the same durable jobs, so a remount never loses the active job
@@ -285,6 +285,10 @@ export function createFileIntakeService(config: FileIntakeConfig, dependencies: 
             role: 'file',
             intakeSource: config.intakeSource ?? 'files:picker',
             initialFolderId: selectedFolderId,
+            // A PINNED intake identity makes the register step idempotent for
+            // the SAME user intent: the retry resolves to the same contentId
+            // and never registers a second File. Absent -> generated, as before.
+            ...(intakeRequestId ? { intakeRequestId } : {}),
           },
           durableArtifact,
         );

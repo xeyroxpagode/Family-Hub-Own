@@ -17,5 +17,7 @@ export * from './intent';
 export * from './client';
 export * from './plannerItems';
 export * from './motion';
+export * from './assetsFiles';
+export * from './fileAttach';
 export { mutations } from './mutations';
 export type { MutationOutcome } from './mutations';

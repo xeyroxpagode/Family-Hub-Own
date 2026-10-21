@@ -11,6 +11,15 @@ export interface FileIntakeConfig {
   initialFolderId?: string | null;
   initialFolderName?: string | null;
   intakeSource?: string;
+  /**
+   * Optional PINNED intake identity.
+   *
+   * The Assets attach owns a stable user intent, so it derives the intake
+   * identity from its Idempotency-Key: a retry resolves to the SAME contentId
+   * and never registers a second File. When it is absent the identity is
+   * generated, exactly as before.
+   */
+  intakeRequestId?: string | null;
 }
 
 /**

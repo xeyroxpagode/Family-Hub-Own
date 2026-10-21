@@ -11,6 +11,7 @@
 
 const assetsService = require('../services/assets.service');
 const assetsPlannerService = require('../services/assets.planner.service');
+const assetsFilesService = require('../services/assets.files.service');
 const { sendApiError } = require('../lib/httpErrors');
 
 async function dispatch(req, res, fn, fallbackStatus = 200) {
@@ -113,5 +114,35 @@ module.exports = {
   },
   listAssetPlannerItems: (req, res) =>
     dispatch(req, res, () => assetsPlannerService.listAssetPlannerItems(req, req.params?.assetId, req.query ?? {})),
+  // S8-02 — Assets <-> HomeCloud: Asset/Record/Care <-> File relations.
+  // Link/Unlink are idempotent mutations (Idempotency-Key REQUIRED); the
+  // controller echoes X-Mutation-Id for correlation, exactly like the
+  // Assets <-> Planner facade does.
+  linkAssetFile: async (req, res) => {
+    try {
+      const result = await assetsFilesService.linkAssetFile(req, req.body ?? {});
+      const mutationId = req.get?.('X-Mutation-Id');
+      if (mutationId) res.set('X-Mutation-Id', mutationId);
+      return res.status(result?.status ?? 200).json(result?.body ?? {});
+    } catch (error) {
+      return sendApiError(res, error, req);
+    }
+  },
+  unlinkAssetFile: async (req, res) => {
+    try {
+      const result = await assetsFilesService.unlinkAssetFile(req, req.body ?? {});
+      const mutationId = req.get?.('X-Mutation-Id');
+      if (mutationId) res.set('X-Mutation-Id', mutationId);
+      return res.status(result?.status ?? 200).json(result?.body ?? {});
+    } catch (error) {
+      return sendApiError(res, error, req);
+    }
+  },
+  listAssetFiles: (req, res) =>
+    dispatch(req, res, () => assetsFilesService.listOwnerFiles(req, 'asset', req.params?.assetId)),
+  listAssetRecordFiles: (req, res) =>
+    dispatch(req, res, () => assetsFilesService.listOwnerFiles(req, 'record', req.params?.recordId)),
+  listAssetCareFiles: (req, res) =>
+    dispatch(req, res, () => assetsFilesService.listOwnerFiles(req, 'care', req.params?.careId)),
 };
 

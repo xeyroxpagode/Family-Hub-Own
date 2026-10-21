@@ -19,6 +19,13 @@ import { InteractivePressable } from '../ui/InteractivePressable';
 import { colors, radius } from '../../constants/theme';
 import { AssetFormSheet, AssetConfirmSheet } from './AssetSheet';
 import { AssetsFailureBar } from './ErrorBar';
+import { AssetFilesSection } from './AssetFilesSection';
+import { useHomeCloudCapabilities } from '../../services/homecloud/useHomeCloudCapabilities';
+import { HomeCloudFileViewer } from '../../screens/HomeCloudFileViewerScreen';
+import {
+  toHomeCloudFileProjection,
+  type AssetFileRelation,
+} from '../../services/assets/assetsFiles';
 import { DatePickerSheet } from '../ui/ActionSheet';
 
 const PRECISIONS: { key: CareDatePrecision; label: string }[] = [
@@ -406,6 +413,14 @@ export function AssetCareEditSheet({
   const [failure, setFailure] = useState<AssetsFailure | null>(null);
   const [attempted, setAttempted] = useState(false);
   const [intent, setIntent] = useState<AssetsMutationIntent | undefined>(undefined);
+  // S8 — visor real de HomeCloud + capabilities de HomeCloud.
+  const [viewerRelation, setViewerRelation] = useState<AssetFileRelation | null>(null);
+  const homeCloud = useHomeCloudCapabilities();
+  const homeCloudCapabilities = homeCloud.descriptor;
+  const viewerFile = React.useMemo(
+    () => toHomeCloudFileProjection(viewerRelation),
+    [viewerRelation],
+  );
 
   React.useEffect(() => {
     if (visible && care) {
@@ -511,6 +526,29 @@ export function AssetCareEditSheet({
             Necesitás permiso para corregir este registro.
           </AppText>
         )}
+        {/* S8-19 — "Agregar archivo" también existe en el Care. */}
+        <AssetFilesSection
+          ownerType="care"
+          ownerId={care.id}
+          ownerTitle={care.description.slice(0, 60)}
+          accessToken={accessToken}
+          householdId={householdId}
+          canView={canContribute}
+          canContribute={canContribute}
+          homeCloudCapabilities={homeCloudCapabilities}
+          ownerLifecycle={care.status === 'REMOVED' ? 'REMOVED' : 'ACTIVE'}
+          onOpenFile={(relation) => setViewerRelation(relation)}
+        />
+        {/* S8-06 — el visor real de HomeCloud, montado como capa local. */}
+        {viewerFile ? (
+          <View style={styles.viewerHost}>
+            <HomeCloudFileViewer
+              file={viewerFile}
+              accessToken={accessToken ?? ''}
+              onClose={() => setViewerRelation(null)}
+            />
+          </View>
+        ) : null}
       </ScrollView>
     </AssetFormSheet>
   );
@@ -577,6 +615,9 @@ const styles = StyleSheet.create({
   error: { marginBottom: 4 },
   form: { gap: 14, paddingBottom: 24 },
   group: { gap: 7, paddingBottom: 4 },
+  // S8-06 — el visor real de HomeCloud necesita alto propio dentro del
+  // contenido scrolleable del sheet.
+  viewerHost: { height: 520, marginTop: 12 },
   precisionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   precisionChip: {
     paddingHorizontal: 12,

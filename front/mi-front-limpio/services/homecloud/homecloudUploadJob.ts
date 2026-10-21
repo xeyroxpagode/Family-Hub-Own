@@ -131,7 +131,7 @@ export function createUploadJob(
     artifact: { ...artifact },
     state: 'pending',
     contentId: null,
-    intakeRequestId: generateIntakeRequestId(),
+    intakeRequestId: ctx.intakeRequestId ?? generateIntakeRequestId(),
     error: null,
     createdAt: now,
     updatedAt: now,

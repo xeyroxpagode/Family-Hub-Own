@@ -48,6 +48,14 @@
  *   PATCH  /api/assets/care/:careId           correct manual Care (assets.contribute, Idempotency-Key, expected_updated_at)
  *   POST   /api/assets/care/:careId/remove    recoverable Remove of manual Care (assets.manage, Idempotency-Key)
  *   POST   /api/assets/care/:careId/restore   restore the same Care Record (assets.manage, Idempotency-Key)
+ *   POST   /api/assets/files/link             attach an existing HomeCloud File to an
+ *                                          Asset/Record/Care (assets.contribute + homecloud.view,
+ *                                          Idempotency-Key)
+ *   POST   /api/assets/files/unlink           detach that File (relation only; the HomeCloud File
+ *                                          is NEVER deleted, trashed or purged)
+ *   GET    /api/assets/:assetId/files         Files attached to one Asset (assets.view + homecloud.view)
+ *   GET    /api/assets/records/:recordId/files  Files attached to one Record (assets.view + homecloud.view)
+ *   GET    /api/assets/care/:careId/files     Files attached to one Care Record (assets.view + homecloud.view)
  *
  * A3.2 dimension routes are separate per dimension on purpose: a single
  * catch-all PATCH would invite blind cross-dimension overwrites (§13, §56).
@@ -91,6 +99,11 @@ router.post('/records/:recordId/unlink', controller.unlinkRecordFromAsset);
 router.post('/records/:recordId/renew', controller.renewAssetRecord);
 router.post('/records/:recordId/remove', controller.removeAssetRecord);
 router.post('/records/:recordId/restore', controller.restoreAssetRecord);
+// S8-02 — Assets <-> HomeCloud: attach / detach a HomeCloud File.
+// The literal "files" segment is registered BEFORE /:assetId so it is never
+// captured as an asset id.
+router.post('/files/link', controller.linkAssetFile);
+router.post('/files/unlink', controller.unlinkAssetFile);
 router.post('/:assetId/archive', controller.archiveAsset);
 router.post('/:assetId/unarchive', controller.unarchiveAsset);
 router.post('/:assetId/trash', controller.trashAsset);
@@ -110,7 +123,12 @@ router.get('/capabilities', controller.getAssetsCapabilities);
 router.get('/records', controller.listHouseholdRecords);
 router.get('/records/:recordId', controller.getAssetRecordById);
 router.get('/care/:careId', controller.getManualCareById);
+// S8-02 — the File relations of one owner. These are two/three segment
+// paths, so they can never collide with the single-segment /:assetId.
+router.get('/records/:recordId/files', controller.listAssetRecordFiles);
+router.get('/care/:careId/files', controller.listAssetCareFiles);
 router.get('/:assetId', controller.getAssetById);
+router.get('/:assetId/files', controller.listAssetFiles);
 router.get('/:assetId/records', controller.listAssetRecords);
 router.get('/:assetId/care', controller.listAssetCare);
 router.get('/:assetId/archive-history', controller.getArchiveHistory);

@@ -58,6 +58,10 @@ let staleConfig: StaleConfig = {
   // S7: read model "Próximo" — TTL corto (30 s) para que una edición,
   // un complete o un cancel hechos en Planner se reflejen al volver.
   plannerItems: 30_000,
+  // S8: read model de archivos adjuntos — TTL corto (30 s). El estado del File
+  // cambia en HomeCloud (no hay bus de eventos HomeCloud -> Assets), así que la
+  // frescura la decide el TTL + la revalidación por foco.
+  files: 30_000,
   default: 30_000,
 };
 

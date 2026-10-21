@@ -9,6 +9,7 @@ const lifecycleController = require('../controllers/homecloud.lifecycle.controll
 const officeController = require('../controllers/homecloud.office.controller')
 const albumsController = require('../controllers/homecloud.albums.controller')
 const memoryController = require('../controllers/homecloud.memory.controller')
+const contentStatesController = require('../controllers/homecloud.contentstates.controller')
 
 const router = express.Router()
 
@@ -41,6 +42,15 @@ router.get('/capabilities', capabilitiesController.getHomeCloudCapabilities)
 // Requires homecloud.view capability (enforced in service).
 // Query: variant=original|preview, optional ttl (seconds)
 router.get('/content/:contentId/access', storageController.getHomeCloudContentAccess)
+
+// S8-03: canonical batch read of the HomeCloud File lifecycle.
+// Owned by HomeCloud; consumed by the Assets <-> HomeCloud integration so the
+// Assets domain never reads public.homecloud_contents on its own.
+// Body: { ids: [uuid] } (max 200). Household-scoped: an id of another
+// household answers exactly like a nonexistent id (no disclosure).
+// Registered BEFORE the /content/:contentId/* routes so the literal
+// "contents" segment is never captured by a parameter.
+router.post('/contents/states', contentStatesController.listContentStatesController)
 
 // HC-1F: Foundation Read Services
 

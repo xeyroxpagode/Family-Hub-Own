@@ -16,6 +16,7 @@
     "../front/mi-front-limpio/services/homecloud/homecloudDragSelection.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudBulkMove.ts",
     "../front/mi-front-limpio/services/homecloud/homecloudTypes.ts",
+    "../front/mi-front-limpio/services/homecloud/FileSelectionBar.tsx",
     "../front/mi-front-limpio/screens/HomeCloudFilesScreen.tsx"
   ],
   "exclude": ["node_modules"]

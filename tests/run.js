@@ -266,6 +266,19 @@ const suiteClass = {
   'assets-s7-planner-read-model-runtime': 'LOCAL_RUNTIME_REQUIRED',
   'assets-s7-unknown-outcome-runtime': 'LOCAL_RUNTIME_REQUIRED',
   'assets-s7-derived-care-guard': 'LOCAL_RUNTIME_REQUIRED',
+  // S8: Assets <-> HomeCloud.
+  'assets-s8-schema-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s8-api-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s8-upload-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-s8-contents-states': 'DETERMINISTIC',
+  'assets-s8-picker-contract': 'DETERMINISTIC',
+  'assets-s8-upload-contract': 'DETERMINISTIC',
+  'assets-s8-viewer-contract': 'DETERMINISTIC',
+  'assets-s8-unlink-contract': 'DETERMINISTIC',
+  'assets-s8-lifecycle-contract': 'DETERMINISTIC',
+  'assets-s8-o36-contract': 'DETERMINISTIC',
+  'assets-s8-permissions-contract': 'DETERMINISTIC',
+  'assets-s8-error-idempotency-contract': 'DETERMINISTIC',
   'planner-event-origin-fields': 'LOCAL_RUNTIME_REQUIRED',
   'planner-task-origin-fields': 'LOCAL_RUNTIME_REQUIRED',
   // OFFICE-3: la suite de integración real necesita el stack local completo
@@ -1153,6 +1166,103 @@ const commands = {
       'Assets S7 guard: Derived Care sigue sin implementarse',
       'node',
       ['scripts/assets_s7_derived_care_guard_tests.js'],
+    ),
+  },
+  // ── S8: Assets <-> HomeCloud (HC-01..HC-21) ──────────────────────────────
+  'assets-s8-schema-runtime': {
+    label: 'Assets S8 runtime: schema de relaciones Asset/Record/Care <-> File',
+    run: () => runCommand(
+      'Assets S8 runtime: schema de relaciones Asset/Record/Care <-> File',
+      'node',
+      ['scripts/assets_s8_file_relations_schema_tests.js'],
+    ),
+  },
+  'assets-s8-api-runtime': {
+    label: 'Assets S8 runtime: link/unlink/list de archivos (HC-01..HC-13, HC-19, HC-20)',
+    run: () => runCommand(
+      'Assets S8 runtime: link/unlink/list de archivos (HC-01..HC-13, HC-19, HC-20)',
+      'node',
+      ['scripts/assets_s8_file_relations_api_runtime_tests.js'],
+    ),
+  },
+  'assets-s8-upload-runtime': {
+    label: 'Assets S8 runtime: upload real por HomeCloud + attach (HC-04, HC-16, HC-17)',
+    run: () => runCommand(
+      'Assets S8 runtime: upload real por HomeCloud + attach (HC-04, HC-16, HC-17)',
+      'node',
+      ['scripts/assets_s8_upload_runtime_tests.js'],
+    ),
+  },
+  'homecloud-s8-contents-states': {
+    label: 'HomeCloud S8 contract: POST /api/homecloud/contents/states',
+    run: () => runCommand(
+      'HomeCloud S8 contract: POST /api/homecloud/contents/states',
+      'node',
+      ['scripts/homecloud_contents_states_contract_tests.js'],
+    ),
+  },
+  'assets-s8-picker-contract': {
+    label: 'Assets S8 contract: picker de archivos existentes',
+    run: () => runCommand(
+      'Assets S8 contract: picker de archivos existentes',
+      'node',
+      ['scripts/compiled/scripts/assets_s8_file_picker_tests.js'],
+    ),
+  },
+  'assets-s8-upload-contract': {
+    label: 'Assets S8 contract: upload + attach (orden e identidad)',
+    run: () => runCommand(
+      'Assets S8 contract: upload + attach (orden e identidad)',
+      'node',
+      ['scripts/compiled/scripts/assets_s8_upload_attach_tests.js'],
+    ),
+  },
+  'assets-s8-viewer-contract': {
+    label: 'Assets S8 contract: visor real de HomeCloud',
+    run: () => runCommand(
+      'Assets S8 contract: visor real de HomeCloud',
+      'node',
+      ['scripts/compiled/scripts/assets_s8_viewer_tests.js'],
+    ),
+  },
+  'assets-s8-unlink-contract': {
+    label: 'Assets S8 contract: unlink (copy congelado, relación solamente)',
+    run: () => runCommand(
+      'Assets S8 contract: unlink (copy congelado, relación solamente)',
+      'node',
+      ['scripts/compiled/scripts/assets_s8_unlink_tests.js'],
+    ),
+  },
+  'assets-s8-lifecycle-contract': {
+    label: 'Assets S8 contract: lifecycle del archivo (available/trashed/purging/missing)',
+    run: () => runCommand(
+      'Assets S8 contract: lifecycle del archivo (available/trashed/purging/missing)',
+      'node',
+      ['scripts/compiled/scripts/assets_s8_file_lifecycle_tests.js'],
+    ),
+  },
+  'assets-s8-o36-contract': {
+    label: 'Assets S8 contract: O36 partial success y reconciliación',
+    run: () => runCommand(
+      'Assets S8 contract: O36 partial success y reconciliación',
+      'node',
+      ['scripts/compiled/scripts/assets_s8_o36_retry_tests.js'],
+    ),
+  },
+  'assets-s8-permissions-contract': {
+    label: 'Assets S8 contract: matriz de permisos (Assets AND HomeCloud)',
+    run: () => runCommand(
+      'Assets S8 contract: matriz de permisos (Assets AND HomeCloud)',
+      'node',
+      ['scripts/compiled/scripts/assets_s8_permissions_tests.js'],
+    ),
+  },
+  'assets-s8-error-idempotency-contract': {
+    label: 'Assets S8 contract: matriz de errores e idempotencia',
+    run: () => runCommand(
+      'Assets S8 contract: matriz de errores e idempotencia',
+      'node',
+      ['scripts/compiled/scripts/assets_s8_error_idempotency_tests.js'],
     ),
   },
   'planner-event-origin-fields': {
@@ -2366,7 +2476,7 @@ const suites = {
     'frontend-lint',
   ],
   lint: ['backend-syntax', 'backend-eslint', 'frontend-lint'],
-  assets: ['assets-capabilities', 'assets-a3-1-runtime', 'assets-a3-2-runtime', 'assets-a3-3-runtime', 'assets-a4-1-runtime', 'assets-a4-1-migration', 'assets-a4-2-runtime', 'assets-a4-3-runtime', 'assets-a4-4-runtime', 'assets-a5-1-runtime', 'assets-a5-2-runtime', 'assets-a6-1-runtime', 'assets-a6-2-runtime', 'assets-a6-3-runtime', 'assets-final-qa-runtime', 'assets-s5a-identity-runtime', 'assets-s5b-bg01-runtime', 'assets-s5b-o39-o35-runtime', 'assets-s5c-bg02-runtime', 'assets-s5c-capabilities-runtime', 'assets-s5c-context-runtime', 'assets-s5c-isolation-runtime', 'assets-s5c-journeys-runtime', 'assets-s5c-idempotency-runtime', 'assets-s5c-frontend-contract', 'assets-s7-planner-items-contract', 'assets-s7-ui-contract', 'assets-s7-permissions-contract', 'assets-s7-planner-create-runtime', 'assets-s7-planner-read-model-runtime', 'assets-s7-unknown-outcome-runtime', 'assets-s7-derived-care-guard', 'planner-event-origin-fields', 'planner-task-origin-fields'],
+  assets: ['assets-capabilities', 'assets-a3-1-runtime', 'assets-a3-2-runtime', 'assets-a3-3-runtime', 'assets-a4-1-runtime', 'assets-a4-1-migration', 'assets-a4-2-runtime', 'assets-a4-3-runtime', 'assets-a4-4-runtime', 'assets-a5-1-runtime', 'assets-a5-2-runtime', 'assets-a6-1-runtime', 'assets-a6-2-runtime', 'assets-a6-3-runtime', 'assets-final-qa-runtime', 'assets-s5a-identity-runtime', 'assets-s5b-bg01-runtime', 'assets-s5b-o39-o35-runtime', 'assets-s5c-bg02-runtime', 'assets-s5c-capabilities-runtime', 'assets-s5c-context-runtime', 'assets-s5c-isolation-runtime', 'assets-s5c-journeys-runtime', 'assets-s5c-idempotency-runtime', 'assets-s5c-frontend-contract', 'assets-s7-planner-items-contract', 'assets-s7-ui-contract', 'assets-s7-permissions-contract', 'assets-s7-planner-create-runtime', 'assets-s7-planner-read-model-runtime', 'assets-s7-unknown-outcome-runtime', 'assets-s7-derived-care-guard', 'assets-s8-schema-runtime', 'assets-s8-api-runtime', 'assets-s8-upload-runtime', 'homecloud-s8-contents-states', 'assets-s8-picker-contract', 'assets-s8-upload-contract', 'assets-s8-viewer-contract', 'assets-s8-unlink-contract', 'assets-s8-lifecycle-contract', 'assets-s8-o36-contract', 'assets-s8-permissions-contract', 'assets-s8-error-idempotency-contract', 'planner-event-origin-fields', 'planner-task-origin-fields'],
   backend: ['testing-core', 'core-backend'],
   frontend: ['compile-frontend-tests', 'core-frontend', 'g0.3'],
   contracts: ['core-backend', 'g0.4-contracts'],

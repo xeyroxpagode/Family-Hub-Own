@@ -13,11 +13,18 @@ import {
 } from '../../hooks/assets/useAssetsData';
 import {
   canPerform,
+  canView as canViewAssets,
   getAssetRecordById,
   type AssetRecordDto,
   type AssetDto,
   type ManualCareDto,
 } from '../../services/assets';
+import { useHomeCloudCapabilities } from '../../services/homecloud/useHomeCloudCapabilities';
+import { HomeCloudFileViewer } from '../HomeCloudFileViewerScreen';
+import {
+  toHomeCloudFileProjection,
+  type AssetFileRelation,
+} from '../../services/assets/assetsFiles';
 import {
   resolvePlannerCapabilityScope,
   usePlannerCapabilities,
@@ -60,6 +67,7 @@ import {
   describeIdentity,
 } from '../../components/assets/assetLabels';
 import { AssetGoneState } from '../../components/assets/AssetGoneState';
+import { AssetFilesSection } from '../../components/assets/AssetFilesSection';
 import { ErrorBar } from '../../components/assets/ErrorBar';
 import {
   AssetLifecycleHistorySection,
@@ -115,6 +123,13 @@ export function AssetDetailScreen() {
   const { capabilities } = useAssetsCapabilities(accessToken, householdId);
   const canContribute = canPerform(capabilities, 'assets.context');
   const canManageAssets = canPerform(capabilities, 'assets.manage');
+  const canViewAsset = canViewAssets(capabilities);
+
+  // S8-10 — capabilities de HomeCloud (fail-closed: sin proyección no se
+  // habilita ninguna acción de archivos). La proyección es la MISMA de
+  // HomeCloud; no existe un segundo sistema de capabilities.
+  const homeCloud = useHomeCloudCapabilities();
+  const homeCloudCapabilities = homeCloud.descriptor;
 
   // S7-08: capabilities de Planner (fail-closed: sin proyección no se
   // habilita ningún control de escritura).
@@ -149,6 +164,14 @@ export function AssetDetailScreen() {
   const [careEdit, setCareEdit] = useState<ManualCareDto | null>(null);
   const [careRemove, setCareRemove] = useState<ManualCareDto | null>(null);
   const [historySheet, setHistorySheet] = useState(false);
+  // S8 — visor real de HomeCloud + señal del menú "Agregar archivo".
+  const [viewerRelation, setViewerRelation] = useState<AssetFileRelation | null>(null);
+  const [attachMenuSignal, setAttachMenuSignal] = useState(0);
+  // S8-06 — el visor real de HomeCloud se abre sólo con un File disponible.
+  const viewerFile = useMemo(
+    () => toHomeCloudFileProjection(viewerRelation),
+    [viewerRelation],
+  );
 
   React.useEffect(() => {
     navigation.setOptions?.({});
@@ -264,14 +287,34 @@ export function AssetDetailScreen() {
         disabledReason: plannerBlockedReason,
         onSelect: () => setPlannerMenu(true),
       },
+      {
+        // S8-19 — "Agregar archivo" vive también en el menú + del activo.
+        key: 'file',
+        label: 'Agregar archivo',
+        description: 'Un archivo de HomeCloud, guardado acá',
+        icon: 'attach-outline' as const,
+        disabled: isTrashed || isArchived || !canContribute || !homeCloudCapabilities.view,
+        disabledReason: isTrashed
+          ? 'Este activo está en la papelera'
+          : isArchived
+            ? 'Los activos archivados no admiten nuevos archivos'
+            : !canContribute
+              ? 'Necesitás permiso para guardar información'
+              : !homeCloudCapabilities.view
+                ? 'Necesitás permiso para ver los archivos de HomeCloud'
+                : undefined,
+        onSelect: () => setAttachMenuSignal((value) => value + 1),
+      },
     ],
     [
       isTrashed,
+      isArchived,
       canContribute,
       lifecycleAllowsCreate,
       canCreatePlannerTask,
       canCreatePlannerEvent,
       plannerBlockedReason,
+      homeCloudCapabilities.view,
     ],
   );
 
@@ -719,7 +762,22 @@ export function AssetDetailScreen() {
           )}
         </View>
 
-        {/* 6. Lifecycle History (O35) */}
+        {/* 6. Archivos (S8 — Assets <-> HomeCloud) */}
+        <AssetFilesSection
+          ownerType="asset"
+          ownerId={asset.id}
+          ownerTitle={asset.name}
+          accessToken={accessToken}
+          householdId={householdId}
+          canView={canViewAsset}
+          canContribute={canContribute}
+          homeCloudCapabilities={homeCloudCapabilities}
+          ownerLifecycle={asset.lifecycle_status}
+          attachMenuSignal={attachMenuSignal}
+          onOpenFile={(relation) => setViewerRelation(relation)}
+        />
+
+        {/* 7. Lifecycle History (O35) */}
         {lifecycleHistory.error ? (
           <ErrorBar
             visible
@@ -733,6 +791,17 @@ export function AssetDetailScreen() {
           />
         ) : null}
       </ScrollView>
+
+      {/* S8-06 — visor REAL de HomeCloud, montado como capa local sobre la
+          misma pantalla. No hay ruta nueva ni protocolo de retorno: al cerrar
+          se vuelve a esta misma ficha. */}
+      {viewerFile ? (
+        <HomeCloudFileViewer
+          file={viewerFile}
+          accessToken={accessToken ?? ''}
+          onClose={() => setViewerRelation(null)}
+        />
+      ) : null}
 
       {/* Sheets */}
       <AssetActionMenu

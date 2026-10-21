@@ -32,6 +32,8 @@ supabase/snippets/
 /scripts/compiled-hc2a/
 /scripts/compiled-hc2b/
 /scripts/compiled-hc2c/
+# S8: salida de compilacion del harness de upload de HomeCloud (artefacto).
+/scripts/compiled-uploadjob/
 /scripts/scripts/
 /.env
 /.env.local

@@ -44,6 +44,17 @@ export interface UploadIntakeContext {
   readonly role: UploadJobRole;
   /** Informational source tag, e.g. "files:picker", "memories:picker", "capture:audio". */
   readonly intakeSource: string;
+  /**
+   * Optional pinned intake identity.
+   *
+   * When the caller owns a stable user intent (the Assets attach reuses the
+   * Assets Idempotency-Key), the intake identity is DERIVED from it so a retry
+   * resolves to the SAME contentId instead of registering a second File.
+   *
+   * When it is absent the identity is generated, exactly as before: the
+   * behaviour of every existing intake surface is unchanged.
+   */
+  readonly intakeRequestId?: string | null;
   /** Optional initial Folder destination for NEW File (contribution intent). */
   readonly initialFolderId?: string | null;
   /** Optional initial Album destination for NEW Memory (contribution intent). */

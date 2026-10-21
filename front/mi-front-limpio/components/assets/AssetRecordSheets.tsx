@@ -20,6 +20,13 @@ import { InteractivePressable } from '../ui/InteractivePressable';
 import { colors, radius } from '../../constants/theme';
 import { AssetActionMenu, AssetFormSheet, AssetConfirmSheet } from './AssetSheet';
 import { AssetsFailureBar } from './ErrorBar';
+import { AssetFilesSection } from './AssetFilesSection';
+import { useHomeCloudCapabilities } from '../../services/homecloud/useHomeCloudCapabilities';
+import { HomeCloudFileViewer } from '../../screens/HomeCloudFileViewerScreen';
+import {
+  toHomeCloudFileProjection,
+  type AssetFileRelation,
+} from '../../services/assets/assetsFiles';
 import { DatePickerSheet } from '../ui/ActionSheet';
 
 export const ASSET_RECORD_TYPES = [
@@ -501,10 +508,19 @@ export function AssetRecordDetailSheet({
   const accessToken = session?.access_token ?? null;
   const householdId = currentHousehold?.id ?? null;
 
-  const [menu, setMenu] = useState<'main' | 'correct' | 'period' | 'renew' | 'confirmRemove' | null>('main');
+  const [menu, setMenu] = useState<'main' | 'correct' | 'period' | 'renew' | 'confirmRemove' | 'files' | null>('main');
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<AssetsFailure | null>(null);
   const lastAction = useRef<(() => void) | null>(null);
+  // S8 — visor real de HomeCloud + capabilities de HomeCloud.
+  const [viewerRelation, setViewerRelation] = useState<AssetFileRelation | null>(null);
+  const homeCloud = useHomeCloudCapabilities();
+  const homeCloudCapabilities = homeCloud.descriptor;
+  // S8-06 — el visor real de HomeCloud se abre sólo con un File disponible.
+  const viewerFile = React.useMemo(
+    () => toHomeCloudFileProjection(viewerRelation),
+    [viewerRelation],
+  );
 
   // correct draft
   const [title, setTitle] = useState('');
@@ -609,6 +625,18 @@ export function AssetRecordDetailSheet({
             onSelect: () => setMenu('renew'),
           },
           {
+            // S8-19 — "Agregar archivo" también existe en el Record.
+            key: 'files',
+            label: 'Ver archivos',
+            description: 'Archivos de HomeCloud adjuntos a este registro',
+            icon: 'attach-outline',
+            disabled: pending || !homeCloudCapabilities.view,
+            disabledReason: homeCloudCapabilities.view
+              ? undefined
+              : 'Necesitás permiso para ver los archivos de HomeCloud',
+            onSelect: () => setMenu('files'),
+          },
+          {
             key: 'unlink',
             label: 'Quitar de este activo',
             description: isLinkedToMultipleAssets
@@ -647,6 +675,48 @@ export function AssetRecordDetailSheet({
 
       {/* Vista lectura (O06) mientras menu === main se muestra el menú arriba;
           el detalle completo vive en la sección Datos y documentos del Asset. */}
+
+      {menu === 'files' ? (
+        <AssetFormSheet
+          visible
+          title="Archivos"
+          subtitle={record.title}
+          onRequestClose={() => setMenu('main')}
+          footer={
+            viewerFile ? (
+              <AppButton
+                variant="secondary"
+                title="Cerrar el visor"
+                onPress={() => setViewerRelation(null)}
+                accessibilityLabel="Cerrar el visor"
+              />
+            ) : undefined
+          }
+        >
+          <AssetFilesSection
+            ownerType="record"
+            ownerId={record.id}
+            ownerTitle={record.title}
+            accessToken={accessToken}
+            householdId={householdId}
+            canView={canContribute || canManage}
+            canContribute={canContribute}
+            homeCloudCapabilities={homeCloudCapabilities}
+            ownerLifecycle={record.status === 'REMOVED' ? 'REMOVED' : 'ACTIVE'}
+            onOpenFile={(relation) => setViewerRelation(relation)}
+          />
+          {/* S8-06 — el visor real de HomeCloud, montado como capa local. */}
+          {viewerFile ? (
+            <View style={styles.viewerHost}>
+              <HomeCloudFileViewer
+                file={viewerFile}
+                accessToken={accessToken ?? ''}
+                onClose={() => setViewerRelation(null)}
+              />
+            </View>
+          ) : null}
+        </AssetFormSheet>
+      ) : null}
 
       {menu === 'correct' ? (
         <AssetFormSheet
@@ -905,6 +975,9 @@ const styles = StyleSheet.create({
   error: { marginBottom: 4 },
   form: { gap: 14, paddingBottom: 24 },
   group: { gap: 7, paddingBottom: 4 },
+  // S8-06 — el visor real de HomeCloud necesita alto propio dentro del
+  // contenido scrolleable del sheet.
+  viewerHost: { height: 520, marginTop: 12 },
   pickerRow: {
     minHeight: 48,
     flexDirection: 'row',

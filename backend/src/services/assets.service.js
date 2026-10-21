@@ -5925,4 +5925,10 @@ module.exports = {
   contextWithCapability,
   loadContextAsset,
   assertValidAssetId,
+  // S8-02: la fachada Assets <-> HomeCloud (assets.files.service.js) reutiliza
+  // EXACTAMENTE la maquinaria de idempotencia (reserve/complete + hash) y la
+  // resolucion de contexto. No se crea un segundo store ni un segundo hash.
+  reserveAssetsIdempotency,
+  completeAssetsIdempotency,
+  hashAssetsRequest,
 };

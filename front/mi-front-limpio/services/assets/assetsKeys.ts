@@ -22,7 +22,8 @@ export type AssetsKeyKind =
   | 'care'
   | 'history'
   | 'capabilities'
-  | 'plannerItems';
+  | 'plannerItems'
+  | 'files';
 
 function normalizeFilters(filters?: AssetListFilters): readonly (string | number)[] {
   if (!filters) return ['*'];
@@ -38,7 +39,7 @@ export function classifyAssetsKey(key: readonly unknown[]): AssetsKeyKind | null
   const second = key[1];
   if (
     typeof second === 'string' &&
-    ['assets', 'categories', 'records', 'care', 'history', 'capabilities', 'plannerItems'].includes(second)
+    ['assets', 'categories', 'records', 'care', 'history', 'capabilities', 'plannerItems', 'files'].includes(second)
   ) {
     return second as AssetsKeyKind;
   }
@@ -106,6 +107,23 @@ const plannerItems = (
 ): readonly (string | number)[] =>
   ['assets', 'plannerItems', scope.householdId, assetId];
 
+/**
+ * S8 — Files attached to one Asset/Record/Care.
+ *
+ * Shape (frozen): ['assets', 'files', householdId, ownerType, ownerId].
+ * The householdId stays at index 2, like every other Assets key, so a
+ * household switch can never show another household's rows.
+ *
+ * The owner type is part of the key because the same id space is shared by
+ * the three owner kinds.
+ */
+const files = (
+  scope: AssetsHouseholdScope,
+  ownerType: 'asset' | 'record' | 'care',
+  ownerId: string,
+): readonly (string | number)[] =>
+  ['assets', 'files', scope.householdId, ownerType, ownerId];
+
 export const assetsKeys = {
   root,
   all,
@@ -117,4 +135,5 @@ export const assetsKeys = {
   history,
   capabilities,
   plannerItems,
+  files,
 } as const;

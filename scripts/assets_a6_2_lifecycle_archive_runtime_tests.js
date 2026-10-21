@@ -904,6 +904,35 @@ async function run() {
         'M front/mi-front-limpio/services/planner/plannerSheetState.ts',
         'M scripts/planner_v1_navigation_tests.ts',
         'M scripts/planner_v1_frontend_core_integration_tests.ts',
+        // ─ S8 (ASSETS <-> HOMECLOUD) ─────────────────────────────────────────
+        // La integracion S8 cruza, POR CONTRATO CONGELADO (S6), al dominio
+        // HomeCloud: es la integracion Assets <-> HomeCloud. Se registran
+        // UNICAMENTE esos puntos de cruce (el router de HomeCloud, el
+        // intake/upload de HomeCloud para poder pinear la identidad del
+        // intento, y los archivos de Assets que S8 extiende). El resto de
+        // la suciedad del worktree sigue siendo preexistente.
+        'M backend/src/routes/homecloud.js',
+        'M front/mi-front-limpio/services/homecloud/homecloudFileIntakeService.ts',
+        'M front/mi-front-limpio/services/homecloud/homecloudFileIntakeTypes.ts',
+        'M front/mi-front-limpio/services/homecloud/homecloudUploadJob.ts',
+        'M front/mi-front-limpio/services/homecloud/homecloudUploadTypes.ts',
+        'M backend/src/controllers/assets.controller.js',
+        'M backend/src/routes/assets.js',
+        'M backend/src/services/assets.service.js',
+        'M front/mi-front-limpio/services/assets/assetsCache.ts',
+        'M front/mi-front-limpio/services/assets/assetsKeys.ts',
+        'M front/mi-front-limpio/services/assets/index.ts',
+        'M front/mi-front-limpio/components/assets/AssetCareSheets.tsx',
+        'M front/mi-front-limpio/components/assets/AssetRecordSheets.tsx',
+        'M front/mi-front-limpio/screens/assets/AssetDetailScreen.tsx',
+        'M scripts/tsconfig.test.json',
+        // S8: fix del harness de HomeCloud (el include del compile estaba
+        // incompleto y la suite no podia ejecutarse).
+        'M scripts/tsconfig.homecloud_files_ux_test.json',
+        // Los propios guards se registran: son scripts del slice de Assets.
+        'M scripts/assets_a6_1_identity_category_runtime_tests.js',
+        'M scripts/assets_a6_2_lifecycle_archive_runtime_tests.js',
+        'M scripts/assets_a6_3_trash_restore_runtime_tests.js',
       ]);
       const allowedUntrackedPrefixes = [
         '?? backend/src/services/assets.service.js',
@@ -924,6 +953,11 @@ async function run() {
         '?? backend/src/services/assets.planner.service.js',
         '?? front/mi-front-limpio/services/planner/usePlannerCapabilities.ts',
         '?? tests/planner_event_origin_fields.test.js',
+        // ─ S8: la fachada Assets <-> HomeCloud y sus pruebas ─────────────────
+        '?? backend/src/services/assets.files.service.js',
+        '?? backend/src/controllers/homecloud.contentstates.controller.js',
+        '?? backend/src/services/homecloudContentStates.service.js',
+        '?? scripts/homecloud_contents_states_contract_tests.js',
       ];
       const violations = lines.filter((line) => {
         if (allowedTracked.has(line)) return false;
