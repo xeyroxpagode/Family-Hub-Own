@@ -1,0 +1,83 @@
+{
+ "popover_open_products_root": {
+  "t0": 4820.10000000149,
+  "baseSig": "138:2025",
+  "firstResponseMs": 84.2,
+  "stableMs": 2603,
+  "lastChangeMs": 236.5,
+  "frameCount": 157,
+  "fps": 60
+ },
+ "tab_change_products_to_shopping": {
+  "t0": 8564.199999999255,
+  "baseSig": "138:2025",
+  "firstResponseMs": 68.5,
+  "stableMs": 2576.6,
+  "lastChangeMs": 25.9,
+  "frameCount": 155,
+  "fps": 60
+ },
+ "tab_change_shopping_to_products": {
+  "t0": 12590.400000002235,
+  "baseSig": "142:2875",
+  "firstResponseMs": 80.9,
+  "stableMs": 2599.9,
+  "lastChangeMs": 33,
+  "frameCount": 156,
+  "fps": 59.6
+ },
+ "route_change_root_to_all_products": {
+  "t0": 4857.099999997765,
+  "baseSig": "138:2025",
+  "firstResponseMs": 218.3,
+  "stableMs": 2734.4,
+  "lastChangeMs": 333.8,
+  "frameCount": 156,
+  "fps": 56.7
+ },
+ "selection_mode_entry": {
+  "t0": 6933.599999997765,
+  "baseSig": "325:5286",
+  "firstResponseMs": 108.1,
+  "stableMs": 3356.6,
+  "lastChangeMs": 857.3,
+  "frameCount": 201,
+  "fps": 59.7
+ },
+ "sheet_open_add_product_flow": {
+  "t0": 4883.400000002235,
+  "baseSig": "138:2025",
+  "firstResponseMs": 196.6,
+  "stableMs": 2709.6,
+  "lastChangeMs": 409.7,
+  "frameCount": 163,
+  "fps": 60
+ },
+ "sheet_close_add_product_flow": {
+  "t0": 8641.800000000745,
+  "baseSig": "249:2752",
+  "firstResponseMs": 111.7,
+  "stableMs": 2617.9,
+  "lastChangeMs": 285.1,
+  "frameCount": 157,
+  "fps": 59.6
+ },
+ "sheet_open_add_to_list": {
+  "t0": 15340.20000000298,
+  "baseSig": "142:2875",
+  "firstResponseMs": 96.4,
+  "stableMs": 2603.8,
+  "lastChangeMs": 353.2,
+  "frameCount": 155,
+  "fps": 59.2
+ },
+ "sheet_close_add_to_list": {
+  "t0": 18986.800000000745,
+  "baseSig": "327:7479",
+  "firstResponseMs": 175.2,
+  "stableMs": 2689.5,
+  "lastChangeMs": 306,
+  "frameCount": 158,
+  "fps": 58.5
+ }
+}
