@@ -28,6 +28,7 @@
     "../scripts/planner_v1_shell_state_tests.ts",
     "../scripts/planner_v1_sheet_state_tests.ts",
     "../scripts/planner_v1_sheet_guard_tests.ts",
+    "../scripts/inventory_v2_premium_shared_system_tests.ts",
     "../scripts/planner_tasks_patch1_1_tests.ts",
     "../scripts/planner_tasks_patch3_multiselect_tests.ts",
     "../front/mi-front-limpio/components/planner/PlannerMemberPicker.tsx",

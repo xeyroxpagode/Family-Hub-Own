@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { useAppTheme } from '../../context/AppThemeContext';
+import { useBottomChrome } from '../../context/BottomChromeContext';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { AppText } from './AppText';
 import { InteractivePressable } from './InteractivePressable';
@@ -8,9 +9,13 @@ import { InteractivePressable } from './InteractivePressable';
 export type AppToast = { id: string; message: string; kind?: 'success' | 'warning' | 'error' | 'info'; undoLabel?: string; onUndo?: () => void; actionLabel?: string; onAction?: () => void; durationMs?: number };
 export type AppToastHostProps = { toast: AppToast | null; onDismiss: () => void; sheetOpen?: boolean; bottomOffset?: number };
 
-export function AppToastHost({ toast, onDismiss, sheetOpen = false, bottomOffset = 104 }: AppToastHostProps) {
+export function AppToastHost({ toast, onDismiss, sheetOpen = false, bottomOffset }: AppToastHostProps) {
   const { radius, spacing } = useAppTheme();
   const reducedMotion = useReducedMotion();
+  // The toast floats ABOVE the chrome that is currently visible, so the tab
+  // bar can never cover it. Without a provider the legacy anchor is kept.
+  const chrome = useBottomChrome();
+  const anchor = bottomOffset ?? chrome.toastBottomAnchor;
   const [shown, setShown] = useState<AppToast | null>(null);
   const deferred = useRef<AppToast | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -41,7 +46,7 @@ export function AppToastHost({ toast, onDismiss, sheetOpen = false, bottomOffset
   }, [toast, sheetOpen, reducedMotion, opacity, translateY]);
 
   if (!shown || sheetOpen) return null;
-  const styles = createStyles(radius, spacing, bottomOffset);
+  const styles = createStyles(radius, spacing, anchor);
   return <Animated.View style={[styles.toast, { opacity, transform: [{ translateY }] }]} accessibilityLiveRegion="polite" role="status">
     <View style={styles.content}><AppText variant="bodySmall" weight="500" style={styles.message}>{shown.message}</AppText>
       {shown.onUndo ? <InteractivePressable style={styles.undo} onPress={() => { shown.onUndo?.(); onDismiss(); }} accessibilityRole="button" accessibilityLabel={shown.undoLabel ?? 'Deshacer'}>

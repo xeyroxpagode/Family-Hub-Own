@@ -153,6 +153,11 @@ const commands = {
   // DOM EventTarget API. That is the exact shape that crashed iOS with
   // "undefined is not a function" inside React.useEffect.
   'inventory-v2-mobile-qa-native-runtime': () => runCommand('Inventory V2 mobile QA native runtime evidence', 'node', ['scripts/inventory_v2_mobile_qa_native_runtime_tests.js']),
+  // Block 1 (Premium UX shared system). The suite compiles the shared
+  // detent / overlay / chrome models and runs the frozen contracts of the
+  // pager, the sheet, the canonical selector, the workspace and the single
+  // Inventory state authority.
+  'inventory-v2-premium-shared-system': () => runCommand('Inventory V2 Premium UX shared system', 'node', ['scripts/compiled/scripts/inventory_v2_premium_shared_system_tests.js']),
   'backend-syntax': () => runCommand('Backend/test syntax', 'node', ['tests/static/backend-syntax.js']),
   'migration-uniqueness': () => runCommand('Migration uniqueness guard', 'node', ['tests/static/migration-uniqueness.js']),
   'backend-eslint': () => runCommand('Backend ESLint', 'npm', ['exec', 'eslint', '--', '.'], { cwd: backendRoot }),
@@ -1830,6 +1835,9 @@ const suites = {
   'inventory-v2-products': ['inventory-v2-foundation-contract', 'inventory-v2-products-ui', 'inventory-v2-database', 'frontend-typecheck', 'test-typecheck', 'backend-syntax', 'migration-uniqueness', 'whitespace'],
   'inventory-v2-shopping-purchase': ['inventory-v2-foundation-contract', 'inventory-v2-products-ui', 'inventory-v2-shopping-purchase-contract', 'inventory-v2-database', 'frontend-typecheck', 'test-typecheck', 'backend-syntax', 'migration-uniqueness', 'whitespace'],
   'inventory-v2-mobile-qa': ['inventory-v2-mobile-qa-entry-contract', 'inventory-v2-mobile-qa-native-runtime', 'frontend-typecheck', 'test-typecheck', 'whitespace'],
+  // Block 1 gate: the Premium UX shared system (detents, pager, sheet,
+  // keyboard, motion, haptics, bottom chrome, overlay, state authority).
+  'inventory-v2-premium': ['compile-frontend-tests', 'inventory-v2-premium-shared-system', 'inventory-v2-foundation-contract', 'inventory-v2-products-ui', 'inventory-v2-shopping-purchase-contract', 'inventory-v2-mobile-qa-entry-contract', 'inventory-v2-mobile-qa-native-runtime', 'frontend-typecheck', 'test-typecheck', 'whitespace'],
 typecheck: ['frontend-typecheck', 'test-typecheck'],
   'homecloud-hc2b-media-viewer': ['homecloud-hc2b-media-viewer-contract'],
   // HC2-C Run A gate. It carries BOTH the new Foundation evidence AND the whole

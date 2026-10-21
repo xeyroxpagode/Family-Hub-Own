@@ -33,6 +33,15 @@ type SharedProps<T extends string> = {
   disabled?: boolean;
   testID?: string;
   accessibilityLabel?: string;
+  /**
+   * External, continuous progress expressed as an option INDEX (0..n-1).
+   *
+   * When provided, the active run follows this value EXACTLY (no easing lag),
+   * so an external gesture - such as the Inventory pager - can drive the
+   * selector 1:1. The selected option is the nearest one to the progress.
+   * Single selection only; without this prop the behaviour is unchanged.
+   */
+  interactiveProgress?: number;
 };
 
 export type SegmentedControlSingleProps<T extends string> = SharedProps<T> & {
@@ -67,7 +76,7 @@ function useReduceMotion() {
   return reduceMotion;
 }
 
-function AnimatedRun({ run, source, reduceMotion, duration, color, borderColor, radius, inset }: {
+function AnimatedRun({ run, source, reduceMotion, duration, color, borderColor, radius, inset, interactive }: {
   run: RunGeometry;
   source?: { left: number; width: number };
   reduceMotion: boolean;
@@ -76,6 +85,7 @@ function AnimatedRun({ run, source, reduceMotion, duration, color, borderColor, 
   borderColor: string;
   radius: number;
   inset: number;
+  interactive?: boolean;
 }) {
   const left = useRef(new Animated.Value(source?.left ?? run.left)).current;
   const width = useRef(new Animated.Value(source?.width ?? run.width)).current;
@@ -83,6 +93,12 @@ function AnimatedRun({ run, source, reduceMotion, duration, color, borderColor, 
   useEffect(() => {
     left.stopAnimation();
     width.stopAnimation();
+    if (interactive) {
+      // Direct tracking: the run follows the external gesture 1:1.
+      left.setValue(run.left);
+      width.setValue(run.width);
+      return;
+    }
     if (reduceMotion) {
       left.setValue(run.left);
       width.setValue(run.width);
@@ -92,7 +108,7 @@ function AnimatedRun({ run, source, reduceMotion, duration, color, borderColor, 
       Animated.timing(left, { toValue: run.left, duration, useNativeDriver: false }),
       Animated.timing(width, { toValue: run.width, duration, useNativeDriver: false }),
     ]).start();
-  }, [duration, left, reduceMotion, run.left, run.width, width]);
+  }, [duration, interactive, left, reduceMotion, run.left, run.width, width]);
 
   return (
     <Animated.View
@@ -103,12 +119,36 @@ function AnimatedRun({ run, source, reduceMotion, duration, color, borderColor, 
   );
 }
 
+/**
+ * Interpolate the active run between two option layouts.
+ * Used when an external gesture drives the selector.
+ */
+function interpolateRunGeometry(
+  layouts: Record<number, SegmentLayout>,
+  progress: number,
+): { left: number; width: number } | null {
+  const indices = Object.keys(layouts).map(Number).sort((a, b) => a - b);
+  if (indices.length === 0) return null;
+  const last = indices[indices.length - 1];
+  const clamped = Math.min(Math.max(0, progress), last);
+  const lower = Math.floor(clamped);
+  const upper = Math.ceil(clamped);
+  const t = clamped - lower;
+  const a = layouts[lower];
+  const b = layouts[upper];
+  if (!a || !b) return null;
+  return {
+    left: a.x + (b.x - a.x) * t,
+    width: a.width + (b.width - a.width) * t,
+  };
+}
+
 /** Canonical selection primitive extracted from Family's Personas / Mapa control. */
 export function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
   const { colors, motion, radius, spacing } = useAppTheme();
   const {
     options, style, size = 'compact', fullWidth = true, iconsOnly = false,
-    disabled = false, testID, accessibilityLabel,
+    disabled = false, testID, accessibilityLabel, interactiveProgress,
   } = props;
   const selectionMode = props.selectionMode ?? 'single';
   const compact = size === 'compact';
@@ -128,15 +168,23 @@ export function SegmentedControl<T extends string>(props: SegmentedControlProps<
     [options, selectedKey],
   );
   const layoutReady = options.length > 0 && options.every((_, index) => layouts[index]);
-  const runGeometries = useMemo<RunGeometry[]>(() => layoutReady
-    ? getSelectedRuns(selectedFlags).map((run) => {
-        const first = layouts[run.start];
-        const last = layouts[run.end];
-        return { ...run, key: `${run.start}-${run.end}`, left: first.x, width: last.x + last.width - first.x };
-      })
-    : [], [layoutReady, layouts, selectedFlags]);
+  const interactive = selectionMode === 'single' && interactiveProgress !== undefined && layoutReady;
+  const runGeometries = useMemo<RunGeometry[]>(() => {
+    if (!layoutReady) return [];
+    if (interactive) {
+      const geometry = interpolateRunGeometry(layouts, interactiveProgress ?? 0);
+      if (!geometry) return [];
+      return [{ key: 'interactive', start: 0, end: options.length - 1, left: geometry.left, width: geometry.width }];
+    }
+    return getSelectedRuns(selectedFlags).map((run) => {
+      const first = layouts[run.start];
+      const last = layouts[run.end];
+      return { ...run, key: `${run.start}-${run.end}`, left: first.x, width: last.x + last.width - first.x };
+    });
+  }, [interactive, interactiveProgress, layoutReady, layouts, options.length, selectedFlags]);
   const previousRuns = useRef<RunGeometry[]>([]);
   const sources = runGeometries.map((run) => {
+    if (interactive) return undefined;
     if (selectionMode === 'single' && previousRuns.current[0]) {
       return { left: previousRuns.current[0].left, width: previousRuns.current[0].width };
     }
@@ -190,11 +238,13 @@ export function SegmentedControl<T extends string>(props: SegmentedControlProps<
       ]}
     >
       {runGeometries.map((run, index) => (
-        <AnimatedRun key={run.key} run={run} source={sources[index]} reduceMotion={reduceMotion}
+        <AnimatedRun key={run.key} run={run} source={sources[index]} reduceMotion={reduceMotion} interactive={interactive}
           duration={motion.navActive} color={colors.surface.card} borderColor={colors.border.default} radius={radius.full} inset={inset} />
       ))}
       {options.map((option, index) => {
-        const selected = selectedFlags[index];
+        const selected = interactive
+          ? index === Math.round(Math.min(Math.max(0, interactiveProgress ?? 0), options.length - 1))
+          : selectedFlags[index];
         const optionDisabled = disabled || option.disabled === true;
         return (
           <InteractivePressable
@@ -205,7 +255,7 @@ export function SegmentedControl<T extends string>(props: SegmentedControlProps<
             accessibilityState={{ selected, checked: selectionMode === 'multiple' ? selected : undefined, disabled: optionDisabled }}
             disabled={optionDisabled}
             onPress={() => choose(option)}
-            haptic="light"
+            haptic="selection"
             pressScale={motion.scale.button}
             pressedOpacity={0.85}
             style={[styles.option, { minHeight: compact ? 40 : 44, paddingHorizontal: compact ? spacing[2] : spacing[3], flex: fullWidth ? 1 : undefined, opacity: optionDisabled ? 0.5 : 1 }]}

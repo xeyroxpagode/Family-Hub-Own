@@ -13,6 +13,7 @@ import { buildMinuteWheelValues } from '../../utils/timeWheel';
 import { selectionHaptic, warningHaptic } from '../../utils/plannerHaptics';
 import { AppButton } from './AppButton';
 import { AppText } from './AppText';
+import { BottomSheet } from './BottomSheet';
 import { InteractivePressable } from './InteractivePressable';
 
 LocaleConfig.locales.es = {
@@ -172,9 +173,44 @@ export type ActionSheetProps = {
   onDidDismiss?: () => void;
   topRadius?: number;
   horizontalPadding?: number;
+  /**
+   * Opt-in PREMIUM interactive sheet. When set, the sheet delegates to the
+   * canonical `BottomSheet` primitive: detents, grabber, 1:1 drag, rubber band,
+   * dirty guard, commit lock and the fixed-anchor keyboard contract.
+   *
+   * Without this prop the legacy sheet behaviour is preserved verbatim.
+   */
+  interactive?: 'compact' | 'standard' | 'flow';
+  /** The sheet holds unsaved work: it refuses to dismiss and asks instead. */
+  dirty?: boolean;
+  /** Invoked when a dismissal is attempted on a dirty sheet. */
+  onRequestDismissGuard?: () => void;
 };
 
-export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer, size = 'full', keyboardAware = false, transition = 'native', openDurationMs = 220, closeDurationMs = 190, onDidDismiss, topRadius, horizontalPadding }: ActionSheetProps) {
+export function ActionSheet(props: ActionSheetProps) {
+  // The PREMIUM interactive mode delegates to the canonical BottomSheet
+  // primitive. Everything else keeps the legacy behaviour verbatim.
+  if (props.interactive) {
+    return (
+      <BottomSheet
+        visible={props.visible}
+        title={props.title}
+        subtitle={props.subtitle}
+        variant={props.interactive}
+        dirty={props.dirty}
+        onRequestDismissGuard={props.onRequestDismissGuard}
+        committing={props.closeDisabled}
+        onRequestClose={props.onRequestClose}
+        footer={props.footer}
+      >
+        {props.children}
+      </BottomSheet>
+    );
+  }
+  return <ActionSheetLegacy {...props} />;
+}
+
+function ActionSheetLegacy({ visible, title, subtitle, onRequestClose, closeDisabled = false, children, footer, size = 'full', keyboardAware = false, transition = 'native', openDurationMs = 220, closeDurationMs = 190, onDidDismiss, topRadius, horizontalPadding }: ActionSheetProps) {
   const theme = useAppTheme();
   const { colors, spacing } = theme;
   const styles = createActionSheetStyles(theme);

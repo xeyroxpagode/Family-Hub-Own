@@ -9,11 +9,17 @@ import {
 } from 'react-native';
 
 import { motion } from '../../constants/theme';
-import { lightHaptic, mediumHaptic } from '../../utils/haptics';
+import { hapticIntent, lightHaptic, mediumHaptic } from '../../utils/haptics';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-export type InteractionHaptic = 'none' | 'light' | 'medium';
+/**
+ * Haptic intents a pressable may declare.
+ * `selection` is the shared semantic intent (a value was chosen); `light` and
+ * `medium` are the legacy impact levels. `none` is the default, so a normal
+ * button never vibrates.
+ */
+export type InteractionHaptic = 'none' | 'light' | 'medium' | 'selection';
 
 export type InteractivePressableProps = Omit<PressableProps, 'children' | 'style'> & {
   children: React.ReactNode;
@@ -55,6 +61,7 @@ export function InteractivePressable({
       setPressed(true);
       if (haptic === 'light') void lightHaptic();
       if (haptic === 'medium') void mediumHaptic();
+      if (haptic === 'selection') hapticIntent('selection');
       if (!reduceMotion) {
         Animated.spring(scale, {
           toValue: pressScale,

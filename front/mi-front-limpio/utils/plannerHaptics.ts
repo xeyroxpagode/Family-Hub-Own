@@ -20,6 +20,8 @@
 
 import * as Haptics from 'expo-haptics';
 
+import { hapticAction, hapticIntent } from './haptics';
+
 export type PlannerHapticCategory =
   | 'selection'
   | 'action'
@@ -27,42 +29,27 @@ export type PlannerHapticCategory =
   | 'warning'
   | 'error';
 
-/** Per-category debounce window (ms). */
-const HAPTIC_DEBOUNCE_MS = 120;
-
-const lastEmittedByCategory: Record<PlannerHapticCategory, number> = {
-  selection: 0,
-  action: 0,
-  success: 0,
-  warning: 0,
-  error: 0,
-};
-
-function emit(category: PlannerHapticCategory, run: () => Promise<void>): void {
-  const now = Date.now();
-  if (now - lastEmittedByCategory[category] < HAPTIC_DEBOUNCE_MS) return;
-  lastEmittedByCategory[category] = now;
-  void run().catch(() => {
-    // Haptics are optional feedback; unsupported devices continue silently.
-  });
-}
-
+/**
+ * Planner categories delegate to the shared semantic haptic contract
+ * (`utils/haptics.ts`). The Planner vocabulary and its frozen meanings are
+ * preserved; only the emission point moved to the shared authority.
+ */
 export function selectionHaptic(): void {
-  emit('selection', () => Haptics.selectionAsync());
+  hapticIntent('selection');
 }
 
 export function actionHaptic(): void {
-  emit('action', () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+  hapticAction();
 }
 
 export function successHaptic(): void {
-  emit('success', () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+  hapticIntent('success');
 }
 
 export function warningHaptic(): void {
-  emit('warning', () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning));
+  hapticIntent('warning');
 }
 
 export function errorHaptic(): void {
-  emit('error', () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error));
+  hapticIntent('error');
 }

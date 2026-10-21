@@ -581,6 +581,28 @@ export const MOTION = {
   sheet: 280,
   success: 420,
   max: 500,
+  /**
+   * Premium UX system vocabulary (Inventory V2 Premium UX Freeze §6).
+   *
+   * These are SYSTEM defaults, not sacred numbers: they tolerate +/-10 ms.
+   * They live inside the single shared `MOTION` authority on purpose — the app
+   * must not grow a second, parallel motion theme.
+   */
+  premium: {
+    press: 80,
+    micro: 120,
+    state: 150,
+    content: 170,
+    localNav: 180,
+    popoverIn: 130,
+    popoverOut: 100,
+    sheetIn: 200,
+    sheetOut: 175,
+    route: 200,
+    success: 190,
+    /** Programmatic transitions under Reduced Motion. */
+    reduced: 110,
+  },
   scale: {
     button: 0.97,
     icon: 0.97,
