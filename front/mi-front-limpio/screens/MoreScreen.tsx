@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppScreen } from '../components/ui/AppScreen';
 import { AppCard } from '../components/ui/AppCard';
@@ -55,23 +55,30 @@ const MODULES = [
 export function MoreScreen() {
   const navigation = useNavigation<any>();
 
-  // QA/dev-only navigation hook: __DEV__ builds expose a window callback so
-  // visual QA can reach dev-only preview routes (e.g. InventoryV2Preview)
-  // WITHOUT any visible production button in More.
+  // QA/dev-only WEB automation hook: browser automation can reach dev-only
+  // preview routes (e.g. InventoryV2Preview) through a global callback.
+  //
+  // It is WEB-ONLY ON PURPOSE. React Native native defines `window` as an
+  // alias of the RN global object, which exposes no DOM EventTarget API, so
+  // `window.addEventListener` is `undefined` and calling it crashes the
+  // screen on iOS/Android. Native never installs, reads or cleans up this
+  // hook, and the visible QA entry below stays reachable on every platform.
   React.useEffect(() => {
-    if (typeof __DEV__ === 'undefined' || !__DEV__) return;
-    const target = (typeof window !== 'undefined' ? window : globalThis) as unknown as Record<string, unknown>;
+    if (!__DEV__ || Platform.OS !== 'web') {
+      return;
+    }
+    const target = globalThis as unknown as Record<string, unknown>;
     target.__hpMoreDevNavigate = (screen: string) => navigation.navigate(screen);
     const openPreviewFromHash = () => {
-      if (typeof window !== 'undefined' && window.location.hash === '#inventory-v2-preview') {
+      if (globalThis.location?.hash === '#inventory-v2-preview') {
         navigation.navigate('InventoryV2Preview');
       }
     };
-    if (typeof window !== 'undefined') window.addEventListener('hashchange', openPreviewFromHash);
+    globalThis.addEventListener('hashchange', openPreviewFromHash);
     openPreviewFromHash();
     return () => {
       delete target.__hpMoreDevNavigate;
-      if (typeof window !== 'undefined') window.removeEventListener('hashchange', openPreviewFromHash);
+      globalThis.removeEventListener('hashchange', openPreviewFromHash);
     };
   }, [navigation]);
 
@@ -128,7 +135,7 @@ export function MoreScreen() {
           </View>
           <AppCard variant="quiet" padding="compact">
             <InteractivePressable
-              onPress={() => handleModulePress('InventoryV2Preview')}
+              onPress={() => navigation.navigate('InventoryV2Preview')}
               style={styles.modulePressable}
               accessibilityLabel="Abrir Inventario V2 (QA / Desarrollo)"
             >
