@@ -11,6 +11,10 @@ const normalizeString = (value) => (typeof value === 'string' ? value.trim() : '
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object ?? {}, key)
 const isTrueQuery = (value) => value === true || value === 'true' || value === '1'
 const throwSupabaseError = (error) => {
+  if (error?.code === 'P0001' && ['plan_not_found', 'plan_locked', 'invalid_plan_classification'].includes(error?.details)) {
+    const status = error.details === 'plan_not_found' ? 404 : error.details === 'plan_locked' ? 409 : 400
+    throw createHttpError(status, 'No se pudo vincular el evento al plan.', error.details)
+  }
   if (error?.code === 'P0008') {
     throw createHttpError(409, 'La operación ya fue procesada con otros datos.', 'idempotency_conflict')
   }
@@ -28,6 +32,16 @@ const throwSupabaseError = (error) => {
   }
 
   if (['22023', '22P02', '22003', '22007', '23514', '23503', '23502'].includes(error?.code)) {
+    // S7-01: la referencia de origen del Event es inmutable. El error de
+    // la base se traduce al mismo codigo que el DTO publico de PATCH.
+    if (String(error?.message ?? '').includes('planner event origin is immutable')) {
+      throw createHttpError(
+        400,
+        'La referencia de origen no se puede modificar.',
+        'protected_event_origin_field',
+      )
+    }
+
     throw createHttpError(400, 'Revisá el horario del evento: fecha, hora de inicio, hora de fin y recurrencia deben ser válidos.', 'validation_error')
   }
 
@@ -115,6 +129,108 @@ function canonicalIdempotencyKey() {
   return crypto.randomUUID()
 }
 
+// ---------------------------------------------------------------------------
+// S7-01 — origin_* del Event.
+//
+// - El catalogo es IDENTICO al de planner_tasks (incluye 'planner').
+// - La referencia es una soft reference: no hay FK cross-domain.
+// - El servidor la compone; el cliente HTTP publico de Planner la rechaza
+//   antes de llegar al service (ver planner.events.v1.controller.js).
+// ---------------------------------------------------------------------------
+
+const ALLOWED_ORIGIN_MODULES = Object.freeze([
+  'inventory',
+  'assets',
+  'finance',
+  'geni',
+  'automation',
+  'planner',
+])
+
+const PROTECTED_EVENT_ORIGIN_FIELDS = Object.freeze([
+  'origin_module',
+  'origin_entity_type',
+  'origin_entity_id',
+  'origin_reason',
+])
+
+const validateOriginModule = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return null
+  }
+
+  if (!ALLOWED_ORIGIN_MODULES.includes(value)) {
+    throw createHttpError(400, 'origin_module invalido.', 'validation_error')
+  }
+
+  return value
+}
+
+const validateOriginEntityType = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return null
+  }
+
+  const normalized = String(value).trim()
+
+  if (normalized.length === 0) {
+    throw createHttpError(400, 'origin_entity_type no puede estar vacio.', 'validation_error')
+  }
+
+  return normalized
+}
+
+const validateOriginEntityId = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return null
+  }
+
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+  if (!uuidPattern.test(String(value))) {
+    throw createHttpError(400, 'origin_entity_id debe ser un uuid valido.', 'validation_error')
+  }
+
+  return String(value)
+}
+
+const validateOriginReason = (value) => {
+  if (value === undefined || value === null || value === '') {
+    return null
+  }
+
+  const normalized = String(value).trim()
+
+  if (normalized.length === 0) {
+    throw createHttpError(400, 'origin_reason no puede estar vacio.', 'validation_error')
+  }
+
+  return normalized
+}
+
+/**
+ * Normaliza el quartet origin_* recibido desde una integracion server-side.
+ * Devuelve null cuando no hay referencia (create normal de Planner).
+ */
+const buildOriginPayload = (origin) => {
+  if (!origin || typeof origin !== 'object') {
+    return null
+  }
+
+  const originModule = validateOriginModule(origin.origin_module)
+
+  if (!originModule) {
+    return null
+  }
+
+  return {
+    origin_module: originModule,
+    origin_entity_type: validateOriginEntityType(origin.origin_entity_type),
+    origin_entity_id: validateOriginEntityId(origin.origin_entity_id),
+    origin_reason: validateOriginReason(origin.origin_reason),
+  }
+}
+
 const listEvents = async (context, query) => {
   const fallback = defaultEventsRange()
   const from = query.from ? parseIsoDate(query.from, 'from') : fallback.from
@@ -163,7 +279,15 @@ async function callV2Rpc(context, rpcName, params) {
   return data
 }
 
-const createEvent = async (context, body) => {
+/**
+ * Create canonico de Event (S7-01 / S7-03).
+ *
+ * `correlation` transporta la identidad del intento (mutationId + idempotencyKey)
+ * y la referencia server-side `origin` (cuarteto). La via HTTP publica NUNCA
+ * envia `origin`: lo compone el servidor que integra (Assets). Asi el frontend
+ * no puede escribir un origen arbitrario.
+ */
+const createEvent = async (context, body, correlation = {}) => {
   const title = normalizeString(body?.title)
 
   if (!title) {
@@ -177,6 +301,17 @@ const createEvent = async (context, body) => {
   const isAllDay = Boolean(body?.all_day)
   const locationName = hasOwn(body, 'location_name') ? normalizeString(body.location_name) : ''
   const recurrence = validateRecurrence(body?.recurrence)
+  const goalId = hasOwn(body, 'goal_id') ? normalizeString(body.goal_id) : ''
+  const relationFieldRequested = hasOwn(body, 'goal_id') || hasOwn(body, 'plan_classification')
+  const planClassification = hasOwn(body, 'plan_classification')
+    ? normalizeString(body.plan_classification)
+    : 'necessary'
+  if (relationFieldRequested && !goalId) {
+    throw createHttpError(400, 'goal_id es obligatorio cuando se solicita una relación con Plan.', 'validation_error')
+  }
+  if (goalId && !['necessary', 'supporting'].includes(planClassification)) {
+    throw createHttpError(400, 'Clasificación de Plan inválida.', 'invalid_plan_classification')
+  }
   const scheduling = isAllDay
     ? {
         type: 'all_day',
@@ -205,11 +340,19 @@ const createEvent = async (context, body) => {
     attendanceRequired: false,
   }
 
-  const operation = 'planner.events.v0.create'
-  const mutationId = canonicalMutationId(operation, 'create', crypto.randomUUID())
-  const idempotencyKey = canonicalIdempotencyKey(operation, 'create', payload)
+  // S7-01: referencia server-side (cuarteto). Nunca proviene del body publico.
+  const originPayload = buildOriginPayload(correlation.origin)
+  if (originPayload) {
+    Object.assign(payload, originPayload)
+  }
 
-  const result = await callV2Rpc(context, 'create_planner_event_v1', {
+  const operation = correlation.operation
+    ?? (goalId ? 'planner.events.v1.create-for-plan' : 'planner.events.v0.create')
+  const mutationId = correlation.mutationId ?? canonicalMutationId(operation, 'create', crypto.randomUUID())
+  const idempotencyKey = correlation.idempotencyKey ?? canonicalIdempotencyKey(operation, 'create', payload)
+
+  const rpcName = goalId ? 'create_planner_event_for_plan_v1' : 'create_planner_event_v1'
+  const rpcParams = {
     p_payload: payload,
     p_request_id: mutationId,
     p_mutation_id: mutationId,
@@ -226,7 +369,13 @@ const createEvent = async (context, body) => {
       mutationId,
     }),
     p_operation: operation,
-  })
+  }
+  if (goalId) {
+    delete rpcParams.p_scope_type
+    rpcParams.p_goal_id = goalId
+    rpcParams.p_plan_classification = planClassification
+  }
+  const result = await callV2Rpc(context, rpcName, rpcParams)
 
   const event = result?.data?.event ?? result?.body?.data?.event ?? result?.event ?? result
   recordPlannerActivity(context, {
@@ -240,11 +389,23 @@ const createEvent = async (context, body) => {
   return { event }
 }
 
-const buildEventPatch = (body) => {
+const buildEventPatch = (body, current, context) => {
   const patch = {}
 
   if (hasOwn(body, 'status')) {
     throw createHttpError(400, 'status no se modifica con PATCH.', 'validation_error')
+  }
+
+  // S7-01: origin_* es INMUTABLE despues del create. No aparece en el DTO
+  // publico de PATCH: si llega, se rechaza (no se ignora en silencio).
+  const protectedOriginField = PROTECTED_EVENT_ORIGIN_FIELDS.find((field) => hasOwn(body, field))
+  if (protectedOriginField) {
+    throw createHttpError(
+      400,
+      'La referencia de origen no se puede modificar.',
+      'protected_event_origin_field',
+      { field: protectedOriginField },
+    )
   }
 
   if (hasOwn(body, 'title')) {
@@ -261,21 +422,37 @@ const buildEventPatch = (body) => {
     patch.description = normalizeString(body.description) || null
   }
 
-  if (hasOwn(body, 'starts_at')) {
-    patch.starts_at = parseIsoDate(body.starts_at, 'starts_at').toISOString()
-  }
-
-  if (hasOwn(body, 'ends_at')) {
-    const endsAt = parseOptionalIsoDate(body.ends_at, 'ends_at')
-    patch.ends_at = endsAt ? endsAt.toISOString() : null
-  }
-
-  if (hasOwn(body, 'all_day')) {
-    patch.all_day = Boolean(body.all_day)
+  const hasSchedulingPatch = ['starts_at', 'ends_at', 'all_day'].some((key) => hasOwn(body, key))
+  if (hasSchedulingPatch) {
+    const allDay = hasOwn(body, 'all_day') ? Boolean(body.all_day) : current.schedule_type === 'all_day'
+    if (allDay) {
+      const startDate = hasOwn(body, 'starts_at')
+        ? parseIsoDate(body.starts_at, 'starts_at').toISOString().slice(0, 10)
+        : current.start_date
+      const endDate = hasOwn(body, 'ends_at')
+        ? (parseOptionalIsoDate(body.ends_at, 'ends_at') ?? parseIsoDate(body.starts_at ?? current.starts_at, 'starts_at')).toISOString().slice(0, 10)
+        : current.end_date ?? startDate
+      patch.scheduling = { type: 'all_day', startDate, endDate }
+    } else {
+      const startsAt = hasOwn(body, 'starts_at')
+        ? parseIsoDate(body.starts_at, 'starts_at').toISOString()
+        : current.starts_at
+      const endsAt = hasOwn(body, 'ends_at')
+        ? parseOptionalIsoDate(body.ends_at, 'ends_at')?.toISOString() ?? null
+        : current.ends_at
+      patch.scheduling = {
+        type: 'timed',
+        startsAt,
+        endsAt,
+        durationMinutes: endsAt ? null : current.duration_minutes,
+        timeZone: current.time_zone ?? context.household?.timezone ?? 'UTC',
+      }
+    }
   }
 
   if (hasOwn(body, 'location_name')) {
-    patch.location_name = normalizeString(body.location_name) || null
+    const locationName = normalizeString(body.location_name)
+    patch.location = locationName ? { type: 'other', payload: { display_name: locationName } } : null
   }
 
   if (hasOwn(body, 'recurrence')) {
@@ -288,7 +465,7 @@ const buildEventPatch = (body) => {
 const updateEvent = async (context, eventId, body, expectedVersion) => {
   const current = await getEventOrThrow(context.client, context.householdId, eventId)
   assertExpectedVersion(current.version, expectedVersion)
-  const patch = buildEventPatch(body ?? {})
+  const patch = buildEventPatch(body ?? {}, current, context)
 
   if (Object.keys(patch).length === 0) {
     return { event: current }
@@ -296,10 +473,9 @@ const updateEvent = async (context, eventId, body, expectedVersion) => {
 
   const previousState = pickEventActivityState(current)
 
-  const startsAt = new Date(patch.starts_at ?? current.starts_at)
-  const effectiveEndsAt = hasOwn(patch, 'ends_at') ? patch.ends_at : current.ends_at
-  const endsAt = effectiveEndsAt ? new Date(effectiveEndsAt) : null
-  validateEventDates({ startsAt, endsAt })
+  if (patch.scheduling?.type === 'timed' && patch.scheduling.endsAt) {
+    validateEventDates({ startsAt: new Date(patch.scheduling.startsAt), endsAt: new Date(patch.scheduling.endsAt) })
+  }
 
   const operation = 'planner.events.v0.update'
   const mutationId = canonicalMutationId(operation, eventId, crypto.randomUUID())

@@ -24,6 +24,7 @@ const financeRoutes = require('./src/routes/finance');
 const featureFlagsRoutes = require('./src/routes/featureFlags');
 const presenceRoutes = require('./src/routes/presence');
 const homecloudRoutes = require('./src/routes/homecloud');
+const assetsRoutes = require('./src/routes/assets');
 const { requestContextMiddleware } = require('./src/middleware/requestContextMiddleware');
 const { errorEnvelopeMiddleware } = require('./src/middleware/errorEnvelopeMiddleware');
 const { sendApiError } = require('./src/lib/httpErrors');
@@ -32,7 +33,19 @@ const app = express();
 
 // 4. Middlewares de seguridad y logs
 app.use(helmet());
-app.use(morgan('dev'));
+// OFFICE-3 (cierre de seguridad): la entrega de documentos al DocServer viaja
+// con un token de sesi├│n en la query (`?token=ÔÇª`). El access log registra el
+// PATH sin query strings para que ning├║n token, grant firmado ni credencial
+// en URL termine en los logs de la aplicaci├│n.
+app.use(morgan((tokens, req, res) => {
+  return [
+    tokens.method(req, res),
+    req.path,
+    tokens.status(req, res),
+    `${tokens['response-time'](req, res)} ms`,
+    `- ${tokens.res(req, res, 'content-length') ?? '-'}`,
+  ].join(' ');
+}));
 
 // CORS configurable por ambiente
 const isProduction = process.env.NODE_ENV === 'production';
@@ -93,6 +106,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/finance', financeRoutes);
 app.use('/api/presence', presenceRoutes);
 app.use('/api/homecloud', homecloudRoutes);
+app.use('/api/assets', assetsRoutes);
 // Ruta de prueba
 app.get('/', (req, res) => {
     res.send('¡El servidor de FamilyHub está funcionando correctamente!');

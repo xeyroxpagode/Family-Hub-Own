@@ -50,14 +50,48 @@ export type ViewerToRnMessage =
   | { readonly v: 1; readonly type: 'READY'; readonly docId: string }
   | { readonly v: 1; readonly type: 'DOCUMENT_LOADED'; readonly docId: string; readonly pages: number }
   | { readonly v: 1; readonly type: 'PAGE_CHANGED'; readonly docId: string; readonly page: number; readonly pages: number }
-  | {
-      readonly v: 1;
-      readonly type: 'LOAD_ERROR';
-      readonly docId: string;
-      readonly code: 'password' | 'corrupt' | 'unsupported';
-    }
-  | { readonly v: 1; readonly type: 'RENDER_ERROR'; readonly docId: string; readonly page: number }
+  | ({ readonly v: 1; readonly type: 'LOAD_ERROR'; readonly docId: string; readonly code: PdfLoadErrorCode } & PdfLoadErrorTelemetry)
+  | ({ readonly v: 1; readonly type: 'RENDER_ERROR'; readonly docId: string; readonly page: number } & PdfLoadErrorTelemetry)
   | { readonly v: 1; readonly type: 'LINK_PRESSED'; readonly docId: string; readonly url: string };
+
+export type PdfLoadErrorCode = 'password' | 'corrupt' | 'engine_unavailable' | 'engine_failed';
+
+export type PdfLoadErrorStage =
+  | 'decode_base64'
+  | 'decode_size_mismatch'
+  | 'engine_missing'
+  | 'get_document_call'
+  | 'get_document_promise'
+  | 'page_setup'
+  | 'page_render';
+
+export type PdfEngineErrorName =
+  | 'none'
+  | 'Error'
+  | 'TypeError'
+  | 'RangeError'
+  | 'ReferenceError'
+  | 'SyntaxError'
+  | 'PasswordException'
+  | 'InvalidPDFException'
+  | 'MissingPDFException'
+  | 'UnexpectedResponseException'
+  | 'UnknownErrorException'
+  | 'FormatError'
+  | 'AbortException'
+  | 'RenderingCancelledException'
+  | 'unknown';
+
+export interface PdfLoadErrorTelemetry {
+  readonly stage?: PdfLoadErrorStage;
+  readonly engineName?: PdfEngineErrorName;
+  readonly byteLength?: number;
+  readonly totalChunks?: number;
+  readonly receivedChunks?: number;
+  readonly durationMs?: number;
+  readonly engineReady?: boolean;
+  readonly pages?: number;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -69,6 +103,64 @@ function isDocId(value: unknown): value is string {
 
 function isPageNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 100_000;
+}
+
+function isLoadErrorCode(value: unknown): value is PdfLoadErrorCode {
+  return value === 'password' || value === 'corrupt' || value === 'engine_unavailable' || value === 'engine_failed';
+}
+
+function isLoadErrorStage(value: unknown): value is PdfLoadErrorStage {
+  return value === 'decode_base64'
+    || value === 'decode_size_mismatch'
+    || value === 'engine_missing'
+    || value === 'get_document_call'
+    || value === 'get_document_promise'
+    || value === 'page_setup'
+    || value === 'page_render';
+}
+
+function isEngineErrorName(value: unknown): value is PdfEngineErrorName {
+  return value === 'none'
+    || value === 'Error'
+    || value === 'TypeError'
+    || value === 'RangeError'
+    || value === 'ReferenceError'
+    || value === 'SyntaxError'
+    || value === 'PasswordException'
+    || value === 'InvalidPDFException'
+    || value === 'MissingPDFException'
+    || value === 'UnexpectedResponseException'
+    || value === 'UnknownErrorException'
+    || value === 'FormatError'
+    || value === 'AbortException'
+    || value === 'RenderingCancelledException'
+    || value === 'unknown';
+}
+
+function isBoundedCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100_000_000;
+}
+
+function parseLoadErrorTelemetry(decoded: Record<string, unknown>): PdfLoadErrorTelemetry {
+  const telemetry: {
+    stage?: PdfLoadErrorStage;
+    engineName?: PdfEngineErrorName;
+    byteLength?: number;
+    totalChunks?: number;
+    receivedChunks?: number;
+    durationMs?: number;
+    engineReady?: boolean;
+    pages?: number;
+  } = {};
+  if (isLoadErrorStage(decoded.stage)) telemetry.stage = decoded.stage;
+  if (isEngineErrorName(decoded.engineName)) telemetry.engineName = decoded.engineName;
+  if (isBoundedCount(decoded.byteLength)) telemetry.byteLength = decoded.byteLength;
+  if (isBoundedCount(decoded.totalChunks)) telemetry.totalChunks = decoded.totalChunks;
+  if (isBoundedCount(decoded.receivedChunks)) telemetry.receivedChunks = decoded.receivedChunks;
+  if (isBoundedCount(decoded.durationMs)) telemetry.durationMs = decoded.durationMs;
+  if (typeof decoded.engineReady === 'boolean') telemetry.engineReady = decoded.engineReady;
+  if (isPageNumber(decoded.pages)) telemetry.pages = decoded.pages;
+  return telemetry;
 }
 
 /**
@@ -99,11 +191,11 @@ export function parseViewerMessage(raw: unknown): ViewerToRnMessage | null {
       if (!isPageNumber(decoded.page) || !isPageNumber(decoded.pages)) return null;
       return { v: 1, type: 'PAGE_CHANGED', docId: decoded.docId, page: decoded.pages < decoded.page ? decoded.pages : decoded.page, pages: decoded.pages };
     case 'LOAD_ERROR':
-      if (decoded.code !== 'password' && decoded.code !== 'corrupt' && decoded.code !== 'unsupported') return null;
-      return { v: 1, type: 'LOAD_ERROR', docId: decoded.docId, code: decoded.code };
+      if (!isLoadErrorCode(decoded.code)) return null;
+      return { v: 1, type: 'LOAD_ERROR', docId: decoded.docId, code: decoded.code, ...parseLoadErrorTelemetry(decoded) };
     case 'RENDER_ERROR':
       if (!isPageNumber(decoded.page)) return null;
-      return { v: 1, type: 'RENDER_ERROR', docId: decoded.docId, page: decoded.page };
+      return { v: 1, type: 'RENDER_ERROR', docId: decoded.docId, page: decoded.page, ...parseLoadErrorTelemetry(decoded) };
     case 'LINK_PRESSED':
       if (typeof decoded.url !== 'string' || decoded.url.length < 1 || decoded.url.length > PDF_BRIDGE_MAX_URL_CHARS) return null;
       if (!isAllowedViewerLinkUrl(decoded.url)) return null;

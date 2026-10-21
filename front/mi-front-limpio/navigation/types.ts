@@ -29,13 +29,34 @@ export type HomeTabParamList = {
 
 export type MoreStackParamList = {
   MoreHome: undefined;
+  Assets: undefined;
+  AssetsArchived: undefined;
+  AssetsTrash: undefined;
+  AssetsDetail: { assetId: string } | undefined;
+  AssetRecords: { assetId: string } | undefined;
+  AssetCare: { assetId: string } | undefined;
   Inventory: undefined;
   Family: undefined;
   HomeCloud: undefined;
+  HomeCloudFilesTrash: undefined;
   HomeCloudScanner: {
     folderId: string | null;
     folderName: string | null;
     capabilities: import('../services/homecloud/homecloudCapabilitiesAdapter').HomeCloudCapabilityDescriptor;
+    /**
+     * Serializable editor result (B1). Arrives via navigate+merge when the
+     * editor confirms; the Scanner adopts it once and clears it.
+     */
+    scannerEditOutcome?: import('../services/homecloud/homecloudScanner').ScannerPageEditOutcome;
+    scannerRetakePageId?: string;
+  } | undefined;
+  /**
+   * Scanner image editor (B1). Pushed from HomeCloudScanner; params are fully
+   * serializable (the page snapshot). The result returns through the parent's
+   * `scannerEditOutcome` param ÔÇö never through functions.
+   */
+  ScannerImageEditor: {
+    page: import('../services/homecloud/homecloudScanner').ScannerPage;
   } | undefined;
   Finance: import('./financeNavigation').FinanceEntryParams | undefined;
   FinanceAccounts: {
@@ -114,7 +135,9 @@ export type PlannerStackParamList = {
     initialTab?: import('./plannerNavigationContract').PlannerTabInputKey;
     initialSheet?: 'task' | 'event';
     sheetKey?: number;
-    source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown';
+    source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'assets' | 'unknown';
+    presetPayload?: import('../services/planner/plannerPresetTaskDomain').PlannerPresetTaskPayload;
+    presetApplicationKey?: number;
   } | undefined;
   CreateTask: {
     taskId?: string;
@@ -128,13 +151,14 @@ export type PlannerStackParamList = {
     fromPlan?: boolean;
     /** P2.2A: canonical task preset payload to apply on open ("Usar" preset). */
     presetPayload?: import('../services/planner/plannerPresetTaskDomain').PlannerPresetTaskPayload;
+    presetApplicationKey?: number;
   } | undefined;
   EditTask: { taskId: string };
   CreateEvent: undefined;
   EditEvent: { eventId: string };
   CreateGoal: undefined;
   EditGoal: { goalId?: string } | import('./plannerNavigationContract').PlannerEntityDetailParams;
-  GoalDetail: { goalId: string; source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown'; } | import('./plannerNavigationContract').PlannerEntityDetailParams;
+  GoalDetail: { goalId: string; source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'assets' | 'unknown'; } | import('./plannerNavigationContract').PlannerEntityDetailParams;
   EditPlan: { goalId?: string; planId?: string } | import('./plannerNavigationContract').PlannerEntityDetailParams;
   PlannerTrash: undefined;
   PlannerPresetLibrary: undefined;
@@ -143,6 +167,9 @@ export type PlannerStackParamList = {
     duplicateFromPresetId?: string;
     /** P2.2A: prefill for "Guardar como preset" from an existing Task (contextual fields already stripped). */
     presetPrefill?: import('../services/planner/plannerPresetTaskDomain').PlannerPresetTaskPayload;
+    /** Return the freshly saved template to the still-mounted Task draft. */
+    returnToTaskDraft?: boolean;
+    returnRouteName?: string;
   } | undefined;
   PlannerPresetEdit: { presetId: string };
   PlannerDraftRecovery: undefined;
@@ -157,6 +184,13 @@ export type PlannerStackParamList = {
   // M10 (TaskDetail/EventDetail) and M7 (PlannerSearch); M1 only defines the
   // contract.
   TaskDetail: import('./plannerNavigationContract').PlannerEntityDetailParams;
+  EvidenceComposer: {
+    taskId: string;
+    taskTitle: string;
+    fulfillmentId?: string;
+    fulfillmentVersion?: number;
+    source?: 'root' | 'swipe' | 'detail' | 'home' | 'correction';
+  };
   EventDetail: import('./plannerNavigationContract').PlannerEntityDetailParams;
   PlannerSearch: import('./plannerNavigationContract').PlannerSearchParams;
   PlannerAttentionActivity: import('./plannerNavigationContract').PlannerAttentionActivityParams;
@@ -164,6 +198,8 @@ export type PlannerStackParamList = {
   ResponsibilityCreate: undefined;
   ResponsibilityEdit: { responsibilityId: string };
   ResponsibilityDetail: { responsibilityId: string };
+  // Event Series / Horarios — the recurring-definition surface (frozen §19/§36).
+  PlannerSeries: undefined;
 };
 
 export type RootStackParamList = AuthStackParamList & PrivateStackParamList;

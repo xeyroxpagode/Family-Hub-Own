@@ -42,13 +42,13 @@ assertEqual(PLAN_LIFECYCLE_VALUES.includes('cancelled'), true, 'has cancelled');
 console.log('Testing PLAN_LIFECYCLE_TRANSITIONS...');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.preparation.length, 2, 'preparation transitions');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.preparation.includes('active'), true, 'preparation -> active');
-assertEqual(PLAN_LIFECYCLE_TRANSITIONS.preparation.includes('cancelled'), true, 'preparation -> cancelled');
-assertEqual(PLAN_LIFECYCLE_TRANSITIONS.active.length, 3, 'active transitions');
+assertEqual(PLAN_LIFECYCLE_TRANSITIONS.preparation.includes('cancelled'), false, 'preparation cannot cancel');
+assertEqual(PLAN_LIFECYCLE_TRANSITIONS.active.length, 4, 'active transitions');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.active.includes('paused'), true, 'active -> paused');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.active.includes('completed'), true, 'active -> completed');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.active.includes('cancelled'), true, 'active -> cancelled');
-assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.length, 3, 'paused transitions');
-assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.includes('active'), true, 'paused -> active');
+assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.length, 4, 'paused transitions');
+assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.includes('resume'), true, 'paused -> resume');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.includes('completed'), true, 'paused -> completed');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.includes('cancelled'), true, 'paused -> cancelled');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.completed.length, 2, 'completed transitions');
@@ -59,8 +59,8 @@ assertEqual(PLAN_LIFECYCLE_TRANSITIONS.cancelled.includes('reopen'), true, 'canc
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.cancelled.includes('archive'), true, 'cancelled -> archive');
 
 console.log('Testing PLAN_SCOPE_VALUES...');
-assertEqual(PLAN_SCOPE_VALUES.length, 2, 'scope values count');
-assertEqual(PLAN_SCOPE_VALUES.includes('personal'), true, 'has personal');
+assertEqual(PLAN_SCOPE_VALUES.length, 1, 'scope values count');
+assertEqual(PLAN_SCOPE_VALUES.includes('personal'), false, 'personal Plans are unsupported');
 assertEqual(PLAN_SCOPE_VALUES.includes('household'), true, 'has household');
 
 console.log('Testing validateLifecycle...');
@@ -76,7 +76,7 @@ assertThrows(() => validateLifecycle('invalid'), 'invalid_lifecycle', 'invalid l
 assertThrows(() => validateLifecycle('draft'), 'invalid_lifecycle', 'draft not allowed');
 
 console.log('Testing validateScope...');
-assertEqual(validateScope('personal'), 'personal', 'valid personal');
+assertThrows(() => validateScope('personal'), 'personal_plans_not_supported', 'personal Plans are rejected');
 assertEqual(validateScope('household'), 'household', 'valid household');
 assertEqual(validateScope(), 'household', 'default to household');
 assertEqual(validateScope(null), 'household', 'null defaults to household');
@@ -93,11 +93,11 @@ assertThrows(() => validateLifecycleTransition('completed', 'paused'), 'invalid_
 
 // Valid transitions
 validateLifecycleTransition('preparation', 'active');
-validateLifecycleTransition('preparation', 'cancelled');
+assertThrows(() => validateLifecycleTransition('preparation', 'cancelled'), 'invalid_lifecycle_transition', 'preparation -> cancelled throws');
 validateLifecycleTransition('active', 'paused');
 validateLifecycleTransition('active', 'completed');
 validateLifecycleTransition('active', 'cancelled');
-validateLifecycleTransition('paused', 'active');
+validateLifecycleTransition('paused', 'resume');
 validateLifecycleTransition('paused', 'completed');
 validateLifecycleTransition('paused', 'cancelled');
 validateLifecycleTransition('completed', 'reopen');
@@ -137,12 +137,14 @@ assertEqual(dto.lifecycle, 'active', 'dto lifecycle');
 assertEqual(dto.archivedAt, null, 'dto archivedAt');
 assertEqual(dto.trashedAt, null, 'dto trashedAt');
 assertEqual(dto.version, 1, 'dto version');
-assertEqual(dto.progress.percentage, 50, 'dto progress percentage');
-assertEqual(dto.progress.tasks.total, 10, 'dto progress tasks total');
-assertEqual(dto.progress.tasks.completed, 5, 'dto progress tasks completed');
-assertEqual(dto.progress.tasks.pending, 5, 'dto progress tasks pending');
-assertEqual(dto.progress.milestones.total, 4, 'dto progress milestones total');
-assertEqual(dto.progress.milestones.completed, 2, 'dto progress milestones completed');
+
+// Frozen: no universal percentage and no milestones in the Plan V1 DTO (§20).
+assertEqual(dto.progress, undefined, 'dto publishes no legacy percentage/milestone progress');
+assert(!('milestones' in dto), 'dto publishes no milestone list');
+assert(
+  Array.isArray(dto.availableActions) && dto.availableActions.includes('pause'),
+  'dto projects availableActions',
+);
 
 // Test with ends_at fallback
 const mockGoal2 = {

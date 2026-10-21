@@ -1,12 +1,15 @@
-/* eslint-disable react-hooks/set-state-in-effect */
-import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View, useWindowDimensions, TextInput } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, FlatList, Keyboard, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, StyleSheet, View, useWindowDimensions, TextInput } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HomePlusIcon } from '../../constants/icons';
 import { useAppTheme } from '../../context/AppThemeContext';
-import { lightHaptic } from '../../utils/haptics';
+import { useKeyboardVisible } from '../../hooks/useKeyboardVisible';
+import { resolveDragDismiss } from '../../services/planner/plannerSheetGuard';
+import { todayYMD } from '../../utils/civilDate';
+import { buildMinuteWheelValues } from '../../utils/timeWheel';
+import { selectionHaptic, warningHaptic } from '../../utils/plannerHaptics';
 import { AppButton } from './AppButton';
 import { AppText } from './AppText';
 import { InteractivePressable } from './InteractivePressable';
@@ -37,10 +40,75 @@ export const formatHumanDate = (value: string) => {
 
 type InlinePickerProps = { title: string; onClose: () => void; onConfirm: () => void; children: React.ReactNode };
 
+/**
+ * Drag-to-dismiss for compact sheets (ActionSheet / InlinePicker chrome).
+ * The drag claims the gesture only in the MOVE capture phase and only while
+ * the sheet is dismissible; release resolves distance + velocity through the
+ * shared `resolveDragDismiss` contract, so every sheet in the app shares the
+ * same thresholds.
+ */
+function useSheetDragDismiss(options: { dismissible: () => boolean; onDismiss: () => void }) {
+  const riseRef = useRef(new Animated.Value(0)).current;
+  const heightRef = useRef(600);
+  const dismissibleRef = useRef(options.dismissible);
+  dismissibleRef.current = options.dismissible;
+  const onDismissRef = useRef(options.onDismiss);
+  onDismissRef.current = options.onDismiss;
+
+  const settle = useCallback(() => {
+    Animated.spring(riseRef, { toValue: 0, useNativeDriver: true, friction: 9, tension: 100 }).start();
+  }, [riseRef]);
+
+  const release = useCallback(
+    (dy: number, vy: number) => {
+      if (resolveDragDismiss({ dy, vy, panelHeight: heightRef.current }) === 'dismiss') {
+        Animated.timing(riseRef, {
+          toValue: heightRef.current,
+          duration: 200,
+          easing: Easing.bezier(0.55, 0, 1, 0.45),
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (finished) onDismissRef.current();
+        });
+      } else {
+        settle();
+      }
+    },
+    [riseRef, settle],
+  );
+
+  const panHandlers = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+          dismissibleRef.current() && gesture.dy > 10 && gesture.vy > 0,
+        onPanResponderMove: (_event, gesture) => {
+          riseRef.setValue(Math.max(0, gesture.dy));
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          release(Math.max(0, gesture.dy), gesture.vy);
+        },
+        onPanResponderTerminate: () => {
+          settle();
+        },
+      }).panHandlers,
+    [release, riseRef, settle],
+  );
+
+  return { panHandlers, rise: riseRef, heightRef };
+}
+
 function InlinePicker({ title, onClose, onConfirm, children }: InlinePickerProps) {
   const theme = useAppTheme();
   const { colors } = theme;
   const styles = createActionSheetStyles(theme);
+  const insets = useSafeAreaInsets();
+  // The picker commits only via `Listo`; dismissal (X, scrim, back, drag)
+  // cancels and preserves the previously committed value.
+  const drag = useSheetDragDismiss({ dismissible: () => true, onDismiss: onClose });
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -51,15 +119,24 @@ function InlinePicker({ title, onClose, onConfirm, children }: InlinePickerProps
           accessibilityRole="button"
           accessibilityLabel={`Cerrar ${title}`}
         />
-        <View style={styles.inlinePanel} accessibilityViewIsModal>
-          <View style={styles.handle} />
-          <View style={styles.inlineHeader}>
-            <AppButton variant="icon" size="sm" onPress={onClose} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
-            <AppText variant="title3" weight="800" style={styles.inlineTitle}>{title}</AppText>
-            <AppButton title="Listo" size="sm" onPress={onConfirm} accessibilityLabel={`Confirmar ${title}`} />
+        <Animated.View
+          style={[styles.inlinePanel, { transform: [{ translateY: drag.rise }] }]}
+          onLayout={(event) => {
+            drag.heightRef.current = event.nativeEvent.layout.height;
+          }}
+          accessibilityViewIsModal
+        >
+          <View style={styles.inlineChrome} {...drag.panHandlers}>
+            <View style={styles.handle} />
+            <View style={styles.inlineHeader}>
+              <AppButton variant="icon" size="sm" onPress={onClose} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
+              <AppText variant="title3" weight="800" style={styles.inlineTitle}>{title}</AppText>
+              <AppButton title="Listo" size="sm" onPress={onConfirm} accessibilityLabel={`Confirmar ${title}`} />
+            </View>
           </View>
           <View style={styles.inlineContent}>{children}</View>
-        </View>
+          <View style={{ height: Math.max(insets.bottom, 16) }} />
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -110,6 +187,9 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
   const requestClose = () => {
     if (!closeDisabled) onRequestClose();
   };
+  // Handle + header strip is an honest drag affordance: it moves the sheet and
+  // can dismiss it. Dismissal is disabled exactly when close is disabled.
+  const drag = useSheetDragDismiss({ dismissible: () => !closeDisabled, onDismiss: () => onRequestClose() });
   // With the keyboard up, the backdrop is a "tap outside the input" gesture:
   // it dismisses the keyboard and leaves the sheet (and its CTA) untouched.
   const handleBackdropPress = () => {
@@ -120,15 +200,23 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
     requestClose();
   };
   const sheet = (
-    <View style={[styles.modalSheet, sheetSizing]} accessibilityViewIsModal>
-      <View style={styles.handle} />
-      <View style={styles.modalHeader}>
-        <View style={{ flex: 1 }}><AppText variant="title2" weight="800">{title}</AppText>{subtitle ? <AppText variant="caption" tone="secondary">{subtitle}</AppText> : null}</View>
-        <AppButton variant="icon" size="sm" onPress={requestClose} disabled={closeDisabled} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
+    <Animated.View
+      style={[styles.modalSheet, sheetSizing, { transform: [{ translateY: drag.rise }] }]}
+      onLayout={(event) => {
+        drag.heightRef.current = event.nativeEvent.layout.height;
+      }}
+      accessibilityViewIsModal
+    >
+      <View style={styles.sheetChrome} {...drag.panHandlers}>
+        <View style={styles.handle} />
+        <View style={styles.modalHeader}>
+          <View style={{ flex: 1 }}><AppText variant="title2" weight="800">{title}</AppText>{subtitle ? <AppText variant="caption" tone="secondary">{subtitle}</AppText> : null}</View>
+          <AppButton variant="icon" size="sm" onPress={requestClose} disabled={closeDisabled} accessibilityLabel={`Cerrar ${title}`}><HomePlusIcon name="close" size={20} color={colors.text.secondary} /></AppButton>
+        </View>
       </View>
       <View style={contentStyle}>{children}</View>
       {footer ? <View style={styles.modalFooter}>{footer}</View> : null}
-    </View>
+    </Animated.View>
   );
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={requestClose}>
@@ -150,23 +238,6 @@ export function ActionSheet({ visible, title, subtitle, onRequestClose, closeDis
   );
 }
 
-/**
- * Whether the software keyboard is currently on screen. Backed by the AppState
- * + keyboard events pair so a dismissed keyboard is never reported as visible.
- */
-function useKeyboardVisible(): boolean {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', () => setVisible(true));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setVisible(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-  return visible;
-}
-
 export function FormActionRow({ label, value, onPress, accessibilityLabel, disabled }: { label: string; value: string; onPress: () => void; accessibilityLabel?: string; disabled?: boolean }) {
   const theme = useAppTheme();
   const { colors, motion } = theme;
@@ -181,34 +252,89 @@ export function FormActionRow({ label, value, onPress, accessibilityLabel, disab
   );
 }
 
-export function DatePickerSheet({ visible, value, onClose, onConfirm }: { visible: boolean; value: string; onClose: () => void; onConfirm: (value: string) => void }) {
+/**
+ * HomePlus monthly date picker (Phase 0 decision: custom calendar, not an
+ * OS-native picker).
+ *
+ * Lifecycle contract:
+ * - opening creates a TEMPORARY draft from the committed value;
+ * - month navigation never commits anything;
+ * - `Listo` commits; dismissal (X / scrim / back / drag) preserves the
+ *   previously committed value;
+ * - when `onClear` is provided the field accepts an empty date and the picker
+ *   offers a discreet way to clear it, without quick-action clutter in the
+ *   parent form.
+ */
+export function DatePickerSheet({ visible, value, onClose, onConfirm, onClear }: { visible: boolean; value: string; onClose: () => void; onConfirm: (value: string) => void; onClear?: () => void }) {
   const theme = useAppTheme();
   const { colors, spacing } = theme;
+  const styles = createActionSheetStyles(theme);
   const [draft, setDraft] = useState(value);
   useEffect(() => {
     if (visible) setDraft(value);
   }, [value, visible]);
   const markedDates = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    // LOCAL civil today — `toISOString()` shifts the day after 21:00 in UTC-3.
+    const today = todayYMD();
     return {
       [today]: { marked: true, dotColor: colors.terracotta[600] },
       [draft]: { selected: true, selectedColor: colors.terracotta[500], selectedTextColor: colors.text.inverse },
     };
   }, [colors.terracotta, colors.text.inverse, draft]);
   if (!visible) return null;
-  return <InlinePicker title="Seleccionar fecha" onClose={onClose} onConfirm={() => onConfirm(draft)}><Calendar current={draft} markedDates={markedDates} onDayPress={(day) => { setDraft(day.dateString); void lightHaptic(); }} enableSwipeMonths firstDay={1} theme={{ backgroundColor: colors.background.base, calendarBackground: colors.background.base, textSectionTitleColor: colors.text.tertiary, monthTextColor: colors.text.primary, arrowColor: colors.terracotta[600], dayTextColor: colors.text.primary, todayTextColor: colors.terracotta[700], textDisabledColor: colors.text.muted, textDayFontWeight: '600', textMonthFontWeight: '800', textDayHeaderFontWeight: '700' }} accessibilityLabel={`Calendario. Fecha seleccionada: ${formatHumanDate(draft)}`} /><AppText variant="bodySmall" tone="secondary" align="center" style={{ marginTop: spacing[4] }}>{formatHumanDate(draft)}</AppText></InlinePicker>;
+  return (
+    <InlinePicker title="Seleccionar fecha" onClose={onClose} onConfirm={() => onConfirm(draft)}>
+      <Calendar
+        current={draft || undefined}
+        markedDates={markedDates}
+        onDayPress={(day) => { setDraft(day.dateString); selectionHaptic(); }}
+        enableSwipeMonths
+        firstDay={1}
+        theme={{ backgroundColor: colors.background.base, calendarBackground: colors.background.base, textSectionTitleColor: colors.text.tertiary, monthTextColor: colors.text.primary, arrowColor: colors.terracotta[600], dayTextColor: colors.text.primary, todayTextColor: colors.terracotta[700], textDisabledColor: colors.text.muted, textDayFontWeight: '600', textMonthFontWeight: '800', textDayHeaderFontWeight: '700' }}
+        accessibilityLabel={`Calendario. Fecha seleccionada: ${formatHumanDate(draft)}`}
+      />
+      <AppText variant="bodySmall" tone="secondary" align="center" style={{ marginTop: spacing[4] }}>{formatHumanDate(draft)}</AppText>
+      {onClear ? (
+        <Pressable
+          style={styles.clearRow}
+          onPress={() => { warningHaptic(); onClear(); }}
+          accessibilityRole="button"
+          accessibilityLabel="Quitar fecha"
+        >
+          <AppText variant="bodySmall" weight="700" tone="secondary">Quitar fecha</AppText>
+        </Pressable>
+      ) : null}
+    </InlinePicker>
+  );
 }
 
+/**
+ * One wheel column of the HomePlus time picker (Phase 0 decision: custom
+ * two-wheel selector inspired by iOS, not an OS-native picker).
+ *
+ * Snap model: FlatList + `snapToInterval` (native, reliable alignment) with
+ * selection derived from the settled offset only. Tapping an item scrolls the
+ * list to it FIRST so the visual selection and the scroll position can never
+ * disagree (the old version changed the value without scrolling, and the
+ * next drag silently reverted it).
+ */
 function WheelColumn({ values, selected, onSelect, accessibilityLabel }: { values: number[]; selected: number; onSelect: (value: number) => void; accessibilityLabel: string }) {
   const theme = useAppTheme();
   const styles = createActionSheetStyles(theme);
+  const listRef = useRef<FlatList<number>>(null);
   const initialIndex = Math.max(0, values.indexOf(selected));
   const selectOffset = (offset: number) => {
     const index = Math.round(offset / WHEEL_ITEM_HEIGHT);
     const next = values[Math.max(0, Math.min(index, values.length - 1))];
-    if (next !== selected) { onSelect(next); void lightHaptic(); }
+    if (next !== selected) { onSelect(next); selectionHaptic(); }
   };
-  return <View style={styles.wheelColumn}><FlatList data={values} keyExtractor={(item) => String(item)} getItemLayout={(_, index) => ({ length: WHEEL_ITEM_HEIGHT, offset: WHEEL_ITEM_HEIGHT * index, index })} initialScrollIndex={initialIndex} showsVerticalScrollIndicator={false} nestedScrollEnabled disableIntervalMomentum snapToInterval={WHEEL_ITEM_HEIGHT} decelerationRate="fast" contentContainerStyle={styles.wheelContent} accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel} accessibilityValue={{ min: values[0], max: values[values.length - 1], now: selected, text: `${accessibilityLabel} ${String(selected).padStart(2, '0')}` }} onMomentumScrollEnd={(event) => selectOffset(event.nativeEvent.contentOffset.y)} onScrollEndDrag={(event) => selectOffset(event.nativeEvent.contentOffset.y)} renderItem={({ item }) => <Pressable onPress={() => { onSelect(item); void lightHaptic(); }} style={styles.wheelItem} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel} ${String(item).padStart(2, '0')}`} accessibilityState={{ selected: item === selected }}><AppText variant="title3" weight={item === selected ? '800' : '400'} tone={item === selected ? 'primary' : 'tertiary'}>{String(item).padStart(2, '0')}</AppText></Pressable>} /></View>;
+  const selectByTap = (item: number, index: number) => {
+    if (item === selected) return;
+    listRef.current?.scrollToIndex({ index, animated: true });
+    onSelect(item);
+    selectionHaptic();
+  };
+  return <View style={styles.wheelColumn}><FlatList ref={listRef} data={values} keyExtractor={(item) => String(item)} getItemLayout={(_, index) => ({ length: WHEEL_ITEM_HEIGHT, offset: WHEEL_ITEM_HEIGHT * index, index })} initialScrollIndex={initialIndex} showsVerticalScrollIndicator={false} nestedScrollEnabled disableIntervalMomentum snapToInterval={WHEEL_ITEM_HEIGHT} decelerationRate="fast" contentContainerStyle={styles.wheelContent} accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel} accessibilityValue={{ min: values[0], max: values[values.length - 1], now: selected, text: `${accessibilityLabel} ${String(selected).padStart(2, '0')}` }} onMomentumScrollEnd={(event) => selectOffset(event.nativeEvent.contentOffset.y)} onScrollEndDrag={(event) => selectOffset(event.nativeEvent.contentOffset.y)} renderItem={({ item, index }) => <Pressable onPress={() => selectByTap(item, index)} style={styles.wheelItem} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel} ${String(item).padStart(2, '0')}`} accessibilityState={{ selected: item === selected }}><AppText variant="title3" weight={item === selected ? '800' : '400'} tone={item === selected ? 'primary' : 'tertiary'}>{String(item).padStart(2, '0')}</AppText></Pressable>} /></View>;
 }
 
 export function TimePickerSheet({ visible, value, onClose, onConfirm }: { visible: boolean; value: string; onClose: () => void; onConfirm: (value: string) => void }) {
@@ -217,14 +343,19 @@ export function TimePickerSheet({ visible, value, onClose, onConfirm }: { visibl
   const styles = createActionSheetStyles(theme);
   const [hours, minutes] = value.split(':').map(Number);
   const [draftHour, setDraftHour] = useState(Number.isInteger(hours) ? hours : 9);
-  const [draftMinute, setDraftMinute] = useState(Number.isInteger(minutes) ? Math.round(minutes / 5) * 5 % 60 : 0);
+  const [draftMinute, setDraftMinute] = useState(Number.isInteger(minutes) ? minutes : 0);
   useEffect(() => {
     if (!visible) return;
     setDraftHour(Number.isInteger(hours) ? hours : 9);
-    setDraftMinute(Number.isInteger(minutes) ? Math.round(minutes / 5) * 5 % 60 : 0);
+    // Keep the EXACT committed minute in the draft: a value like 09:03 must
+    // survive untouched if the user opens the picker and presses Listo without
+    // scrolling. The wheel below adds the off-grid minute to its values so the
+    // visual selection is honest; the first real interaction snaps back to
+    // the 5-minute grid.
+    setDraftMinute(Number.isInteger(minutes) ? minutes : 0);
   }, [hours, minutes, visible]);
   const hourValues = useMemo(() => Array.from({ length: 24 }, (_, index) => index), []);
-  const minuteValues = useMemo(() => Array.from({ length: 12 }, (_, index) => index * 5), []);
+  const minuteValues = useMemo(() => buildMinuteWheelValues(Number.isInteger(minutes) ? minutes : null), [minutes]);
   if (!visible) return null;
   return <InlinePicker title="Seleccionar hora" onClose={onClose} onConfirm={() => onConfirm(`${String(draftHour).padStart(2, '0')}:${String(draftMinute).padStart(2, '0')}`)}><View style={styles.wheelRow}><View style={styles.wheelFrame} pointerEvents="none" /><WheelColumn values={hourValues} selected={draftHour} onSelect={setDraftHour} accessibilityLabel="Hora" /><AppText variant="title2" weight="800">:</AppText><WheelColumn values={minuteValues} selected={draftMinute} onSelect={setDraftMinute} accessibilityLabel="Minutos" /></View><AppText variant="bodySmall" tone="secondary" align="center" style={{ marginTop: spacing[4] }}>{`${String(draftHour).padStart(2, '0')}:${String(draftMinute).padStart(2, '0')}`}</AppText></InlinePicker>;
 }
@@ -245,7 +376,7 @@ export function DurationPickerSheet({ visible, value, onClose, onConfirm }: { vi
 
   const handleQuickSelect = (minutes: number) => {
     setDraft(minutes);
-    void lightHaptic();
+    selectionHaptic();
   };
 
   const handleCustomConfirm = () => {
@@ -318,6 +449,9 @@ function createActionSheetStyles(theme: ReturnType<typeof useAppTheme>) {
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: colors.surface.overlay },
   backdropDismiss: { ...StyleSheet.absoluteFill, zIndex: 0 },
   modalSheet: { zIndex: 1, backgroundColor: colors.background.base, borderTopLeftRadius: radius.xxl, borderTopRightRadius: radius.xxl, paddingHorizontal: spacing[5], paddingTop: spacing[3], ...shadows.sheet },
+  // Handle + header strip shared by ActionSheet and InlinePicker: the honest
+  // drag zone of the sheet.
+  sheetChrome: { flexShrink: 0 },
   handle: { width: 44, height: 4, borderRadius: radius.pill, backgroundColor: colors.border.strong, alignSelf: 'center', marginBottom: spacing[3] },
   modalHeader: { minHeight: touchTargets.normal, flexDirection: 'row', alignItems: 'center', gap: spacing[3], marginBottom: spacing[4] },
   modalContentFill: { flex: 1, minHeight: 0 },
@@ -326,8 +460,14 @@ function createActionSheetStyles(theme: ReturnType<typeof useAppTheme>) {
   modalFooter: { flexShrink: 0, paddingTop: spacing[3], borderTopWidth: 1, borderTopColor: colors.border.subtle },
   keyboardAvoiding: { flexShrink: 1, justifyContent: 'flex-end' },
   inlineOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: colors.surface.overlay },
-  inlinePanel: { flex: 1, zIndex: 1, backgroundColor: colors.background.base, paddingHorizontal: spacing[5], paddingTop: spacing[3] },
-  inlineHeader: { minHeight: touchTargets.normal, flexDirection: 'row', alignItems: 'center', gap: spacing[2], marginBottom: spacing[5] }, inlineTitle: { flex: 1, textAlign: 'center' }, inlineContent: { flex: 1, position: 'relative' },
+  // Compact adaptive panel: the picker sizes to its content (calendar ~340px,
+  // wheels ~220px) instead of filling the whole screen.
+  inlinePanel: { zIndex: 1, backgroundColor: colors.background.base, borderTopLeftRadius: radius.xxl, borderTopRightRadius: radius.xxl, paddingHorizontal: spacing[5], paddingTop: spacing[3], ...shadows.sheet },
+  inlineChrome: { flexShrink: 0 },
+  inlineHeader: { minHeight: touchTargets.normal, flexDirection: 'row', alignItems: 'center', gap: spacing[2], marginBottom: spacing[4] },
+  inlineTitle: { flex: 1, textAlign: 'center' },
+  inlineContent: { flexShrink: 1, position: 'relative' },
+  clearRow: { alignSelf: 'center', marginTop: spacing[2], minHeight: touchTargets.normal, paddingHorizontal: spacing[4], alignItems: 'center', justifyContent: 'center' },
   actionRow: { minHeight: 56, paddingHorizontal: spacing[4], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.soft, flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, actionRowValue: { maxWidth: '58%', textAlign: 'right' },
   wheelRow: { height: WHEEL_ITEM_HEIGHT * 5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing[3] }, wheelFrame: { position: 'absolute', top: WHEEL_ITEM_HEIGHT * 2, left: 0, right: 0, height: WHEEL_ITEM_HEIGHT, zIndex: 1, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.terracotta[300], backgroundColor: colors.terracotta[50] }, wheelColumn: { width: 92, height: WHEEL_ITEM_HEIGHT * 5 }, wheelContent: { paddingVertical: WHEEL_ITEM_HEIGHT * 2 }, wheelItem: { height: WHEEL_ITEM_HEIGHT, alignItems: 'center', justifyContent: 'center' },
   durationOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing[2], justifyContent: 'center', paddingHorizontal: spacing[2] },

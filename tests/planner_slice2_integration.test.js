@@ -134,11 +134,11 @@ console.log('  PASS: Invalid transitions rejected');
 // Test 8: Valid transitions allowed
 console.log('Test 8: Valid lifecycle transitions allowed');
 validateLifecycleTransition('preparation', 'active');
-validateLifecycleTransition('preparation', 'cancelled');
+assertThrows(() => validateLifecycleTransition('preparation', 'cancelled'), 'invalid_lifecycle_transition', 'preparation -> cancelled throws');
 validateLifecycleTransition('active', 'paused');
 validateLifecycleTransition('active', 'completed');
 validateLifecycleTransition('active', 'cancelled');
-validateLifecycleTransition('paused', 'active');
+validateLifecycleTransition('paused', 'resume');
 validateLifecycleTransition('paused', 'completed');
 validateLifecycleTransition('paused', 'cancelled');
 validateLifecycleTransition('completed', 'reopen');
@@ -195,17 +195,16 @@ console.log('Test 13: Plan V1 DTO uses Plan terminology');
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
     version: 1,
-    progress_percentage: 50,
-    tasks_total: 10,
-    tasks_completed: 5,
-    tasks_pending: 5,
-    milestones_total: 4,
-    milestones_completed: 2,
   };
   const dto = toPlanDto(mockGoal, []);
   assertEqual(dto.scope, 'household', 'dto uses scope not visibility');
   assertEqual(dto.targetDate, '2026-12-31', 'dto uses targetDate not ends_at');
   assertEqual(dto.lifecycle, 'active', 'dto uses lifecycle not status');
+  // Frozen: even when legacy percentage/milestone columns are present, the Plan
+  // V1 DTO must not surface them (§20 + no universal percentage authority).
+  const withLegacyColumns = toPlanDto({ ...mockGoal, progress_percentage: 50, milestones_total: 4, milestones_completed: 2 }, []);
+  assertEqual(withLegacyColumns.progress, undefined, 'dto ignores legacy percentage columns');
+  assert(!('milestones' in withLegacyColumns), 'dto publishes no milestone list');
   console.log('  PASS: DTO uses Plan terminology');
 }
 

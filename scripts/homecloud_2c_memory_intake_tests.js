@@ -46,7 +46,16 @@ const engine = read('homecloudUploadEngine.ts');
 // Picker adapter
 record(picker.includes('launchImageLibraryAsync'), 'picker uses the native image library picker');
 record(picker.includes("'images'") && picker.includes("'videos'"), 'picker scoped to photos + videos only');
-record(picker.includes('allowsMultipleSelection: false'), 'picker single selection (no batch)');
+// RETARGET (ST-10.D) — `allowsMultipleSelection: false` encoded the ABSENCE of
+// batch intake. Product Truth §6.7 makes batch obligatory ("batch es
+// obligatorio y NO puede convertirse en N formularios"), so the old assertion
+// now contradicts the frozen contract and is replaced by the current one.
+record(
+  picker.includes('allowsMultipleSelection: multiple') && picker.includes('for (const asset of assets)'),
+  'picker keeps every selected asset (batch is obligatory per §6.7)',
+);
+const pickerCode = picker.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/gm, '$1');
+record(!pickerCode.includes('assets?.[0]'), 'nothing reduces the selection to assets[0]');
 record(picker.includes('exif') || captureMetadata.includes('DateTimeOriginal'), 'picker reads reliable EXIF capture metadata');
 record(
   captureMetadata.includes('capturedAt')
@@ -66,7 +75,21 @@ record(service.includes('initialAlbumId'), 'service forwards optional initial Al
 
 // Component
 record(component.includes('Guardar un recuerdo'), 'component renders canonical create title');
-record(component.includes('Elegir foto/video/audio') && component.includes('Fotos y videos'), 'component exposes the productive media source');
+// RETARGET (ST-10) — the old assertion demanded `Elegir foto/video/audio`, the
+// intermediate chooser sheet that let a gallery selection also pick audio.
+// Product Truth §4.1.1 froze that sheet OUT: `Importar audio` is a first-level
+// action, `Fotos y videos` offers ONLY image and video, and there is no
+// sub-level chooser. The old assertion therefore encoded a contract the product
+// has since forbidden, so it is replaced by the CURRENT one: the productive
+// media sources are exposed as FLAT first-level actions.
+record(
+  component.includes('Fotos y videos')
+    && component.includes('Capturar momento')
+    && component.includes('Importar audio')
+    && component.includes('Grabar audio')
+    && !component.includes('Elegir foto/video/audio'),
+  'component exposes every productive media source as a flat first-level create action (no chooser sheet, per §4.1.1)',
+);
 record(component.includes('Sin álbum'), 'root destination is represented as no Album membership');
 
 // Shared engine extension

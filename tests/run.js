@@ -52,6 +52,9 @@ const RUNTIME_ENVIRONMENT = {
   'homecloud-files-hierarchy-migration': [
     'LOCAL_DATABASE_URL',
   ],
+  'homecloud-files-lifecycle-migration': [
+    'LOCAL_DATABASE_URL',
+  ],
   // STAGE 2 REOPEN — the integrated suite is now part of a canonical gate, so it must
   // degrade the same way every other LOCAL_RUNTIME_REQUIRED step does: reported as
   // SKIPPED when the stack is absent, and actually RUN when it is present. Without this
@@ -62,6 +65,141 @@ const RUNTIME_ENVIRONMENT = {
     'SUPABASE_ANON_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
   ],
+  'assets-a3-1-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a3-2-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a3-3-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a4-1-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a4-1-migration': [
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a4-2-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a4-3-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a4-4-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a5-1-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a5-2-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a6-1-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a6-2-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-a6-3-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-final-qa-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-s5a-identity-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-s5b-bg01-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-s5b-o39-o35-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-s5c-bg02-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-s5c-capabilities-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-s5c-context-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-s5c-isolation-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-s5c-journeys-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
+  'assets-s5c-idempotency-runtime': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'LOCAL_DATABASE_URL',
+  ],
 };
 
 const suiteClass = {
@@ -69,6 +207,8 @@ const suiteClass = {
   'homecloud-files-stage2': 'DETERMINISTIC (+ LOCAL_RUNTIME_REQUIRED steps, skipped when absent)',
   'homecloud-files-stage2-surface': 'DETERMINISTIC',
   'homecloud-files-viewer': 'DETERMINISTIC',
+  'homecloud-office-viewer': 'DETERMINISTIC',
+  'homecloud-office-viewer-integration': 'LOCAL_RUNTIME_REQUIRED (self-skips when the stack is down)',
   'homecloud-files-ux': 'DETERMINISTIC',
   'homecloud-3a-3d': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-3a-3d-acceptance': 'LOCAL_RUNTIME_REQUIRED',
@@ -87,7 +227,58 @@ const suiteClass = {
   'homecloud-s4ii-search-runtime': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-files-hierarchy-runtime': 'LOCAL_RUNTIME_REQUIRED',
   'homecloud-files-hierarchy-migration': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-files-lifecycle-migration': 'LOCAL_RUNTIME_REQUIRED',
+  'homecloud-files-lifecycle-service': 'DETERMINISTIC',
+  'homecloud-files-purge-worker': 'DETERMINISTIC',
+  'homecloud-files-purge-runtime': 'LOCAL_RUNTIME_REQUIRED (self-skips when the local stack is down)',
+  'homecloud-files-trash-ui': 'DETERMINISTIC',
   'homecloud-stage2-integrated': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-capabilities': 'DETERMINISTIC',
+  'assets-a3-1-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a3-2-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a3-3-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a4-1-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a4-1-migration': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a4-2-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a4-3-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a4-4-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a5-1-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a5-2-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a6-1-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a6-2-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-a6-3-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-final-qa-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s5a-identity-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s5b-bg01-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s5b-o39-o35-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s5c-bg02-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s5c-capabilities-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s5c-context-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s5c-isolation-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s5c-journeys-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s5c-idempotency-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s5c-frontend-contract': 'DETERMINISTIC',
+  // S7 — ASSETS <-> PLANNER
+  'assets-s7-planner-items-contract': 'DETERMINISTIC',
+  'assets-s7-ui-contract': 'DETERMINISTIC',
+  'assets-s7-permissions-contract': 'DETERMINISTIC',
+  'assets-s7-planner-create-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s7-planner-read-model-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s7-unknown-outcome-runtime': 'LOCAL_RUNTIME_REQUIRED',
+  'assets-s7-derived-care-guard': 'LOCAL_RUNTIME_REQUIRED',
+  'planner-event-origin-fields': 'LOCAL_RUNTIME_REQUIRED',
+  'planner-task-origin-fields': 'LOCAL_RUNTIME_REQUIRED',
+  // OFFICE-3: la suite de integración real necesita el stack local completo
+  // (Supabase + backend corriendo con ONLYOFFICE_* + Document Server 9.4.0).
+  // Self-skips cuando el stack está ausente; el backend de QA lo levanta el
+  // operador con ONLYOFFICE_INTERNAL_API_URL apuntando a su host interno.
+  'homecloud-office-viewer-integration': [
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'ONLYOFFICE_JWT_SECRET',
+    'OFFICE_INTEGRATION_INTERNAL_API_URL',
+  ],
 };
 
 /** Probes the local runtime without failing the deterministic gate. */
@@ -140,10 +331,15 @@ const commands = {
       ...process.env,
       NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
     };
+    runCommand(
+      'HomeCloud 2A upload job runtime compile',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_2a_upload_job_test.json'],
+    );
     return runCommand(
       'HomeCloud 2A upload job runtime tests',
       'node',
-      ['scripts/compiled/scripts/homecloud_2a_upload_job_runtime_tests.js'],
+      ['scripts/compiled-uploadjob/scripts/homecloud_2a_upload_job_runtime_tests.js'],
       { env },
     );
   },
@@ -267,7 +463,7 @@ const commands = {
       ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_w1c_scanner_test.json'],
     );
     return runCommand(
-      'HomeCloud W1-C scanner accept -> detach regression tests',
+      'HomeCloud W1-C scanner acceptance -> completed-save regression tests',
       'node',
       ['scripts/compiled-w1cscanner/scripts/homecloud_w1c_scanner_acceptance_tests.js'],
       { env },
@@ -277,6 +473,43 @@ const commands = {
     'HomeCloud 3E scanner logic tests',
     'node',
     ['scripts/compiled/scripts/homecloud_3e_scanner_tests.js'],
+  ),
+  'homecloud-scanner-b1-compile': () => runCommand(
+    'HomeCloud Scanner B1 compile geometry/gesture/session tests',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_scanner_b1_test.json'],
+  ),
+  'homecloud-scanner-b1-geometry': () => runCommand(
+    'HomeCloud Scanner B1 geometry authority tests',
+    'node',
+    ['scripts/compiled-scannerb1/scripts/homecloud_scanner_b1_geometry_tests.js'],
+  ),
+  'homecloud-scanner-b1-gestures': () => runCommand(
+    'HomeCloud Scanner B1 gesture machine tests',
+    'node',
+    ['scripts/compiled-scannerb1/scripts/homecloud_scanner_b1_gesture_tests.js'],
+  ),
+  'homecloud-scanner-b1-session': () => runCommand(
+    'HomeCloud Scanner B1 session/navigation/PDF tests',
+    'node',
+    ['scripts/compiled-scannerb1/scripts/homecloud_scanner_b1_session_tests.js'],
+  ),
+  'homecloud-scanner-b1-review-flow': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+    };
+    return runCommand(
+      'HomeCloud Scanner B1 review flow tests (real router + real screens)',
+      'node',
+      ['scripts/compiled-scannerb1/scripts/homecloud_scanner_b1_review_flow_tests.js'],
+      { env },
+    );
+  },
+  'homecloud-scanner-b1-scanner3e': () => runCommand(
+    'HomeCloud 3E scanner logic tests (B1 compiled set)',
+    'node',
+    ['scripts/compiled-scannerb1/scripts/homecloud_3e_scanner_tests.js'],
   ),
   'homecloud-4a2-written-validation': () => runCommand(
     'HomeCloud 4A2 written register validation tests',
@@ -465,6 +698,27 @@ const commands = {
       { env },
     );
   },
+  // LIFECYCLE V1 — the Papelera UI: the real grammar, the real action host, the
+  // real trash client and the real Papelera + Files surfaces over a hook host and
+  // a transport that mirrors the backend lifecycle contracts (including the
+  // purge confirmation refusal). DETERMINISTIC: compiles and runs anywhere.
+  'homecloud-files-trash-ui': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+    };
+    runCommand(
+      'HomeCloud Files compile lifecycle V1 Papelera UI tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_files_trash_ui_test.json'],
+    );
+    return runCommand(
+      'HomeCloud Files lifecycle V1 Papelera UI tests',
+      'node',
+      ['scripts/compiled-files-trash/scripts/homecloud_files_trash_ui_tests.js'],
+      { env },
+    );
+  },
   // Stage 2 Phase 1: deterministic client-side hierarchy evidence. Compiles the
   // real tree module, the real destination picker and the real Files screen.
   'homecloud-files-hierarchy-ui': () => {
@@ -535,6 +789,54 @@ const commands = {
       { env },
     );
   },
+  // HOTFIX HC-POL-013 — THE INTERPOLATION RANGE CONTRACT.
+  //
+  // An `inputRange`/`outputRange` pair with different lengths kills a screen
+  // while React Native BUILDS the config, during render, and the Files UI
+  // harnesses used to stub `interpolate` as a no-op — so this exact defect
+  // reached iOS with every gate green. This step reads the REAL sources and
+  // enforces React Native's own `AnimatedInterpolation.js::checkValidRanges`
+  // on every interpolation of the Files/Shared motion surfaces, while asserting
+  // the approved HC-POL-013/011/012 keyframes stay intact instead of deleted.
+  // Deterministic: node only.
+  'homecloud-files-motion-interpolation': () => runCommand(
+    'HomeCloud Files/Shared motion interpolation range contract tests',
+    'node',
+    ['scripts/homecloud_files_motion_interpolation_tests.js'],
+  ),
+  'homecloud-office-viewer': () => {
+    const env = {
+      ...process.env,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:9999',
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    runCommand(
+      'HomeCloud Office Viewer compile tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_office_viewer_test.json'],
+    );
+    runCommand(
+      'HomeCloud Office Viewer frontend tests',
+      'node',
+      ['scripts/compiled-office-viewer/scripts/homecloud_office_viewer_tests.js'],
+      { env },
+    );
+    return runCommand(
+      'HomeCloud Office Viewer backend tests',
+      'node',
+      ['scripts/homecloud_office_viewer_backend_tests.js'],
+      { env },
+    );
+  },
+  // OFFICE-3: integración REAL (LOCAL_RUNTIME_REQUIRED). Sesiones
+  // autorizadas contra el backend vivo, descarga server-to-server y
+  // procesamiento genuino por el Document Server 9.4.0 con fixtures
+  // OOXML in-line y legacy OLE2 producidos por el motor real.
+  'homecloud-office-viewer-integration': () => runCommand(
+    'HomeCloud Office Viewer integración real (sesiones + DocServer + seguridad)',
+    'node',
+    ['scripts/homecloud_office_viewer_integration_tests.js'],
+  ),
   'homecloud-files-hierarchy-migration': {
     label: 'HomeCloud Files nested folder hierarchy migration safety (isolated local DBs)',
     run: () => runCommand(
@@ -543,6 +845,40 @@ const commands = {
       ['scripts/homecloud_files_hierarchy_migration_tests.js'],
     ),
   },
+  // Lifecycle V1 (Trash / Restore / Purge). LOCAL_RUNTIME_REQUIRED: it proves
+  // the migration, the state machine and the worker primitives against real
+  // PostgreSQL, inside throwaway databases it creates and drops itself.
+  'homecloud-files-lifecycle-migration': {
+    label: 'HomeCloud Files lifecycle V1 migration + state machine safety (isolated local DBs)',
+    run: () => runCommand(
+      'HomeCloud Files lifecycle V1 migration + state machine safety (isolated local DBs)',
+      'node',
+      ['scripts/homecloud_files_lifecycle_migration_tests.js'],
+    ),
+  },
+  // Lifecycle V1 deterministic seam: real services + real capability matrix +
+  // real mappers against an in-memory PostgREST/RPC stub that mirrors the
+  // database state machine. DETERMINISTIC: runs anywhere.
+  'homecloud-files-lifecycle-service': () => runCommand(
+    'HomeCloud Files lifecycle V1 service seam tests',
+    'node',
+    ['scripts/homecloud_files_lifecycle_service_tests.js'],
+  ),
+  // Lifecycle V1 purge worker, deterministic seam: real worker service against
+  // an in-memory Storage/RPC stub with failure injection. DETERMINISTIC.
+  'homecloud-files-purge-worker': () => runCommand(
+    'HomeCloud Files purge worker seam tests',
+    'node',
+    ['scripts/homecloud_files_purge_worker_tests.js'],
+  ),
+  // Lifecycle V1 purge runtime: the REAL local stack - physical byte deletion
+  // on disposable fixtures, crash recovery, fault injection, concurrency.
+  // LOCAL_RUNTIME_REQUIRED: the script self-skips when the stack is down.
+  'homecloud-files-purge-runtime': () => runCommand(
+    'HomeCloud Files purge runtime tests (real stack, disposable fixtures)',
+    'node',
+    ['scripts/homecloud_files_purge_runtime_tests.js'],
+  ),
   'homecloud-files-favorites-runtime': {
     label: 'HomeCloud Files Core personal favorites (real PostgREST)',
     run: () => runCommand(
@@ -562,6 +898,279 @@ const commands = {
       ['scripts/homecloud_files_hierarchy_runtime_tests.js'],
     ),
   },
+  'assets-capabilities': {
+    label: 'Assets V2 capability contract (A2)',
+    run: () => runCommand('Assets V2 capability contract (A2)', 'node', ['tests/assets_capabilities.test.js']),
+  },
+  'assets-a3-1-runtime': {
+    label: 'Assets A3.1 canonical Asset API (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A3.1 canonical Asset API (real backend + real stack)',
+      'node',
+      ['scripts/assets_a3_1_api_runtime_tests.js'],
+    ),
+  },
+  'assets-a3-2-runtime': {
+    label: 'Assets A3.2 context dimensions API (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A3.2 context dimensions API (real backend + real stack)',
+      'node',
+      ['scripts/assets_a3_2_api_runtime_tests.js'],
+    ),
+  },
+  'assets-a3-3-runtime': {
+    label: 'Assets A3.3 profile change & structural integrity (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A3.3 profile change & structural integrity (real backend + real stack)',
+      'node',
+      ['scripts/assets_a3_3_api_runtime_tests.js'],
+    ),
+  },
+  'assets-a4-1-runtime': {
+    label: 'Assets A4.1 canonical Asset Records foundation (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A4.1 canonical Asset Records foundation (real backend + real stack)',
+      'node',
+      ['scripts/assets_a4_1_records_runtime_tests.js'],
+    ),
+  },
+  'assets-a4-1-migration': {
+    label: 'Assets A4.1 migration rebuild safety (isolated throwaway database)',
+    run: () => runCommand(
+      'Assets A4.1 migration rebuild safety (isolated throwaway database)',
+      'node',
+      ['scripts/assets_a4_1_migration_rebuild_tests.js'],
+    ),
+  },
+  'assets-a5-1-runtime': {
+    label: 'Assets A5.1 manual Care foundation (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A5.1 manual Care foundation (real backend + real stack)',
+      'node',
+      ['scripts/assets_a5_1_manual_care_runtime_tests.js'],
+    ),
+  },
+  // A4.2–A4.4 REGISTRATION FIX: the runtime scripts existed and passed for
+  // the whole A4 line, but no step ever invoked them from a gate: a suite
+  // nobody runs is not evidence. They are now steps of the assets gate,
+  // exactly like their A4.1/A5.x siblings.
+  'assets-a4-2-runtime': {
+    label: 'Assets A4.2 Record link/unlink (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A4.2 Record link/unlink (real backend + real stack)',
+      'node',
+      ['scripts/assets_a4_2_link_unlink_runtime_tests.js'],
+    ),
+  },
+  'assets-a4-3-runtime': {
+    label: 'Assets A4.3 Record correction/renewal (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A4.3 Record correction/renewal (real backend + real stack)',
+      'node',
+      ['scripts/assets_a4_3_correction_renewal_runtime_tests.js'],
+    ),
+  },
+  'assets-a4-4-runtime': {
+    label: 'Assets A4.4 Record remove/restore (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A4.4 Record remove/restore (real backend + real stack)',
+      'node',
+      ['scripts/assets_a4_4_remove_restore_runtime_tests.js'],
+    ),
+  },
+  'assets-a5-2-runtime': {
+    label: 'Assets A5.2 Care recoverability & closure (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A5.2 Care recoverability & closure (real backend + real stack)',
+      'node',
+      ['scripts/assets_a5_2_care_remove_restore_runtime_tests.js'],
+    ),
+  },
+  'assets-a6-1-runtime': {
+    label: 'Assets A6.1 identity metadata & categories (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A6.1 identity metadata & categories (real backend + real stack)',
+      'node',
+      ['scripts/assets_a6_1_identity_category_runtime_tests.js'],
+    ),
+  },
+  'assets-a6-2-runtime': {
+    label: 'Assets A6.2 operational lifecycle & archive (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A6.2 operational lifecycle & archive (real backend + real stack)',
+      'node',
+      ['scripts/assets_a6_2_lifecycle_archive_runtime_tests.js'],
+    ),
+  },
+  'assets-a6-3-runtime': {
+    label: 'Assets A6.3 trash/restore & core closure (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A6.3 trash/restore & core closure (real backend + real stack)',
+      'node',
+      ['scripts/assets_a6_3_trash_restore_runtime_tests.js'],
+    ),
+  },
+  'assets-final-qa-runtime': {
+    label: 'Assets A6 FINAL QA core backend acceptance (real backend + real stack)',
+    run: () => runCommand(
+      'Assets A6 FINAL QA core backend acceptance (real backend + real stack)',
+      'node',
+      ['scripts/assets_a6_final_qa_runtime_tests.js'],
+    ),
+  },
+  'assets-s5a-identity-runtime': {
+    label: 'Assets S5-A identity final certification (real backend + real stack)',
+    run: () => runCommand(
+      'Assets S5-A identity final certification (real backend + real stack)',
+      'node',
+      ['scripts/assets_s5a_identity_final_runtime_tests.js'],
+    ),
+  },
+  'assets-s5b-bg01-runtime': {
+    label: 'Assets S5-B BG-01 search matrix (real backend + real stack)',
+    run: () => runCommand(
+      'Assets S5-B BG-01 search matrix (real backend + real stack)',
+      'node',
+      ['scripts/assets_s5b_bg01_search_matrix_runtime_tests.js'],
+    ),
+  },
+  'assets-s5b-o39-o35-runtime': {
+    label: 'Assets S5-B O39 Gone + O35 lifecycle history (real backend + real stack)',
+    run: () => runCommand(
+      'Assets S5-B O39 Gone + O35 lifecycle history (real backend + real stack)',
+      'node',
+      ['scripts/assets_s5b_o39_o35_runtime_tests.js'],
+    ),
+  },
+  'assets-s5c-bg02-runtime': {
+    label: 'Assets S5-C BG-02 household Record discovery E2E (real backend + real stack)',
+    run: () => runCommand(
+      'Assets S5-C BG-02 household Record discovery E2E (real backend + real stack)',
+      'node',
+      ['scripts/assets_s5c_bg02_discovery_runtime_tests.js'],
+    ),
+  },
+  'assets-s5c-capabilities-runtime': {
+    label: 'Assets S5-C capability projection matrix (real backend + real stack)',
+    run: () => runCommand(
+      'Assets S5-C capability projection matrix (real backend + real stack)',
+      'node',
+      ['scripts/assets_s5c_capabilities_runtime_tests.js'],
+    ),
+  },
+  'assets-s5c-context-runtime': {
+    label: 'Assets S5-C context dimensions matrix (real backend + real stack)',
+    run: () => runCommand(
+      'Assets S5-C context dimensions matrix (real backend + real stack)',
+      'node',
+      ['scripts/assets_s5c_context_dimensions_runtime_tests.js'],
+    ),
+  },
+  'assets-s5c-isolation-runtime': {
+    label: 'Assets S5-C household isolation gate (real backend + real stack)',
+    run: () => runCommand(
+      'Assets S5-C household isolation gate (real backend + real stack)',
+      'node',
+      ['scripts/assets_s5c_household_isolation_runtime_tests.js'],
+    ),
+  },
+  'assets-s5c-journeys-runtime': {
+    label: 'Assets S5-C core journeys extras: lifecycle, care y records (real backend + real stack)',
+    run: () => runCommand(
+      'Assets S5-C core journeys extras: lifecycle, care y records (real backend + real stack)',
+      'node',
+      ['scripts/assets_s5c_core_journeys_runtime_tests.js'],
+    ),
+  },
+  'assets-s5c-idempotency-runtime': {
+    label: 'Assets S5-C idempotency / unknown outcome (real backend + real stack)',
+    run: () => runCommand(
+      'Assets S5-C idempotency / unknown outcome (real backend + real stack)',
+      'node',
+      ['scripts/assets_s5c_idempotency_runtime_tests.js'],
+    ),
+  },
+  'assets-s5c-frontend-contract': {
+    label: 'Assets S5-C frontend contract: proyección de contexto + capabilities',
+    run: () => runCommand(
+      'Assets S5-C frontend contract: proyección de contexto + capabilities',
+      'node',
+      ['front/mi-front-limpio/tests/assetsCapabilitiesProjection.contract.test.js'],
+    ),
+  },
+  // ── S7 · ASSETS <-> PLANNER ───────────────────────────────────────────
+  'assets-s7-planner-items-contract': {
+    label: 'Assets S7 contract: cliente/hook/cache del read model "Próximo"',
+    run: () => runCommand(
+      'Assets S7 contract: cliente/hook/cache del read model "Próximo"',
+      'node',
+      ['front/mi-front-limpio/tests/assetsPlannerItems.contract.test.js'],
+    ),
+  },
+  'assets-s7-ui-contract': {
+    label: 'Assets S7 contract: UI "Programar algo" + "Próximo"',
+    run: () => runCommand(
+      'Assets S7 contract: UI "Programar algo" + "Próximo"',
+      'node',
+      ['scripts/compiled/scripts/assets_s7_asset_detail_ui_tests.js'],
+    ),
+  },
+  'assets-s7-permissions-contract': {
+    label: 'Assets S7 contract: permissions/lifecycle gating',
+    run: () => runCommand(
+      'Assets S7 contract: permissions/lifecycle gating',
+      'node',
+      ['scripts/compiled/scripts/assets_s7_permissions_tests.js'],
+    ),
+  },
+  'assets-s7-planner-create-runtime': {
+    label: 'Assets S7 runtime: create Task/Event desde un activo (PLN-01..15)',
+    run: () => runCommand(
+      'Assets S7 runtime: create Task/Event desde un activo (PLN-01..15)',
+      'node',
+      ['scripts/assets_s7_planner_create_runtime_tests.js'],
+    ),
+  },
+  'assets-s7-planner-read-model-runtime': {
+    label: 'Assets S7 runtime: read model "Próximo" (PLN-04..09, PLN-16)',
+    run: () => runCommand(
+      'Assets S7 runtime: read model "Próximo" (PLN-04..09, PLN-16)',
+      'node',
+      ['scripts/assets_s7_planner_read_model_runtime_tests.js'],
+    ),
+  },
+  'assets-s7-unknown-outcome-runtime': {
+    label: 'Assets S7 runtime: outcome desconocido (PLN-12)',
+    run: () => runCommand(
+      'Assets S7 runtime: outcome desconocido (PLN-12)',
+      'node',
+      ['scripts/assets_s7_unknown_outcome_tests.js'],
+    ),
+  },
+  'assets-s7-derived-care-guard': {
+    label: 'Assets S7 guard: Derived Care sigue sin implementarse',
+    run: () => runCommand(
+      'Assets S7 guard: Derived Care sigue sin implementarse',
+      'node',
+      ['scripts/assets_s7_derived_care_guard_tests.js'],
+    ),
+  },
+  'planner-event-origin-fields': {
+    label: 'S7-01 planner_events origin_* (columnas, CHECK, índices, runtime)',
+    run: () => runCommand(
+      'S7-01 planner_events origin_* (columnas, CHECK, índices, runtime)',
+      'node',
+      ['--test', 'tests/planner_event_origin_fields.test.js'],
+    ),
+  },
+  'planner-task-origin-fields': {
+    label: 'S7 planner_tasks origin_* (contrato + runtime TASK-ORIGIN-01..07)',
+    run: () => runCommand(
+      'S7 planner_tasks origin_* (contrato + runtime TASK-ORIGIN-01..07)',
+      'node',
+      ['--test', 'tests/planner_task_origin_fields.test.js'],
+    ),
+  },
   'homecloud-4c1-memory-create': () => runCommand(
     'HomeCloud 4C1 memory create tests',
     'node',
@@ -571,6 +1180,56 @@ const commands = {
     'HomeCloud 4C1.1 memory create runtime recovery tests',
     'node',
     ['scripts/compiled/scripts/homecloud_4c1_1_memory_create_recovery_tests.js'],
+  ),
+  'homecloud-lifecycle-backend-contract': () => runCommand(
+    'HomeCloud lifecycle backend contract tests',
+    'node',
+    ['scripts/homecloud_lifecycle_backend_contract_tests.js'],
+  ),
+  'homecloud-delete-capability-enforcement': () => runCommand(
+    'HomeCloud delete capability enforcement tests',
+    'node',
+    ['scripts/homecloud_delete_capability_enforcement_tests.js'],
+  ),
+  'homecloud-purge-storage-honesty': () => runCommand(
+    'HomeCloud purge storage honesty tests',
+    'node',
+    ['scripts/homecloud_purge_storage_honesty_tests.js'],
+  ),
+  'homecloud-selection-caller-context': () => runCommand(
+    'HomeCloud selection caller context tests',
+    'node',
+    ['scripts/homecloud_selection_caller_context_tests.js'],
+  ),
+  'homecloud-viewer-android-back': () => runCommand(
+    'HomeCloud Viewer Android Back tests',
+    'node',
+    ['scripts/homecloud_viewer_android_back_tests.js'],
+  ),
+  'homecloud-viewer-immersive': () => runCommand(
+    'HomeCloud Viewer immersive tests',
+    'node',
+    ['scripts/homecloud_viewer_immersive_tests.js'],
+  ),
+  'homecloud-viewer-loading-states': () => runCommand(
+    'HomeCloud Viewer loading states tests',
+    'node',
+    ['scripts/homecloud_viewer_loading_states_tests.js'],
+  ),
+  'homecloud-viewer-no-nested-modal': () => runCommand(
+    'HomeCloud Viewer no nested modal tests',
+    'node',
+    ['scripts/homecloud_viewer_no_nested_modal_tests.js'],
+  ),
+  'homecloud-global-tab-switch': () => runCommand(
+    'HomeCloud global tab switch tests',
+    'node',
+    ['scripts/homecloud_global_tab_switch_tests.js'],
+  ),
+  'homecloud-scroll-offsets': () => runCommand(
+    'HomeCloud scroll offset tests',
+    'node',
+    ['scripts/homecloud_scroll_offset_tests.js'],
   ),
 
   'homecloud-s0-gallery-intake-contract': () => runCommand(
@@ -584,10 +1243,255 @@ const commands = {
     ['scripts/homecloud_s0_modal_host_contract_tests.js'],
   ),
 
+  'homecloud-p2-foundation': () => runCommand(
+    'HomeCloud P2 memories foundation tests',
+    'node',
+    ['scripts/compiled/scripts/homecloud_p2_memories_foundation_tests.js'],
+  ),
+  'homecloud-st3-patch-favorites': () => runCommand(
+    'HomeCloud ST-3 memory PATCH + favorites contract tests',
+    'node',
+    ['scripts/homecloud_st3_memory_patch_tests.js'],
+  ),
+  'homecloud-st3-semantic-date-compile': () => runCommand(
+    'Compile HomeCloud ST-3 semantic date focused tests',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st3_test.json'],
+  ),
+  'homecloud-st3-semantic-date': () => runCommand(
+    'HomeCloud ST-3 semantic date / written date tests',
+    'node',
+    ['scripts/compiled/scripts/homecloud_st3_semantic_date_tests.js'],
+  ),
   'homecloud-4c1-compile': () => runCommand(
     'Compile HomeCloud 4C1 focused tests',
     'npm',
     ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_4c1_test.json'],
+  ),
+
+  // MO-A1 — Albums contract / backend / read model.
+  //
+  // homecloud-moa1-album-contract is deterministic (no database, no network):
+  // capability model, Album DTO contract, Album order vs Timeline order, cover
+  // suitability, mutation route surface, schema freeze, read-model boundaries
+  // and shared-foundation decoupling.
+  //
+  // homecloud-moa1-album-runtime is ENVIRONMENT-DEPENDENT: it exercises the REAL
+  // backend services against the LOCAL Supabase reported by `supabase status`
+  // and refuses any non-local URL. It is the runtime proof for the five Album
+  // mutations, the exact itemCount (including >1000), the derived cover, the
+  // Album read mode and the capability/household authority. Without a running
+  // local Supabase it reports RUNTIME_REQUIRED and fails; it never degrades to a
+  // pretend pass.
+  'homecloud-moa1-album-contract': () => runCommand(
+    'HomeCloud MO-A1 Album contract deterministic tests',
+    'node',
+    ['scripts/homecloud_moa1_album_contracts_tests.js'],
+  ),
+  'homecloud-moa1-album-runtime': () => runCommand(
+    'HomeCloud MO-A1 Album runtime tests (local Supabase)',
+    'node',
+    ['scripts/homecloud_moa1_album_runtime_tests.js'],
+  ),
+  // MO-A2 — Albums SURFACE (the UI slice that consumes the closed MO-A1
+  // contract).
+  //
+  // homecloud-moa2-album-surface is deterministic: it EXECUTES the two
+  // framework-free Album controllers (generations, stale-answer rejection,
+  // replace vs append, dedupe, terminal missing-Album, reset) and reads the real
+  // component sources for the boundaries that only source can prove.
+  //
+  // homecloud-moa2-album-runtime is ENVIRONMENT-DEPENDENT: it boots the REAL
+  // backend HomeCloud routes in process on an EPHEMERAL local port and drives
+  // the REAL compiled frontend client over HTTP against the LOCAL Supabase
+  // reported by `supabase status`, so every Album request shape, status and
+  // typed refusal is exercised as the app sends it. It refuses a non-local URL.
+  'homecloud-moa2-album-surface': () => {
+    runCommand(
+      'HomeCloud MO-A2 compile Album surface/controller tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa2_test.json'],
+    );
+    return runCommand(
+      'HomeCloud MO-A2 Album surface / controller deterministic tests',
+      'node',
+      ['scripts/compiled-moa2/scripts/homecloud_moa2_album_surface_tests.js'],
+    );
+  },
+  'homecloud-moa2-album-runtime': () => {
+    runCommand(
+      'HomeCloud MO-A2 compile the Album client contract',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa2_client_test.json'],
+    );
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'HomeCloud MO-A2 Album runtime tests (local Supabase, real client over HTTP)',
+      'node',
+      ['scripts/homecloud_moa2_album_runtime_tests.js'],
+      { env },
+    );
+  },
+  // MO-A3 — MEMORY SELECTION + ALBUM INTEGRATION.
+  //
+  // homecloud-moa3-selection is deterministic: it EXECUTES the framework-free
+  // selection session, drag state machine, mounted-row registry + hit testing,
+  // edge auto-scroll solver/ticker, collection read contracts and membership
+  // composer, and it reads the real component sources for the boundaries only a
+  // source can prove (no Viewer, no route, no delete, no global store, no smart
+  // collection). It also carries the HC-1 order closure: an explicit
+  // characterization of the pre-existing Album visual-order gap plus the exact
+  // Timeline-unchanged / Album-corrected proof.
+  //
+  // homecloud-moa3-selection-runtime is ENVIRONMENT-DEPENDENT: it boots the REAL
+  // backend HomeCloud routes in process on an EPHEMERAL local port and drives the
+  // REAL compiled frontend client AND the REAL pure modules over HTTP against the
+  // LOCAL Supabase reported by `supabase status`. It refuses a non-local URL.
+  'homecloud-moa3-selection': () => {
+    runCommand(
+      'HomeCloud MO-A3 compile selection / drag / collections / order tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa3_test.json'],
+    );
+    return runCommand(
+      'HomeCloud MO-A3 memory selection deterministic tests',
+      'node',
+      ['scripts/compiled-moa3/scripts/homecloud_moa3_memory_selection_tests.js'],
+    );
+  },
+  'homecloud-moa3-selection-runtime': () => {
+    runCommand(
+      'HomeCloud MO-A3 compile the selection client contract',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa3_client_test.json'],
+    );
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'HomeCloud MO-A3 memory selection runtime tests (local Supabase, real client over HTTP)',
+      'node',
+      ['scripts/homecloud_moa3_memory_selection_runtime_tests.js'],
+      { env },
+    );
+  },
+  // MO-A3 DEVICE FIX (D1/D2/D3) — the three physical-iPhone gesture defects the
+  // automated gates could not see: the auto-scroll crash, the drag leaking into
+  // pull-to-refresh, and the drag leaking into the parent exit swipe.
+  //
+  // It is deterministic and framework free. Its fixtures are built from the
+  // RUNTIME facts proven against the installed React Native (a SectionList ref
+  // publishes getScrollResponder and NOT scrollToOffset), so the "supported" and
+  // "missing method" cases describe the real object rather than a convenient one.
+  'homecloud-moa3-device-gestures': () => {
+    runCommand(
+      'HomeCloud MO-A3 device fix compile scroll-adapter / refresh-gate / exit-gesture tests',
+      'npm',
+      ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_moa3_device_gesture_fix_test.json'],
+    );
+    return runCommand(
+      'HomeCloud MO-A3 device fix scroll adapter / refresh gate / exit gesture tests',
+      'node',
+      ['scripts/compiled-moa3-device-gesture/scripts/homecloud_moa3_device_gesture_fix_tests.js'],
+    );
+  },
+  // HC2-C Run A — the Memories FOUNDATION gate (C0..C4).
+  //
+  // Three deterministic suites, ONE compile: the Viewer's opening invariant, the
+  // Albums first paint, and the root/selection contracts. They are wired as a
+  // suite so they can never become orphans again — which is exactly how
+  // `homecloud-hc2a-memories-viewer` became one (audit R9).
+  'homecloud-hc2c-memories-foundation': () => {
+    runCommand('HomeCloud HC2-C Run A compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2c_test.json']);
+    runCommand('HomeCloud HC2-C Viewer opening tests', 'node', ['scripts/compiled-hc2c/scripts/homecloud_hc2c_viewer_opening_tests.js']);
+    runCommand('HomeCloud HC2-C Albums rail tests', 'node', ['scripts/compiled-hc2c/scripts/homecloud_hc2c_albums_rail_tests.js']);
+    return runCommand('HomeCloud HC2-C Memories root and selection tests', 'node', ['scripts/compiled-hc2c/scripts/homecloud_hc2c_memories_root_tests.js']);
+  },
+  'homecloud-hc2a-memories-viewer': () => {
+    runCommand('HomeCloud HC2-A memory viewer compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2a_test.json']);
+    return runCommand('HomeCloud HC2-A memory viewer foundation tests', 'node', ['scripts/compiled-hc2a/scripts/homecloud_hc2a_memories_viewer_tests.js']);
+  },
+  'homecloud-hc2b-media-viewer-contract': () => {
+    runCommand('HomeCloud HC2-B Slice 0 compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2b_test.json']);
+    return runCommand('HomeCloud HC2-B Slice 0 tests', 'node', ['scripts/compiled-hc2b/scripts/homecloud_hc2b_media_viewer_tests.js']);
+  },
+  'homecloud-st9-media-reliability': () => {
+    runCommand('HomeCloud ST-9 media reliability compile', 'npm', ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_hc2b_test.json']);
+    return runCommand('HomeCloud ST-9 media reliability tests', 'node', ['scripts/compiled-hc2b/scripts/homecloud_st9_media_reliability_tests.js']);
+  },
+  'homecloud-st10-image-zoom-compile': () => runCommand(
+    'HomeCloud ST-10 image zoom compile',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st10_zoom_test.json'],
+  ),
+  'homecloud-st10-image-zoom': () => runCommand(
+    'HomeCloud ST-10 image zoom tests',
+    'node',
+    ['scripts/compiled-st10-zoom/scripts/homecloud_st10_image_zoom_tests.js'],
+  ),
+  'homecloud-st10-intake-debt-compile': () => runCommand(
+    'HomeCloud ST-10 intake debt compile',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st10_debt_test.json'],
+  ),
+  'homecloud-st10-intake-debt': () => runCommand(
+    'HomeCloud ST-10 intake debt tests',
+    'node',
+    ['scripts/compiled-st10-debt/scripts/homecloud_st10_intake_debt_tests.js'],
+  ),
+  'homecloud-st10-camera-compile': () => runCommand(
+    'HomeCloud ST-10 camera convergence compile',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st10_camera_test.json'],
+  ),
+  'homecloud-st10-camera': () => runCommand(
+    'HomeCloud ST-10 camera convergence tests',
+    'node',
+    ['scripts/compiled-st10-camera/scripts/homecloud_st10_camera_convergence_tests.js'],
+  ),
+  'homecloud-st10-batch-compile': () => runCommand(
+    'HomeCloud ST-10 batch intake compile',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st10_batch_test.json'],
+  ),
+  'homecloud-st10-batch': () => runCommand(
+    'HomeCloud ST-10 batch intake tests',
+    'node',
+    ['scripts/compiled-st10-batch/scripts/homecloud_st10_batch_intake_tests.js'],
+  ),
+  'homecloud-1f-dto-leak': () => runCommand(
+    'HomeCloud 1F DTO leak regression tests',
+    'node',
+    ['scripts/homecloud_1f_dto_leak_tests.js'],
+  ),
+  'homecloud-1d-backend-enforcement': () => runCommand(
+    'HomeCloud 1D backend enforcement tests',
+    'node',
+    ['scripts/homecloud_1d_backend_enforcement_tests.js'],
+  ),
+  'homecloud-1d-capability-resolution': () => runCommand(
+    'HomeCloud 1D capability resolution contract tests',
+    'node',
+    ['scripts/homecloud_1d_capability_resolution_contract_tests.js'],
+  ),
+  'homecloud-1d-frontend-projection': () => runCommand(
+    'HomeCloud 1D frontend projection tests',
+    'node',
+    ['scripts/homecloud_1d_frontend_projection_tests.js'],
+  ),
+  'homecloud-1d-new-household-capability-regression': () => runCommand(
+    'HomeCloud 1D new household capability regression tests',
+    'node',
+    ['scripts/homecloud_1d_new_household_capability_regression_tests.js'],
+  ),
+  'homecloud-1d-rls-bypass': () => runCommand(
+    'HomeCloud 1D RLS bypass tests',
+    'node',
+    ['scripts/homecloud_1d_rls_bypass_tests.js'],
   ),
   'homecloud-stage-a1-capture-recovery': () => runCommand(
     'HomeCloud Stage A1 in-app capture runtime recovery tests',
@@ -615,6 +1519,21 @@ const commands = {
     ['scripts/homecloud_slice01_storage_runtime_tests.js'],
   ),
   'compile-frontend-tests': () => runCommand('Compile frontend tests', 'npm', compileFrontendTests),
+  'compile-planner-runtime-tests': () => runCommand(
+    'Compile Planner runtime (render) tests',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.planner_runtime_test.json'],
+  ),
+  'planner-v1-root-menu-runtime': () => runCommand(
+    'Planner V1 root Task menu runtime tests',
+    'node',
+    ['scripts/compiled-planner-runtime/scripts/planner_v1_root_menu_runtime_tests.js'],
+  ),
+  'planner-v1-feedback-runtime': () => runCommand(
+    'Planner V1 productive feedback runtime tests',
+    'node',
+    ['scripts/compiled-planner-runtime/scripts/planner_v1_feedback_runtime_tests.js'],
+  ),
   'compile-planner-reliability-tests': () => runCommand(
     'Compile Planner Reliability tests',
     'npm',
@@ -646,6 +1565,31 @@ const commands = {
     'Planner V1 M3 sheet state tests',
     'node',
     ['scripts/compiled/scripts/planner_v1_sheet_state_tests.js'],
+  ),
+  'planner-v1-sheet-guard': () => runCommand(
+    'Planner V1 sheet guard tests',
+    'node',
+    ['scripts/compiled/scripts/planner_v1_sheet_guard_tests.js'],
+  ),
+  'planner-tasks-patch1-1': () => runCommand(
+    'Planner Tasks Patch 1.1 focused tests',
+    'node',
+    ['scripts/compiled/scripts/planner_tasks_patch1_1_tests.js'],
+  ),
+  'planner-tasks-patch3': () => runCommand(
+    'Planner Tasks Patch 3 multi-selection focused tests',
+    'node',
+    ['scripts/compiled/scripts/planner_tasks_patch3_multiselect_tests.js'],
+  ),
+  'planner-tasks-patch2': () => runCommand(
+    'Planner Tasks Patch 2 Evidence focused tests',
+    'node',
+    ['--test', 'tests/planner_tasks_patch2_evidence.test.js', 'tests/planner_evidence_upload_coordinator.test.js'],
+  ),
+  'planner-v1-datetime-primitives': () => runCommand(
+    'Planner V1 date/time primitives tests',
+    'node',
+    ['scripts/compiled/scripts/planner_v1_datetime_primitives_tests.js'],
   ),
   'planner-v1-m4': () => runCommand(
     'Planner V1 M4 quick actions tests',
@@ -774,6 +1718,49 @@ const commands = {
       { env },
     );
   },
+  'planner-plans-single-root': () => {
+    const env = {
+      ...process.env,
+      NODE_PATH: path.join(repositoryRoot, 'tests', 'stubs'),
+    };
+    return runCommand(
+      'Planner Plans single root tests',
+      'node',
+      ['scripts/compiled/scripts/planner_plans_single_root_tests.js'],
+      { env },
+    );
+  },
+  'planner-slice1-components': () => runCommand(
+    'Planner Slice 1 component reader tests',
+    'node',
+    ['--test', 'tests/planner_plan_components_service.test.js'],
+  ),
+  'planner-slice5-measurements': () => runCommand(
+    'Planner Slice 5 Measurement product contract',
+    'node',
+    ['--test', 'tests/planner_slice5_measurements.test.js'],
+  ),
+  'planner-slice6-hardening': () => runCommand(
+    'Planner Slice 6 cross-consumer hardening contract',
+    'node',
+    ['--test', 'tests/planner_slice6_hardening.test.js'],
+  ),
+  'planner-fresh-adversarial-audit': () => runCommand(
+    'Planner fresh adversarial product audit',
+    'node',
+    ['--test', 'tests/planner_fresh_adversarial_audit.test.js'],
+  ),
+  'planner-slice1-schema-db': () => runCommand(
+    'Planner Slice 1 schema-drift test',
+    'node',
+    ['scripts/planner_slice1_schema_database_tests.js'],
+    {
+      env: {
+        ...process.env,
+        LOCAL_DATABASE_URL: process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres',
+      },
+    },
+  ),
   'planner-v1-presets-drafts': () => {
     const env = {
       ...process.env,
@@ -860,6 +1847,78 @@ const commands = {
     'Planner P1 structure database tests',
     'node',
     ['scripts/planner_p1_structure_database_tests.js'],
+    {
+      env: {
+        ...process.env,
+        LOCAL_DATABASE_URL:
+          process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres',
+        HOMEPLUS_TEST_REQUIRE_LOCAL_DB: '1',
+      },
+    },
+  ),
+  'planner-event-series-contract': () => runCommand(
+    'Planner Event Series core contract tests',
+    'node',
+    ['--test', 'tests/planner_event_series_core.test.js'],
+  ),
+  'planner-event-core-contract': () => runCommand(
+    'Planner Event core closure contract tests',
+    'node',
+    ['--test', 'tests/planner_event_core_closure.test.js'],
+  ),
+  'planner-plan-root-foundation-db': () => runCommand(
+    'Planner Plans root foundation database tests',
+    'node',
+    ['scripts/planner_plan_root_foundation_database_tests.js'],
+    {
+      env: {
+        ...process.env,
+        LOCAL_DATABASE_URL:
+          process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres',
+        HOMEPLUS_TEST_REQUIRE_LOCAL_DB: '1',
+      },
+    },
+  ),
+  'planner-plan-write-authority-db': () => runCommand(
+    'Planner Plans write authority database tests',
+    'node',
+    ['scripts/planner_plan_write_authority_database_tests.js'],
+    {
+      env: {
+        ...process.env,
+        LOCAL_DATABASE_URL:
+          process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres',
+        HOMEPLUS_TEST_REQUIRE_LOCAL_DB: '1',
+      },
+    },
+  ),
+  'planner-event-series-bound-db': () => runCommand(
+    'Planner Event Series materialization bound database tests',
+    'node',
+    ['scripts/planner_event_series_materialization_bound_database_tests.js'],
+    {
+      env: {
+        ...process.env,
+        LOCAL_DATABASE_URL:
+          process.env.LOCAL_DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:56222/postgres',
+        HOMEPLUS_TEST_REQUIRE_LOCAL_DB: '1',
+      },
+    },
+  ),
+  // Planner overnight closure: REAL HTTP journeys (J1..J15) against the local
+  // backend with real auth context and synthetic, exactly-cleaned fixtures.
+  // LOCAL ONLY: the suite refuses a non-loopback API base.
+  'planner-overnight-http-journeys': () => runCommand(
+    'Planner overnight closure HTTP journeys',
+    'node',
+    ['scripts/planner_overnight_http_journeys.js'],
+    {
+      env: {
+        ...process.env,
+        API_BASE_URL: process.env.API_BASE_URL || 'http://127.0.0.1:3001',
+        HOMEPLUS_TEST_REQUIRE_LOCAL: '1',
+      },
+    },
   ),
   'finance-1b-contract': () => runCommand(
     'Finance 1B financial context authority contract tests',
@@ -1160,11 +2219,154 @@ const commands = {
   coverage: () => runCommand('Core coverage baseline', 'npm', ['run', 'test:coverage']),
   'ci-syntax': () => runCommand('CI workflow syntax', 'node', ['tests/static/workflow-syntax.js']),
   whitespace: () => runCommand('Whitespace check', 'git', ['diff', '--check']),
+  'homecloud-st5-action-authority-compile': () => runCommand(
+    'HomeCloud ST-5 compile action authority tests',
+    'npm',
+    ['exec', 'tsc', '--', '-p', 'scripts/tsconfig.homecloud_st5_test.json'],
+  ),
+  'homecloud-st5-action-authority': () => runCommand(
+    'HomeCloud ST-5 action authority tests',
+    'node',
+    ['scripts/compiled-st5/scripts/homecloud_memory_action_authority_tests.js'],
+  ),
+  'homecloud-st5-viewer-action-menu': () => runCommand(
+    'HomeCloud ST-5 viewer action menu tests',
+    'node',
+    ['scripts/homecloud_viewer_action_menu_tests.js'],
+  ),
+  'homecloud-st5-favorite-actions': () => runCommand(
+    'HomeCloud ST-5 favorite action tests',
+    'node',
+    ['scripts/homecloud_favorite_action_tests.js'],
+  ),
+  'homecloud-st5-written-share': () => runCommand(
+    'HomeCloud ST-5 written memory share tests',
+    'node',
+    ['scripts/homecloud_written_memory_share_tests.js'],
+  ),
+  'homecloud-st5-share-temp-cleanup': () => runCommand(
+    'HomeCloud ST-5 share temp cleanup tests',
+    'node',
+    ['scripts/homecloud_share_temp_cleanup_tests.js'],
+  ),
+  'homecloud-st5-multishare-contract': () => runCommand(
+    'HomeCloud ST-5 multishare platform contract tests',
+    'node',
+    ['scripts/homecloud_multishare_contract_tests.js'],
+  ),
 };
 
 const suites = {
   typecheck: ['frontend-typecheck', 'test-typecheck'],
+  'homecloud-hc2b-media-viewer': ['homecloud-hc2b-media-viewer-contract'],
+  // HC2-C Run A gate. It carries BOTH the new Foundation evidence AND the whole
+  // Viewer evidence it sits on top of, because Run A must never weaken what HC2-A
+  // and HC2-B froze: the opening invariant is a correction OF that pager, not a
+  // replacement for it. `homecloud-hc2a-memories-viewer` was an ORPHAN command —
+  // registered, referenced by no suite, so it ran in no `npm run quality` at all
+  // (audit R9). It is wired here so the Viewer evidence is never silent again.
+  'homecloud-hc2c-run-a': [
+    'homecloud-hc2c-memories-foundation',
+    'homecloud-hc2a-memories-viewer',
+    'homecloud-hc2b-media-viewer-contract',
+    'homecloud-moa3-selection',
+    'homecloud-moa3-device-gestures',
+    'homecloud-moa2-album-surface',
+    'homecloud-moa1-album-contract',
+    'frontend-typecheck',
+  ],
+  'homecloud-p1-lifecycle': [
+    'homecloud-lifecycle-backend-contract',
+    'homecloud-delete-capability-enforcement',
+    'homecloud-purge-storage-honesty',
+    'homecloud-selection-caller-context',
+    'homecloud-viewer-android-back',
+    'homecloud-global-tab-switch',
+    'homecloud-scroll-offsets',
+    'homecloud-1d-backend-enforcement',
+    'homecloud-1d-capability-resolution',
+    'homecloud-1d-frontend-projection',
+    'homecloud-1d-new-household-capability-regression',
+    'homecloud-1d-rls-bypass',
+  ],
+  'homecloud-st3': [
+    'homecloud-st3-patch-favorites',
+    'homecloud-st3-semantic-date-compile',
+    'homecloud-st3-semantic-date',
+    'homecloud-4c1-compile',
+    'homecloud-lifecycle-backend-contract',
+    'homecloud-p2-foundation',
+    'frontend-typecheck',
+  ],
+  'homecloud-st4': [
+    'homecloud-viewer-immersive',
+    'homecloud-viewer-loading-states',
+    'homecloud-viewer-no-nested-modal',
+    'homecloud-hc2b-media-viewer-contract',
+    'homecloud-viewer-android-back',
+    'homecloud-global-tab-switch',
+    'homecloud-selection-caller-context',
+    'frontend-typecheck',
+  ],
+  'homecloud-st5': [
+    'homecloud-st5-action-authority-compile',
+    'homecloud-st5-action-authority',
+    'homecloud-st5-viewer-action-menu',
+    'homecloud-st5-favorite-actions',
+    'homecloud-st5-written-share',
+    'homecloud-st5-share-temp-cleanup',
+    'homecloud-st5-multishare-contract',
+    'frontend-typecheck',
+  ],
+  'homecloud-st9': [
+    'homecloud-hc2b-media-viewer-contract',
+    'homecloud-st9-media-reliability',
+    'homecloud-viewer-immersive',
+    'homecloud-viewer-loading-states',
+    'homecloud-viewer-no-nested-modal',
+    'frontend-typecheck',
+  ],
+  'homecloud-st10': [
+    'homecloud-st10-image-zoom-compile',
+    'homecloud-st10-image-zoom',
+    'homecloud-st10-camera-compile',
+    'homecloud-st10-camera',
+    'homecloud-st10-intake-debt-compile',
+    'homecloud-st10-intake-debt',
+    'homecloud-st10-batch-compile',
+    'homecloud-st10-batch',
+    'homecloud-hc2b-media-viewer-contract',
+    'homecloud-st9-media-reliability',
+    'homecloud-viewer-immersive',
+    'homecloud-viewer-loading-states',
+    'homecloud-viewer-no-nested-modal',
+    'homecloud-viewer-android-back',
+    'homecloud-hc2c-memories-foundation',
+    'homecloud-hc2a-memories-viewer',
+    'homecloud-moa3-device-gestures',
+    'homecloud-st3-semantic-date-compile',
+    'homecloud-st3-semantic-date',
+    'homecloud-st3-patch-favorites',
+    'homecloud-st5-action-authority-compile',
+    'homecloud-st5-action-authority',
+    'homecloud-2c-frontend-structure',
+    'homecloud-s0-gallery-intake-contract',
+    'homecloud-s0-modal-host-contract',
+    'homecloud-stage-a1-capture-recovery',
+    'homecloud-p2-foundation',
+    'homecloud-upload-recovery',
+    'homecloud-t1-queue-persistence',
+    'homecloud-t1-stale-job',
+    'homecloud-s2i-durable-recovery',
+    'homecloud-moa2-album-surface',
+    'homecloud-moa1-album-contract',
+    'homecloud-lifecycle-backend-contract',
+    'homecloud-selection-caller-context',
+    'frontend-typecheck',
+    'frontend-lint',
+  ],
   lint: ['backend-syntax', 'backend-eslint', 'frontend-lint'],
+  assets: ['assets-capabilities', 'assets-a3-1-runtime', 'assets-a3-2-runtime', 'assets-a3-3-runtime', 'assets-a4-1-runtime', 'assets-a4-1-migration', 'assets-a4-2-runtime', 'assets-a4-3-runtime', 'assets-a4-4-runtime', 'assets-a5-1-runtime', 'assets-a5-2-runtime', 'assets-a6-1-runtime', 'assets-a6-2-runtime', 'assets-a6-3-runtime', 'assets-final-qa-runtime', 'assets-s5a-identity-runtime', 'assets-s5b-bg01-runtime', 'assets-s5b-o39-o35-runtime', 'assets-s5c-bg02-runtime', 'assets-s5c-capabilities-runtime', 'assets-s5c-context-runtime', 'assets-s5c-isolation-runtime', 'assets-s5c-journeys-runtime', 'assets-s5c-idempotency-runtime', 'assets-s5c-frontend-contract', 'assets-s7-planner-items-contract', 'assets-s7-ui-contract', 'assets-s7-permissions-contract', 'assets-s7-planner-create-runtime', 'assets-s7-planner-read-model-runtime', 'assets-s7-unknown-outcome-runtime', 'assets-s7-derived-care-guard', 'planner-event-origin-fields', 'planner-task-origin-fields'],
   backend: ['testing-core', 'core-backend'],
   frontend: ['compile-frontend-tests', 'core-frontend', 'g0.3'],
   contracts: ['core-backend', 'g0.4-contracts'],
@@ -1185,6 +2387,16 @@ const suites = {
   'homecloud-t2-d1': ['homecloud-t2-d1-native-upload'],
   'homecloud-2c': ['homecloud-2c-intake-validation', 'homecloud-2c-runtime-intake', 'homecloud-2c-frontend-structure', 'compile-frontend-tests'],
   'homecloud-3e': ['compile-frontend-tests', 'homecloud-3e-scanner'],
+  'homecloud-scanner-b1': [
+    'homecloud-scanner-b1-compile',
+    'homecloud-scanner-b1-geometry',
+    'homecloud-scanner-b1-gestures',
+    'homecloud-scanner-b1-session',
+    'homecloud-scanner-b1-review-flow',
+    'homecloud-scanner-b1-scanner3e',
+    'homecloud-w1c-scanner-acceptance',
+    'frontend-typecheck',
+  ],
   'homecloud-4a2': ['homecloud-4a2-written-validation', 'homecloud-4a2-schema', 'homecloud-4a2-written-runtime'],
   'homecloud-4b1': [
     'homecloud-4b1-memories-read-model',
@@ -1202,7 +2414,7 @@ const suites = {
     'homecloud-4b1-preview',
     'homecloud-4a2-written-validation',
   ],
-  'homecloud-4c1': [
+'homecloud-4c1': [
     'homecloud-4c1-compile',
     'homecloud-4c1-memory-create',
     'homecloud-4c1-1-memory-create-recovery',
@@ -1216,6 +2428,65 @@ const suites = {
     'homecloud-w1a-authority',
     'homecloud-w1bc-pagination-reconciliation',
     'homecloud-w1c-scanner-acceptance',
+    'frontend-typecheck',
+  ],
+  // MO-A1 gate. Every new MO-A1 evidence belongs here; there are no orphan
+  // scripts. The two `*-runtime` members need a local Supabase and classify
+  // themselves as RUNTIME_REQUIRED when it is not available.
+  'homecloud-moa1': [
+    'homecloud-moa1-album-contract',
+    'homecloud-1f-dto-leak',
+    'homecloud-moa1-album-runtime',
+    'homecloud-4b1-memories-read-model',
+    'homecloud-4b2-timeline',
+    'homecloud-4a2-written-validation',
+    'homecloud-4a2-written-runtime',
+    'frontend-typecheck',
+  ],
+  // MO-A2 gate. Every new MO-A2 evidence belongs here; there are no orphan
+  // scripts. It carries its own surface + runtime evidence AND the whole MO-A1
+  // album contract, because the UI slice must never weaken the contract it
+  // consumes. The two `*-runtime` members need a local Supabase and classify
+  // themselves as RUNTIME_REQUIRED / ENVIRONMENT_FAILURE when it is not
+  // available; they never degrade to a pretend pass.
+  'homecloud-moa2': [
+    'homecloud-moa2-album-surface',
+    'homecloud-moa2-album-runtime',
+    'homecloud-moa1-album-contract',
+    'homecloud-moa1-album-runtime',
+    'homecloud-1f-dto-leak',
+    'homecloud-4b1-memories-read-model',
+    'homecloud-4b1-preview',
+    'homecloud-4b2-timeline',
+    'homecloud-4a2-written-validation',
+    'homecloud-4a2-written-runtime',
+    'homecloud-4c1-1-memory-create-recovery',
+    'homecloud-w1a-authority',
+    'homecloud-w1bc-pagination-reconciliation',
+    'frontend-typecheck',
+  ],
+  // MO-A3 gate. Every new MO-A3 evidence belongs here; there are no orphan
+  // scripts. It carries its own selection + runtime evidence AND the whole MO-A2
+  // / MO-A1 album contract, because the selection slice must never weaken the
+  // contract it consumes. The three `*-runtime` members need a local Supabase and
+  // classify themselves as ENVIRONMENT_FAILURE / RUNTIME_REQUIRED when it is not
+  // available; they never degrade to a pretend pass.
+  'homecloud-moa3': [
+    'homecloud-moa3-selection',
+    'homecloud-moa3-selection-runtime',
+    'homecloud-moa3-device-gestures',
+    'homecloud-moa2-album-surface',
+    'homecloud-moa2-album-runtime',
+    'homecloud-moa1-album-contract',
+    'homecloud-moa1-album-runtime',
+    'homecloud-1f-dto-leak',
+    'homecloud-4b1-memories-read-model',
+    'homecloud-4b1-preview',
+    'homecloud-4b2-timeline',
+    'homecloud-2c-frontend-structure',
+    'homecloud-upload-recovery',
+    'homecloud-w1a-authority',
+    'homecloud-w1bc-pagination-reconciliation',
     'frontend-typecheck',
   ],
   'homecloud-w1': [
@@ -1253,6 +2524,10 @@ const suites = {
     // privacy review run in CI instead of merely existing.
     'homecloud-files-viewer',
     'homecloud-files-ux',
+    // HOTFIX HC-POL-013: the interpolation range contract is part of the Files
+    // gate so an incompatible `inputRange`/`outputRange` pair can never ship
+    // green again — it is the defect class that blocked HomeCloud on iOS.
+    'homecloud-files-motion-interpolation',
     // Stage 2 Phase 1: the nested hierarchy seams, deterministic and runtime.
     'homecloud-files-hierarchy-ui',
     'homecloud-files-favorites-runtime',
@@ -1299,6 +2574,7 @@ const suites = {
     'homecloud-w1bc-pagination-reconciliation',
   ],
   'homecloud-files-hierarchy': ['homecloud-files-hierarchy-ui', 'homecloud-files-hierarchy-runtime', 'homecloud-files-hierarchy-migration'],
+  'homecloud-files-lifecycle': ['homecloud-files-lifecycle-service', 'homecloud-files-lifecycle-migration', 'homecloud-files-purge-worker', 'homecloud-files-purge-runtime'],
   'homecloud-s4ii': ['homecloud-s4ii-search-contract', 'homecloud-s4ii-document-date'],
   'homecloud-s4iii': ['homecloud-s4iii-files-hasmore', 'homecloud-s4iii-files-surface'],
   'homecloud-3a-3d': ['homecloud-3a-3d-acceptance'],
@@ -1315,11 +2591,24 @@ const suites = {
     'homecloud-slice01-storage-runtime',
   ],
 
-  planner: ['compile-frontend-tests', 'g0.3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-plan-duplicate-dispatch', 'planner-p1-structure-contract', 'planner-p2a-milestone-editor', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration', 'planner-v1-s2-runtime-owner', 'planner-v1-s2-terminal-contract', 'planner-v1-s2-runtime-composition'],
+  planner: ['compile-frontend-tests', 'g0.3', 'planner-plans-single-root', 'planner-slice1-components', 'planner-slice1-schema-db', 'planner-slice5-measurements', 'planner-slice6-hardening', 'planner-fresh-adversarial-audit', 'planner-tasks-patch2', 'planner-tasks-patch3', 'planner-v1-m1', 'planner-v1-m2', 'planner-v1-m3', 'planner-v1-sheet-guard', 'planner-v1-datetime-primitives', 'planner-v1-m4', 'planner-v1-m5', 'planner-v1-m6', 'planner-v1-m7', 'planner-v1-m8', 'planner-v1-m9', 'planner-v1-m10', 'planner-v1-foundation', 'compile-planner-reliability-tests', 'planner-v1-reliability', 'compile-planner-reliability-frontend-tests', 'planner-v1-reliability-frontend', 'compile-planner-reliability-integration-tests', 'planner-v1-reliability-integration', 'planner-v1-frontend-core-integration', 'planner-v1-frontend-tasks', 'planner-v1-frontend-events', 'planner-v1-frontend-plans', 'planner-v1-plan-duplicate-dispatch', 'planner-p1-structure-contract', 'planner-p2a-milestone-editor', 'planner-event-core-contract', 'planner-event-series-contract', 'planner-v1-presets-drafts', 'planner-v1-presets-drafts-integration', 'planner-v1-s2-runtime-owner', 'planner-v1-s2-terminal-contract', 'planner-v1-s2-runtime-composition', 'planner-phase1-runtime'],
   home: ['planner-v1-m9'],
   'planner-m1': ['compile-frontend-tests', 'planner-v1-m1'],
+  'planner-plans-single-root': ['compile-frontend-tests', 'planner-plans-single-root'],
+  'planner-slice1': ['compile-frontend-tests', 'planner-plans-single-root', 'planner-slice1-components', 'planner-slice1-schema-db'],
+  'planner-slice5': ['compile-frontend-tests', 'planner-slice5-measurements'],
+  'planner-slice6': ['compile-frontend-tests', 'planner-slice6-hardening'],
+  'planner-fresh-audit': ['compile-frontend-tests', 'planner-fresh-adversarial-audit'],
   'planner-m2': ['compile-frontend-tests', 'planner-v1-m2'],
   'planner-m3': ['compile-frontend-tests', 'planner-v1-m3'],
+  'planner-sheet-guard': ['compile-frontend-tests', 'planner-v1-sheet-guard'],
+  'planner-tasks-patch1-1': ['compile-frontend-tests', 'planner-tasks-patch1-1'],
+  'planner-tasks-patch2': ['planner-tasks-patch2'],
+  'planner-tasks-patch3': ['compile-frontend-tests', 'planner-tasks-patch3'],
+  'planner-menu-runtime': ['compile-planner-runtime-tests', 'planner-v1-root-menu-runtime'],
+  'planner-feedback-runtime': ['compile-planner-runtime-tests', 'planner-v1-feedback-runtime'],
+  'planner-phase1-runtime': ['compile-planner-runtime-tests', 'planner-v1-root-menu-runtime', 'planner-v1-feedback-runtime'],
+  'planner-datetime-primitives': ['compile-frontend-tests', 'planner-v1-datetime-primitives'],
   'planner-m4': ['compile-frontend-tests', 'planner-v1-m4'],
   'planner-m5': ['compile-frontend-tests', 'planner-v1-m5'],
   'planner-m6': ['compile-frontend-tests', 'planner-v1-m6'],
@@ -1340,6 +2629,10 @@ const suites = {
   'planner-p1-structure-contract': ['compile-frontend-tests', 'planner-p1-structure-contract'],
   'planner-p2a-milestone-editor': ['compile-frontend-tests', 'planner-p2a-milestone-editor'],
   'planner-p1-structure-db': ['planner-p1-structure-db'],
+  'planner-plan-root-foundation-db': ['planner-plan-root-foundation-db'],
+  'planner-plan-write-authority-db': ['planner-plan-write-authority-db'],
+  'planner-event-series-bound-db': ['planner-event-series-bound-db'],
+  'planner-overnight-closure': ['planner-overnight-http-journeys'],
   'finance-1b-contract': ['finance-1b-contract'],
   'finance-1b-database': ['finance-1b-database'],
   'finance-1c-ownership-privacy': ['finance-1c-ownership-privacy'],

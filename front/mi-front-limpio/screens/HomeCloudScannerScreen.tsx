@@ -9,7 +9,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, FlatList, Image, Linking, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Image, Linking, PanResponder, StyleSheet, View, type GestureResponderEvent, type ImageStyle } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -18,24 +18,32 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
-import { ActionSheet, AppButton, AppInput, AppText, floatingNavigationMetrics } from '../components/ui';
+import { ActionSheet, AppButton, AppInput, AppText, FormActionRow } from '../components/ui';
 import { HomePlusIcon } from '../constants/icons';
 import { colors, radius, spacing, touchTargets } from '../constants/theme';
-import { errorHaptic, mediumHaptic, successHaptic } from '../utils/haptics';
+import { errorHaptic, lightHaptic, mediumHaptic, successHaptic } from '../utils/haptics';
 import { createFileIntakeService } from '../services/homecloud/homecloudFileIntakeService';
-import type { FileIntakeState } from '../services/homecloud/homecloudFileIntakeTypes';
+import type { FileIntakeDestination, FileIntakeState } from '../services/homecloud/homecloudFileIntakeTypes';
 import type { HomeCloudCapabilityDescriptor } from '../services/homecloud/homecloudCapabilitiesAdapter';
 import {
   appendPage,
+  adoptPageEditOutcome,
+  buildScanPdfCacheKey,
   buildScanPdfHtml,
   buildScannerArtifact,
   buildScannerIntakeContext,
   canCreatePdf,
+  createScannerPage,
   defaultScanFileName,
   deletePage,
+  getPageEffectiveDimensions,
+  getPageEffectiveUri,
+  movePageEarlier,
+  movePageLater,
   normalizeScanFileName,
   replacePage,
   type ScannerPage,
+  type ScannerPageEditOutcome,
   type ScanPdfPageInput,
 } from '../services/homecloud/homecloudScanner';
 import {
@@ -43,11 +51,16 @@ import {
   planScannerCleanupAfterAcceptance,
   scannerAcceptanceOutcome,
 } from '../services/homecloud/homecloudScannerAcceptance';
+import { beginHomeCloudImmersiveChrome } from '../services/homecloud/homecloudImmersiveChrome';
+import { publishHomeCloudScannerSaved } from '../services/homecloud/homecloudScannerSaved';
 
 type ScannerRoute = {
   folderId?: string | null;
   folderName?: string | null;
   capabilities?: HomeCloudCapabilityDescriptor;
+  /** Serializable editor result, adopted exactly once and cleared right after. */
+  scannerEditOutcome?: ScannerPageEditOutcome;
+  scannerRetakePageId?: string;
 };
 
 type GeneratedPdf = {
@@ -75,6 +88,7 @@ export function HomeCloudScannerScreen() {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const { currentHousehold } = useHousehold();
+  useEffect(() => beginHomeCloudImmersiveChrome(), []);
 
   const params = (route.params ?? {}) as ScannerRoute;
   const folderId: string | null = params.folderId ?? null;
@@ -104,6 +118,11 @@ export function HomeCloudScannerScreen() {
   const [intake, setIntake] = useState<FileIntakeState>({ status: 'idle' });
 
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [destinationOpen, setDestinationOpen] = useState(false);
+  const [destinations, setDestinations] = useState<FileIntakeDestination[]>([]);
+  const [saveDestinationName, setSaveDestinationName] = useState(folderName ?? 'Archivos');
+  const [saveDestinationId, setSaveDestinationId] = useState<string | null>(folderId);
+  const dragPageRef = useRef<{ id: string; startX: number; lastIndex: number } | null>(null);
 
   // Refs for back-interception and conservative temp-file cleanup.
   const pagesRef = useRef<ScannerPage[]>(pages);
@@ -158,12 +177,14 @@ export function HomeCloudScannerScreen() {
   }, [service]);
 
   const cleanupTempFiles = useCallback(() => {
-    const captured = pagesRef.current.map((page) => page.uri);
+    const capturedOriginal = pagesRef.current.map((page) => page.originalUri);
+    const capturedProcessed = pagesRef.current.map((page) => page.processedUri).filter((u): u is string => !!u);
     const pdfUri = pdfRef.current?.uri;
     pagesRef.current = [];
     setPages([]);
     pdfRef.current = null;
-    captured.forEach((uri) => void deleteQuietly(uri));
+    capturedOriginal.forEach((uri) => void deleteQuietly(uri));
+    capturedProcessed.forEach((uri) => void deleteQuietly(uri));
     void deleteQuietly(pdfUri);
   }, []);
 
@@ -189,14 +210,17 @@ export function HomeCloudScannerScreen() {
     // Only LOCAL, ALREADY-REDUNDANT state: the temporary captures and the
     // source PDF. The plan carries no handle to the durable workspace copy and
     // no way to cancel the job, so detaching can never destroy or abort them.
+    const originalUris = pagesRef.current.map((page) => page.originalUri);
+    const processedUris = pagesRef.current.map((page) => page.processedUri).filter((u): u is string => !!u);
     const plan = planScannerCleanupAfterAcceptance({
-      captureUris: pagesRef.current.map((page) => page.uri),
+      captureUris: originalUris,
       generatedPdfUri: pdfRef.current?.uri ?? null,
     });
     pagesRef.current = [];
     setPages([]);
     pdfRef.current = null;
     plan.deleteTempCaptureUris.forEach((uri) => void deleteQuietly(uri));
+    processedUris.forEach((uri) => void deleteQuietly(uri));
     void deleteQuietly(plan.deleteGeneratedPdfUri);
     // Accepted: leaving is no longer a discard, so the back guard must not
     // intercept this very navigation.
@@ -251,32 +275,36 @@ export function HomeCloudScannerScreen() {
       // No skipProcessing: default processing keeps correct orientation.
       const photo = await camera.takePictureAsync({ quality: 1 });
       const replaced = retakeId;
-      const page: ScannerPage = {
-        id: `scan_${Date.now()}_${captureCounterRef.current++}`,
-        uri: photo.uri,
-        width: photo.width,
-        height: photo.height,
-      };
-      if (replaced) void deleteQuietly(pagesRef.current.find((item) => item.id === replaced)?.uri);
+      const pageId = `scan_${Date.now()}_${captureCounterRef.current++}`;
+      const page = createScannerPage(pageId, photo.uri, photo.width, photo.height);
+      if (replaced) {
+        const replacedPage = pagesRef.current.find((item) => item.id === replaced);
+        // A retake destroys the page's whole temp family: original and any
+        // previously adopted processed file (both Scanner-owned).
+        void deleteQuietly(replacedPage?.originalUri);
+        void deleteQuietly(replacedPage?.processedUri ?? null);
+      }
       const nextPages = replaced ? replacePage(pagesRef.current, replaced, page) : appendPage(pagesRef.current, page);
       pdfRef.current = null; // pages changed: any generated PDF is stale
       setPages(nextPages);
       setRetakeId(null);
       setSelectedId(page.id);
       setPhase('review');
+      navigation.navigate('ScannerImageEditor', { page });
     } catch {
       setCaptureError('No pudimos capturar la página. Probá de nuevo.');
     } finally {
       setCapturing(false);
     }
-  }, [cameraReady, capturing, retakeId]);
+  }, [cameraReady, capturing, retakeId, navigation]);
 
   const handleDeleteSelected = useCallback(() => {
     if (!selectedId) return;
     const prev = pagesRef.current;
     const removedIndex = prev.findIndex((page) => page.id === selectedId);
     if (removedIndex < 0) return;
-    void deleteQuietly(prev[removedIndex]?.uri);
+    void deleteQuietly(prev[removedIndex]?.originalUri);
+    void deleteQuietly(prev[removedIndex]?.processedUri ?? null);
     const next = deletePage(prev, selectedId);
     pdfRef.current = null;
     setPages(next);
@@ -296,12 +324,16 @@ export function HomeCloudScannerScreen() {
 
   const generatePdf = useCallback(async (name: string): Promise<GeneratedPdf> => {
     const snapshot = pagesRef.current;
-    const key = `${snapshot.map((page) => `${page.id}:${page.uri}`).join('|')}#${name}`;
+    // Content identity: effective image per page + name. Any adoption, retake,
+    // reset, deletion or reorder changes it, so a stale PDF is never reused.
+    const key = buildScanPdfCacheKey(snapshot, name);
     if (pdfRef.current && pdfRef.current.key === key) return pdfRef.current;
     const images: ScanPdfPageInput[] = [];
     for (const page of snapshot) {
-      const base64 = await FileSystem.readAsStringAsync(page.uri, { encoding: FileSystem.EncodingType.Base64 });
-      images.push({ base64, width: page.width, height: page.height });
+      const effectiveUri = getPageEffectiveUri(page);
+      const base64 = await FileSystem.readAsStringAsync(effectiveUri, { encoding: FileSystem.EncodingType.Base64 });
+      const dims = getPageEffectiveDimensions(page);
+      images.push({ base64, width: dims?.width, height: dims?.height });
     }
     const html = buildScanPdfHtml(images);
     const printed = await Print.printToFileAsync({ html });
@@ -353,10 +385,15 @@ export function HomeCloudScannerScreen() {
     // Scanner deliberately stays open with the error and a retry.
     if (outcome.kind !== 'detach') return;
     if (!mountedRef.current) return;
-    // AFTER acceptance: detach now. The coordinator keeps uploading, and the
-    // W1-C global reconciliation makes the file appear on its own.
+    // The shared coordinator owns the accepted upload. This screen remains as a
+    // recoverable review until that job actually completes or fails.
+  }, [service, fileName, generatePdf]);
+
+  useEffect(() => {
+    if (intake.status !== 'completed' || !intake.contentId || acceptedRef.current) return;
+    publishHomeCloudScannerSaved({ contentId: intake.contentId, folderId: saveDestinationId });
     handleAccepted();
-  }, [service, fileName, generatePdf, handleAccepted]);
+  }, [handleAccepted, intake.contentId, intake.status, saveDestinationId]);
 
   const handleRetrySave = useCallback(async () => {
     if (!service) return;
@@ -368,17 +405,125 @@ export function HomeCloudScannerScreen() {
 
   const openSettings = useCallback(() => { void Linking.openSettings().catch(() => {}); }, []);
 
+  const openSaveDestination = useCallback(async () => {
+    if (!service) return;
+    await service.loadFolders();
+    setDestinations(service.getAvailableDestinations());
+    setDestinationOpen(true);
+  }, [service]);
+
   const selectedPage = pages.find((page) => page.id === selectedId) ?? pages[pages.length - 1] ?? null;
+  /** HC-POL-022 — where the selected page sits, so a reorder button can disable itself at the edges. */
+  const selectedPageIndex = selectedPage ? pages.findIndex((page) => page.id === selectedPage.id) : -1;
+
+  /**
+   * Editor result boundary (B1). The editor hands back a SERIALIZABLE outcome
+   * via navigation params — no callbacks ever lived in navigation state, so
+   * there is nothing to leak and nothing to clean up on unmount.
+   *
+   * Adoption is parent-owned and one-shot: delete the page's PREVIOUS
+   * processed file (the Scanner owned it), install the new one, invalidate the
+   * generated PDF and clear the param so it can never be applied twice.
+   */
+  useEffect(() => {
+    const outcome = params.scannerEditOutcome;
+    if (!outcome) return;
+    const previous = pagesRef.current.find((page) => page.id === outcome.pageId);
+    if (previous?.processedUri && previous.processedUri !== outcome.processedUri) {
+      void deleteQuietly(previous.processedUri);
+    }
+    const nextPages = adoptPageEditOutcome(pagesRef.current, outcome);
+    const stalePdf = pdfRef.current?.uri ?? null;
+    pdfRef.current = null; // effective image changed: the generated PDF is stale
+    void deleteQuietly(stalePdf);
+    setPages(nextPages);
+    setSelectedId(outcome.pageId);
+    navigation.setParams({ scannerEditOutcome: undefined });
+  }, [params.scannerEditOutcome, navigation]);
+
+  useEffect(() => {
+    const pageId = params.scannerRetakePageId;
+    if (!pageId) return;
+    setRetakeId(pageId);
+    setPhase('camera');
+    navigation.setParams({ scannerRetakePageId: undefined });
+  }, [params.scannerRetakePageId, navigation]);
+
+  /**
+   * PATCH 1C (H/I/J) — open ONE page's editor. The multipage review NEVER
+   * edits: every perspective correction, rotation and crop belongs to the page
+   * the member chose, in its own editor. The optional page argument is how a
+   * VISIBLE `Editar` action names its target; the large preview is a display
+   * surface and a thumbnail tap only SELECTS, so this is the one editor entry.
+   */
+  const handleEditPage = useCallback((page?: ScannerPage) => {
+    const target = page ?? selectedPage;
+    if (!target) return;
+    // Serializable navigation contract: the page snapshot only (id, uris,
+    // dims, canonical edit params). React Navigation 7 checks serializability.
+    navigation.navigate('ScannerImageEditor', { page: target });
+  }, [navigation, selectedPage]);
+
+  /**
+   * PATCH 1C (I) — REPETIR is a visible page action: retake the selected page.
+   * The camera replaces the page at the SAME index (`replacePage` with
+   * `retakeId`), never a duplicate append, and the selected page stays selected.
+   */
+  const handleRepeatSelected = useCallback(() => {
+    if (!selectedPage) return;
+    setRetakeId(selectedPage.id);
+    setPhase('camera');
+  }, [selectedPage]);
+
+  /**
+   * HC-POL-022 — Reorder the selected page one discrete step. The edge is
+   * checked HERE and not by array identity: a no-op must never drop a valid
+   * generated PDF, and the buttons disable themselves with the same condition.
+   */
+  const handleMovePage = useCallback((direction: 'earlier' | 'later') => {
+    if (!selectedPage) return;
+    const current = pagesRef.current;
+    const index = current.findIndex((page) => page.id === selectedPage.id);
+    if (direction === 'earlier' && index <= 0) return;
+    if (direction === 'later' && (index === -1 || index >= current.length - 1)) return;
+    const nextPages = direction === 'earlier'
+      ? movePageEarlier(current, selectedPage.id)
+      : movePageLater(current, selectedPage.id);
+    pdfRef.current = null; // order changed: the previously generated PDF is stale
+    setPages(nextPages);
+    lightHaptic();
+  }, [selectedPage]);
+
+  // A stable responder owns one thumbnail reorder stroke.
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
+  const reorderDragResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: () => dragPageRef.current !== null,
+    onMoveShouldSetPanResponderCapture: () => dragPageRef.current !== null,
+    onPanResponderMove: (_event, gesture) => {
+      const active = dragPageRef.current;
+      if (!active) return;
+      const delta = Math.round((gesture.moveX - active.startX) / 72);
+      const target = Math.max(0, Math.min(pagesRef.current.length - 1, active.lastIndex + delta));
+      const currentIndex = pagesRef.current.findIndex((page) => page.id === active.id);
+      if (currentIndex < 0 || target === currentIndex) return;
+      const next = [...pagesRef.current];
+      const [moved] = next.splice(currentIndex, 1);
+      next.splice(target, 0, moved);
+      dragPageRef.current = { ...active, startX: gesture.moveX, lastIndex: target };
+      pdfRef.current = null;
+      setPages(next);
+      lightHaptic();
+    },
+    onPanResponderRelease: () => { dragPageRef.current = null; },
+    onPanResponderTerminate: () => { dragPageRef.current = null; },
+    onPanResponderTerminationRequest: () => false,
+  }), []);
+
   const intakeActive = ACTIVE_INTAKE_STATUSES.has(intake.status);
   const intakeFailed = intake.status === 'failed';
 
-  // The global floating BottomNav is absolutely positioned OVER tab content and
-  // stays visible while the Scanner is active. Reserve its real occupied height
-  // (bar + own bottom inset) plus a small gap so no Scanner CTA renders under it.
-  // Same formula already used by PresenceScreen for the same overlay.
-  const bottomNavOverlayPadding = floatingNavigationMetrics.mainRegularHeight
-    + Math.max(insets.bottom, spacing[3])
-    + spacing[2];
+  const scannerBottomPadding = Math.max(insets.bottom, spacing[3]) + spacing[2];
 
   // --- Estado: sin sesión/hogar (inoalcanzable desde Archivos, pero seguro) ---
   if (!service) {
@@ -444,7 +589,7 @@ export function HomeCloudScannerScreen() {
               <AppText variant="bodySmall" tone="inverse" align="center">{captureError}</AppText>
             </View>
           ) : null}
-          <View style={[styles.cameraBottom, { paddingBottom: bottomNavOverlayPadding }]}>
+          <View style={[styles.cameraBottom, { paddingBottom: scannerBottomPadding }]}>
             {pages.length > 0 ? (
               <AppText variant="bodySmall" tone="inverse" weight="700" style={styles.pageCount}>
                 {pages.length === 1 ? '1 página' : `${pages.length} páginas`}
@@ -477,22 +622,41 @@ export function HomeCloudScannerScreen() {
         </View>
       ) : (
         <View style={[styles.review, { paddingTop: insets.top + spacing[2] }]}>
+          {/* PATCH 1C (I) — final Review header: X · Escaneo · N páginas. The
+              page-action `⋯` is GONE: Repetir/Editar/Eliminar and the one-step
+              reorder controls are visible below instead of hidden in overflow. */}
           <View style={styles.reviewTop}>
             <AppButton variant="icon" size="sm" onPress={requestClose} accessibilityLabel="Cerrar escáner">
               <HomePlusIcon name="close" size={22} color={colors.text.primary} />
             </AppButton>
             <View style={styles.reviewTitle}>
-              <AppText variant="title3" weight="800">Escaneo</AppText>
-              <AppText variant="bodySmall" tone="secondary">{pages.length === 1 ? '1 página' : `${pages.length} páginas`}</AppText>
+              <AppText variant="title3" weight="800">Escaneo · {pages.length === 1 ? '1 página' : `${pages.length} páginas`}</AppText>
             </View>
             <View style={styles.reviewTopSpacer} />
           </View>
-          {selectedPage ? (
-            <View style={styles.previewWrap}>
-              <Image source={{ uri: selectedPage.uri }} style={styles.preview} resizeMode="contain" accessibilityLabel={`Página ${pages.findIndex((p) => p.id === selectedPage.id) + 1}`} />
-            </View>
-          ) : null}
-          <FlatList
+          {/* PATCH 1C (H) — the large preview is a DISPLAY SURFACE (View →
+              Image), never a giant Edit button. Definite layout: the container
+              takes the flex space and the image fills it with contain. The
+              image resolves through the SAME canonical resolver as the
+              thumbnails (ScannerPageImage), with an honest fallback chain. */}
+          <View style={styles.previewWrap}>
+            {selectedPage ? (
+              <ScannerPageImage
+                page={selectedPage}
+                style={styles.preview}
+                accessibilityLabel="Vista previa de la página seleccionada"
+              />
+            ) : null}
+          </View>
+          {/* PATCH 1C (I) — the selected page's actions are VISIBLE, compact,
+              one row: Repetir · Editar · Eliminar. No three giant cards, no
+              overflow menu. */}
+          <View style={styles.pageActionRow}>
+            <AppButton title="Repetir" size="sm" variant="secondary" disabled={!selectedPage} onPress={handleRepeatSelected} accessibilityLabel="Repetir la captura de la página seleccionada" style={styles.pageActionButton} />
+            <AppButton title="Editar" size="sm" variant="secondary" disabled={!selectedPage} onPress={() => handleEditPage()} accessibilityLabel="Editar la página seleccionada" style={styles.pageActionButton} />
+            <AppButton title="Eliminar" size="sm" variant="danger" disabled={!selectedPage} onPress={handleDeleteSelected} accessibilityLabel="Eliminar la página seleccionada" style={styles.pageActionButton} />
+          </View>
+          <View {...reorderDragResponder.panHandlers}><FlatList
             horizontal
             data={pages}
             keyExtractor={(page) => page.id}
@@ -501,23 +665,38 @@ export function HomeCloudScannerScreen() {
             renderItem={({ item, index }) => (
               <AppButton
                 variant="icon"
-                onPress={() => setSelectedId(item.id)}
-                accessibilityLabel={`Página ${index + 1}${item.id === selectedPage?.id ? ', seleccionada' : ''}`}
+                // PATCH 1C (J) — tapping an existing thumbnail SELECTS the
+                // page (large preview + visible actions follow `selectedId`).
+                // It never opens the editor; `Editar` is the explicit door.
+                onPress={() => { setSelectedId(item.id); }}
+                onLongPress={(event?: GestureResponderEvent) => { setSelectedId(item.id); dragPageRef.current = { id: item.id, startX: event?.nativeEvent.pageX ?? 0, lastIndex: index }; mediumHaptic(); }}
+                delayLongPress={300}
+                accessibilityLabel={`Página ${index + 1}${item.id === selectedPage?.id ? ', seleccionada' : ''}. Tocá para seleccionar esta página`}
                 style={[styles.thumbButton, item.id === selectedPage?.id && styles.thumbButtonSelected]}
               >
-                <Image source={{ uri: item.uri }} style={styles.thumb} resizeMode="cover" />
+                <ScannerPageImage page={item} style={styles.thumb} resizeMode="cover" accessibilityLabel="" />
                 <AppText variant="caption" tone={item.id === selectedPage?.id ? 'brand' : 'secondary'} weight="700">{index + 1}</AppText>
               </AppButton>
             )}
-          />
+          /></View>
+          {pages.length > 1 ? (
+            // PATCH 1C (I) — one-step reorder is VISIBLE (drag stays too, as
+            // the direct gesture). First page can't move earlier, last can't
+            // move later; the selected page stays selected after the move.
+            <View style={styles.reorderRow}>
+              <AppButton title="← Mover antes" size="sm" variant="secondary" disabled={!selectedPage || selectedPageIndex <= 0} onPress={() => handleMovePage('earlier')} accessibilityLabel="Mover la página seleccionada una posición antes" style={styles.reorderButton} />
+              <AppButton title="Mover después →" size="sm" variant="secondary" disabled={!selectedPage || selectedPageIndex < 0 || selectedPageIndex >= pages.length - 1} onPress={() => handleMovePage('later')} accessibilityLabel="Mover la página seleccionada una posición después" style={styles.reorderButton} />
+            </View>
+          ) : null}
           <View style={styles.reviewActions}>
-            <AppButton title="Agregar página" variant="secondary" size="sm" onPress={() => { setRetakeId(null); setPhase('camera'); }} accessibilityLabel="Agregar página" style={styles.reviewAction} />
-            <AppButton title="Repetir página" variant="secondary" size="sm" disabled={!selectedPage} onPress={() => { if (selectedPage) { setRetakeId(selectedPage.id); setPhase('camera'); } }} accessibilityLabel="Repetir página" style={styles.reviewAction} />
-            <AppButton title="Eliminar página" variant="danger" size="sm" disabled={!selectedPage} onPress={handleDeleteSelected} accessibilityLabel="Eliminar página" style={styles.reviewAction} />
+            {/* HC-POL-022 — the multipage review offers the PAGE-SET actions
+                (add, save). It deliberately offers NO global perspective,
+                rotation or crop: those edit ONE page, they live in that
+                page's editor. */}
+            <AppButton title="+ Página" variant="secondary" onPress={() => { setRetakeId(null); setPhase('camera'); }} accessibilityLabel="Agregar página" style={styles.reviewAction} />
+            <AppButton title="Guardar PDF" onPress={handleOpenSave} disabled={!canCreatePdf(pages)} accessibilityLabel="Guardar PDF" style={styles.reviewAction} />
           </View>
-          <View style={[styles.reviewFooter, { paddingBottom: bottomNavOverlayPadding }]}>
-            <AppButton title="Crear PDF" onPress={handleOpenSave} disabled={!canCreatePdf(pages)} accessibilityLabel="Crear PDF" />
-          </View>
+          <View style={{ height: scannerBottomPadding }} />
         </View>
       )}
 
@@ -530,8 +709,8 @@ export function HomeCloudScannerScreen() {
         footer={intakeFailed ? undefined : <AppButton title="Guardar escaneo" loading={generating || intakeActive} disabled={generating || intakeActive} onPress={() => void handleSave()} accessibilityLabel="Guardar escaneo" />}
       >
         <View style={styles.saveBody}>
-          <AppInput label="Nombre del archivo" value={fileName} onChangeText={setFileName} editable={!generating && !intakeActive} autoCapitalize="none" autoCorrect={false} />
-          <AppText variant="caption" tone="secondary">Guardar en: {folderName ?? 'Archivos'}</AppText>
+          <AppInput label="Nombre" value={fileName} onChangeText={setFileName} editable={!generating && !intakeActive} autoCapitalize="none" autoCorrect={false} />
+          <FormActionRow label="Guardar en" value={saveDestinationName} onPress={() => void openSaveDestination()} accessibilityLabel={`Destino actual: ${saveDestinationName}. Cambiar destino.`} disabled={generating || intakeActive} />
           {pdfError ? <AppText variant="bodySmall" tone="danger">{pdfError}</AppText> : null}
           {intakeActive ? (
             <AppText variant="bodySmall" tone="secondary">
@@ -545,6 +724,10 @@ export function HomeCloudScannerScreen() {
             </View>
           ) : null}
         </View>
+      </ActionSheet>
+
+      <ActionSheet visible={destinationOpen} title="Guardar en" onRequestClose={() => setDestinationOpen(false)} size="content">
+        <View style={styles.saveBody}>{destinations.map((destination) => <AppButton key={destination.id} title={destination.path ?? destination.name} variant="secondary" disabled={destination.id === (saveDestinationId ?? 'root')} onPress={() => { const id = destination.id === 'root' ? null : destination.id; service.selectDestination(id, destination.id === 'root' ? null : destination.name); setSaveDestinationId(id); setSaveDestinationName(destination.path ?? destination.name); setDestinationOpen(false); }} />)}</View>
       </ActionSheet>
 
       <ActionSheet visible={discardOpen} title="¿Descartar este escaneo?" onRequestClose={() => setDiscardOpen(false)} size="content">
@@ -576,15 +759,74 @@ const styles = StyleSheet.create({
   reviewTop: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[4], gap: spacing[2] },
   reviewTitle: { flex: 1, alignItems: 'center' },
   reviewTopSpacer: { width: touchTargets.normal },
-  previewWrap: { flex: 1, margin: spacing[4], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: '#000000', overflow: 'hidden' },
-  preview: { flex: 1 },
+  previewWrap: { flex: 1, minHeight: 0, margin: spacing[4], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: '#000000', overflow: 'hidden', alignItems: 'stretch', justifyContent: 'center' },
+  preview: { width: '100%', height: '100%' },
+  /** PATCH 1C (I) — one compact row of visible page actions (no giant cards). */
+  pageActionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing[2], paddingHorizontal: spacing[4], paddingTop: spacing[1] },
+  pageActionButton: { flexGrow: 1, flexBasis: 0 },
+  /** PATCH 1C (I) — visible one-step reorder row (drag reorder stays too). */
+  reorderRow: { flexDirection: 'row', alignItems: 'center', gap: spacing[2], paddingHorizontal: spacing[4], paddingTop: spacing[1] },
+  reorderButton: { flexGrow: 1, flexBasis: 0 },
   thumbList: { gap: spacing[2], paddingHorizontal: spacing[4], paddingVertical: spacing[2] },
   thumbButton: { borderRadius: radius.md, borderWidth: 2, borderColor: 'transparent', padding: spacing[1], backgroundColor: colors.surface.card, alignItems: 'center', gap: spacing[1] },
   thumbButtonSelected: { borderColor: colors.brand },
   thumb: { width: 56, height: 72, borderRadius: radius.sm, backgroundColor: '#000000' },
+  /** PATCH 1C (H) — explicit, recoverable preview failure state. */
+  previewError: { alignItems: 'center', justifyContent: 'center', padding: spacing[4], backgroundColor: colors.surface.soft, borderRadius: radius.md },
   reviewActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing[2], paddingHorizontal: spacing[4], paddingTop: spacing[2] },
   reviewAction: { flexGrow: 1 },
   reviewFooter: { paddingHorizontal: spacing[4], paddingTop: spacing[3] },
   saveBody: { gap: spacing[3], paddingBottom: spacing[2] },
   saveError: { gap: spacing[2], alignItems: 'flex-start', padding: spacing[3], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.danger.base, backgroundColor: colors.danger.soft },
 });
+
+/**
+ * PATCH 1C (H) — THE ONE canonical page-display resolver for Review.
+ *
+ * Both the thumbnail strip and the large preview consume THIS component, so
+ * they can never disagree about what a page looks like. Source policy, once:
+ *
+ *   processed/display URI (if any)  →  original captured URI  →  explicit
+ *   recoverable placeholder.
+ *
+ * A processed image that fails to load falls back to the original ONCE; an
+ * original that also fails shows an explicit recoverable placeholder — never
+ * a silent black rectangle. Failures are per-URI and reset when the page or
+ * its URIs change, so an edit adoption (new processedUri) re-arms the chain.
+ * The scanner session is never touched: this is presentation only.
+ */
+function ScannerPageImage({ page, style, resizeMode = 'contain', accessibilityLabel }: {
+  page: ScannerPage;
+  style: ImageStyle;
+  resizeMode?: 'contain' | 'cover';
+  accessibilityLabel: string;
+}) {
+  const processed = page.processedUri ?? null;
+  const [failedProcessed, setFailedProcessed] = useState(false);
+  const [failedOriginal, setFailedOriginal] = useState(false);
+  useEffect(() => {
+    setFailedProcessed(false);
+    setFailedOriginal(false);
+  }, [page.id, processed, page.originalUri]);
+  const showProcessed = processed !== null && !failedProcessed;
+  // The BASE policy is the canonical `getPageEffectiveUri` (the same one the
+  // PDF reads): processed when there is one, original otherwise. Only the
+  // load-failure fallback is display-local.
+  const uri = showProcessed ? getPageEffectiveUri(page) : page.originalUri;
+  if (!showProcessed && failedOriginal) {
+    return (
+      <View style={[style, styles.previewError]}>
+        <AppText variant="caption" tone="secondary" align="center">No se pudo mostrar la vista previa</AppText>
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri }}
+      style={style}
+      resizeMode={resizeMode}
+      accessibilityLabel={accessibilityLabel}
+      onError={() => { if (showProcessed) setFailedProcessed(true); else setFailedOriginal(true); }}
+    />
+  );
+}

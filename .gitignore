@@ -10,6 +10,7 @@ supabase/snippets/
 /scripts/compiled-reliability-frontend/
 /scripts/compiled-reliability-integration/
 /scripts/compiled-reliability-repro/
+/scripts/compiled-planner-runtime/
 /scripts/compiled-t1stale/
 /scripts/compiled-w1a/
 /scripts/compiled-w1bc/
@@ -23,10 +24,19 @@ supabase/snippets/
 /scripts/compiled-files-freshness/
 /scripts/compiled-files-favorites-ui/
 /scripts/compiled-files-hierarchy-ui/
+/scripts/compiled-moa2/
+/scripts/compiled-moa2client/
+/scripts/compiled-moa3/
+/scripts/compiled-moa3client/
+/scripts/compiled-moa3-device-gesture/
+/scripts/compiled-hc2a/
+/scripts/compiled-hc2b/
+/scripts/compiled-hc2c/
 /scripts/scripts/
 /.env
 /.env.local
 /.env.test.local
+/.env.s7.local
 /backend/.env.local
 /backend/.env.test.local
 /test-results/
@@ -38,3 +48,5 @@ supabase/snippets/
 /front/mi-front-limpio/.expo-location-permissions-check/
 /scripts/compiled-files-ux/
 /scripts/compiled-files-viewer/
+/scripts/compiled-office-viewer/
+/scripts/compiled-scannerb1/

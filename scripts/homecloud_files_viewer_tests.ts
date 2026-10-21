@@ -218,8 +218,13 @@ console.log('--- V-G: media releases on unmount ---');
 }
 
 // ── V-H: honest Office and unsupported handling ─────────────────────────────
-console.log('--- V-H: Office is a truthful hand-off, never a third-party viewer ---');
+console.log('--- V-H: Office V1 renders via the authorized session viewer; the rest is a truthful hand-off ---');
 {
+  // OFFICE-3: los seis formatos Office V1 se renderizan por la sesión
+  // ONLYOFFICE autorizada (ViewerOfficeSurface), no "inline" desde la signed
+  // URL ni mediante un visor público de terceros; los formatos no-V1
+  // conservan el hand-off honesto. Las afirmaciones de esta sección siguen
+  // siendo ciertas para la capa de clasificación.
   record(isInlineRenderableFamily('office_document') === false, 'office documents are not claimed to render inline');
   record(isInlineRenderableFamily('pdf') === false, 'PDF is not claimed to render inline without a renderer');
   record(needsStagedOriginalForPreview('pdf') && needsStagedOriginalForPreview('office_document'), 'PDF and Office are staged before hand-off');
@@ -237,7 +242,12 @@ console.log('--- V-H: Office is a truthful hand-off, never a third-party viewer 
 // ── V-I: selection coexistence ─────────────────────────────────────────────
 console.log('--- V-I: a tap opens the Viewer only OUTSIDE selection ---');
 {
-  const handler = /const handleFileTap = useCallback\(\(fileId: string\) => \{[\s\S]*?\}, \[selection\.mode, files\]\);/.exec(screenSource);
+  // HC-POL-014/012 kept every property of the tap handler; its shape grew: the
+  // toggle now also settles the tile's check (animateTileCheck) and the open
+  // resolves the origin-aware transition against the window box, so the
+  // dependency list is longer than `[selection.mode, files]`. The regex follows
+  // the CURRENT shape while the assertions below still prove the SAME grammar.
+  const handler = /const handleFileTap = useCallback\(\(fileId: string\) => \{[\s\S]*?\}, \[selection\.mode, selection, files, animateTileCheck, windowDimensions\.width, windowDimensions\.height\]\);/.exec(screenSource);
   record(Boolean(handler), 'the tap handler exists');
   if (handler) {
     record(/if \(selection\.mode\) \{[\s\S]*?toggleFileSelection/.test(handler[0]), 'INSIDE selection a tap toggles and nothing else');
@@ -246,18 +256,19 @@ console.log('--- V-I: a tap opens the Viewer only OUTSIDE selection ---');
     record(/files\.find\(\(candidate\) => candidate\.id === fileId\)/.test(handler[0]), 'the Viewer target is resolved against the CURRENT rows by id');
     record(/if \(!target\) return;/.test(handler[0]), 'a File that left the window simply does not open');
   }
-  // STAGE 2 REOPEN: inside selection a long press no longer returns early — it ARMS
-  // the drag sweep. What must still hold is the property that test existed for: it
-  // must not open ANYTHING. No File menu, no navigation, no Viewer.
-  const longHandler = /const handleFileLongPress = useCallback\(\(fileId: string\) => \{[\s\S]*?\}, \[selection\.mode, armDragSelection\]\);/.exec(screenSource);
-  record(Boolean(longHandler), 'the long-press handler exists and depends on the sweep arming');
+  // PATCH 1B — long press is SELECTION, never a menu: it enters the mode,
+  // selects the origin and arms the sweep, inside AND outside selection.
+  // What must still hold is the property that test existed for: it must not
+  // open ANYTHING. No File menu, no navigation, no Viewer.
+  const longHandler = /const handleFileLongPress = useCallback\(\(fileId: string\) => \{[\s\S]*?\}, \[armDragSelection, setTransientFeedback, setSelection\]\);/.exec(screenSource);
+  record(Boolean(longHandler), 'the long-press handler enters selection and arms the sweep');
   if (longHandler) {
-    record(/if \(selection\.mode\) \{[\s\S]*?armDragSelection\(fileId\);[\s\S]*?return;/.test(longHandler[0]),
-      'a long press inside selection arms the sweep and returns');
+    record(/beginFileSelectionAt\(previous, fileId\)[\s\S]*?armDragSelection\(\{ type: 'file', id: fileId \}\)/.test(longHandler[0]),
+      'it enters selection, selects the origin and arms the sweep in one intent');
     record(/setViewerTargetId/.test(longHandler[0]) === false,
       'and it opens NOTHING — no File menu, no navigation, no Viewer');
-    record(/setActionTargetId/.test(longHandler[0]) !== false,
-      'while OUTSIDE selection it still opens the contextual File actions');
+    record(/setActionTargetId/.test(longHandler[0]) === false,
+      'while OUTSIDE selection it no longer opens the contextual File actions either — only ⋯ does');
   }
   // Normal tap IS opening, so the long-press menu must NOT also offer "Abrir".
   // The grammar keeps it only as a declared seam that is never painted.

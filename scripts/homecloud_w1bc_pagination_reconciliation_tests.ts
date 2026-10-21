@@ -646,7 +646,11 @@ function testReadInvalidationAndSecurity(): void {
   const filesEffect = between(files, 'return subscribeHomeCloudReadReconciliation', '}, [currentHousehold?.id, refresh]);');
   record(filesEffect.length > 0 && !/uploadOpen|fileInfo|addOpen|folderEditor/.test(filesEffect),
     'I10. the Files reconciliation is not bound to the intake lifecycle (unmount cannot break it)');
-  const memoriesEffect = between(memories, 'return subscribeHomeCloudReadReconciliation', '}, [currentHousehold?.id, token, readFirstPage]);');
+  // MO-A2 renamed the household id local (`currentHousehold?.id` -> `householdId`,
+  // because the Memories subtree now has several household-scoped owners). The
+  // INVARIANT is untouched: the anchor is still the effect's own dependency
+  // array, and the effect is still bound to nothing about the intake lifecycle.
+  const memoriesEffect = between(memories, 'return subscribeHomeCloudReadReconciliation', '}, [householdId, token, readFirstPage]);');
   record(memoriesEffect.length > 0 && !/draft|recorder|review|MemoryIntake/.test(memoriesEffect),
     'I11. the Memories reconciliation is not bound to the intake lifecycle either');
 }

@@ -1,17 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, FlatList, PanResponder, RefreshControl, StyleSheet, View, type GestureResponderHandlers } from 'react-native';
+import { ActivityIndicator, Animated, AppState, Easing, FlatList, PanResponder, RefreshControl, StyleSheet, View, useWindowDimensions, type GestureResponderEvent, type ViewToken } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useHousehold } from '../context/HouseholdContext';
-import { ActionSheet, AppButton, AppInput, AppText, ErrorState, InteractivePressable } from '../components/ui';
+import { ActionSheet, AdaptiveActionMenu, AdaptiveMenuRow, AdaptiveMenuSeparator, AppButton, AppInput, AppText, ErrorState, InteractivePressable, menuAnchorFromEvent, type MenuAnchor } from '../components/ui';
+import { FileTransientToast, type FileTransientToastValue } from '../services/homecloud/FileTransientToast';
 import { FileActionHost, type FilePatch } from '../services/homecloud/FileActionHost';
 import { FileMoveDestinationPicker } from '../services/homecloud/FileMoveDestinationPicker';
 import { FilesFilterMenu } from '../services/homecloud/FilesFilterMenu';
-import { FileSelectionBar } from '../services/homecloud/FileSelectionBar';
 import { HomePlusIcon } from '../constants/icons';
-import { colors, radius, spacing } from '../constants/theme';
-import { FileIntake } from '../services/homecloud/FileIntake';
+import { colors, MOTION, radius, spacing } from '../constants/theme';
+import { useReducedMotion } from '../hooks/useReducedMotion';
+import { createFileIntakeService } from '../services/homecloud/homecloudFileIntakeService';
+import { FileUndoSnackbar } from '../services/homecloud/FileUndoSnackbar';
+import { FileAutoScrollEdgeHint } from '../services/homecloud/FileAutoScrollEdgeHint';
+import { HomeCloudFilesSideIndex } from '../services/homecloud/FilesSideIndexRail';
+import { buildFilesSideIndex } from '../services/homecloud/homecloudFilesSideIndex';
 import { HomeCloudFileViewer } from './HomeCloudFileViewerScreen';
+import { restoreHomeCloudFile } from '../services/homecloud/homecloudTrashService';
+import {
+  VIEWER_OPEN_MIN_SCALE,
+  viewerOpenDurationMs,
+  viewerOpenKindForFile,
+  type ViewerOpenKind,
+} from '../services/homecloud/homecloudViewerTransition';
 import { useHomeCloudCapabilities } from '../services/homecloud/useHomeCloudCapabilities';
 import { homeCloudCapabilitiesNotice } from '../services/homecloud/homecloudCapabilitiesNotice';
 import {
@@ -21,19 +34,23 @@ import {
   hasNonDefaultFilesFilter,
   type FilesFilterState,
   type FilesShowMode,
+  type FilesViewMode,
 } from '../services/homecloud/homecloudFilesFilters';
 import { createHomeCloudFolder, deleteHomeCloudFolder, fetchFilesBrowser, moveHomeCloudFolder, renameHomeCloudFolder, setHomeCloudFileFavorite, updateHomeCloudFile, FILES_BROWSER_MAX_LIMIT } from '../services/homecloud/homecloudFilesService';
-import { folderDisplayPath, folderTrail, folderWithDescendantIds, parentFolderIdOf, resolveNearestExistingFolderId } from '../services/homecloud/homecloudFolderTree';
+import { trashHomeCloudFile } from '../services/homecloud/homecloudTrashService';
+import { folderTrail, folderWithDescendantIds, parentFolderIdOf, resolveNearestExistingFolderId } from '../services/homecloud/homecloudFolderTree';
 import { createFilesPagination, type FilesPaginationState } from '../services/homecloud/homecloudFilesPagination';
 import {
   applyDragSelectionStep,
   beginDragSelection,
   dragAutoScrollNextOffset,
+  dragEntityKey,
   dragSelectionTargetSelected,
   hitTestFileTile,
   listMaxOffset,
+  parseDragEntityKey,
   pointerToListContent,
-  recordFileTileFrame,
+  recordEntityTileFrame,
   DRAG_AUTO_SCROLL,
   type DragSelectionGesture,
   type FileTileFrames,
@@ -41,24 +58,33 @@ import {
   type TileFrame,
 } from '../services/homecloud/homecloudDragSelection';
 import {
+  beginFileSelectionAt,
+  beginFolderSelectionAt,
   emptyFileSelection,
   enterFileSelection,
   fileSelectionCount,
   fileSelectionSummary,
+  isEntitySelected,
   isFileSelected,
+  isFolderSelected,
   leaveFileSelection,
-  pruneFileSelection,
   selectedFileIds,
+  selectionEntities,
+  selectionHasFolders,
+  setEntitySelectionSelected,
   setFileSelectionSelected,
   toggleFileSelection,
   type FileSelection,
+  type SelectedEntity,
 } from '../services/homecloud/homecloudFileSelection';
-import { bulkMoveFeedback, bulkMoveFiles, bulkMoveInFlight, type BulkMoveFeedback } from '../services/homecloud/homecloudBulkMove';
+import { filesGridGeometry } from '../services/homecloud/homecloudFilesGridGeometry';
+import { bulkMoveFeedback, bulkMoveInFlight } from '../services/homecloud/homecloudBulkMove';
 import { exportHomeCloudStagedCopy, HomeCloudDownloadError, shareHomeCloudDownloadedFile, stageHomeCloudOriginal } from '../services/homecloud/homecloudDownloadService';
 import { fetchHomeCloudFoldersCached, invalidateHomeCloudHousehold } from '../services/homecloud/homecloudReadService';
 import { subscribeHomeCloudReadReconciliation } from '../services/homecloud/homecloudReadReconciliation';
 import { classifyHomeCloudReadFailure, homeCloudReadFailureDetail, homeCloudReadFailureDescription, homeCloudReadFailureTitle, type HomeCloudReadFailure } from '../services/homecloud/homecloudReadFailure';
 import type { HomeCloudFile, HomeCloudFolder } from '../services/homecloud/homecloudTypes';
+import { subscribeHomeCloudScannerSaved } from '../services/homecloud/homecloudScannerSaved';
 
 type GridItem = { kind: 'folder'; value: HomeCloudFolder } | { kind: 'file'; value: HomeCloudFile };
 
@@ -72,7 +98,7 @@ type GridItem = { kind: 'folder'; value: HomeCloudFolder } | { kind: 'file'; val
  * would gain a second way to be navigated.
  */
 type MoveIntent =
-  | { readonly kind: 'file' }
+  | { readonly kind: 'file'; readonly fileId: string }
   | { readonly kind: 'bulk' }
   | { readonly kind: 'folder'; readonly folderId: string };
 
@@ -100,11 +126,32 @@ const FILES_END_REACHED_THRESHOLD = 2;
 /** The household folder catalogue this screen owns and refreshes on mutation. */
 type FolderCatalogueScope = { householdId: string };
 
+/**
+ * HC-POL-014 / HC-POL-021 — ONE tile's OWNED motion values.
+ *
+ * The SURFACE creates them at the moment of an isolated toggle, because a tile
+ * is also rendered outside a React cycle: the drag sweep hit-tests tiles by
+ * their measured frames and the surface's `renderItem` output is inspected
+ * directly, so a tile must stay a pure render with no hook state of its own.
+ * A tile that is not animating receives `IDLE_TILE_FEEDBACK`, whose values are
+ * permanently 1 and therefore render as the plain, direct state.
+ */
+type TileFeedback = {
+  readonly checkScale: Animated.Value;
+  readonly badgeOpacity: Animated.Value;
+};
+
+const IDLE_TILE_FEEDBACK: TileFeedback = {
+  checkScale: new Animated.Value(1),
+  badgeOpacity: new Animated.Value(1),
+};
+
 export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {}) {
   const navigation = useNavigation<any>();
   const { session } = useAuth();
   const { currentHousehold } = useHousehold();
   const token = session?.access_token ?? null;
+  const reducedMotion = useReducedMotion();
   const [folder, setFolder] = useState<HomeCloudFolder | null>(null);
   // W1-B: the folder catalogue has ONE owner — the cached, household-scoped
   // folder read below. It is read once per household (30s TTL) instead of on
@@ -124,6 +171,9 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   const [filterState, setFilterState] = useState<FilesFilterState>(DEFAULT_FILES_FILTER_STATE);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [overflowOpen, setOverflowOpen] = useState(false);
+  const [overflowAnchor, setOverflowAnchor] = useState<MenuAnchor | null>(null);
+  const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
+  const [bulkMenuAnchor, setBulkMenuAnchor] = useState<MenuAnchor | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const sort = filterState.sort;
   const favoritesOnly = filesFavoritesOnly(filterState);
@@ -137,7 +187,27 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
 
   const [error, setError] = useState<string | null>(null);
   const [readFailure, setReadFailure] = useState<{ kind: HomeCloudReadFailure; message: string; detail?: string } | null>(null);
-  const [addOpen, setAddOpen] = useState(false); const [uploadOpen, setUploadOpen] = useState(false); const [folderEditor, setFolderEditor] = useState<{ mode: 'create' | 'rename'; item?: HomeCloudFolder } | null>(null); const [folderName, setFolderName] = useState(''); const [folderActions, setFolderActions] = useState<HomeCloudFolder | null>(null); const [actionTargetId, setActionTargetId] = useState<string | null>(null); const [saving, setSaving] = useState(false);
+  const [addOpen, setAddOpen] = useState(false); const [addAnchor, setAddAnchor] = useState<MenuAnchor | null>(null);
+  /**
+   * PATCH 1C — the native picker is IMPERATIVE, never mount-driven.
+   *
+   * `Elegir archivo` stores a pending intent, asks the anchored `+` popover to
+   * close through its normal lifecycle, and the picker is LAUNCHED only from
+   * the menu's `onDidDismiss` (the committed, no-longer-presented transition).
+    * No FileIntake is mounted inside Files anymore — no pick-on-mount side effect,
+   * no second upload surface. The launcher mints a FRESH intake service per
+   * launch (non-React factory, existing domain logic) with the CURRENT
+   * household/token/capabilities/folder, so no stale folder configuration can
+   * survive a folder change.
+   *
+   * Lifecycle: IDLE → REQUESTED (tap, menu closing) → PRESENTING (menu gone,
+   * native DocumentPicker up) → terminal (cancel/success/native error/
+   * register failure) → IDLE. Every terminal path releases the guard in
+   * `finally`; rapid duplicate taps while REQUESTED/PRESENTING are ignored,
+   * and the next tap after a terminal always works. No timers anywhere.
+   * (The callbacks are defined below, after `caps` — the ref is the state.)
+   */
+  const pickerLaunchRef = useRef<'IDLE' | 'REQUESTED' | 'PRESENTING'>('IDLE'); const [folderEditor, setFolderEditor] = useState<{ mode: 'create' | 'rename'; item?: HomeCloudFolder } | null>(null); const [folderName, setFolderName] = useState(''); const [folderActions, setFolderActions] = useState<HomeCloudFolder | null>(null); const [folderDeleteConfirm, setFolderDeleteConfirm] = useState<HomeCloudFolder | null>(null); const [folderActionAnchor, setFolderActionAnchor] = useState<MenuAnchor | null>(null); const [actionTargetId, setActionTargetId] = useState<string | null>(null); const [actionAnchor, setActionAnchor] = useState<MenuAnchor | null>(null); const [saving, setSaving] = useState(false);
   const [downloadFeedback, setDownloadFeedback] = useState<{ tone: 'secondary' | 'danger'; message: string } | null>(null);
   // STAGE 2 REOPEN — THE FAVORITE'S OWN BUSY STATE AND ITS OWN FAILURE CHANNEL.
   //
@@ -150,18 +220,56 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   // of the folder, query and sort they were in. See `toggleFileFavorite`.
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  // Selection belongs to the CURRENT browser context and is never persisted.
+  // LIFECYCLE V1 — the Papelera mutation's OWN busy state, same rule as the
+  // Favorite: one refused or slow Trash must not freeze the whole action
+  // surface, and its refusal is stated in the sheet, never as a list error.
+  const [trashBusy, setTrashBusy] = useState(false);
+  // HC-POL-018 — the ONE reversible action in the browser has a real second
+  // chance. A trashed File can be restored while it is still in the Papelera,
+  // so the snackbar lives until the member acts on it or dismisses it, and
+  // never on a timer that would hide an action which is still valid.
+  const [undoTrash, setUndoTrash] = useState<{ id: string; displayName: string } | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  // PATCH 1C — the horizontal folder-slide transform is REMOVED. It translated
+  // the very wrapper the list viewport measures and hit-tests inside, which is
+  // what made the grid drift/clip after folder travel, Scanner returns and
+  // Grid/List roundtrips. Stability wins over decorative motion: the list, its
+  // measurement parent and every `measureInWindow`/hit-test frame are now
+  // NEVER horizontally translated. If motion is ever reintroduced here it may
+  // be opacity only (FF-010 allows fade), never translateX.
+  // HC-POL-013 — the header morph. One driven value, so entering and leaving
+  // selection mode are the SAME transition read in two directions.
+  const headerMorph = useRef(new Animated.Value(0)).current;
+  // HC-POL-015 — the edge the auto-scroll is ACTUALLY scrolling from. It is
+  // null the rest of the time, so a plain scroll never draws anything.
+  const [autoScrollEdge, setAutoScrollEdge] = useState<'top' | 'bottom' | null>(null);
+  // HC-POL-012/057 — the ONE viewer transition, owned here next to the tile
+  // measurement it needs. `viewerOpenKind` records whether this particular open
+  // was origin-aware or an honest fade, and `viewerOpenOrigin` carries the
+  // tapped tile's geometry relative to the window-sized layer.
+  const viewerOpenProgress = useRef(new Animated.Value(0)).current;
+  const [viewerOpenKind, setViewerOpenKind] = useState<ViewerOpenKind>('fade');
+  const [viewerOpenOrigin, setViewerOpenOrigin] = useState({ translateX: 0, translateY: 0, scale: 1 });
+  const windowDimensions = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  // Selection belongs to the active household and survives browser contexts.
   const [selection, setSelection] = useState<FileSelection>(emptyFileSelection());
   // The ONE destination picker, serving a single File, the selection, or a Folder.
   const [moveIntent, setMoveIntent] = useState<MoveIntent | null>(null);
   // The batch outcome is stated OUTSIDE the selection bar on purpose: when every
   // moved File left the folder the selection itself ends, and the member must
   // still be told what happened.
-  const [bulkFeedback, setBulkFeedback] = useState<BulkMoveFeedback | null>(null);
+  // PATCH 1C — ONE transient Files feedback surface: bulk results AND scanner
+  // saves both flow through this value into the ONE FileTransientToast. The
+  // value may carry an optional action (e.g. `Abrir`), tappable while the
+  // toast is visible.
+  const [transientFeedback, setTransientFeedback] = useState<FileTransientToastValue | null>(null);
   const [page, setPage] = useState<FilesPaginationState>(() => ({
     folders: [], files: [], nextOffset: null, loading: true, loadingMore: false, pageError: null, autoPageBlocked: false, contextKey: null,
   }));
   const { folders, files, loading, loadingMore, pageError } = page;
+  const knownFilesRef = useRef(new Map<string, HomeCloudFile>());
+  for (const file of files) knownFilesRef.current.set(file.id, file);
 
   // ── the canonical File action/info target ─────────────────────────────────
   //
@@ -200,13 +308,13 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   const contextKey = `${folder?.id ?? 'root'}\u0000${query}\u0000${sort}\u0000${favoritesOnly ? 'favorites' : 'all'}`;
 
   /**
-   * Selection is scoped to ONE browser context, and so is the drag-selection
-   * gesture. A folder, query, sort or household change means the selected ids no
-   * longer describe what the member is looking at, so they are discarded — there
-   * is no cross-folder and no cross-household selection. A `loadMore` does NOT
-   * change this key, so paging through the same context keeps every selection.
+   * PATCH 1B — selection is FILES-WIDE. Folder navigation, search, sort,
+   * Grid/List switches and loaded-window changes preserve every selected
+   * identity (files + folders); Grid and List share one set. Only a household
+   * change invalidates it, and invalid identities are dropped only at bulk
+   * execution time, with evidence — never by navigation.
    */
-  const selectionScope = `${currentHousehold?.id ?? ''}\u0000${contextKey}`;
+  const selectionScope = currentHousehold?.id ?? '';
 
   // W1-A: capabilities are read ONCE per scope through the canonical cached
   // fetch, independently of this list's data. A failed capabilities read can no
@@ -214,6 +322,45 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   // re-request the projection.
   const capabilities = useHomeCloudCapabilities();
   const caps = capabilities.descriptor;
+
+  const launchFilePickerForCurrentFolder = useCallback(async () => {
+    if (pickerLaunchRef.current !== 'PRESENTING') return;
+    if (!currentHousehold || !token || !caps.contribute) {
+      pickerLaunchRef.current = 'IDLE';
+      return;
+    }
+    try {
+      const service = createFileIntakeService({
+        householdId: currentHousehold.id,
+        accessToken: token,
+        getAccessToken: () => session?.access_token ?? null,
+        capabilities: caps,
+        initialFolderId: folder?.id ?? null,
+        initialFolderName: folder?.name ?? null,
+        intakeSource: 'homecloud:files',
+      });
+      // Canonical shared recovery: idempotent, safe on every launch. Same
+      // entry the mounted intake used, so no consumer loses recovery.
+      void service.recover();
+      await service.pickFile();
+      // Accepted artifacts were enqueued to the SHARED household queue/
+      // coordinator. The ONLY upload presentation is HomeCloudUploadActivity,
+      // and the W1-C read reconciliation refreshes this browser when the jobs
+      // finalize — no local status surface, no onComplete refresh.
+    } finally {
+      pickerLaunchRef.current = 'IDLE';
+    }
+  }, [caps, currentHousehold, folder, session, token]);
+  const requestFilePickerLaunch = useCallback(() => {
+    if (pickerLaunchRef.current !== 'IDLE') return;
+    pickerLaunchRef.current = 'REQUESTED';
+    setAddOpen(false);
+  }, [setAddOpen]);
+  const handleAddMenuDidDismiss = useCallback(() => {
+    if (pickerLaunchRef.current !== 'REQUESTED') return;
+    pickerLaunchRef.current = 'PRESENTING';
+    void launchFilePickerForCurrentFolder();
+  }, [launchFilePickerForCurrentFolder]);
 
   // W1-B: the pagination transitions live in a framework-free controller
   // (`homecloudFilesPagination`), which owns generations, dedupe and the
@@ -255,7 +402,16 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     });
   }
 
-  /** Turn a read failure into the surface's own ACCESS/RECOVERABLE verdict. */
+  /**
+   * Turn a read failure into the surface's own ACCESS/RECOVERABLE verdict.
+   *
+   * PATCH 1B — deps are intentionally `[]`. React guarantees the dispatch
+   * identity is stable, so listing it would change nothing in production —
+   * but it WOULD destabilize `load` (and through it the context effect and
+   * the whole return funnel) in any host that mints a fresh dispatch per
+   * render, turning one mount read into a per-commit read loop that also
+   * resets pagination. One mount read is the contract; this keeps it.
+   */
   const presentReadFailure = useCallback((e: unknown) => {
     const kind = classifyHomeCloudReadFailure(e);
     setReadFailure({ kind, message: homeCloudReadFailureDescription(kind), detail: homeCloudReadFailureDetail(kind, e) });
@@ -491,10 +647,6 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     () => folderTrail(allFolders, folder?.id ?? null),
     [allFolders, folder?.id],
   );
-  const currentPath = useMemo<string | null>(
-    () => folderDisplayPath(allFolders, folder?.id ?? null),
-    [allFolders, folder?.id],
-  );
 
   // S4-iii B1/B5 — a folder context change CLEARS the query and keeps the sort.
   //
@@ -512,6 +664,12 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   // they step into Garantías and look for their favorite files in there. The
   // query is cleared because its MEANING changes with the folder; the mode does
   // not change meaning, so it survives.
+  /**
+   * PATCH 1C — folder navigation motion is REMOVED (no horizontal slide, no
+   * replacement animation): the translated wrapper was the drift owner. The
+   * content swap is in place and every measured frame stays in the same
+   * coordinate system before, during and after a travel.
+   */
   const openFolder = useCallback((next: HomeCloudFolder) => {
     setFolder(next); setQuery(''); setError(null); setReadFailure(null);
   }, []);
@@ -552,67 +710,84 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
 
   /** The discoverable entry, so nobody has to know the hidden long-press gesture. */
   const enterSelectionMode = useCallback(() => {
-    setBulkFeedback(null);
+    setTransientFeedback(null);
     setSelection(enterFileSelection);
-  }, []);
+  }, [setTransientFeedback, setSelection]);
 
   // ═════════════════════════════════════════════════════════════════════════
-  // STAGE 2 REOPEN — DRAG SELECTION
+  // PATCH 1C — DRAG SELECTION RESPONDER OWNERSHIP
   // ═════════════════════════════════════════════════════════════════════════
   //
-  // WHY THE RESPONDER LIVES ON THE TILE AND IS ARMED, NEVER AUTO-ARMED
+  // WHY THE RESPONDER LIVES ON THE BROWSER/LIST WRAPPER, NOT ON THE TILE
   // -------------------------------------------------------------------
   // Normal scrolling inside selection mode MUST keep working, so this gesture can
   // never be won by a movement threshold: sweeping straight down a column of Files
   // and flicking the list are the same physical motion. The only event that tells
   // them apart is the LONG PRESS, which is a decision the member already made.
   //
-  //   before the threshold  the LIST owns the gesture. `onStartShouldSetPanResponder`
-  //                         returns false unconditionally and
-  //                         `onShouldBlockNativeResponder` is false, so an ordinary
-  //                         swipe is still an ordinary scroll.
-  //   at the threshold     `onLongPress` arms the sweep. The mode is read ONCE, from
-  //                         the anchor's CURRENT selection state.
-  //   after arming         the tile's pan responder claims the movement stream and
-  //                         BLOCKS THE NATIVE SCROLL RECOGNIZER. On the New
-  //                         Architecture the FlatList's pan is native, so blocking it
-  //                         is the only way to keep a stationary finger on the tile
-  //                         that is scrolling underneath it.
-  //   on release/terminate the gesture, its visited set and the auto-scroll timer all
-  //                         end together.
+  //   before the threshold  the LIST owns the gesture. The wrapper's
+  //                         `onStartShouldSetPanResponder` returns false
+  //                         unconditionally, so an ordinary swipe is still an
+  //                         ordinary scroll.
+  //   at the threshold     the TILE's `onLongPress` DETECTS the intent and arms
+  //                         the sweep synchronously through `dragGestureRef`
+  //                         (a ref, never async React state). The mode is read
+  //                         ONCE, from the anchor's CURRENT selection state.
+  //   after arming         the WRAPPER's capture responder claims the movement
+  //                         stream of the SAME pointer and BLOCKS the native
+  //                         scroll recognizer. Ownership is browser-level, so
+  //                         the stroke continues across every tile, the side
+  //                         index and blank space — the tile never owns the
+  //                         drag and can never strand the stroke inside its
+  //                         own subtree.
+  //   on release/terminate the gesture, its visited set and the auto-scroll
+  //                         timer all end together, and normal list behavior
+  //                         returns immediately.
   //
-  // NO new dependency: this is React Native's own `PanResponder`, the same primitive
-  // `AccountSheet` and `HouseholdSwitcherSheet` already use in this app. The rules
-  // themselves (mode, visited set, hit test, auto-scroll bounds) live in the pure
-  // `homecloudDragSelection` module, so nothing here re-implements them.
+  // NO new dependency: this is React Native's own `PanResponder`. The rules
+  // themselves (mode, visited set, hit test, auto-scroll bounds) live in the
+  // pure `homecloudDragSelection` module, so nothing here re-implements them.
   const listRef = useRef<FlatList<GridItem> | null>(null);
+  const firstVisibleIndexRef = useRef(0);
+  const previousViewModeRef = useRef<FilesViewMode>(filterState.view);
+  const viewabilityConfigRef = useRef({ itemVisiblePercentThreshold: 20 });
+  const rememberVisibleItems = useRef(({ viewableItems }: { viewableItems: ViewToken<GridItem>[] }) => {
+    const indices = viewableItems.map((token) => token.index).filter((index): index is number => index != null);
+    if (indices.length > 0) firstVisibleIndexRef.current = Math.min(...indices);
+  }).current;
   const selectionRef = useRef<FileSelection>(selection);
   selectionRef.current = selection;
   const dragGestureRef = useRef<DragSelectionGesture | null>(null);
   const dragFramesRef = useRef<FileTileFrames>(new Map());
+  const [selectionStrokeActive, setSelectionStrokeActive] = useState(false);
   const listGeometryRef = useRef<ListViewportGeometry>({ listPageY: 0, viewportHeightDp: 0, contentHeightDp: 0 });
   const contentOffsetRef = useRef(0);
   const autoScrollHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pointerRef = useRef({ x: 0, y: 0 });
 
-  /** Record one MEASURED File tile frame. Folders never call this, so a sweep can
-   *  never select a Folder even if a finger passes over one. */
-  const registerFileTileFrame = useCallback((fileId: string, frame: TileFrame) => {
-    dragFramesRef.current = recordFileTileFrame(dragFramesRef.current, fileId, frame);
+  /**
+   * Record one MEASURED entity tile frame under its canonical key
+   * (`file:<id>` / `folder:<id>`). Only registered entities are hit-testable,
+   * so headers, icons, the side index and blank space can never be selected.
+   */
+  const registerFileTileFrame = useCallback((entityKey: string, frame: TileFrame) => {
+    dragFramesRef.current = recordEntityTileFrame(dragFramesRef.current, entityKey, frame);
   }, []);
 
-  /** Fold one crossed File into the armed gesture, applying the decided state once. */
-  const applyCrossedFile = useCallback((fileId: string) => {
+  /** Fold one crossed entity into the armed gesture, applying the decided state once. */
+  const applyCrossedFile = useCallback((entityKey: string) => {
     const gesture = dragGestureRef.current;
     if (!gesture) return;
-    const next = applyDragSelectionStep(gesture, fileId);
-    // The SAME object means this File was already processed by THIS gesture, so it is
+    const next = applyDragSelectionStep(gesture, entityKey);
+    // The SAME object means this entity was already processed by THIS gesture, so it is
     // structurally a no-op: no second toggle, no new selection identity.
     if (next === gesture) return;
     dragGestureRef.current = next;
     const selected = dragSelectionTargetSelected(next);
-    setSelection((previous) => setFileSelectionSelected(previous, fileId, selected));
-  }, []);
+    const entity = parseDragEntityKey(entityKey);
+    if (!entity) return;
+    setSelection((previous) => setEntitySelectionSelected(previous, entity, selected));
+  }, [setSelection]);
 
   /** Hit-test a pointer position against the MEASURED frames and fold what it found. */
   const hitTestPointer = useCallback((pageX: number, pageY: number) => {
@@ -633,7 +808,10 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
       clearInterval(autoScrollHandleRef.current);
       autoScrollHandleRef.current = null;
     }
-  }, []);
+    // HC-POL-015: the hint leaves with the scroll, so a release never leaves an
+    // edge accent behind over an idle list.
+    setAutoScrollEdge(null);
+  }, [setAutoScrollEdge]);
 
   /**
    * One bounded auto-scroll step.
@@ -646,15 +824,25 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
    */
   const autoScrollStep = useCallback(() => {
     const geometry = listGeometryRef.current;
+    const before = contentOffsetRef.current;
     const next = dragAutoScrollNextOffset({
       pointerViewportY: pointerRef.current.y - geometry.listPageY,
       viewportHeightDp: geometry.viewportHeightDp,
-      currentOffsetDp: contentOffsetRef.current,
+      currentOffsetDp: before,
       maxOffsetDp: listMaxOffset(geometry),
     });
     if (next === null) return;
     contentOffsetRef.current = next;
     listRef.current?.scrollToOffset?.({ offset: next, animated: false });
+    // HC-POL-015: the edge accent is drawn only for a step that REALLY moved the
+    // list. A finger parked at the bottom while the list is already there draws
+    // nothing, which is what keeps the hint from becoming permanent chrome. The
+    // functional form matters: an unchanged edge is the SAME value, so the tick
+    // does not re-render the grid 60 times a second.
+    setAutoScrollEdge((previous) => {
+      const nextEdge = next > before ? 'bottom' : 'top';
+      return previous === nextEdge ? previous : nextEdge;
+    });
     hitTestPointer(pointerRef.current.x, pointerRef.current.y);
   }, [hitTestPointer]);
 
@@ -663,40 +851,103 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
     autoScrollHandleRef.current = setInterval(autoScrollStep, DRAG_AUTO_SCROLL.tickMs);
   }, [autoScrollStep]);
 
+  // ── HC-POL-014 / HC-POL-021 — the tile motion the SURFACE owns ──────────────
+  //
+  // A tile is a pure render, so the values it animates with live here, created
+  // at the moment of an isolated toggle and handed down by `renderItem`. They
+  // are per-File and per-REASON (check, badge), and they are cleared with the
+  // browser context they belong to.
+  const tileFeedbackRef = useRef(new Map<string, TileFeedback>());
+  const tileFeedback = useCallback((fileId: string): TileFeedback => {
+    const existing = tileFeedbackRef.current.get(fileId);
+    if (existing) return existing;
+    const created: TileFeedback = { checkScale: new Animated.Value(1), badgeOpacity: new Animated.Value(1) };
+    tileFeedbackRef.current.set(fileId, created);
+    return created;
+  }, []);
+  /**
+   * The check SETTLES onto its ring (0.85 -> 1, 120 ms) for an ISOLATED toggle
+   * only. A drag sweep crosses many tiles in quick succession and states them
+   * directly through `IDLE_TILE_FEEDBACK`; this runs for the deliberate taps and
+   * the accessibility actions, which is where motion reads as care instead of as
+   * twenty mechanical pops.
+   */
+  const animateTileCheck = useCallback((fileId: string) => {
+    const entry = tileFeedback(fileId);
+    entry.checkScale.setValue(0.85);
+    Animated.timing(entry.checkScale, {
+      toValue: 1,
+      duration: MOTION.selectionCheck,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [tileFeedback]);
+  /**
+   * The favorite badge fades in when a File the member is LOOKING at becomes a
+   * favorite. A tile that merely mounts already-favorite never animates, so a
+   * recycled cell does not flicker its badge at the member.
+   */
+  const animateTileBadge = useCallback((fileId: string) => {
+    const entry = tileFeedback(fileId);
+    entry.badgeOpacity.setValue(0);
+    Animated.timing(entry.badgeOpacity, {
+      toValue: 1,
+      duration: MOTION.favoriteBadge,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [tileFeedback]);
+  const clearTileFeedback = useCallback(() => { tileFeedbackRef.current.clear(); }, []);
+
   /** Every end of a gesture clears the same three things, together. */
   const disarmDragSelection = useCallback(() => {
     dragGestureRef.current = null;
+    setSelectionStrokeActive(false);
     stopAutoScroll();
   }, [stopAutoScroll]);
 
   /**
    * Arm the sweep. The anchor's CURRENT selection state decides the mode, once, and
-   * the anchor itself is applied immediately so the held File visibly changes state
-   * the moment the gesture begins.
+   * the anchor itself is applied immediately so the held entity visibly changes state
+   * the moment the gesture begins. From this instant the selection gesture OWNS
+   * the pointer until release/cancel: list scrolling, pull-to-refresh and parent
+   * pan responders are suppressed for this stroke only (see `selectionStrokeActive`).
    */
-  const armDragSelection = useCallback((fileId: string) => {
+  const armDragSelection = useCallback((entity: SelectedEntity) => {
     const gesture = beginDragSelection({
-      anchorId: fileId,
-      anchorSelected: isFileSelected(selectionRef.current, fileId),
+      anchorId: dragEntityKey(entity.type, entity.id),
+      anchorSelected: isEntitySelected(selectionRef.current, entity),
     });
     dragGestureRef.current = gesture;
-    setSelection((previous) => setFileSelectionSelected(previous, fileId, dragSelectionTargetSelected(gesture)));
-  }, []);
+    setSelectionStrokeActive(true);
+    // The sweep states its anchor DIRECTLY (HC-POL-014): a sweep is the one
+    // place where immediate state is the right feedback, so no tile motion is
+    // created for it.
+    setSelection((previous) => setEntitySelectionSelected(previous, entity, dragSelectionTargetSelected(gesture)));
+  }, [setSelection]);
 
   /**
-   * THE ONE PAN RESPONDER for every File tile.
+   * THE ONE PAN RESPONDER of the Files browser/list wrapper.
    *
-   * It is created once and reads everything through refs, so it never closes over a
-   * stale selection and never needs to be rebuilt per row. Every File tile gets the
-   * same `panHandlers`, because there is only ever ONE gesture: a gesture belongs to
-   * the armed state in `dragGestureRef`, not to a row.
+   * PATCH 1C — ownership moved from the tile to the list wrapper. ONE
+   * long-press threshold, selection only. Movement BEFORE the threshold never
+   * arms anything, so an ordinary swipe stays an ordinary scroll: the
+   * wrapper claims ONLY when the long press has already committed
+   * (`dragGestureRef.current !== null`, read from the live ref — never async
+   * React state). After arming, the same pointer continues directly into
+   * drag-selection without lifting, and the stroke is owned browser-wide
+   * until release/cancel.
    */
+  // A stable responder owns the complete long-press drag stroke.
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const dragPanResponder = useMemo(() => PanResponder.create({
     // NEVER claim on touch start. That single `false` is what keeps an ordinary
     // swipe an ordinary scroll.
     onStartShouldSetPanResponder: () => false,
     onStartShouldSetPanResponderCapture: () => false,
     // Claim the movement stream only once the long press has armed the sweep.
+    // The CAPTURE phase is what lets the wrapper take the pointer from the
+    // FlatList's native scroll recognizer on the very first armed move.
     onMoveShouldSetPanResponder: () => dragGestureRef.current !== null,
     onMoveShouldSetPanResponderCapture: () => dragGestureRef.current !== null,
     // Once the sweep owns the movement, the list must not take it back mid-gesture.
@@ -715,79 +966,207 @@ export function HomeCloudFilesView({ visible = true }: { visible?: boolean } = {
   }), [disarmDragSelection, hitTestPointer, startAutoScroll]);
 
   /**
-   * NOTHING SURVIVES A CONTEXT CHANGE.
+   * NOTHING SURVIVES A CONTEXT CHANGE — except entering selection itself.
    *
    * An armed gesture belongs to one browser context and one finger. A household
    * switch, a folder change, a query, a sort, the Favoritos mode or leaving
-   * selection mode all invalidate it, and so does unmounting the surface -- so the
-   * armed state, the visited set and the auto-scroll timer are cleared together,
-   * here and through `leaveSelectionMode`. A timer left running would keep scrolling
-   * a list nobody is touching.
+   * selection mode all invalidate it, and so does unmounting the surface — so the
+   * armed state, the visited set and the auto-scroll timer are cleared together.
+   * A timer left running would keep scrolling a list nobody is touching.
+   *
+   * PATCH 1B — ENTERING selection must NOT disarm: a long press arms the stroke
+   * in the same intent that enters the mode, and the state update re-renders
+   * before the finger moves. Disarming on the false→true transition would kill
+   * every long-press stroke on its first commit. Only the true→false transition
+   * (leaving selection) disarms alongside the context changes.
    */
-  const dragScope = `${currentHousehold?.id ?? ''}\u0000${selectionScope}`;
-  useEffect(() => { disarmDragSelection(); }, [dragScope, disarmDragSelection, selection.mode]);
-  useEffect(() => () => disarmDragSelection(), [disarmDragSelection]);
+  const dragScope = `${currentHousehold?.id ?? ''}\u0000${folder?.id ?? 'root'}\u0000${filterState.view}`;
+  const selectionModeRef = useRef(selection.mode);
+  useEffect(() => {
+    const was = selectionModeRef.current;
+    selectionModeRef.current = selection.mode;
+    if (was && !selection.mode) disarmDragSelection();
+  }, [selection.mode, disarmDragSelection]);
+  // The scope effect reads the disarmer through a ref so it fires ONLY on a
+  // real scope change. (Hook-host harnesses mint a fresh dispatch identity per
+  // render; depending on it here would disarm an armed stroke on its first
+  // commit. Production dispatches are stable, so this changes nothing there.)
+  const disarmRef = useRef(disarmDragSelection);
+  disarmRef.current = disarmDragSelection;
+  useEffect(() => { disarmRef.current(); }, [dragScope]);
+  useEffect(() => () => { disarmRef.current(); }, []);
 
   /**
-   * STAGE 2 (Phase 2) — THE FILE INTERACTION GRAMMAR.
+   * PATCH 1B — THE FILE INTERACTION GRAMMAR.
    *
-   *   OUTSIDE selection:   tap  -> Viewer (the reserved seam, now WIRED)
-   *                        long press -> contextual File actions
-   *   INSIDE selection:    tap  -> toggle
-   *                        long press -> NOTHING (no menu, no navigation)
+   *   OUTSIDE selection:   tap        -> Viewer (the reserved seam)
+   *                        tap ⋯      -> contextual File popover
+   *                        long press -> ENTER SELECTION + select file (never a menu)
+   *   INSIDE selection:    tap        -> toggle
+   *                        long press -> ensure selected + continue selection stroke
+   *                        drag       -> paint selection (files + folders)
    *
-   * Only ONE gesture may be live at a time, so the long press inside selection is a
-   * deliberate no-op rather than a "tap" or a "menu". A contextual menu during a
-   * multi-select would let a member destroy or move a File they had only meant to
-   * include in a batch.
-   *
-   * Selection is entered ONLY from the header overflow, so the gesture is never
-   * hidden and never ambiguous.
-   *
-   * STAGE 2 (Phase 3): the tap now opens the Viewer. It resolves the File against
-   * the CURRENT rows by id, so a File that left the window simply does not open
-   * rather than opening a stale copy.
+   * There is NO long-press context menu. Contextual actions open exclusively
+   * from visible ⋯ controls.
    */
 const handleFileTap = useCallback((fileId: string) => {
     if (selection.mode) {
+      // HC-POL-014 — the check settles onto its ring for the deliberate tap,
+      // which is exactly the isolated toggle the motion is for. The mode is read
+      // from the CURRENT selection, so the animation fires when the tap SELECTS.
+      if (!isFileSelected(selection, fileId)) animateTileCheck(fileId);
       setSelection((previous) => (previous.mode ? toggleFileSelection(previous, fileId) : previous));
       return;
     }
     const target = files.find((candidate) => candidate.id === fileId);
     if (!target) return;
-    setViewerTargetId(fileId);
-  }, [selection.mode, files]);
-  const handleFileLongPress = useCallback((fileId: string) => {
-    if (selection.mode) {
-      // INSIDE selection mode a long press ARMS THE SWEEP and does nothing else: the
-      // mode is read ONCE, from the anchor's current selection state, and is fixed
-      // for the rest of the gesture.
-      armDragSelection(fileId);
-      return;
+    // HC-POL-012/057 — decide WHICH transition this open is, before the layer
+    // exists. A File with a real preview whose tile is measured and still on
+    // screen expands out of that tile; everything else (a PDF without a cover,
+    // audio, text, Office, or a tile that scrolled away) gets the honest short
+    // fade instead of pretending a continuity the navigator cannot show.
+    const frame = dragFramesRef.current.get(dragEntityKey('file', fileId)) ?? null;
+    const topInViewport = frame === null ? -1 : frame.y - contentOffsetRef.current;
+    const visibleInViewport = frame !== null
+      && topInViewport + frame.height > 0
+      && topInViewport < listGeometryRef.current.viewportHeightDp;
+    const kind = viewerOpenKindForFile({
+      hasPreview: target.hasPreview === true,
+      tileVisible: visibleInViewport,
+    });
+    setViewerOpenKind(kind);
+    if (kind === 'origin' && frame !== null) {
+      // The layer is an absolute fill of THIS screen, and this screen is the
+      // window-sized pane, so the layer's box is the window's. That is what makes
+      // the origin geometry computable at TAP time, deterministically, instead of
+      // depending on a layout callback racing the first paint.
+      const tileCenterX = frame.x + frame.width / 2;
+      const tileCenterY = listGeometryRef.current.listPageY + topInViewport + frame.height / 2;
+      setViewerOpenOrigin({
+        translateX: tileCenterX - windowDimensions.width / 2,
+        translateY: tileCenterY - windowDimensions.height / 2,
+        scale: Math.max(VIEWER_OPEN_MIN_SCALE, Math.min(frame.width / windowDimensions.width, frame.height / windowDimensions.height)),
+      });
+    } else {
+      setViewerOpenOrigin({ translateX: 0, translateY: 0, scale: 1 });
     }
-    setBulkFeedback(null);
-    setActionTargetId(fileId);
-  }, [selection.mode, armDragSelection]);
+    viewerOpenProgress.setValue(0);
+    setViewerTargetId(fileId);
+  }, [selection.mode, selection, files, animateTileCheck, windowDimensions.width, windowDimensions.height]);
+
+  /**
+   * HC-POL-012/057 — play the opening transition of the viewer layer.
+   *
+   * The layer's geometry was already decided at tap time, so all that is left is
+   * the timing: the origin expansion runs 260 ms spring-out, the honest fade runs
+   * 200 ms, and a reduced-motion device gets a 50 ms linear settle with no
+   * transform at all. It runs as an EFFECT so re-opening while a previous open is
+   * still animating replaces it instead of queueing behind it.
+   */
+  useEffect(() => {
+    if (viewerTargetId === null) return undefined;
+    Animated.timing(viewerOpenProgress, {
+      toValue: 1,
+      duration: viewerOpenDurationMs(viewerOpenKind, reducedMotion),
+      easing: viewerOpenKind === 'origin' ? Easing.out(Easing.cubic) : Easing.linear,
+      useNativeDriver: true,
+    }).start();
+    return undefined;
+  }, [viewerTargetId, viewerOpenKind, viewerOpenProgress, reducedMotion]);
+  /**
+   * PATCH 1B — long press is SELECTION, never a menu.
+   *
+   * Outside selection it enters selection mode and selects the pressed file in
+   * ONE intent, then arms the stroke so the same finger may continue directly
+   * into drag-selection without lifting. Inside selection it ensures the file
+   * is selected and arms the stroke. There is exactly ONE threshold: the
+   * framework's own long-press delay on the tile.
+   */
+  const handleFileLongPress = useCallback((fileId: string) => {
+    setTransientFeedback(null);
+    setSelection((previous) => beginFileSelectionAt(previous, fileId));
+    armDragSelection({ type: 'file', id: fileId });
+  }, [armDragSelection, setTransientFeedback, setSelection]);
+
+  /**
+   * PATCH 1B — folders are selectable AND navigable. Long press selects the
+   * folder (entering selection when needed) and arms the stroke; a plain tap
+   * on the body still navigates; the selection affordance toggles.
+   */
+  const handleFolderLongPress = useCallback((folderId: string) => {
+    setTransientFeedback(null);
+    setSelection((previous) => beginFolderSelectionAt(previous, folderId));
+    armDragSelection({ type: 'folder', id: folderId });
+  }, [armDragSelection, setTransientFeedback, setSelection]);
 
   const leaveSelectionMode = useCallback(() => {
     disarmDragSelection();
-    setBulkFeedback(null);
+    setTransientFeedback(null);
+    clearTileFeedback();
     setSelection(leaveFileSelection());
-  }, [disarmDragSelection]);
+  }, [disarmDragSelection, clearTileFeedback, setTransientFeedback, setSelection]);
 
   /**
-   * Selection is scoped to ONE browser context. A folder, query, sort or
-   * household change means the selected ids no longer describe what the member is
-   * looking at, so they are discarded — there is no cross-folder and no
-   * cross-household selection. A `loadMore` does NOT change this key, so paging
-   * through the same context keeps every selection.
+   * HC-POL-013 — THE SELECTION HEADER MORPH.
+   *
+   * The header is not swapped, it is morphed: the SAME row cross-fades and shifts
+   * by at most 4 pt while its height, the search field, the grid and the scroll
+   * offset stay exactly where they were. Entering and leaving selection mode play
+   * the same driven value in two directions, so neither direction is a different
+   * transition. Reduced motion collapses it to a 30 ms linear presence change.
    */
+  useEffect(() => {
+    Animated.timing(headerMorph, {
+      toValue: selection.mode ? 1 : 0,
+      duration: reducedMotion ? 30 : MOTION.selectionMorph,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }).start();
+  }, [selection.mode, headerMorph, reducedMotion]);
+
+  /**
+   * HC-POL-018 — restore the File the member just sent to the Papelera.
+   *
+   * It is a REAL restore against the lifecycle endpoint, not an optimistic local
+   * patch: the server keeps the authority on whether the File is still
+   * restorable, so a refusal is stated and the snackbar stays put instead of
+   * pretending the File came back. On success the same window-preserving
+   * `refresh` a trash uses reconciles the row back into place.
+   */
+  const undoTrashFile = useCallback(async () => {
+    if (!token || !undoTrash || undoBusy) return;
+    const targetId = undoTrash.id;
+    setUndoBusy(true);
+    try {
+      await restoreHomeCloudFile(token, targetId);
+      setUndoTrash(null);
+      void refresh();
+    } catch (e) {
+      setTransientFeedback({
+        tone: 'danger',
+        message: e instanceof Error ? e.message : 'No pudimos restaurar el archivo.',
+      });
+    } finally {
+      setUndoBusy(false);
+    }
+  }, [token, undoTrash, undoBusy, refresh, setTransientFeedback, setUndoBusy, setUndoTrash]);
+
+  /** Selection is household-scoped: only a household change invalidates it. */
   useEffect(() => {
     setSelection((previous) => (
       previous.mode === false && previous.ids.size === 0 ? previous : leaveFileSelection()
     ));
-    setBulkFeedback((previous) => (previous === null ? previous : null));
-  }, [selectionScope]);
+    setTransientFeedback((previous) => (previous === null ? previous : null));
+    // The tile motion belongs to the browser context it was created in: a new
+    // context means new tiles, and no old value may leak into them.
+    clearTileFeedback();
+  }, [selectionScope, clearTileFeedback]);
+
+  useEffect(() => {
+    if (visible) return;
+    setSelection(leaveFileSelection());
+    setTransientFeedback(null);
+  }, [visible]);
 
   // W1-C: READ reconciliation is global, not a property of this screen. The
   // FileIntake that accepted the job is already unmounted by the time the job
@@ -802,6 +1181,23 @@ const handleFileTap = useCallback((fileId: string) => {
       void refresh();
     });
   }, [currentHousehold?.id, refresh]);
+
+  // PATCH 1C — scanner success is TRANSIENT, ACTIONABLE toast feedback — never
+  // browser layout. The old permanent `Escaneo guardado · Abrir` banner between
+  // the contextual header and the grid reflowed the browser; the toast floats
+  // (no layout change), auto-dismisses, and `Abrir` stays tappable while it is
+  // visible. Tapping it dismisses the toast and opens the PDF viewer.
+  useEffect(() => subscribeHomeCloudScannerSaved((event) => {
+    const destination = event.folderId === null ? null : allFolders.find((candidate) => candidate.id === event.folderId) ?? null;
+    setFolder(destination);
+    setQuery('');
+    setTransientFeedback({
+      tone: 'success',
+      message: 'Escaneo guardado',
+      action: { label: 'Abrir', onAction: () => { setTransientFeedback(null); setViewerTargetId(event.contentId); } },
+    });
+    void refresh();
+  }), [allFolders, refresh]);
 
   const items = useMemo<GridItem[]>(() => [...folders.map(value => ({ kind: 'folder' as const, value })), ...files.map(value => ({ kind: 'file' as const, value }))], [folders, files]);
   // B1 — the rows on screen belong to the query they were READ for. While that
@@ -839,12 +1235,12 @@ const handleFileTap = useCallback((fileId: string) => {
    * browser follows the promotion instead of being dropped to the root.
    */
   const removeFolder = async () => {
-    if (!token || !folderActions || saving) return;
+    if (!token || !folderDeleteConfirm || saving) return;
     setSaving(true);
-    const removedId = folderActions.id;
+    const removedId = folderDeleteConfirm.id;
     try {
       await deleteHomeCloudFolder(token, removedId);
-      setFolderActions(null);
+      setFolderDeleteConfirm(null);
       // A removed folder can never remain the open context. When the open folder
       // was the one removed, land on its parent; when the open folder was a
       // DESCENDANT of it, it survived the promotion, so it stays open and the
@@ -860,10 +1256,10 @@ const handleFileTap = useCallback((fileId: string) => {
    * as a typed message rather than as a silent no-op.
    */
   const saveFolderMove = async (destinationFolderId: string | null) => {
-    if (!token || !folderActions || saving) return;
+    if (!token || moveIntent?.kind !== 'folder' || saving) return;
     setSaving(true);
     try {
-      await moveHomeCloudFolder(token, folderActions.id, destinationFolderId);
+      await moveHomeCloudFolder(token, moveIntent.folderId, destinationFolderId);
       setFolderActions(null); setMoveIntent(null);
       await refreshCatalogue();
       await refresh();
@@ -884,33 +1280,103 @@ const handleFileTap = useCallback((fileId: string) => {
   };
 
   /**
-   * BULK MOVE — N of the EXISTING single-file mutations and nothing else.
+   * BULK MOVE — the EXISTING single mutations and nothing else.
    *
-   * No bulk endpoint, no transaction endpoint, no schema change, no migration and
-   * no byte movement: `updateHomeCloudFile` with only `folderId` is the whole
-   * contract. The batch is deliberately NOT atomic, so `bulkMoveFiles` aggregates
-   * per-item outcomes and the ones that already moved are never rolled back.
+   * PATCH 1B — files AND folders (or mixed) move through their own canonical
+   * contracts: files via `updateHomeCloudFile`, folders via
+   * `moveHomeCloudFolder` (which refuses cycles server-side). No bulk endpoint,
+   * no schema change. Each entity is validated individually; entities already
+   * in the target are a no-op; a destination holding everything is a
+   * meaningless execution and is refused with feedback instead of running.
+   *
+   * Total success leaves selection; partial success retains ONLY the failed
+   * entities with their types, so a retry keeps exactly what did not move.
    */
   const moveSelectedFiles = async (destinationFolderId: string | null) => {
     if (!token || saving) return;
-    const contentIds = selectedFileIds(selection);
-    if (contentIds.length === 0) return;
+    const entities = selectionEntities(selection);
+    if (entities.length === 0) return;
+    const mixed = entities.some((entity) => entity.type === 'folder');
+    const unit = mixed ? 'elementos' : 'archivos';
+    const folderBlockedByCycle = (folderId: string): boolean => {
+      // A target that is the folder itself or one of its descendants can never
+      // accept it (the server refuses cycles). The batch never issues a
+      // predictably refused mutation; the identity is reported as failed.
+      if (destinationFolderId === folderId) return true;
+      return destinationFolderId !== null && folderWithDescendantIds(allFolders, folderId).has(destinationFolderId);
+    };
+    // Triage BEFORE any mutation: actionable (needs the request), already-there
+    // (no-op, counts as done), invalid (unknown identity or cycle — reported,
+    // never executed).
+    const actionable: SelectedEntity[] = [];
+    const alreadyThereIds: string[] = [];
+    const invalidIds: string[] = [];
+    for (const entity of entities) {
+      if (entity.type === 'file') {
+        const known = knownFilesRef.current.get(entity.id);
+        if (!known) invalidIds.push(entity.id);
+        else if (known.folderId === destinationFolderId) alreadyThereIds.push(entity.id);
+        else actionable.push(entity);
+        continue;
+      }
+      const current = allFolders.find((candidate) => candidate.id === entity.id);
+      if (!current) invalidIds.push(entity.id);
+      else if (folderBlockedByCycle(entity.id)) invalidIds.push(entity.id);
+      else if (current.parentFolderId === destinationFolderId) alreadyThereIds.push(entity.id);
+      else actionable.push(entity);
+    }
+    // A batch where every entity is already in the target is a meaningless
+    // execution: report it without issuing any mutation. Invalid identities
+    // still flow through the execution path so they are reported as failed.
+    if (actionable.length === 0 && invalidIds.length === 0) {
+      setTransientFeedback({ tone: 'secondary', message: entities.length === 1 ? 'El elemento ya está en esta carpeta.' : `Los ${unit} ya están en esta carpeta.` });
+      return;
+    }
     setSaving(true);
-    setBulkFeedback(bulkMoveInFlight(contentIds.length));
+    setTransientFeedback(bulkMoveInFlight(actionable.length, mixed ? 'elementos' : 'archivos'));
     try {
-      const result = await bulkMoveFiles({
-        contentIds,
+      const movedIds: string[] = [];
+      const failures: { contentId: string }[] = [];
+      for (const entity of actionable) {
+        try {
+          if (entity.type === 'file') {
+            await updateHomeCloudFile(token, entity.id, { folderId: destinationFolderId });
+          } else {
+            await moveHomeCloudFolder(token, entity.id, destinationFolderId);
+          }
+          movedIds.push(entity.id);
+        } catch {
+          failures.push({ contentId: entity.id });
+        }
+      }
+      const fullResult = {
         destinationFolderId,
-        moveFile: (contentId, changes) => updateHomeCloudFile(token, contentId, changes),
-      });
-      setBulkFeedback(bulkMoveFeedback(result));
+        movedIds: [...alreadyThereIds, ...movedIds],
+        failures: [
+          ...invalidIds.map((contentId) => ({ contentId, code: 'homecloud_move_failed', status: null as number | null, message: 'No se pudo mover.' })),
+          ...failures.map((failure) => ({ ...failure, code: 'homecloud_move_failed', status: null as number | null, message: 'No se pudo mover.' })),
+        ],
+      };
+      // Total success leaves selection; partial success retains ONLY the failed
+      // entities with their types. Already-there identities count as done.
+      setTransientFeedback(bulkMoveFeedback(fullResult, mixed ? 'elementos' : 'archivos'));
+      if (fullResult.failures.length === 0) {
+        setSelection(leaveFileSelection());
+      } else {
+        const failed = new Set(fullResult.failures.map((failure) => failure.contentId));
+        setSelection((previous) => ({
+          mode: true,
+          ids: new Set([...previous.ids].filter((id) => failed.has(id))),
+          folderIds: new Set([...(previous.folderIds ?? [])].filter((id) => failed.has(id))),
+        }));
+      }
+      await refreshCatalogue();
       // EXACTLY ONE reconciliation for the whole batch, through the
       // window-preserving path: not one re-read per PATCH, and no page-1
-      // collapse. The selection is then pruned against these new rows, so a File
-      // that left this folder can never stay selected.
+      // collapse.
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No pudimos mover los archivos.');
+      setError(e instanceof Error ? e.message : 'No pudimos mover los elementos.');
     } finally { setSaving(false); }
   };
 
@@ -923,7 +1389,15 @@ const handleFileTap = useCallback((fileId: string) => {
     setMoveIntent(null);
     if (intent === null) return;
     if (intent.kind === 'bulk') { void moveSelectedFiles(folderId); return; }
-    if (intent.kind === 'file') { void saveFile({ folderId }); return; }
+    if (intent.kind === 'file') {
+      if (!token || saving) return;
+      setSaving(true);
+      void updateHomeCloudFile(token, intent.fileId, { folderId })
+        .then(() => refresh())
+        .catch((e) => setError(e instanceof Error ? e.message : 'No pudimos mover el archivo.'))
+        .finally(() => setSaving(false));
+      return;
+    }
     void saveFolderMove(folderId);
   };
 
@@ -967,6 +1441,9 @@ const handleFileTap = useCallback((fileId: string) => {
     setActionError(null);
     try {
       await setHomeCloudFileFavorite(token, targetId, isFavorite);
+      // HC-POL-021 — the badge of the File the member just favorited fades in
+      // once the server confirmed it, never before.
+      if (isFavorite) animateTileBadge(targetId);
       // Reconcile BEFORE closing, so the row the tile paints is the server's.
       if (!favoritesOnly) controllerRef.current!.patchFile(targetId, { isFavorite });
       setActionTargetId(null);
@@ -977,6 +1454,45 @@ const handleFileTap = useCallback((fileId: string) => {
       // Inline, in the host. Never the screen-level list error.
       setActionError(e instanceof Error ? e.message : 'No pudimos actualizar tus favoritos.');
     } finally { setFavoriteBusy(false); }
+  };
+
+  /**
+   * LIFECYCLE V1 — send ONE File to the household Papelera.
+   *
+   * Reversible by contract (Restore), so the danger row asks for NO dialog:
+   * the Papelera is the recovery path and the product's own answer to
+   * "accidental trash". The same three protections as the Favorite hold here:
+   * the outcome is stated INSIDE the File action host, the window-preserving
+   * reconciliation is the only read, and only the Papelera row is busy.
+   *
+   * SUCCESS. A trashed File leaves the active set, so no local patch can
+   * express it: `refresh()` — the SAME window-preserving authority pull-to-
+   * refresh uses — reconciles the row away in one read. Favorites, selection,
+   * the folder trail, the query and the loaded window all survive exactly as
+   * they are; the selection effect prunes the row if it was selected.
+   *
+   * FAILURE. Nothing changes: the refusal (staging, purging, cross-household,
+   * missing capability) is typed by the server, stated in the sheet, and the
+   * member stays exactly where they were.
+   */
+  const trashFile = async () => {
+    if (!token || !actionTarget || trashBusy) return;
+    const targetId = actionTarget.id;
+    const targetName = actionTarget.displayName;
+    setTrashBusy(true);
+    setActionError(null);
+    try {
+      await trashHomeCloudFile(token, targetId);
+      setActionTargetId(null);
+      // HC-POL-018: the reversible action gets its second chance HERE, with the
+      // row's own name, so the snackbar names exactly what can be restored.
+      setUndoTrash({ id: targetId, displayName: targetName });
+      // NOT awaited into the busy state: the sheet is already gone and the
+      // re-read is the same one a rename costs.
+      void refresh();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'No pudimos enviar el archivo a la papelera.');
+    } finally { setTrashBusy(false); }
   };
 
   /**
@@ -1032,23 +1548,53 @@ const handleFileTap = useCallback((fileId: string) => {
     } finally { setSaving(false); }
   };
 
-  /**
-   * Reconciliation applied to selection. After a re-read, a selected id that is
-   * no longer in the visible context is stale and is pruned, so the stated count
-   * and the bulk target can never name a File that is not on screen. While the
-   * loaded rows do not belong to the current context nothing is pruned: the
-   * previous context's rows are not evidence about the current one.
-   */
-  useEffect(() => {
-    if (!rowsAreCurrent) return;
-    setSelection((previous) => {
-      const pruned = pruneFileSelection(previous, files.map((file) => file.id));
-      // An empty selection is not a selection: the mode ends with its last File.
-      return pruned.ids.size === 0 && pruned.mode ? leaveFileSelection() : pruned;
-    });
-  }, [rowsAreCurrent, files]);
+  const applyBulkFavorite = async (nextFavorite: boolean) => {
+    if (!token || saving || selectionHasFolders(selection)) return;
+    const ids = selectedFileIds(selection);
+    setBulkMenuOpen(false); setSaving(true);
+    const failed: string[] = [];
+    for (const id of ids) {
+      try { await setHomeCloudFileFavorite(token, id, nextFavorite); }
+      catch { failed.push(id); }
+    }
+    setSelection(failed.length === 0 ? leaveFileSelection() : { mode: true, ids: new Set(failed), folderIds: new Set<string>() });
+    setTransientFeedback({ tone: failed.length === 0 ? 'success' : 'danger', message: failed.length === 0 ? 'Favoritos actualizados.' : `${failed.length} archivos no se pudieron actualizar.` });
+    setSaving(false); void refresh();
+  };
+
+  const trashSelectedFiles = async () => {
+    if (!token || saving || selectionHasFolders(selection)) return;
+    const ids = selectedFileIds(selection);
+    setBulkMenuOpen(false); setSaving(true);
+    const failed: string[] = [];
+    for (const id of ids) {
+      try { await trashHomeCloudFile(token, id); }
+      catch { failed.push(id); }
+    }
+    setSelection(failed.length === 0 ? leaveFileSelection() : { mode: true, ids: new Set(failed), folderIds: new Set<string>() });
+    setTransientFeedback({ tone: failed.length === 0 ? 'success' : 'danger', message: failed.length === 0 ? `${ids.length} ${ids.length === 1 ? 'archivo movido' : 'archivos movidos'} a la papelera.` : `${failed.length} archivos no se pudieron mover a la papelera.` });
+    setSaving(false); void refresh();
+  };
+
+  const shareOnlySelectedFile = async () => {
+    if (!token || saving || selectionCount !== 1 || selectionHasFolders(selection)) return;
+    const file = knownFilesRef.current.get(selectedFileIds(selection)[0]);
+    if (!file) return;
+    setBulkMenuOpen(false); setSaving(true);
+    try { await shareHomeCloudDownloadedFile(await stageHomeCloudOriginal(token, file)); }
+    catch { setTransientFeedback({ tone: 'danger', message: 'No pudimos compartir el archivo.' }); }
+    finally { setSaving(false); }
+  };
+
+  // Selected identities deliberately survive folder, search, sort and renderer
+  // changes. The known-file registry lets bulk actions resolve off-view members;
+  // individual mutations remove only identities proven invalid.
 
   const selectionCount = fileSelectionCount(selection);
+  /** PATCH 1B — a selection holding folders narrows the bulk menu to Mover. */
+  const bulkHasFolders = selectionHasFolders(selection);
+  const selectedKnownFiles = selectedFileIds(selection).map((id) => knownFilesRef.current.get(id)).filter((file): file is HomeCloudFile => !!file);
+  const allSelectedFavorite = selectedKnownFiles.length === selectionCount && selectedKnownFiles.length > 0 && selectedKnownFiles.every((file) => file.isFavorite);
   /** The destination the picker marks as current; `undefined` marks none. */
   const bulkCurrentFolderId = useMemo(() => {
     const ids = selectedFileIds(selection);
@@ -1060,6 +1606,36 @@ const handleFileTap = useCallback((fileId: string) => {
     return rows.every((row) => row.folderId === first) ? first : undefined;
   }, [files, selection]);
   const canAdd = caps.contribute; const canOrganize = caps.organize;
+  const viewMode = filterState.view;
+  useEffect(() => {
+    if (previousViewModeRef.current === viewMode) return;
+    previousViewModeRef.current = viewMode;
+    // PATCH 1B — Grid/List first-switch hardening. The renderer remounts
+    // through `key` (the supported boundary; browser state lives ABOVE it),
+    // so the new list may not be laid out yet: a `scrollToIndex` here is what
+    // produced the first-switch red screen on an empty or not-yet-measured
+    // list. Restore the last measured offset instead — it never throws and it
+    // clamps — and only when there is content to show.
+    if (items.length === 0) return;
+    const offset = Math.max(0, contentOffsetRef.current);
+    const handle = setTimeout(() => {
+      try {
+        listRef.current?.scrollToOffset({ offset, animated: false });
+      } catch {
+        /* A list that is not laid out yet keeps its initial offset. */
+      }
+    }, 0);
+    return () => clearTimeout(handle);
+  }, [items.length, viewMode]);
+  const sideIndexEntries = useMemo(() => buildFilesSideIndex(files, folders.length, sort), [files, folders.length, sort]);
+  /**
+   * PATCH 1B — GRID GEOMETRY INVARIANT. Root and folder consume literally the
+   * same static values, derived ONLY from the viewport width (never from
+   * folder, animation, header or selection state). Motion transforms the
+   * transition layer; these are the base state every animation returns to.
+   */
+  const gridGeometry = useMemo(() => filesGridGeometry(windowDimensions.width), [windowDimensions.width]);
+  const gridCellWidth = gridGeometry.cellWidth;
   /** STAGE 2 (Phase 2): one boolean drives the filter icon's accent + dot. */
   const filterIsNonDefault = hasNonDefaultFilesFilter(filterState);
   /**
@@ -1138,7 +1714,9 @@ const handleFileTap = useCallback((fileId: string) => {
   const moveIntentTitle = moveIntent === null
     ? 'Mover a'
     : moveIntent.kind === 'bulk'
-      ? `Mover ${selectionCount} ${selectionCount === 1 ? 'archivo' : 'archivos'}`
+      ? (bulkHasFolders
+        ? `Mover ${selectionCount} ${selectionCount === 1 ? 'elemento' : 'elementos'}`
+        : `Mover ${selectionCount} ${selectionCount === 1 ? 'archivo' : 'archivos'}`)
       : moveIntent.kind === 'folder'
         ? `Mover ${allFolders.find((candidate) => candidate.id === moveIntent.folderId)?.name ?? 'carpeta'}`
         : 'Mover a';
@@ -1148,32 +1726,65 @@ const handleFileTap = useCallback((fileId: string) => {
       ? bulkCurrentFolderId
       : moveIntent.kind === 'folder'
         ? parentFolderIdOf(allFolders, moveIntent.folderId)
-        : actionTarget
-          ? actionTarget.folderId
-          : undefined;
+        : files.find((candidate) => candidate.id === moveIntent.fileId)?.folderId;
   return <View style={styles.screen}>
-    <View style={styles.search}><AppInput value={query} onChangeText={setQuery} placeholder={folder ? 'Buscar en esta carpeta' : 'Buscar en archivos'} variant="search" label="Buscar" /></View>
-    {currentPath ? <View style={styles.breadcrumb}><AppText variant="caption" tone="secondary" numberOfLines={1} accessibilityLabel={`Ruta: ${currentPath}`}>{currentPath}</AppText></View> : null}
-    <View style={styles.titleRow}>{folder ? <AppButton variant="icon" size="sm" onPress={leaveFolder} accessibilityLabel={trail.length >= 2 ? `Volver a ${trail[trail.length - 2].name}` : 'Volver a Archivos'}><HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} /></AppButton> : null}<AppText variant="title3" weight="800" style={styles.title}>{folder?.name ?? 'Archivos'}</AppText><View style={styles.titleActions}>
-      {/* STAGE 2 (Phase 2) — ONE compact filter/order icon replaces the permanent
-          `Recientes / A-Z` button and the permanent `Favoritos` toggle. The active
-          indication is the DONOR screen's own convention: the icon tint flips to the
-          accent and a small dot appears. A number is deliberately NOT used, because
-          `2` would be ambiguous here (Favoritos + A-Z) and a badge would fight the
-          content-first promise of this screen. */}
+    <View style={styles.search}><AppInput label="Buscar" labelVisible={false} value={query} onChangeText={setQuery} placeholder={folder ? 'Buscar en esta carpeta' : 'Buscar en archivos'} variant="search" accessibilityLabel={folder ? 'Buscar en esta carpeta' : 'Buscar en archivos'} /></View>
+    {/* HC-POL-013 — the header MORPHS instead of being replaced: the same row
+        cross-fades and shifts by at most 4 pt, and its height, the search field,
+        the grid and the scroll offset are untouched. */}
+    <Animated.View
+      style={[
+        styles.titleRow,
+        {
+          opacity: headerMorph.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.55, 1] }),
+          transform: [{ translateY: headerMorph.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 4, 0] }) }],
+        },
+      ]}
+    >{selection.mode ? <>
+        {/* PATCH 1C — ONE contextual header tree, ONE logical branch. The
+            folder-back control lives INSIDE each branch, so exactly ONE ‹ is
+            ever mounted (the Patch 1B layout rendered a second one above the
+            branch in folder selection mode). Folder: ‹ navigates to the parent
+            WITHOUT clearing selection; X exits and clears. ‹ and X are never
+            merged. */}
+        {folder ? <AppButton variant="icon" size="sm" onPress={leaveFolder} accessibilityLabel={trail.length >= 2 ? `Volver a ${trail[trail.length - 2].name} sin perder la selección` : 'Volver a Archivos sin perder la selección'}><HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} /></AppButton> : null}
+        <AppButton variant="icon" size="sm" onPress={leaveSelectionMode} accessibilityLabel="Salir de la selección"><HomePlusIcon name="close" size={21} color={colors.text.primary} /></AppButton>
+        <AppText variant="title3" weight="800" style={styles.title} numberOfLines={1}>{fileSelectionSummary(selection)}</AppText>
+        <InteractivePressable style={styles.selectionBulkButton} onPress={(event) => { setBulkMenuAnchor(menuAnchorFromEvent(event)); setBulkMenuOpen(true); }} accessibilityRole="button" accessibilityLabel="Acciones para los elementos seleccionados" haptic="light"><HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.secondary} /></InteractivePressable>
+      </> : <>{folder ? <AppButton variant="icon" size="sm" onPress={leaveFolder} accessibilityLabel={trail.length >= 2 ? `Volver a ${trail[trail.length - 2].name}` : 'Volver a Archivos'}><HomePlusIcon name="arrow-back" size={21} color={colors.text.primary} /></AppButton> : null}
+      <AppText variant="title3" weight="800" style={styles.title}>{folder?.name ?? 'Archivos'}</AppText><View style={styles.titleActions}>
+      {/* PATCH 1B final normal header. Order is EXACTLY ⋯ · FILTER · + and `+`
+          is ALWAYS rightmost; nothing may appear right of it. The filter is
+          the compact list-filter icon (a11y `Organizar`) opening the CURRENT
+          Organizar sheet; the active dot mirrors the previous accent. Each
+          control keeps an independent 44 pt target; the icon change never
+          moves content/grid geometry. */}
+      <InteractivePressable style={styles.headerIconButton} onPress={(event) => { setOverflowAnchor(menuAnchorFromEvent(event)); setOverflowOpen(true); }} accessibilityRole="button" accessibilityLabel="Más opciones de Archivos" accessibilityHint="Seleccionar archivos o abrir la papelera" haptic="light"><HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.secondary} /></InteractivePressable>
       <InteractivePressable style={styles.headerIconButton} onPress={() => setFilterMenuOpen(true)} accessibilityRole="button" accessibilityLabel={filesFilterAccessibilityLabel(filterState)} haptic="light">
-        <HomePlusIcon name="options-outline" size={20} color={filterIsNonDefault ? colors.terracotta[600] : colors.text.secondary} />
+        <HomePlusIcon name="options-outline" size={22} color={filterIsNonDefault ? colors.terracotta[600] : colors.text.secondary} />
         {filterIsNonDefault ? <View style={styles.headerFilterDot} accessible={false} /> : null}
       </InteractivePressable>
-      {canAdd ? <InteractivePressable style={styles.headerIconButton} onPress={() => setAddOpen(true)} accessibilityRole="button" accessibilityLabel="Agregar" accessibilityHint="Subir archivos, escanear un documento o crear una carpeta" haptic="light"><HomePlusIcon name="add" size={22} color={colors.terracotta[600]} /></InteractivePressable> : null}
-<InteractivePressable style={styles.headerIconButton} onPress={() => setOverflowOpen(true)} accessibilityRole="button" accessibilityLabel="Más opciones de Archivos" accessibilityHint="Seleccionar archivos" haptic="light"><HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.secondary} /></InteractivePressable>
-    </View></View>
+      {canAdd ? <InteractivePressable style={styles.headerIconButton} onPress={(event) => { setAddAnchor(menuAnchorFromEvent(event)); setAddOpen(true); }} accessibilityRole="button" accessibilityLabel="Agregar" accessibilityHint="Subir archivos, escanear un documento o crear una carpeta" haptic="light"><HomePlusIcon name="add" size={22} color={colors.terracotta[600]} /></InteractivePressable> : null}
+    </View></>}</Animated.View>
     {capabilitiesNotice ? <View style={styles.notice}><AppText variant="caption" tone="secondary">{capabilitiesNotice}</AppText><AppButton title="Reintentar" size="sm" variant="ghost" onPress={capabilities.revalidate} accessibilityLabel="Reintentar verificación de permisos de HomeCloud" /></View> : null}
-    {bulkFeedback ? <View style={styles.banner}><AppText variant="caption" tone={bulkFeedback.tone} align="center">{bulkFeedback.message}</AppText></View> : null}
+    {/* PATCH 1C — scanner success is NEVER browser layout: the permanent
+        `Escaneo guardado · Abrir` banner is gone; the actionable toast below
+        (shared with bulk feedback) floats with no reflow. */}
     {loading || !rowsAreCurrent ? <View style={styles.center}><ActivityIndicator color={colors.brand} /></View>
     : readFailure ? <View style={styles.center}><ErrorState title={homeCloudReadFailureTitle(readFailure.kind, 'tus archivos')} description={readFailure.message} detail={readFailure.detail} retryLabel="Reintentar" onRetry={() => void load()} /></View>
-    : error ? <View style={styles.center}><AppText variant="body" tone="danger" align="center">{error}</AppText><AppButton title="Reintentar" variant="secondary" onPress={() => void load()} style={{ marginTop: spacing[3] }} /></View>
-    : <View
+    : error ? <View style={styles.center}><ErrorState title="No pudimos cargar tus archivos" description={error} retryLabel="Reintentar" onRetry={() => void load()} /></View>
+    : <View style={styles.listMotion}>
+      {/* PATCH 1C — no Animated transform wrapper: the list viewport, its
+          `measureInWindow` frames and every drag hit-test share one stable,
+          never-translated coordinate system. */}
+      {/* STAGE 2 REOPEN — THE EMPTY STATE IS NOT A DEAD SURFACE.
+
+          The empty state used to REPLACE the list, which unmounted the FlatList and
+          with it the `RefreshControl`: an empty folder, an empty Favoritos result and
+          an empty search could not be pulled to refresh at all. `ListEmptyComponent`
+          keeps the scroll surface mounted so the gesture exists on every result, and
+          the empty state can scroll like any other content. */}
+    <View
       ref={listViewportRef}
       style={styles.listViewport}
       onLayout={measureListViewport}
@@ -1185,6 +1796,14 @@ const handleFileTap = useCallback((fileId: string) => {
       // second visible item in the overflow.
       accessibilityActions={[{ name: 'refresh-files', label: 'Actualizar archivos' }]}
       onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'refresh-files') refreshFromAnyPath(); }}
+      // PATCH 1C — the ACTIVE-STROKE responder lives HERE, on the browser/list
+      // wrapper, not on any tile. The tile only DETECTS the long press
+      // (`onLongPress` arms `dragGestureRef` synchronously); the very next
+      // move of the SAME pointer is captured by THIS wrapper through the
+      // capture phase, which is what makes hold → select → drag a continuous
+      // stroke without lifting. Before the long press commits the responder
+      // claims nothing, so an ordinary swipe stays an ordinary scroll.
+      {...dragPanResponder.panHandlers}
     >
     {/* STAGE 2 REOPEN — THE EMPTY STATE IS NOT A DEAD SURFACE.
 
@@ -1193,12 +1812,19 @@ const handleFileTap = useCallback((fileId: string) => {
         an empty search could not be pulled to refresh at all. `ListEmptyComponent`
         keeps the scroll surface mounted so the gesture exists on every result, and
         the empty state can scroll like any other content. */}
-    <FlatList ref={listRef} data={items} numColumns={2} key="files-grid" keyExtractor={(item) => `${item.kind}-${item.value.id}`} contentContainerStyle={styles.grid} columnWrapperStyle={styles.gridRow}
+    <FlatList ref={listRef} data={items} numColumns={viewMode === 'grid' ? gridGeometry.columns : 1} key={`files-${viewMode}`} keyExtractor={(item) => `${item.kind}-${item.value.id}`} contentContainerStyle={[styles.grid, { paddingLeft: gridGeometry.paddingLeft, paddingRight: gridGeometry.paddingRight }]} columnWrapperStyle={viewMode === 'grid' ? [styles.gridRow, { gap: gridGeometry.columnGap }] : undefined}
+      // PATCH 1B — pointer ownership. While a selection stroke owns the
+      // pointer, the list does not scroll itself and pull-to-refresh cannot
+      // arm: the gesture (plus programmatic autoscroll) owns all movement.
+      // Outside a stroke everything behaves normally.
+      scrollEnabled={!selectionStrokeActive}
+      onViewableItemsChanged={rememberVisibleItems}
+      viewabilityConfig={viewabilityConfigRef.current}
       // STAGE 2 (Phase 2): pull-to-refresh is the canonical manual refresh. It is
       // attached to the LIST rather than to a wrapper, so it works identically
       // whether the level has rows, is an empty folder, or is an empty Favoritos
       // result - an empty state that cannot be refreshed is a dead surface.
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshFromAnyPath} tintColor={colors.terracotta[600]} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshFromAnyPath} enabled={!selectionStrokeActive} tintColor={colors.terracotta[600]} />}
       // The MEASURED inputs the drag sweep needs. `scrollEventThrottle` is small
       // enough that the recorded offset is never more than a frame behind the
       // content, so a hit test at a non-zero offset uses the real position.
@@ -1207,8 +1833,8 @@ const handleFileTap = useCallback((fileId: string) => {
       // The selected visual state is part of the row's own data, and `data` does
       // not change when only the selection does — without this a selected row
       // would keep painting itself as unselected.
-      extraData={selection}
-      renderItem={({ item }) => item.kind === 'folder' ? <FolderTile folder={item.value} onPress={() => openFolder(item.value)} onLongPress={() => setFolderActions(item.value)} /> : <FileTile file={item.value} selectionMode={selection.mode} selected={isFileSelected(selection, item.value.id)} onPress={() => handleFileTap(item.value.id)} onLongPress={() => handleFileLongPress(item.value.id)} onSetSelected={(next) => setSelection((previous) => setFileSelectionSelected(previous, item.value.id, next))} onMeasure={(frame) => registerFileTileFrame(item.value.id, frame)} panHandlers={dragPanResponder.panHandlers} />}
+      extraData={{ selection, viewMode }}
+      renderItem={({ item }) => item.kind === 'folder' ? <FolderTile folder={item.value} viewMode={viewMode} cellWidth={gridCellWidth} selectionMode={selection.mode} selected={isFolderSelected(selection, item.value.id)} feedback={tileFeedbackRef.current.get(item.value.id)} onPress={() => openFolder(item.value)} onMenu={(event) => { setFolderActionAnchor(menuAnchorFromEvent(event)); setFolderActions(item.value); }} onLongPress={() => handleFolderLongPress(item.value.id)} onSetSelected={(next) => { if (next) animateTileCheck(item.value.id); setSelection((previous) => setEntitySelectionSelected(previous, { type: 'folder', id: item.value.id }, next)); }} onMeasure={(frame) => registerFileTileFrame(dragEntityKey('folder', item.value.id), frame)} /> : <FileTile file={item.value} viewMode={viewMode} cellWidth={gridCellWidth} selectionMode={selection.mode} selected={isFileSelected(selection, item.value.id)} feedback={tileFeedbackRef.current.get(item.value.id)} onPress={() => handleFileTap(item.value.id)} onMenu={(event) => { setActionAnchor(menuAnchorFromEvent(event)); setActionTargetId(item.value.id); }} onLongPress={() => handleFileLongPress(item.value.id)} onSetSelected={(next) => { if (next) animateTileCheck(item.value.id); setSelection((previous) => setFileSelectionSelected(previous, item.value.id, next)); }} onMeasure={(frame) => registerFileTileFrame(dragEntityKey('file', item.value.id), frame)} />}
       // STAGE 2 REOPEN — AUTOMATIC PAGINATION.
       //
       // `Mostrar más archivos` is GONE: a normal scroll must never stop on a button.
@@ -1219,95 +1845,180 @@ const handleFileTap = useCallback((fileId: string) => {
       // callbacks in a row still cost exactly one request.
       onEndReached={onEndReached}
       onEndReachedThreshold={FILES_END_REACHED_THRESHOLD}
+      onScrollToIndexFailed={(info) => listRef.current?.scrollToOffset({ offset: Math.max(0, info.averageItemLength * info.index), animated: true })}
       // THE EMPTY STATE. It lives INSIDE the list so the scroll surface — and with
       // it the `RefreshControl` — exists on an empty folder, an empty Favoritos
       // result and an empty search.
-      ListEmptyComponent={<View style={styles.center}><HomePlusIcon name={favoritesOnly ? 'heart-outline' : 'folder-open-outline'} size={38} color={colors.text.tertiary} /><AppText variant="title3" weight="800" align="center">{favoritesOnly ? 'No tenés archivos favoritos acá' : folder ? 'Esta carpeta está vacía' : query ? 'Sin resultados' : 'Todavía no hay archivos'}</AppText>{favoritesOnly ? <AppButton title="Ver todos los archivos" variant="secondary" onPress={() => setFilterState((previous) => ({ ...previous, show: 'all' }))} /> : canAdd && !query ? <AppButton title="Agregar archivo" onPress={() => setAddOpen(true)} style={{ marginTop: spacing[3] }} /> : null}</View>}
+      // HC-POL-019 — one empty state per REASON, not one for all of them. The
+      // root, an empty folder, a Favoritos result and a no-match search are four
+      // different situations and they read as four different states. The CTA is
+      // offered only when the member can actually add files: an empty folder a
+      // member cannot write to is a fact, not a call to action.
+      ListEmptyComponent={<View style={styles.center}><HomePlusIcon name={favoritesOnly ? 'heart-outline' : folder ? 'folder-open-outline' : query ? 'search-outline' : 'file-tray-full-outline'} size={48} color={colors.text.tertiary} /><AppText variant="title3" weight="800" align="center">{favoritesOnly ? 'No tenés archivos favoritos acá' : folder ? 'Esta carpeta está vacía' : query ? 'Sin resultados' : 'Todavía no hay archivos'}</AppText><AppText variant="bodySmall" tone="secondary" align="center">{favoritesOnly ? 'Marcá un archivo como favorito para verlo acá.' : folder ? 'Los archivos que subas o escanees adentro de esta carpeta aparecen acá.' : query ? 'Probá con otro nombre o revisá el filtro de Favoritos.' : 'Subí un archivo o escaneá un documento para empezar.'}</AppText>{favoritesOnly ? <AppButton title="Ver todos los archivos" variant="secondary" onPress={() => setFilterState((previous) => ({ ...previous, show: 'all' }))} accessibilityLabel="Quitar el filtro de favoritos" /> : canAdd && !query ? <AppButton title="Agregar archivo" onPress={() => setAddOpen(true)} accessibilityLabel="Agregar un archivo" /> : null}</View>}
       // THE PAGINATION FOOTER. No button while idle, a small spinner while a page is
       // in flight, and on a failure the error plus a COMPACT `Reintentar` — the one
       // place a page request is ever asked for explicitly, which is what re-arms the
       // automatic latch.
       ListFooterComponent={<View style={styles.footer}>{pageError ? <View style={styles.pageError}><AppText variant="caption" tone="danger" align="center">{pageError}</AppText><AppButton title="Reintentar" size="sm" variant="secondary" onPress={() => void retryNextPage()} accessibilityLabel="Reintentar cargar más archivos" /></View> : loadingMore ? <ActivityIndicator color={colors.brand} accessibilityLabel="Cargando más archivos" /> : <View style={styles.footerSpacer} />}</View>}
     />
-    </View>}
-    {selection.mode ? <FileSelectionBar count={selectionCount} summary={fileSelectionSummary(selection)} canOrganize={canOrganize} busy={saving} onMove={() => setMoveIntent({ kind: 'bulk' })} onCancel={leaveSelectionMode} /> : null}
+    <HomeCloudFilesSideIndex entries={sideIndexEntries} onSelect={(entry) => listRef.current?.scrollToIndex({ index: entry.index, animated: true, viewPosition: 0 })} />
+    <FileAutoScrollEdgeHint edge={autoScrollEdge} />
+    </View></View>}
     {/* STAGE 2 REOPEN — THE SCREEN-LEVEL OVERFLOW.
-        It carries exactly ONE screen-level action:
-          Seleccionar  the ONLY discoverable entry into selection mode. It is
-                       WITHDRAWN while the mode is active, so there is never a
-                       second way in and the selection bar is the only surface.
-        `Actualizar` is GONE. The product truth is ZERO visible Refresh controls:
-        pull-to-refresh is the primary manual path and the list container carries an
-        ACCESSIBILITY-ONLY `refresh-files` action for anyone who cannot pull. Both
-        doors reach the SAME window-preserving `refresh()`. */}
-    <ActionSheet visible={overflowOpen} title="Archivos" onRequestClose={() => setOverflowOpen(false)} size="content"><View style={styles.sheetList}>{!selection.mode ? <AppButton title="Seleccionar" variant="secondary" disabled={files.length === 0} onPress={() => { setOverflowOpen(false); enterSelectionMode(); }} accessibilityLabel="Seleccionar archivos" /> : null}</View></ActionSheet>
-    <FilesFilterMenu visible={filterMenuOpen} state={filterState} onChangeShow={(show: FilesShowMode) => setFilterState((previous) => ({ ...previous, show }))} onChangeSort={(nextSort) => setFilterState((previous) => ({ ...previous, sort: nextSort }))} onClose={() => setFilterMenuOpen(false)} />
-    <ActionSheet visible={addOpen} title="Agregar" onRequestClose={() => setAddOpen(false)} size="content"><View style={styles.sheetList}><AppButton title="Elegir archivo" onPress={() => { setAddOpen(false); setUploadOpen(true); }} /><AppButton title="Escanear documento" variant="secondary" onPress={() => { setAddOpen(false); navigation.navigate('HomeCloudScanner', { folderId: folder?.id ?? null, folderName: folder?.name ?? null, capabilities: caps }); }} /><AppButton title="Nueva carpeta" variant="secondary" disabled={!canOrganize} onPress={() => { setAddOpen(false); setFolderName(''); setFolderEditor({ mode: 'create' }); }} />{folder ? <AppText variant="caption" tone="secondary">Se creará dentro de {folder.name}.</AppText> : null}</View></ActionSheet>
-    <ActionSheet visible={uploadOpen} title="Elegir archivo" onRequestClose={() => setUploadOpen(false)} size="content"><FileIntake config={{ householdId: currentHousehold?.id ?? '', accessToken: token ?? '', capabilities: caps, initialFolderId: folder?.id ?? null, initialFolderName: folder?.name ?? null, intakeSource: 'homecloud:files' }} onComplete={() => { setUploadOpen(false); void refresh(); }} onDismiss={() => setUploadOpen(false)} /></ActionSheet>
-    <ActionSheet visible={!!folderEditor} title={folderEditor?.mode === 'rename' ? 'Renombrar carpeta' : 'Nueva carpeta'} onRequestClose={() => setFolderEditor(null)} size="content" footer={<AppButton title="Guardar" disabled={!folderName.trim() || saving} onPress={() => void saveFolder()} />}><AppInput value={folderName} onChangeText={setFolderName} label="Nombre" autoFocus /></ActionSheet>
-    <ActionSheet visible={!!folderActions} title={folderActions?.name ?? 'Carpeta'} onRequestClose={() => setFolderActions(null)} size="content"><View style={styles.sheetList}><AppButton title="Renombrar" variant="secondary" disabled={!canOrganize} onPress={() => { setFolderName(folderActions!.name); setFolderEditor({ mode: 'rename', item: folderActions! }); setFolderActions(null); }} /><AppButton title="Mover" variant="secondary" disabled={!canOrganize} onPress={() => { setMoveIntent({ kind: 'folder', folderId: folderActions!.id }); setFolderActions(null); }} /><AppButton title="Eliminar carpeta" variant="danger" disabled={!canOrganize || saving} onPress={() => void removeFolder()} />{/* HONEST delete copy (Stage 2 Phase 1). A nested delete does NOT recursively
-        delete content, so wording that implied it would be a lie: the folder is
-        removed and its DIRECT contents move up to its parent. Files are never
-        deleted by removing a folder. */}<AppText variant="caption" tone="secondary">Al eliminar la carpeta no se borra ningún archivo: su contenido directo pasa a {folderActions ? (folderDisplayPath(allFolders, folderActions.parentFolderId) ?? 'Archivos') : 'Archivos'}.</AppText></View></ActionSheet>
+         It carries TWO screen-level actions:
+           Seleccionar  the ONLY discoverable entry into selection mode. It is
+                        WITHDRAWN while the mode is active, so there is never a
+                        second way in and the selection bar is the only surface.
+           Papelera     the household Files Papelera, offered ONLY to members
+                        with homecloud.delete: the listing itself is gated by
+                        that capability server-side, so offering it to anyone
+                        else would be a dead door. Restore is reversible;
+                        Purge is the destructive confirmation INSIDE the
+                        Papelera, never a long-press away from the grid.
+         `Actualizar` is GONE. The product truth is ZERO visible Refresh controls:
+         pull-to-refresh is the primary manual path and the list container carries an
+         ACCESSIBILITY-ONLY `refresh-files` action for anyone who cannot pull. Both
+         doors reach the SAME window-preserving `refresh()`. */}
+    <AdaptiveActionMenu visible={overflowOpen} title="" anchor={overflowAnchor} itemCount={2} onRequestClose={() => setOverflowOpen(false)}><View style={styles.sheetList}><AdaptiveMenuRow title="Seleccionar" variant="primary" disabled={files.length === 0 && folders.length === 0} onPress={() => { setOverflowOpen(false); enterSelectionMode(); }} accessibilityLabel="Seleccionar elementos" />{caps.delete ? <AdaptiveMenuRow title="Papelera" onPress={() => { setOverflowOpen(false); navigation.navigate('HomeCloudFilesTrash'); }} accessibilityLabel="Abrir la papelera de archivos" /> : null}</View></AdaptiveActionMenu>
+    <FilesFilterMenu visible={filterMenuOpen} state={filterState} onChangeShow={(show: FilesShowMode) => setFilterState((previous) => ({ ...previous, show }))} onChangeSort={(nextSort) => setFilterState((previous) => ({ ...previous, sort: nextSort }))} onChangeView={(view: FilesViewMode) => setFilterState((previous) => ({ ...previous, view }))} onClose={() => setFilterMenuOpen(false)} />
+    {/* PATCH 1C — `+` opens a compact popover ANCHORED to `+`: Elegir archivo /
+        Escanear documento / Nueva carpeta. No bottom sheet, no second launcher,
+        no detached modal. Elegir archivo REQUESTS the launch; the picker opens
+        imperatively from the menu's onDidDismiss, exactly once, after the menu
+        is really gone. */}
+    <AdaptiveActionMenu visible={addOpen} title="" anchor={addAnchor} itemCount={3} onRequestClose={() => setAddOpen(false)} onDidDismiss={handleAddMenuDidDismiss}><View style={styles.sheetList}><AdaptiveMenuRow title="Elegir archivo" variant="primary" onPress={requestFilePickerLaunch} /><AdaptiveMenuRow title="Escanear documento" onPress={() => { setAddOpen(false); navigation.navigate('HomeCloudScanner', { folderId: folder?.id ?? null, folderName: folder?.name ?? null, capabilities: caps }); }} /><AdaptiveMenuRow title="Nueva carpeta" disabled={!canOrganize} onPress={() => { setAddOpen(false); setFolderName(''); setFolderEditor({ mode: 'create' }); }} /></View></AdaptiveActionMenu>
+    <ActionSheet visible={!!folderEditor} title={folderEditor?.mode === 'rename' ? 'Renombrar carpeta' : 'Nueva carpeta'} onRequestClose={() => setFolderEditor(null)} size="content" footer={<AppButton title={folderEditor?.mode === 'create' ? 'Crear' : 'Guardar'} disabled={!folderName.trim() || saving} onPress={() => void saveFolder()} />}><AppInput value={folderName} onChangeText={setFolderName} label="Nombre" autoFocus /></ActionSheet>
+    {/* PATCH 1B — bulk menu is the INTERSECTION of operations valid for the
+        selected set. Files-only keeps the current file bulk actions; a set
+        holding folders (or mixed) offers ONLY Mover — no invented folder
+        Favorite/Share. Compact popover rows, anchored to the selection ⋯. */}
+    <AdaptiveActionMenu visible={bulkMenuOpen} title={fileSelectionSummary(selection)} anchor={bulkMenuAnchor} itemCount={bulkHasFolders ? 1 : 4} onRequestClose={() => setBulkMenuOpen(false)}><View style={styles.sheetList}>{bulkHasFolders ? <AdaptiveMenuRow title="Mover" variant="primary" disabled={!canOrganize || selectionCount === 0 || saving} onPress={() => { setBulkMenuOpen(false); setMoveIntent({ kind: 'bulk' }); }} /> : <><AdaptiveMenuRow title="Mover" variant="primary" disabled={!canOrganize || selectionCount === 0 || saving} onPress={() => { setBulkMenuOpen(false); setMoveIntent({ kind: 'bulk' }); }} /><AdaptiveMenuRow title={allSelectedFavorite ? 'Quitar de favoritos' : 'Agregar a favoritos'} disabled={selectionCount === 0 || selectedKnownFiles.length !== selectionCount || saving} busy={saving} onPress={() => void applyBulkFavorite(!allSelectedFavorite)} />{selectionCount === 1 ? <AdaptiveMenuRow title="Compartir" disabled={selectedKnownFiles.length !== 1 || saving} onPress={() => void shareOnlySelectedFile()} /> : null}<AdaptiveMenuSeparator />{caps.delete ? <AdaptiveMenuRow title="Mover a la papelera" variant="danger" disabled={selectionCount === 0 || saving} onPress={() => void trashSelectedFiles()} /> : null}</>}</View></AdaptiveActionMenu>
+    <AdaptiveActionMenu visible={!!folderActions} title={folderActions?.name ?? 'Carpeta'} anchor={folderActionAnchor} itemCount={3} onRequestClose={() => setFolderActions(null)}><View style={styles.sheetList}><AdaptiveMenuRow title="Renombrar" disabled={!canOrganize} onPress={() => { setFolderName(folderActions!.name); setFolderEditor({ mode: 'rename', item: folderActions! }); setFolderActions(null); }} /><AdaptiveMenuRow title="Mover" disabled={!canOrganize} onPress={() => { setMoveIntent({ kind: 'folder', folderId: folderActions!.id }); setFolderActions(null); }} /><AdaptiveMenuSeparator /><AdaptiveMenuRow title="Eliminar carpeta" variant="danger" disabled={!canOrganize || saving} onPress={() => { setFolderDeleteConfirm(folderActions); setFolderActions(null); }} /></View></AdaptiveActionMenu>
+    <ActionSheet visible={!!folderDeleteConfirm} title="¿Eliminar carpeta?" onRequestClose={() => setFolderDeleteConfirm(null)} size="content" footer={<View style={styles.sheetList}><AppButton title="Cancelar" variant="secondary" disabled={saving} onPress={() => setFolderDeleteConfirm(null)} /><AppButton title="Eliminar carpeta" variant="danger" disabled={saving} onPress={() => void removeFolder()} /></View>}><AppText variant="body" tone="secondary">Los archivos y las subcarpetas que contiene se conservarán y pasarán a la carpeta superior.</AppText></ActionSheet>
     {/* The canonical per-File action host. It is always mounted and decides its own
         visibility, so there is never a second place that can open a File menu. */}
-    <FileActionHost file={actionTarget} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} favoriteBusy={favoriteBusy} actionError={actionError} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setDownloadFeedback(null); setActionError(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => setMoveIntent({ kind: 'file' })} onFavorite={(isFavorite) => void toggleFileFavorite(isFavorite)} onDownload={() => void saveCopyOfFile()} onShare={() => void shareFile()} />
+    <FileActionHost file={actionTarget} anchor={actionAnchor} folders={allFolders.length > 0 ? allFolders : folders} permissions={{ view: caps.view, organize: canOrganize, delete: caps.delete }} saving={saving} favoriteBusy={favoriteBusy} trashBusy={trashBusy} actionError={actionError} downloadFeedback={downloadFeedback} onClose={() => { setActionTargetId(null); setActionAnchor(null); setDownloadFeedback(null); setActionError(null); }} onSave={(patch) => void saveFile(patch)} onMoveRequest={() => { if (actionTarget) { const fileId = actionTarget.id; setActionTargetId(null); setActionAnchor(null); setMoveIntent({ kind: 'file', fileId }); } }} onFavorite={(isFavorite) => void toggleFileFavorite(isFavorite)} onTrash={() => void trashFile()} onDownload={() => void saveCopyOfFile()} onShare={() => void shareFile()} />
     {/* THE ONE destination picker. A single File's Move, the selection's Move and a
         Folder's Move all resolve their destination here, so a move can never offer
         a destination the other move would not. It reads the same household catalogue
         the host does, never the browser payload, which holds only the current level. */}
     {/* STAGE 2 (Phase 3): the Viewer is a layer over this screen, so returning from it
-        restores the EXACT browser context underneath - no reload, no lost scroll. */}
-    {viewerTargetId !== null ? <View style={styles.viewerLayer}><HomeCloudFileViewer file={viewerTarget} accessToken={token ?? ''} onClose={() => setViewerTargetId(null)} onExternalAction={() => void refresh()} /></View> : null}
+        restores the EXACT browser context underneath - no reload, no lost scroll.
+        HC-POL-012/057 — the layer arrives through the ONE transition engine: an
+        origin-aware open expands out of the tapped tile, and everything else fades
+        in honestly. The SAME engine answers the close inside the viewer. */}
+    {viewerTargetId !== null ? <Animated.View
+      style={[styles.viewerLayer, viewerOpenKind === 'origin' ? {
+        transform: [
+          { translateX: viewerOpenProgress.interpolate({ inputRange: [0, 1], outputRange: [viewerOpenOrigin.translateX, 0] }) },
+          { translateY: viewerOpenProgress.interpolate({ inputRange: [0, 1], outputRange: [viewerOpenOrigin.translateY, 0] }) },
+          { scale: viewerOpenProgress.interpolate({ inputRange: [0, 1], outputRange: [viewerOpenOrigin.scale, 1] }) },
+        ],
+      } : { opacity: viewerOpenProgress }]}
+    ><HomeCloudFileViewer file={viewerTarget} accessToken={token ?? ''} onClose={() => setViewerTargetId(null)} onExternalAction={() => void refresh()} /></Animated.View> : null}
+    {/* PATCH 1B — bulk success is TRANSIENT OVERLAY feedback: floating toast,
+        no browser reflow, no reserved row, auto-dismiss. Pinned only while the
+        batch is in flight (replaced by the terminal outcome, never by a
+        clock). Stacked above the upload pill zone. */}
+    <FileTransientToast
+      value={transientFeedback}
+      bottomOffset={insets.bottom + 148}
+      durationMs={saving ? null : undefined}
+      onDismiss={() => setTransientFeedback(null)}
+    />
+    {/* HC-POL-018 — the second chance of a reversible trash. It is dismissed by
+        the member, never by a clock, because `Deshacer` stays a real, working
+        action for as long as the File is still in the Papelera. */}
+    <FileUndoSnackbar
+      visible={undoTrash !== null}
+      message={undoTrash ? `${undoTrash.displayName} se movió a la papelera.` : ''}
+      onUndo={() => void undoTrashFile()}
+      onDismiss={() => setUndoTrash(null)}
+      busy={undoBusy}
+      bottomOffset={selection.mode ? 132 : spacing[4]}
+    />
     <FileMoveDestinationPicker visible={moveIntent !== null} title={moveIntentTitle} folders={allFolders.length > 0 ? allFolders : folders} currentFolderId={moveIntentCurrentFolderId} excludeFolderIds={folderMoveExclusions} busy={saving} onSelect={handleMoveDestination} onClose={() => { setMoveIntent(null); setFolderActions(null); }} />
   </View>;
 }
 
 /**
- * A FOLDER tile. Two gestures, one owner (STAGE 2 Phase 2):
+ * A FOLDER tile. PATCH 1B — folders are BOTH selectable and navigable:
  *
- *   tap        -> navigate into the folder
- *   long press -> folder actions (Renombrar / Mover / Eliminar carpeta)
+ *   tap body            -> navigate into the folder (selection is preserved)
+ *   tap check affordance-> toggle folder selection (selection mode)
+ *   tap visible ⋯       -> folder actions popover (normal mode only)
+ *   long press          -> enter selection + select folder, arm the stroke
+ *   drag across         -> paint selection (same stroke as files)
  *
- * The permanent per-folder ellipsis is GONE. Long press must not be the only way
- * to reach those actions, so the same intents are also exposed as accessibility
- * actions on the tile.
+ * The whole card never toggles on ordinary tap: that would destroy
+ * cross-folder navigation. Selected folders share the selection visual
+ * language (check, border, subtle surface) without becoming files.
  */
-function FolderTile({ folder, onPress, onLongPress }: { folder: HomeCloudFolder; onPress: () => void; onLongPress: () => void }) { return <View style={styles.tile}><AppButton variant="secondary" onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={styles.visual} accessibilityLabel={`Abrir carpeta ${folder.name}`} accessibilityHint="Toca para abrir. Mantené presionado para ver sus acciones." accessibilityActions={[{ name: 'activate', label: 'Abrir carpeta' }, { name: 'longpress', label: 'Acciones de la carpeta' }]} onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'longpress') onLongPress(); }}><HomePlusIcon name="folder" size={48} color={colors.terracotta[500]} /></AppButton><AppText variant="bodySmall" weight="700" numberOfLines={2}>{folder.name}</AppText></View>; }
+function FolderTile({ folder, viewMode, cellWidth, selectionMode, selected, feedback, onPress, onMenu, onLongPress, onSetSelected, onMeasure }: { folder: HomeCloudFolder; viewMode: FilesViewMode; cellWidth: number; selectionMode: boolean; selected: boolean; feedback?: TileFeedback; onPress: () => void; onMenu: (event: GestureResponderEvent) => void; onLongPress: () => void; onSetSelected?: (selected: boolean) => void; onMeasure?: (frame: TileFrame) => void }) {
+  const checkScale = feedback?.checkScale ?? IDLE_TILE_FEEDBACK.checkScale;
+  const showCheck = selectionMode && selected;
+  const toggle = () => onSetSelected?.(!selected);
+  if (viewMode === 'list') return <View style={[styles.listRow, showCheck ? styles.tileSelected : null]} onLayout={onMeasure ? (event) => onMeasure(event.nativeEvent.layout) : undefined}>
+    <InteractivePressable style={styles.listRowBody} onPress={onPress} onLongPress={onLongPress} accessibilityRole={selectionMode ? 'checkbox' : 'button'} accessibilityState={{ selected: selectionMode ? selected : undefined }} accessibilityLabel={`Abrir carpeta ${folder.name}${selectionMode && selected ? ', seleccionada' : ''}`} accessibilityHint={selectionMode ? 'Toca para abrir sin perder la selección.' : 'Toca para abrir. Mantené presionado para seleccionar.'}>
+      <View style={[styles.listIcon, showCheck ? styles.visualSelected : null]}>{showCheck ? <Animated.View style={{ transform: [{ scale: checkScale }] }}><HomePlusIcon name="checkmark" size={22} color={colors.brand} /></Animated.View> : <HomePlusIcon name="folder" size={32} color={colors.terracotta[500]} />}</View>
+      <View style={styles.listCopy}><AppText variant="body" weight="700" numberOfLines={2}>{folder.name}</AppText><AppText variant="caption" tone="secondary">Carpeta</AppText></View>
+    </InteractivePressable>
+    {selectionMode ? <InteractivePressable style={styles.rowCheck} onPress={toggle} accessibilityRole="checkbox" accessibilityState={{ selected }} accessibilityLabel={selected ? `Deseleccionar carpeta ${folder.name}` : `Seleccionar carpeta ${folder.name}`}><HomePlusIcon name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={selected ? colors.brand : colors.text.secondary} /></InteractivePressable> : <InteractivePressable style={styles.rowMenu} onPress={onMenu} accessibilityRole="button" accessibilityLabel={`Acciones de ${folder.name}`}><HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.secondary} /></InteractivePressable>}
+  </View>;
+  return <View style={[styles.tile, { width: cellWidth, flexBasis: cellWidth, maxWidth: cellWidth }, showCheck ? styles.tileSelected : null]} onLayout={onMeasure ? (event) => onMeasure(event.nativeEvent.layout) : undefined}>
+    <AppButton variant="secondary" onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={[styles.visual, showCheck ? styles.visualSelected : null]} accessibilityRole={selectionMode ? 'checkbox' : 'button'} accessibilityState={{ selected: selectionMode ? selected : undefined }} accessibilityLabel={`Abrir carpeta ${folder.name}${selectionMode && selected ? ', seleccionada' : ''}`} accessibilityHint={selectionMode ? 'Toca para abrir sin perder la selección. Mantené presionado y deslizate para seleccionar varios.' : 'Toca para abrir. Mantené presionado para seleccionar.'} accessibilityActions={selectionMode ? [{ name: 'select', label: `Seleccionar carpeta ${folder.name}` }, { name: 'deselect', label: `Deseleccionar carpeta ${folder.name}` }] : [{ name: 'select', label: `Seleccionar carpeta ${folder.name}` }]} onAccessibilityAction={(event) => {
+      if (event.nativeEvent.actionName === 'select') onSetSelected?.(true);
+      if (event.nativeEvent.actionName === 'deselect') onSetSelected?.(false);
+    }}>
+      {showCheck ? <Animated.View style={{ transform: [{ scale: checkScale }] }}><HomePlusIcon name="checkmark" size={24} color={colors.brand} /></Animated.View> : <HomePlusIcon name="folder" size={48} color={colors.terracotta[500]} />}
+    </AppButton>
+    {selectionMode ? <InteractivePressable style={styles.tileCheck} onPress={toggle} accessibilityRole="checkbox" accessibilityState={{ selected }} accessibilityLabel={selected ? `Deseleccionar carpeta ${folder.name}` : `Seleccionar carpeta ${folder.name}`}><HomePlusIcon name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={selected ? colors.brand : colors.text.secondary} /></InteractivePressable> : <InteractivePressable style={styles.tileMenu} onPress={onMenu} accessibilityRole="button" accessibilityLabel={`Acciones de ${folder.name}`}><HomePlusIcon name="ellipsis-horizontal" size={20} color={colors.text.secondary} /></InteractivePressable>}
+    <AppText variant="bodySmall" weight="700" numberOfLines={2}>{folder.name}</AppText>
+  </View>;
+}
 
 /**
- * A File tile. Two gestures, one owner:
+ * A File tile. PATCH 1B gestures:
  *
- *   long press             -> contextual File actions   (outside selection)
+ *   tap, mode inactive     -> open Viewer (reserved seam)
+ *   tap ⋯                  -> contextual popover (normal mode only)
+ *   long press             -> ENTER SELECTION + select file, arm the stroke
  *   tap, mode active       -> toggle this File
- *   tap, mode inactive     -> RESERVED for the Viewer: deliberately unassigned
- *   long press, mode active-> NOTHING: no menu, no navigation
+ *   long press, mode active-> ensure selected + arm the stroke
+ *   drag, stroke armed     -> paint selection across files and folders
  *
- * The permanent per-File ellipsis is GONE, so long press would otherwise be the
- * only route to the File actions. The same intents are therefore exposed as
- * accessibility actions, which keeps the tile clean visually without making the
- * gesture exclusive.
- *
- * FILES CORE — the personal-Favorite signal is a single small marker in the
- * existing visual grammar. It is decorative for assistive technology: the tile's
- * own label already states whether the File is one of this member's favorites,
- * so the marker is not announced twice.
+ * There is NO long-press menu. Visible item contextual-menu access never
+ * competes with selection: while selecting, the ⋯ is replaced by selection
+ * affordances.
  */
 export function FileTile({
   file,
+  viewMode,
+  cellWidth,
   selectionMode,
   selected,
+  feedback,
   onPress,
   onLongPress,
+  onMenu,
   onSetSelected,
   onMeasure,
-  panHandlers,
 }: {
   file: HomeCloudFile;
+  viewMode: FilesViewMode;
+  cellWidth: number;
   selectionMode: boolean;
   selected: boolean;
+  /**
+   * HC-POL-014/021 — this tile's OWNED motion values, created by the surface at
+   * the moment of an isolated toggle. Absent means "not animating": the tile
+   * then renders with the shared identity values, which is the direct state
+   * feedback a fast drag sweep is supposed to produce.
+   */
+  feedback?: TileFeedback;
   onPress: () => void;
   onLongPress: () => void;
+  onMenu: (event: GestureResponderEvent) => void;
   /**
    * Put this File into a DECIDED selection state. Drag is an enhancement, so the
    * tile also offers explicit `select` / `deselect` accessibility actions through
@@ -1315,29 +2026,39 @@ export function FileTile({
    */
   onSetSelected?: (selected: boolean) => void;
   /**
-   * Publish this tile's MEASURED frame in list-content coordinates.
+   * Publish this tile's MEASURED frame in list-content coordinates, keyed by
+   * its canonical entity key (`file:<id>`; folders register `folder:<id>`).
    *
    * `View.onLayout` reports relative to a VirtualizedList cell's parent, which IS
    * the content container, so this is content space for free — no `measureInWindow`
-   * per row and no asynchronous measure during a drag. Folders never call it, which
-   * is what makes them invisible to the sweep.
+   * per row and no asynchronous measure during a drag.
    */
   onMeasure?: (frame: TileFrame) => void;
-  /**
-   * The ONE shared pan responder's handlers. Every File tile gets the same object:
-   * a gesture belongs to the armed state on the surface, not to a row.
-   */
-  panHandlers?: GestureResponderHandlers;
 }) {
   const icon = file.mimeType.startsWith('image/') ? 'image-outline' : file.mimeType === 'application/pdf' ? 'document-text-outline' : 'document-outline';
   const showCheck = selectionMode && selected;
   const favoriteHint = file.isFavorite ? ', favorito' : '';
+  // HC-POL-014/021 — the motion VALUES are owned by the surface and handed down
+  // here, because a tile must stay a pure render: the shared drag machinery
+  // renders tiles outside a React cycle (the sweep's hit testing), and a tile
+  // that owned animated state of its own could not survive that. A tile that is
+  // not animating anything receives the shared identity values, which render as
+  // plain 1s.
+  const checkScale = feedback?.checkScale ?? IDLE_TILE_FEEDBACK.checkScale;
+  const badgeOpacity = feedback?.badgeOpacity ?? IDLE_TILE_FEEDBACK.badgeOpacity;
+  if (viewMode === 'list') return <View style={[styles.listRow, showCheck ? styles.tileSelected : null]} onLayout={onMeasure ? (event) => onMeasure(event.nativeEvent.layout) : undefined}>
+    <InteractivePressable style={styles.listRowBody} onPress={onPress} onLongPress={onLongPress} accessibilityRole={selectionMode ? 'checkbox' : 'button'} accessibilityState={{ selected: selectionMode ? selected : undefined }} accessibilityLabel={`${file.displayName}${favoriteHint}`}>
+      <View style={[styles.listIcon, showCheck ? styles.visualSelected : null]}>{showCheck ? <Animated.View style={{ transform: [{ scale: checkScale }] }}><HomePlusIcon name="checkmark" size={22} color={colors.brand} /></Animated.View> : <HomePlusIcon name={icon as any} size={30} color={colors.info.base} />}</View>
+      <View style={styles.listCopy}><AppText variant="body" weight="700" numberOfLines={2}>{file.displayName}</AppText>{file.documentDate ? <AppText variant="caption" tone="secondary">{file.documentDate}</AppText> : null}</View>
+      {file.isFavorite ? <Animated.View style={{ opacity: badgeOpacity }}><HomePlusIcon name="heart" size={15} color={colors.danger.base} /></Animated.View> : null}
+    </InteractivePressable>
+    {selectionMode ? null : <InteractivePressable style={styles.rowMenu} onPress={onMenu} accessibilityRole="button" accessibilityLabel={`Acciones de ${file.displayName}`}><HomePlusIcon name="ellipsis-horizontal" size={22} color={colors.text.secondary} /></InteractivePressable>}
+  </View>;
   return <View
-    style={[styles.tile, showCheck ? styles.tileSelected : null]}
+    style={[styles.tile, { width: cellWidth, flexBasis: cellWidth, maxWidth: cellWidth }, showCheck ? styles.tileSelected : null]}
     onLayout={onMeasure ? (event) => onMeasure(event.nativeEvent.layout) : undefined}
-    {...panHandlers}
   >
-    {file.isFavorite ? <View style={styles.favorite} accessible={false}><HomePlusIcon name="heart" size={15} color={colors.danger.base} /></View> : null}
+    {file.isFavorite ? <View style={styles.favorite} accessible={false}><Animated.View style={{ opacity: badgeOpacity }}><HomePlusIcon name="heart" size={15} color={colors.danger.base} /></Animated.View></View> : null}
     <AppButton
       variant="secondary"
       onPress={onPress}
@@ -1351,28 +2072,46 @@ export function FileTile({
       accessibilityRole={selectionMode ? 'checkbox' : 'button'}
       accessibilityState={{ selected: selectionMode ? selected : undefined }}
       accessibilityLabel={`${selectionMode ? `${file.displayName}${selected ? ', seleccionado' : ', no seleccionado'}` : file.displayName}${favoriteHint}`}
-      accessibilityHint={selectionMode ? 'Toca para seleccionar. Mantené presionado y deslizate para seleccionar varios.' : 'Toca para abrir. Mantené presionado para ver sus acciones.'}
-      // Long press must not be the ONLY route to the File actions now that the
-      // permanent ellipsis is gone, so the same intent is offered to assistive
-      // technology. While selecting, that action is removed entirely — there is no
-      // File menu during a multi-select — and replaced by explicit select/deselect
-      // actions, so the sweep is an ENHANCEMENT and never the only way to select.
+      accessibilityHint={selectionMode ? 'Toca para seleccionar. Mantené presionado y deslizate para seleccionar varios.' : 'Toca para abrir. Mantené presionado para seleccionar.'}
+      // While selecting, item actions are withdrawn entirely — there is no
+      // File menu during a multi-select — and replaced by explicit
+      // select/deselect actions, so the sweep is an ENHANCEMENT and never the
+      // only way to select. Outside selection the same select intent is
+      // offered to assistive technology; the ⋯ popover stays the visual route
+      // to actions.
       accessibilityActions={selectionMode
         ? [{ name: 'select', label: `Seleccionar ${file.displayName}` }, { name: 'deselect', label: `Deseleccionar ${file.displayName}` }]
-        : [{ name: 'longpress', label: `Acciones de ${file.displayName}` }]}
+        : [{ name: 'select', label: `Seleccionar ${file.displayName}` }]}
       onAccessibilityAction={(event) => {
         if (selectionMode) {
           if (event.nativeEvent.actionName === 'select') onSetSelected?.(true);
           if (event.nativeEvent.actionName === 'deselect') onSetSelected?.(false);
           return;
         }
-        if (event.nativeEvent.actionName === 'longpress') onLongPress();
+        if (event.nativeEvent.actionName === 'select') onSetSelected?.(true);
       }}
     >
-      {showCheck ? <HomePlusIcon name="checkmark" size={26} color={colors.text.inverse} /> : <HomePlusIcon name={icon as any} size={44} color={colors.info.base} />}
+      {/* HC-POL-014 — a 24 pt check that settles onto the ring, over the 8% brand
+          overlay. The overlay replaces the old full brand fill: a selection is a
+          STATE, not a repaint, and the member's own icon underneath stays visible. */}
+      {showCheck ? <Animated.View style={{ transform: [{ scale: checkScale }] }}><HomePlusIcon name="checkmark" size={24} color={colors.brand} /></Animated.View> : <HomePlusIcon name={icon as any} size={44} color={colors.info.base} />}
     </AppButton>
+    {selectionMode ? null : <InteractivePressable style={styles.tileMenu} onPress={onMenu} accessibilityRole="button" accessibilityLabel={`Acciones de ${file.displayName}`}><HomePlusIcon name="ellipsis-horizontal" size={20} color={colors.text.secondary} /></InteractivePressable>}
     <AppText variant="bodySmall" weight="700" numberOfLines={2}>{file.displayName}</AppText>
   </View>;
 }
 
-const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, breadcrumb: { paddingHorizontal: spacing[5], paddingBottom: spacing[1] }, viewerLayer: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.background.base }, titleRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[2] }, headerIconButton: { width: 44, height: 44, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' }, headerFilterDot: { position: 'absolute', top: 9, right: 9, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.terracotta[600] }, grid: { paddingHorizontal: spacing[5], paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4] }, tile: { flex: 1, minHeight: 174, gap: spacing[2], position: 'relative', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent' }, tileSelected: { borderColor: colors.brand }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, visualSelected: { backgroundColor: colors.brand, borderColor: colors.brand }, favorite: { position: 'absolute', left: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card, borderRadius: radius.sm, padding: 2 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, banner: { paddingHorizontal: spacing[5], paddingBottom: spacing[3] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, footerSpacer: { height: 24, width: '100%' }, listViewport: { flex: 1, minHeight: 0 }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] } });
+const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: colors.background.base }, search: { paddingHorizontal: spacing[5], paddingTop: spacing[4] }, breadcrumb: { paddingHorizontal: spacing[5], paddingBottom: spacing[1] }, viewerLayer: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.background.base }, titleRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing[5], paddingVertical: spacing[4], gap: spacing[2] }, title: { flex: 1 }, titleActions: { flexDirection: 'row', alignItems: 'center', gap: spacing[1] }, organizeButton: { minWidth: 72, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing[1] }, organizeActive: { color: colors.terracotta[600] }, headerIconButton: { width: 44, height: 44, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' }, headerFilterDot: { position: 'absolute', top: 9, right: 9, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.terracotta[600] }, grid: { paddingLeft: spacing[5], paddingRight: 48, paddingBottom: spacing[8] }, gridRow: { gap: spacing[3], marginBottom: spacing[4], justifyContent: 'flex-start' }, tile: { minHeight: 174, gap: spacing[2], position: 'relative', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent' }, tileSelected: { borderColor: colors.brand, backgroundColor: `${colors.brand}0A` }, visual: { height: 128, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border.default, backgroundColor: colors.surface.card, alignItems: 'center', justifyContent: 'center' }, visualSelected: { backgroundColor: `${colors.brand}14`, borderColor: colors.brand }, tileMenu: { position: 'absolute', right: spacing[1], top: spacing[1], width: 40, height: 40, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface.card }, listRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', borderRadius: radius.lg, borderWidth: 2, borderColor: 'transparent', marginBottom: spacing[2], backgroundColor: colors.surface.card }, listRowBody: { flex: 1, minWidth: 0, minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: spacing[3], paddingLeft: spacing[3], paddingVertical: spacing[2] }, listIcon: { width: 48, height: 48, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface.soft, borderWidth: 1, borderColor: colors.border.default }, listCopy: { flex: 1, minWidth: 0, gap: spacing[1] }, rowMenu: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' }, favorite: { position: 'absolute', left: spacing[1], top: spacing[1], zIndex: 2, backgroundColor: colors.surface.card, borderRadius: radius.sm, padding: 2 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing[8], gap: spacing[3] }, notice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing[3], paddingHorizontal: spacing[5], paddingBottom: spacing[2] }, banner: { paddingHorizontal: spacing[5], paddingBottom: spacing[3] }, footer: { paddingVertical: spacing[4], alignItems: 'center', gap: spacing[3] }, footerSpacer: { height: 24, width: '100%' },   listViewport: { flex: 1, minHeight: 0 },
+  /** HC-POL-011 — the motion wrapper of the list. Same flex contract as the
+      viewport it carries, so the slide never changes what the list measures. */
+  listMotion: { flex: 1, minHeight: 0 }, pageError: { alignItems: 'center', gap: spacing[2] }, sheetList: { gap: spacing[3], paddingBottom: spacing[2] }, menuSeparator: { height: 1, backgroundColor: colors.border.default },
+  /** PATCH 1B — folder selection affordances: same 44 pt independent targets as the ⋯ they replace. */
+  tileCheck: { position: 'absolute', right: spacing[1], top: spacing[1], width: 44, height: 44, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface.card },
+  rowCheck: { width: 44, height: 44, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
+  /**
+   * PATCH 1B — the SELECTION header's ⋯. Identical 44 pt geometry to
+   * `headerIconButton` (same touch target, same alignment), but its own token:
+   * it belongs to a different header mode (X · N · ⋯) than the normal
+   * ⋯ · FILTER · + row, so the normal header keeps exactly three controls.
+   */
+  selectionBulkButton: { width: 44, height: 44, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' } });

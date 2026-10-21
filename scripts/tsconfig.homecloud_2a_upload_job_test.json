@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-uploadjob"
+  },
+  "include": [
+    "../scripts/homecloud_2a_upload_job_runtime_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadTypes.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadJob.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadEngine.ts",
+    "../front/mi-front-limpio/services/homecloud/homecloudUploadError.ts",
+    "../front/mi-front-limpio/storage/homecloudUploadJobStorage.ts"
+  ],
+  "exclude": ["node_modules"]
+}

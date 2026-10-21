@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { ActionSheet, AppButton, AppText } from '../../components/ui';
 import { spacing } from '../../constants/theme';
 import {
+  destinationParentPath,
   fileMoveDestinations,
   MAX_DESTINATION_INDENT_DEPTH,
   ROOT_DESTINATION_FOLDER_ID,
@@ -59,8 +60,12 @@ export function FileMoveDestinationPicker({
           // the cap the row stops shifting, and the accessibility label - which
           // always carries the FULL path - is what actually disambiguates it.
           const indent = Math.min(destination.depth, MAX_DESTINATION_INDENT_DEPTH) * spacing[3];
+          // HC-POL-023 — the parent trail a same-named folder needs to be told
+          // apart from its cousin in another branch. Top-level folders and the
+          // root have none, and their rows stay single-line.
+          const parentPath = destinationParentPath(destination);
           return (
-            <View key={key} style={{ marginLeft: indent }}>
+            <View key={key} style={[styles.destinationRow, { marginLeft: indent }]}>
               <AppButton
                 title={destination.label}
                 variant={destination.isCurrent ? 'primary' : 'secondary'}
@@ -73,6 +78,7 @@ export function FileMoveDestinationPicker({
                 }
                 onPress={() => onSelect(destination.folderId)}
               />
+              {parentPath ? <AppText variant="caption" tone="secondary" numberOfLines={1} style={styles.destinationPath}>{`en ${parentPath}`}</AppText> : null}
             </View>
           );
         })}
@@ -84,6 +90,8 @@ export function FileMoveDestinationPicker({
 
 const styles = StyleSheet.create({
   list: { gap: spacing[2], paddingBottom: spacing[2] },
+  destinationRow: { gap: spacing[1] },
   destination: { alignItems: 'flex-start' },
+  destinationPath: { paddingLeft: spacing[2] },
   footnote: { paddingTop: spacing[3] },
 });

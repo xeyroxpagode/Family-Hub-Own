@@ -16,16 +16,49 @@
 
 import type { PlannerNavigationSource } from '../../navigation/plannerNavigationContract';
 
+/** Inline type definitions to avoid cross-module import issues */
+export type PlannerConfirmSheetData = {
+  readonly title: string;
+  readonly body: string;
+  readonly safeLabel: string;
+  readonly destructiveLabel: string;
+  readonly destructiveTone?: boolean;
+  readonly onConfirm: () => void;
+  readonly onCancel: () => void;
+};
+
+export type PlannerDestructiveConfirm = {
+  readonly verb: string;
+  readonly objectName: string;
+  readonly body: string;
+  readonly destructiveLabel: string;
+  readonly safeLabel: string;
+  readonly onConfirm: () => void;
+  readonly onCancel: () => void;
+};
+
 // ---------------------------------------------------------------------------
 // 1. Sheet kind — closed discriminated union
 // ---------------------------------------------------------------------------
 
-export type PlannerSheetKind = 'closed' | 'actions' | 'task_form' | 'event_form' | 'goal_form' | 'plan_form';
+export type PlannerSheetKind = 'closed' | 'actions' | 'task_form' | 'event_form' | 'goal_form' | 'plan_form' | 'confirm' | 'confirm_destructive';
 
 // ---------------------------------------------------------------------------
 // 2. PlannerSheetState — a single discrimated union (no representing
 //    impossible states)
 // ---------------------------------------------------------------------------
+
+/**
+ * S7 — referencia serializable al activo de origen.
+ *
+ * Viaja por el estado del sheet hasta el composer real de Planner. NO lleva
+ * callbacks ni entidades: sólo los dos datos que el composer necesita para
+ * prefill y para construir la llamada create.
+ */
+export type AssetRef = {
+  readonly assetId: string;
+  readonly assetName: string;
+};
 
 export type PlannerSheetState =
   | { readonly kind: 'closed' }
@@ -38,6 +71,7 @@ export type PlannerSheetState =
       readonly initialDueDate?: string;
       readonly initialPlanId?: string;
       readonly initialPlanTitle?: string;
+      readonly assetRef?: AssetRef;
     }
   | {
       readonly kind: 'event_form';
@@ -45,6 +79,7 @@ export type PlannerSheetState =
       readonly eventId?: string;
       readonly source: PlannerNavigationSource;
       readonly initialDate?: string;
+      readonly assetRef?: AssetRef;
     }
   | {
       readonly kind: 'goal_form';
@@ -56,6 +91,14 @@ export type PlannerSheetState =
       readonly kind: 'plan_form';
       readonly mode: 'create';
       readonly source: PlannerNavigationSource;
+    }
+  | {
+      readonly kind: 'confirm';
+      readonly data: PlannerConfirmSheetData;
+    }
+  | {
+      readonly kind: 'confirm_destructive';
+      readonly data: PlannerDestructiveConfirm;
     };
 
 // ---------------------------------------------------------------------------
@@ -69,6 +112,8 @@ export type OpenTaskInput = {
   readonly initialDueDate?: string;
   readonly initialPlanId?: string;
   readonly initialPlanTitle?: string;
+  /** S7: la Task se crea a partir de un activo. */
+  readonly assetRef?: AssetRef;
 };
 
 export type OpenEventInput = {
@@ -76,6 +121,8 @@ export type OpenEventInput = {
   readonly eventId?: string;
   readonly source: PlannerNavigationSource;
   readonly initialDate?: string;
+  /** S7: el Event se crea a partir de un activo. */
+  readonly assetRef?: AssetRef;
 };
 
 export type OpenGoalInput = {
@@ -86,6 +133,14 @@ export type OpenGoalInput = {
 
 export type OpenPlanInput = {
   readonly source: PlannerNavigationSource;
+};
+
+export type OpenConfirmInput = {
+  readonly data: PlannerConfirmSheetData;
+};
+
+export type OpenConfirmDestructiveInput = {
+  readonly data: PlannerDestructiveConfirm;
 };
 
 // ---------------------------------------------------------------------------
@@ -111,6 +166,8 @@ export type PlannerSheetEvent =
   | { readonly type: 'OPEN_EVENT'; readonly input: OpenEventInput }
   | { readonly type: 'OPEN_GOAL'; readonly input: OpenGoalInput }
   | { readonly type: 'OPEN_PLAN'; readonly input: OpenPlanInput }
+  | { readonly type: 'OPEN_CONFIRM'; readonly input: OpenConfirmInput }
+  | { readonly type: 'OPEN_CONFIRM_DESTRUCTIVE'; readonly input: OpenConfirmDestructiveInput }
   | { readonly type: 'REPLACE'; readonly next: PlannerSheetState }
   | { readonly type: 'REQUEST_CLOSE'; readonly reason: PlannerSheetCloseReason }
   | { readonly type: 'FORCE_CLOSE'; readonly reason: PlannerSheetCloseReason }
@@ -171,6 +228,7 @@ export function sheetMachineReducer(
         initialDueDate: event.input.initialDueDate,
         initialPlanId: event.input.initialPlanId,
         initialPlanTitle: event.input.initialPlanTitle,
+        assetRef: event.input.assetRef,
       };
       if (state.kind === 'task_form' && sameTask(state, desired)) return noChange(state, context);
       return {
@@ -187,6 +245,7 @@ export function sheetMachineReducer(
         eventId: event.input.eventId,
         source: event.input.source,
         initialDate: event.input.initialDate,
+        assetRef: event.input.assetRef,
       };
       if (state.kind === 'event_form' && sameEvent(state, desired)) return noChange(state, context);
       return {
@@ -218,6 +277,32 @@ export function sheetMachineReducer(
         source: event.input.source,
       };
       if (state.kind === 'plan_form') return noChange(state, context);
+      return {
+        state: desired,
+        isSubmitting: context.isSubmitting,
+        activeIntentId: context.activeIntentId,
+      };
+    }
+
+    case 'OPEN_CONFIRM': {
+      const desired: PlannerSheetState = {
+        kind: 'confirm',
+        data: event.input.data,
+      };
+      if (state.kind === 'confirm' && state.data === event.input.data) return noChange(state, context);
+      return {
+        state: desired,
+        isSubmitting: context.isSubmitting,
+        activeIntentId: context.activeIntentId,
+      };
+    }
+
+    case 'OPEN_CONFIRM_DESTRUCTIVE': {
+      const desired: PlannerSheetState = {
+        kind: 'confirm_destructive',
+        data: event.input.data,
+      };
+      if (state.kind === 'confirm_destructive' && state.data === event.input.data) return noChange(state, context);
       return {
         state: desired,
         isSubmitting: context.isSubmitting,
@@ -282,11 +367,18 @@ export function sheetMachineReducer(
 // ---------------------------------------------------------------------------
 
 function sameTask(a: PlannerSheetState & { kind: 'task_form' }, b: PlannerSheetState & { kind: 'task_form' }): boolean {
-  return a.mode === b.mode && a.taskId === b.taskId && a.initialPlanId === b.initialPlanId;
+  return a.mode === b.mode
+    && a.taskId === b.taskId
+    && a.initialPlanId === b.initialPlanId
+    // S7: dos aperturas desde activos distintos soncomposer distintos.
+    && a.assetRef?.assetId === b.assetRef?.assetId;
 }
 
 function sameEvent(a: PlannerSheetState & { kind: 'event_form' }, b: PlannerSheetState & { kind: 'event_form' }): boolean {
-  return a.mode === b.mode && a.eventId === b.eventId;
+  return a.mode === b.mode
+    && a.eventId === b.eventId
+    // S7: dos aperturas desde activos distintos son composer distintos.
+    && a.assetRef?.assetId === b.assetRef?.assetId;
 }
 
 function sameGoal(a: PlannerSheetState & { kind: 'goal_form' }, b: PlannerSheetState & { kind: 'goal_form' }): boolean {

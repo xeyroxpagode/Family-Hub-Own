@@ -304,6 +304,46 @@ function validateRegisterPayload(body) {
   };
 }
 
+// Fields a Memory PATCH may touch. Everything else is rejected outright,
+// including server-owned identity/storage/lifecycle fields.
+const MEMORY_PATCH_ALLOWED_FIELDS = Object.freeze([
+  'capturedAt',
+  'capturedYear',
+  'capturedMonth',
+  'capturePrecision',
+  'caption',
+  'hiddenFromResurfacing',
+  'favorite',
+]);
+
+// Explicitly forbidden identity/storage fields, rejected with a typed code
+// (mirrors the register register contract).
+const FORBIDDEN_MEMORY_PATCH_FIELDS = Object.freeze([
+  'lifecycle',
+  'uploaded_at',
+  'uploadedAt',
+  'household_id',
+  'householdId',
+  'folder_id',
+  'folderId',
+  'uploaded_by_member_id',
+  'uploadedByMemberId',
+  'role',
+  'mime_type',
+  'mimeType',
+  'size_bytes',
+  'sizeBytes',
+  'original_storage_path',
+  'originalStoragePath',
+  'preview_storage_path',
+  'previewStoragePath',
+  'written_text',
+  'writtenText',
+  'display_name',
+  'displayName',
+  'id',
+]);
+
 /**
  * Validate MEMORY MIME against the frozen media families (binary memories).
  */
@@ -313,6 +353,94 @@ function isMemoryMediaMime(mimeType) {
   return mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/');
 }
 
+const CAPTURE_PATCH_KEYS = ['capturePrecision', 'capturedAt', 'capturedYear', 'capturedMonth'];
+
+/**
+ * Validate the Memory metadata PATCH payload (ST-3).
+ *
+ * Reuses normalizeCaptureFields for the date semantics, so the same
+ * four-precision contract enforced at register is enforced on post-save
+ * edits. A partial -> exact transition is only ever the user's explicit
+ * complete selection: exact requires capturedAt and rejects any
+ * client-supplied components, and there is no code path that invents a day.
+ *
+ * Returns only the fields the client actually sent (post-normalization),
+ * so an absent field means "do not touch".
+ */
+function validateMemoryPatchPayload(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw createHttpError(400, 'Cuerpo de solicitud inválido.', 'homecloud_invalid_update_body');
+  }
+
+  for (const field of FORBIDDEN_MEMORY_PATCH_FIELDS) {
+    if (body[field] !== undefined && body[field] !== null) {
+      throw createHttpError(
+        400,
+        `El campo "${field}" no puede ser modificado.`,
+        'homecloud_forbidden_update_field',
+        { field },
+      );
+    }
+  }
+
+  for (const key of Object.keys(body)) {
+    if (!MEMORY_PATCH_ALLOWED_FIELDS.includes(key)) {
+      throw createHttpError(
+        400,
+        `Campo desconocido: "${key}".`,
+        'homecloud_unknown_update_field',
+        { field: key },
+      );
+    }
+  }
+
+  if (Object.keys(body).length === 0) {
+    throw createHttpError(400, 'No hay campos para actualizar.', 'homecloud_empty_update');
+  }
+
+  const patch = {};
+
+  const touchesCapture = CAPTURE_PATCH_KEYS.some((key) => body[key] !== undefined);
+  if (touchesCapture) {
+    // A date edit must supply a COMPLETE coherent tuple for the chosen
+    // precision; normalizeCaptureFields enforces it (exact requires
+    // capturedAt and derives, never merges, the components).
+    const capture = normalizeCaptureFields({
+      capturedAt: body.capturedAt,
+      capturedYear: body.capturedYear,
+      capturedMonth: body.capturedMonth,
+      capturePrecision: body.capturePrecision,
+    });
+    patch.capturedAt = capture.capturedAt;
+    patch.capturedYear = capture.capturedYear;
+    patch.capturedMonth = capture.capturedMonth;
+    patch.capturePrecision = capture.capturePrecision;
+  }
+
+  if (body.caption !== undefined) {
+    if (body.caption !== null && typeof body.caption !== 'string') {
+      throw createHttpError(400, 'caption debe ser texto o null.', 'homecloud_invalid_caption');
+    }
+    patch.caption = typeof body.caption === 'string' && body.caption.length > 0 ? body.caption : null;
+  }
+
+  if (body.hiddenFromResurfacing !== undefined) {
+    if (typeof body.hiddenFromResurfacing !== 'boolean') {
+      throw createHttpError(400, 'hiddenFromResurfacing debe ser boolean.', 'homecloud_invalid_hidden_from_resurfacing');
+    }
+    patch.hiddenFromResurfacing = body.hiddenFromResurfacing;
+  }
+
+  if (body.favorite !== undefined) {
+    if (typeof body.favorite !== 'boolean') {
+      throw createHttpError(400, 'favorite debe ser boolean.', 'homecloud_invalid_favorite');
+    }
+    patch.favorite = body.favorite;
+  }
+
+  return patch;
+}
+
 module.exports = {
   VALID_ROLES,
   VALID_PRECISIONS,
@@ -320,4 +448,7 @@ module.exports = {
   validateRegisterPayload,
   normalizeCaptureFields,
   isMemoryMediaMime,
+  validateMemoryPatchPayload,
+  MEMORY_PATCH_ALLOWED_FIELDS,
+  FORBIDDEN_MEMORY_PATCH_FIELDS,
 };

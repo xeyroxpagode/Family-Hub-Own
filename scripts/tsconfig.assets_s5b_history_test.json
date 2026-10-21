@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {},
+  "include": ["./assets_s5b_history_invalidation_check.ts"]
+}

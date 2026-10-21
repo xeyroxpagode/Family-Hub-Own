@@ -53,9 +53,30 @@ export function MemoryAudioRecorder({ onReady, onCancel, attempt, ownsAttempt, a
   // the effect below never re-registers for a changing callback identity.
   const cancelRef = useRef<() => void>(() => {});
 
-  const returnToPlaybackMode = useCallback(async () => {
+  /**
+   * AUD-07 — AUDIO SESSION, FORCED AND HONESTLY NAMED.
+   *
+   * This FORCES a known playback configuration. It is NOT a restoration of the
+   * mode that was active before recording, and nothing here claims it is.
+   * `expo-audio@57.0.5` (the version this app installs) exposes only
+   * `setAudioModeAsync`: there is no `getAudioModeAsync`, so the prior state
+   * cannot be READ, let alone restored. Inventing a "restored" default and
+   * labelling it a restore would be a lie about an operation that never
+   * happened, which is why the previous name (`returnToPlaybackMode`) was
+   * misleading.
+   *
+   * The configuration itself is deliberate and safe for this product: recording
+   * must be released (`allowsRecording: false`) so the microphone is not held
+   * after a recording ends, and nothing requests background playback, which
+   * Product Truth §16.4 places OUT of V1.
+   *
+   * Correct prior-mode restoration remains open and is reported as
+   * `AUDIO_SESSION_RESTORE_BLOCKER`; it is not silently closed here and no
+   * audio-session redesign is attempted.
+   */
+  const forcePlaybackAudioMode = useCallback(async () => {
     await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, shouldPlayInBackground: false });
-    memoryAttemptTrace(attempt, 'audio_session_transition', { mode: 'playback' });
+    memoryAttemptTrace(attempt, 'audio_session_forced', { mode: 'playback', restored: false });
   }, [attempt]);
 
   /**
@@ -72,9 +93,9 @@ export function MemoryAudioRecorder({ onReady, onCancel, attempt, ownsAttempt, a
     if (!uri) { try { uri = recorder.uri ?? recorder.getStatus().url ?? null; } catch { uri = null; } }
     if (recorder.isRecording) { try { await recorder.stop(); } catch { /* best-effort teardown stays idempotent */ } }
     pendingUriRef.current = null;
-    await returnToPlaybackMode().catch(() => {});
+    await forcePlaybackAudioMode().catch(() => {});
     if (uri && !recordedRef.current) await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
-  }, [recorder, returnToPlaybackMode]);
+  }, [recorder, forcePlaybackAudioMode]);
 
   const cancel = useCallback(async () => {
     setPhase('stopping');
@@ -93,10 +114,10 @@ export function MemoryAudioRecorder({ onReady, onCancel, attempt, ownsAttempt, a
       // already released the recorder, so stop/get/uri must never be called here.
       const uri = pendingUriRef.current; pendingUriRef.current = null;
       if (uri && !recordedRef.current) void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
-      void returnToPlaybackMode().catch(() => {});
+      void forcePlaybackAudioMode().catch(() => {});
       memoryAttemptTrace(attempt, 'unmount', { recorderOwnership: 'released_by_useAudioRecorder' });
     };
-  }, [attempt, returnToPlaybackMode, stopAndDiscard]);
+  }, [attempt, forcePlaybackAudioMode, stopAndDiscard]);
 
   // The host routes "close the recorder sheet" through here, so an in-flight
   // native recording is always finished while the recorder is still valid and
@@ -124,25 +145,29 @@ export function MemoryAudioRecorder({ onReady, onCancel, attempt, ownsAttempt, a
     if (!recorderState.isRecording || phase !== 'recording') return;
     const operation = ++operationRef.current; setPhase('stopping'); memoryAttemptTrace(attempt, 'stop_requested');
     try {
+      // INTAKE-10: the measured length stays LOCAL. It is used only to reject an
+      // empty recording, and it is deliberately NOT published on the draft: no
+      // column exists for it and the Audio Viewer derives the real duration from
+      // the file at playback, so carrying it would be dead data.
       const durationBeforeStop = recorderState.durationMillis;
       await recorder.stop(); memoryAttemptTrace(attempt, 'stop_completed');
       // EVERY native read happens here, while the recorder is still valid.
-      const stopped = recorder.getStatus(); const durationMillis = Math.max(durationBeforeStop, stopped.durationMillis); const uri = recorder.uri ?? stopped.url;
-      memoryAttemptTrace(attempt, 'recording_uri', { present: Boolean(uri), durationMillis });
-      if (!uri || !capturedAtRef.current || durationMillis <= 0) throw new Error('empty recording');
+      const stopped = recorder.getStatus(); const recordedMillis = Math.max(durationBeforeStop, stopped.durationMillis); const uri = recorder.uri ?? stopped.url;
+      memoryAttemptTrace(attempt, 'recording_uri', { present: Boolean(uri), recordedMillis });
+      if (!uri || !capturedAtRef.current || recordedMillis <= 0) throw new Error('empty recording');
       pendingUriRef.current = uri;
       const info = await FileSystem.getInfoAsync(uri); memoryAttemptTrace(attempt, 'file_info', { exists: info.exists, sizeBytes: info.exists ? info.size ?? null : null });
       if (!info.exists || typeof info.size !== 'number' || info.size <= 0) throw new Error('empty recording file');
-      const draft = await persistRecordedAudio(uri, capturedAtRef.current, durationMillis, attempt); memoryAttemptTrace(attempt, 'durable_copy', { sizeBytes: draft.artifact.sizeBytes });
+      const draft = await persistRecordedAudio(uri, capturedAtRef.current, attempt); memoryAttemptTrace(attempt, 'durable_copy', { sizeBytes: draft.artifact.sizeBytes });
       // The durable copy owns the media from here; the recorder temp is already
       // gone and nothing native may be touched during the handoff.
       pendingUriRef.current = null; recordedRef.current = true;
-      await returnToPlaybackMode();
+      await forcePlaybackAudioMode();
       if (!mountedRef.current || operationRef.current !== operation || !ownsAttempt(attempt)) { await discardMemoryMedia(draft.artifact).catch(() => {}); return; }
       setPhase('recorded'); memoryAttemptTrace(attempt, 'audio_review_requested'); onReady(draft, attempt);
     } catch (caught) {
       pendingUriRef.current = null;
-      await returnToPlaybackMode().catch(() => {});
+      await forcePlaybackAudioMode().catch(() => {});
       if (mountedRef.current && operationRef.current === operation && ownsAttempt(attempt)) { setError('No pudimos preparar la grabación. Podés intentarlo otra vez.'); setPhase('error'); memoryAttemptTrace(attempt, 'error', { step: 'stop', message: caught instanceof Error ? caught.message : 'unknown' }); }
     }
   };

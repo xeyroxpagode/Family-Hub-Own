@@ -1,4 +1,9 @@
-import { ApiError, createHousehold as createHouseholdRequest, type AuthMeHousehold } from './api';
+import {
+  ApiError,
+  createHousehold as createHouseholdRequest,
+  setActiveHousehold as setActiveHouseholdRequest,
+  type AuthMeHousehold,
+} from './api';
 
 // Tipos locales para HouseholdContext — mapeo de AuthMeHousehold
 export type Household = {
@@ -30,6 +35,9 @@ export async function createHousehold(
 ): Promise<{ household: AuthMeHousehold | null; error: string | null }> {
   try {
     const response = await createHouseholdRequest(accessToken, { name: name.trim() });
+    if (response.me?.active_household?.id !== response.household.id) {
+      await setActiveHouseholdRequest(accessToken, response.household.id);
+    }
     return { household: response.household, error: null };
   } catch (error) {
     return {

@@ -33,13 +33,16 @@ export type PresetQuickRailProps = {
   /** "Ver todos" — opens the full Preset Picker. */
   readonly onShowAll: () => void;
   readonly title?: string;
+  /** The selected card can be tapped again to undo the application. */
+  readonly selectedPresetId?: string | null;
 };
 
 export function PresetQuickRail({
   presets,
   onSelect,
   onShowAll,
-  title = 'Presets',
+  title = 'Desde un preset',
+  selectedPresetId = null,
 }: PresetQuickRailProps) {
   const theme = useAppTheme();
   const { colors } = theme;
@@ -72,17 +75,31 @@ export function PresetQuickRail({
         {presets.map((preset) => (
           <Pressable
             key={preset.id}
-            style={[styles.chip, preset.source === 'homeplus' ? styles.chipHomeplus : styles.chipHousehold]}
+            style={[
+              styles.chip,
+              preset.source === 'homeplus' ? styles.chipHomeplus : styles.chipHousehold,
+              selectedPresetId === preset.id && styles.chipSelected,
+            ]}
             onPress={() => onSelect(preset)}
             accessibilityRole="button"
-            accessibilityLabel={`Usar preset ${preset.name}`}
+            accessibilityState={{ selected: selectedPresetId === preset.id }}
+            accessibilityLabel={selectedPresetId === preset.id ? `Quitar preset ${preset.name}` : `Usar preset ${preset.name}`}
           >
-            <AppText variant="bodySmall" weight="700" style={styles.chipText} numberOfLines={1}>
+            <AppText variant="bodySmall" weight="700" style={styles.chipText} numberOfLines={2}>
               {preset.name}
             </AppText>
             <HomePlusIcon name="chevron-forward" size={14} color={colors.text.tertiary} />
           </Pressable>
         ))}
+        <Pressable
+          style={[styles.card, styles.newCard]}
+          onPress={onShowAll}
+          accessibilityRole="button"
+          accessibilityLabel="Crear o elegir un preset"
+        >
+          <HomePlusIcon name="add" size={18} color={colors.terracotta[600]} />
+          <AppText variant="caption" weight="700" style={styles.newCardText} numberOfLines={2}>Nuevo preset</AppText>
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -116,15 +133,13 @@ function createStyles(theme: AppResolvedTheme) {
       paddingRight: 8,
     },
     chip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      borderRadius: 20,
+      width: 96,
+      height: 72,
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      borderRadius: 16,
       borderWidth: 1,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      minHeight: 38,
-      maxWidth: 200,
+      padding: 10,
     },
     chipHousehold: {
       backgroundColor: colors.surface.card,
@@ -137,5 +152,12 @@ function createStyles(theme: AppResolvedTheme) {
     chipText: {
       color: colors.text.primary,
     },
+    chipSelected: {
+      borderColor: colors.terracotta[600],
+      borderWidth: 2,
+    },
+    card: { width: 96, height: 72, borderRadius: 16, borderWidth: 1, padding: 10, justifyContent: 'space-between' },
+    newCard: { borderColor: colors.terracotta[100], backgroundColor: colors.terracotta[50] },
+    newCardText: { color: colors.terracotta[700] },
   });
 }

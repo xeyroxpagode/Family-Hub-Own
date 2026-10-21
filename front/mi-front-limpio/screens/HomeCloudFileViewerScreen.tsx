@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Image, Linking, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Animated, BackHandler, Easing, Image, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { File } from 'expo-file-system';
 import { WebView } from 'react-native-webview';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { AppButton, AppText } from '../components/ui';
-import { colors, radius, spacing } from '../constants/theme';
+import { HomePlusIcon } from '../constants/icons';
+import { colors, MOTION, radius, spacing } from '../constants/theme';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import type { HomeCloudFile } from '../services/homecloud/homecloudTypes';
+import { viewerCloseDurationMs } from '../services/homecloud/homecloudViewerTransition';
 import {
   VIEWER_FAILURE_MESSAGE,
   ViewerAccessError,
@@ -34,10 +37,22 @@ import {
   PDF_BRIDGE_PROTOCOL_VERSION,
   parseViewerMessage,
   serializeRnMessage,
+  type PdfLoadErrorTelemetry,
+  type ViewerToRnMessage,
 } from '../services/homecloud/homecloudPdfBridge';
 import { buildPdfViewerHtml } from '../services/homecloud/homecloudPdfViewerHtml';
 import { PdfTooLargeError, readStagedPdfForBridge } from '../services/homecloud/homecloudPdfTransport';
 import { PDFJS_ENGINE_SOURCE } from '../services/homecloud/pdfJsEngine.generated';
+import {
+  OFFICE_VIEWER_LOAD_TIMEOUT_MS,
+  buildOfficeViewerHtml,
+  cancelOfficeViewingSession,
+  createOfficeViewingSession,
+  isOfficeViewerSupported,
+  officeViewerAllowedOrigin,
+  parseOfficeViewerMessage,
+  type OfficeViewingSession,
+} from '../services/homecloud/homecloudOfficeViewer';
 
 /**
  * HomeCloud Files - Stage 2 / Phase 3 - VIEWER V1.
@@ -68,10 +83,14 @@ import { PDFJS_ENGINE_SOURCE } from '../services/homecloud/pdfJsEngine.generated
  *                           Expo Go cannot load custom native modules, which is why
  *                           the previous native renderer had to go; every
  *                           dependency used here ships inside Expo Go.
- *   office                  staged to the TEMPORARY cache and handed to the
- *                           platform: a privacy-safe external/system handoff is
- *                           honest for DOC/XLS/PPT, and pretending otherwise would
- *                           mean shipping a document converter.
+ *   office (DOCX/DOC/XLSX/XLS/PPTX/PPT)
+ *                           OFFICE-3: visor ONLYOFFICE embebido read-only
+ *                           (`type: "embedded"` + `mode: "view"` llegan firmados
+ *                           en la sesión del backend). El original también se
+ *                           stagea a la cache para que el hand-off externo
+ *                           siga disponible como respaldo honesto. Otros
+ *                           formatos Office (odt, rtf, xlsm, odp…) y los
+ *                           documentos web activos siguen con hand-off externo.
  *   svg / html / xml         REFUSED inline as active web content, with the reason
  *                           stated, plus the actions that do work.
  *
@@ -112,6 +131,42 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
   // not allowed to see it" are different answers and a member deserves the right one.
   const [renderFailure, setRenderFailure] = useState<{ title: string; message: string } | null>(null);
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
+  // HC-POL-058 — the top chrome. Only image and video can hide it: a document a
+  // member READS (PDF, text, Office) always keeps the controls it needs, and the
+  // toggle never takes a gesture away from the media itself.
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const chromeOpacity = useRef(new Animated.Value(1)).current;
+  // HC-POL-062 / HC-POL-012 — the ONE close, shared by every File kind: a short
+  // fade of THIS layer and then the real unmount. The browser context underneath
+  // is never touched, so the return lands on the exact folder, query, sort and
+  // scroll the member left.
+  const exitOpacity = useRef(new Animated.Value(1)).current;
+  const closingRef = useRef(false);
+
+  const requestClose = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    if (reducedMotion) {
+      onClose();
+      return;
+    }
+    Animated.timing(exitOpacity, {
+      toValue: 0,
+      duration: viewerCloseDurationMs(false),
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => onClose());
+  }, [exitOpacity, onClose, reducedMotion]);
+
+  useEffect(() => {
+    Animated.timing(chromeOpacity, {
+      toValue: chromeVisible ? 1 : 0,
+      duration: reducedMotion ? 40 : MOTION.fast,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }).start();
+  }, [chromeVisible, chromeOpacity, reducedMotion]);
 
   const classification = useMemo(
     () => (file ? classifyHomeCloudViewerFile({ fileName: file.displayName, mimeType: file.mimeType }) : null),
@@ -197,11 +252,11 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
   useEffect(() => {
     if (file === null) return undefined;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      onClose();
+      requestClose();
       return true;
     });
     return () => subscription.remove();
-  }, [file, onClose]);
+  }, [file, requestClose]);
 
   const handleExternalOpen = useCallback(async () => {
     if (!file || !stagedUri || busy) return;
@@ -249,57 +304,120 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
   if (!file || !classification) {
     return (
       <View style={styles.screen}>
-        <View style={styles.header}>
-          <AppText variant="title3" weight="800" style={styles.title}>Visor</AppText>
-          <AppButton title="Cerrar" variant="ghost" size="sm" onPress={onClose} />
-        </View>
+        <Animated.View style={{ flex: 1, opacity: exitOpacity }}>
+          <View style={styles.header}>
+            <AppText variant="title3" weight="800" style={styles.title}>Visor</AppText>
+            <AppButton title="Cerrar" variant="ghost" size="sm" onPress={requestClose} />
+          </View>
+        </Animated.View>
       </View>
     );
   }
 
   const kind = classification.kind;
   const cannotPreview = kind === 'unsupported' || kind === 'office_document' || kind === 'office_sheet' || kind === 'office_presentation';
+  // OFFICE-2: el visor Office embebido se dibuja FUERA del ScrollView. El
+  // contenido del documento (páginas, hojas con pestañas, slides, zoom,
+  // scroll propio del visor embebido) ocupa todo el área restante del
+  // Viewer: una vista previa, no una "aplicación de Office" enmarcada con
+  // UI alrededor.
+  // OFFICE-3: las tres familias Office (documento, hoja, presentación)
+  // entran al visor integrado cuando la extensión es de los seis formatos
+  // V1; el resto de Office (odt, rtf, xlsm, odp…) conserva el hand-off
+  // honesto de respaldo.
+  const officeInline = (kind === 'office_document' || kind === 'office_sheet' || kind === 'office_presentation')
+    && isOfficeViewerSupported({ fileName: file.displayName });
+
+  // HC-POL-058 — only the media kinds that are LOOKED at, not read, may hide
+  // their chrome. Documents keep every control permanently available.
+  const chromeTogglable = kind === 'image' || kind === 'video';
 
   return (
     <View style={[styles.screen, { paddingTop: Math.max(insets.top, spacing[4]), paddingBottom: Math.max(insets.bottom, spacing[4]) }]}>
-      <View style={styles.header}>
-        <AppText variant="title3" weight="800" style={styles.title} numberOfLines={2}>{file.displayName}</AppText>
-        <AppButton title="Cerrar" variant="ghost" size="sm" onPress={onClose} accessibilityLabel="Cerrar el visor" />
-      </View>
-      <AppText variant="caption" tone="secondary">
-        {[file.mimeType, file.sizeBytes ? `${Math.max(1, Math.round(file.sizeBytes / 1024))} KB` : null].filter(Boolean).join(' - ')}
-      </AppText>
+      {/* HC-POL-062 — the exit fade covers the CONTENT, while the root keeps
+          being the View that owns the safe-area insets. */}
+      <Animated.View style={{ flex: 1, opacity: exitOpacity }}>
+      {/* HC-POL-058 — the chrome fades only; the content underneath never
+          moves, so hiding the controls is a reading choice, not a relayout. */}
+      <Animated.View
+        style={[styles.chromeBlock, { opacity: chromeTogglable ? chromeOpacity : 1 }]}
+        pointerEvents={chromeTogglable && !chromeVisible ? 'none' : 'auto'}
+        accessibilityElementsHidden={chromeTogglable && !chromeVisible}
+      >
+        <View style={styles.header}>
+          <AppText variant="title3" weight="800" style={styles.title} numberOfLines={2}>{file.displayName}</AppText>
+          {chromeTogglable && chromeVisible ? (
+            <Pressable
+              onPress={() => setChromeVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Ocultar los controles del visor"
+              style={styles.chromeToggle}
+            >
+              <HomePlusIcon name="chevron-up" size={18} color={colors.text.secondary} />
+            </Pressable>
+          ) : null}
+          <AppButton title="Cerrar" variant="ghost" size="sm" onPress={requestClose} accessibilityLabel="Cerrar el visor" />
+        </View>
+        <AppText variant="caption" tone="secondary">
+          {[file.mimeType, file.sizeBytes ? `${Math.max(1, Math.round(file.sizeBytes / 1024))} KB` : null].filter(Boolean).join(' - ')}
+        </AppText>
+      </Animated.View>
 
       {phase === 'loading' ? (
         <View style={styles.center}><ActivityIndicator color={colors.brand} /><AppText variant="caption" tone="secondary">Preparando…</AppText></View>
       ) : renderFailure ? (
         <View style={styles.center}>
+          {/* HC-POL-060 — one sober state marker per reason, so a protected PDF,
+              a too-large PDF and a damaged one are distinguishable at a glance
+              before a single word is read. */}
+          <HomePlusIcon
+            name={renderFailure.title === VIEWER_PDF_PASSWORD_TITLE ? 'lock-closed' : renderFailure.title === VIEWER_PDF_TOO_LARGE_TITLE ? 'scale' : 'document-outline'}
+            size={28}
+            color={renderFailure.title === VIEWER_PDF_PASSWORD_TITLE ? colors.warning.base : colors.danger.base}
+          />
           <AppText variant="title3" weight="800" align="center">{renderFailure.title}</AppText>
           <AppText variant="body" tone="secondary" align="center">{renderFailure.message}</AppText>
           {stagedUri ? <AppButton title="Abrir o compartir con…" onPress={() => void handleExternalOpen()} disabled={busy} style={{ marginTop: spacing[3] }} accessibilityLabel="Abrir o compartir el archivo con otra app" /> : null}
         </View>
       ) : failure ? (
         <View style={styles.center}>
+          <HomePlusIcon name={failure.reason === 'unsupported' ? 'document-outline' : 'alert-circle-outline'} size={28} color={colors.danger.base} />
           <AppText variant="title3" weight="800" align="center">{failure.reason === 'unsupported' ? 'Formato no compatible' : 'No pudimos mostrar el archivo'}</AppText>
           <AppText variant="body" tone="secondary" align="center">{failure.message}</AppText>
           {stagedUri ? <AppButton title="Abrir o compartir con…" onPress={() => void handleExternalOpen()} disabled={busy} style={{ marginTop: spacing[3] }} /> : null}
+        </View>
+      ) : officeInline ? (
+        <View style={styles.officeFill}>
+          {renderPreviewSurface()}
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.body}>
           {renderPreviewSurface()}
         </ScrollView>
       )}
+      </Animated.View>
     </View>
   );
 
   function renderPreviewSurface(): React.ReactNode {
     if (kind === 'image' && signedUrl) {
-      return <Image source={{ uri: signedUrl }} style={styles.media} resizeMode="contain" accessibilityLabel={`Imagen ${file!.displayName}`} />;
+      // HC-POL-058 — the image is the whole reason to be here, so the tap that
+      // shows and hides the chrome belongs to IT. Nothing else owns an image
+      // gesture in this viewer, so the toggle takes nothing away.
+      return (
+        <Pressable
+          onPress={() => setChromeVisible((previous) => !previous)}
+          accessibilityRole="button"
+          accessibilityLabel={`Imagen ${file!.displayName}. Tocá para mostrar u ocultar los controles del visor`}
+        >
+          <Image source={{ uri: signedUrl }} style={styles.media} resizeMode="contain" accessibilityLabel={`Imagen ${file!.displayName}`} />
+        </Pressable>
+      );
     }
     if (kind === 'video' && signedUrl) {
       // expo-video is the installed, Expo-supported playback primitive. It is
       // released by the lifecycle effect above when this Viewer unmounts.
-      return <ViewerVideoSurface uri={signedUrl} onHandOff={() => void handleExternalOpenForMedia()} />;
+      return <ViewerVideoSurface uri={signedUrl} onHandOff={() => void handleExternalOpenForMedia()} chromeHidden={chromeTogglable && !chromeVisible} onChromeReveal={() => setChromeVisible(true)} />;
     }
     if (kind === 'audio' && signedUrl) {
       return <ViewerAudioSurface uri={signedUrl} title={file!.displayName} />;
@@ -340,6 +458,22 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
         </View>
       );
     }
+    if (officeInline && file) {
+      // OFFICE-3: los seis formatos Office V1 (Word/Excel/PowerPoint, OOXML
+      // y legacy) integrados como VISOR EMBEBIDO read-only (`type:
+      // "embedded"` y el documentType por familia llegan firmados en la
+      // config de la sesión). Los formatos Office no-V1 conservan el
+      // hand-off honesto de abajo.
+      return (
+        <ViewerOfficeSurface
+          file={file}
+          accessToken={accessToken}
+          onExternalOpen={() => void handleExternalOpen()}
+          externalAvailable={stagedUri !== null}
+          externalBusy={busy}
+        />
+      );
+    }
     if (cannotPreview) {
       return (
         <View style={styles.center}>
@@ -371,6 +505,58 @@ export function HomeCloudFileViewer({ file, accessToken, onClose, onExternalActi
 /** The honest reason a PDF could not be rendered INLINE on this device. */
 export const VIEWER_PDF_RENDER_MESSAGE =
   'El archivo se descargó bien pero este dispositivo no pudo abrirlo. Puede estar protegido con contraseña o dañado.';
+
+export type PdfViewerDiagnosticCode =
+  | 'pdf_ready_timeout'
+  | 'pdf_load_timeout'
+  | 'pdf_staging_unreadable'
+  | 'pdf_transport_error'
+  | 'pdf_webview_error'
+  | 'pdf_webview_http_error'
+  | 'pdf_engine_corrupt'
+  | 'pdf_engine_missing'
+  | 'pdf_get_document_exception'
+  | 'pdf_get_document_rejected'
+  | 'pdf_page_setup_failed';
+
+function pdfFailure(
+  title: string,
+  message: string,
+  diagnosticCode: PdfViewerDiagnosticCode,
+  telemetry?: PdfLoadErrorTelemetry,
+): { title: string; message: string } {
+  const details = pdfDiagnosticDetails(diagnosticCode, telemetry);
+  return { title, message: `${message}\n\n${details}` };
+}
+
+function pdfDiagnosticDetails(diagnosticCode: PdfViewerDiagnosticCode, telemetry?: PdfLoadErrorTelemetry): string {
+  const details = [`Código de diagnóstico: ${diagnosticCode}.`];
+  if (telemetry?.stage) details.push(`Etapa: ${telemetry.stage}.`);
+  if (telemetry?.engineName) details.push(`Clase: ${telemetry.engineName}.`);
+  if (typeof telemetry?.byteLength === 'number') details.push(`Bytes: ${telemetry.byteLength}.`);
+  if (typeof telemetry?.receivedChunks === 'number' || typeof telemetry?.totalChunks === 'number') {
+    details.push(`Chunks: ${telemetry.receivedChunks ?? 0}/${telemetry.totalChunks ?? 0}.`);
+  }
+  if (typeof telemetry?.pages === 'number') details.push(`Páginas: ${telemetry.pages}.`);
+  if (typeof telemetry?.durationMs === 'number') details.push(`Duración: ${telemetry.durationMs} ms.`);
+  if (typeof telemetry?.engineReady === 'boolean') details.push(`Motor listo: ${telemetry.engineReady ? 'sí' : 'no'}.`);
+  return details.join(' ');
+}
+
+function pdfDiagnosticForLoadError(message: Extract<ViewerToRnMessage, { type: 'LOAD_ERROR' }>): PdfViewerDiagnosticCode {
+  if (message.code === 'corrupt') return 'pdf_engine_corrupt';
+  if (message.stage === 'engine_missing' || message.code === 'engine_unavailable') return 'pdf_engine_missing';
+  if (message.stage === 'get_document_call') return 'pdf_get_document_exception';
+  if (message.stage === 'page_setup') return 'pdf_page_setup_failed';
+  return 'pdf_get_document_rejected';
+}
+
+export function allowPdfViewerNavigation(request: unknown): boolean {
+  const url = typeof (request as { url?: unknown } | null)?.url === 'string'
+    ? (request as { url: string }).url
+    : '';
+  return url === 'about:blank' || url.startsWith('about:blank#') || url === 'about:srcdoc';
+}
 
 /** The honest reason a video could not be DECODED on this device. */
 export const VIEWER_VIDEO_RENDER_MESSAGE =
@@ -422,6 +608,19 @@ export function ViewerPdfSurface({
     setSessionKey(`pdf-${pdfSessionCounter++}`);
   }
   const [page, setPage] = useState<{ page: number; pages: number } | null>(null);
+  // HC-POL-059 — the page indicator is a CHIP, not permanent chrome: it appears
+  // on the page change the member caused and fades away again, so it never sits
+  // over the document it exists to describe.
+  const [chipVisible, setChipVisible] = useState(false);
+  const chipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPageChip = useCallback(() => {
+    setChipVisible(true);
+    if (chipTimerRef.current) clearTimeout(chipTimerRef.current);
+    chipTimerRef.current = setTimeout(() => setChipVisible(false), 2000);
+  }, []);
+  useEffect(() => () => {
+    if (chipTimerRef.current) clearTimeout(chipTimerRef.current);
+  }, []);
   const stateRef = useRef({
     session: '',
     settled: false,
@@ -476,7 +675,7 @@ export function ViewerPdfSurface({
     const loadMs = timeouts?.loadMs ?? PDF_VIEWER_LOAD_TIMEOUT_MS;
     if (state.loadTimer) clearTimeout(state.loadTimer);
     state.loadTimer = setTimeout(() => {
-      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+      failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_load_timeout'));
     }, loadMs);
   }, [failOnce, sessionKey, sessionState, timeouts]);
 
@@ -487,7 +686,7 @@ export function ViewerPdfSurface({
     const readyMs = timeouts?.readyMs ?? PDF_VIEWER_READY_TIMEOUT_MS;
     state.readyTimer = setTimeout(() => {
       if (!active) return;
-      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+      failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_ready_timeout'));
     }, readyMs);
     // The gate runs on the REAL staged size: metadata can be stale, the file
     // on disk cannot. Oversized documents never reach the bridge at all.
@@ -495,7 +694,7 @@ export function ViewerPdfSurface({
     try {
       staged = new File(uri);
     } catch {
-      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+      failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_staging_unreadable'));
       return () => { active = false; };
     }
     const gate = pdfInlineEligibility(staged.size ?? null);
@@ -504,7 +703,7 @@ export function ViewerPdfSurface({
       return () => { active = false; };
     }
     if (!gate.eligible) {
-      failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+      failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_staging_unreadable'));
       return () => { active = false; };
     }
     readStagedPdfForBridge(staged)
@@ -520,7 +719,7 @@ export function ViewerPdfSurface({
           return;
         }
         void error;
-        failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+        failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_transport_error'));
       });
     return () => {
       active = false;
@@ -559,15 +758,22 @@ export function ViewerPdfSurface({
       case 'DOCUMENT_LOADED':
         if (state.loadTimer) clearTimeout(state.loadTimer);
         setPage({ page: 1, pages: message.pages });
+        showPageChip();
         break;
       case 'PAGE_CHANGED':
         setPage({ page: message.page, pages: message.pages });
+        showPageChip();
         break;
       case 'LOAD_ERROR':
         if (message.code === 'password') {
           failOnce({ title: VIEWER_PDF_PASSWORD_TITLE, message: VIEWER_PDF_PASSWORD_MESSAGE });
         } else {
-          failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE });
+          failOnce(pdfFailure(
+            'No pudimos abrir este PDF',
+            VIEWER_PDF_RENDER_MESSAGE,
+            pdfDiagnosticForLoadError(message),
+            message,
+          ));
         }
         break;
       case 'RENDER_ERROR':
@@ -580,7 +786,7 @@ export function ViewerPdfSurface({
         Linking.openURL(message.url).catch(() => undefined);
         break;
     }
-  }, [failOnce, sendDocument, sessionKey, sessionState]);
+  }, [failOnce, sendDocument, sessionKey, sessionState, showPageChip]);
 
   return (
     <View style={styles.pdfBox}>
@@ -601,14 +807,14 @@ export function ViewerPdfSurface({
         sharedCookiesEnabled={false}
         thirdPartyCookiesEnabled={false}
         mediaPlaybackRequiresUserAction
-        onShouldStartLoadWithRequest={() => false}
+        onShouldStartLoadWithRequest={allowPdfViewerNavigation}
         onMessage={handleMessage}
-        onError={() => failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE })}
-        onHttpError={() => failOnce({ title: 'No pudimos abrir este PDF', message: VIEWER_PDF_RENDER_MESSAGE })}
+        onError={() => failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_webview_error'))}
+        onHttpError={() => failOnce(pdfFailure('No pudimos abrir este PDF', VIEWER_PDF_RENDER_MESSAGE, 'pdf_webview_http_error'))}
       />
-      {page && page.pages > 1 ? (
-        <View style={styles.pdfPager}>
-          <AppText variant="caption" tone="secondary">{`${page.page} / ${page.pages}`}</AppText>
+      {page && page.pages > 1 && chipVisible ? (
+        <View style={styles.pdfPageChip} pointerEvents="none" accessibilityLabel={`Página ${page.page} de ${page.pages}`}>
+          <AppText variant="caption" weight="700">{`${page.page} / ${page.pages}`}</AppText>
         </View>
       ) : null}
     </View>
@@ -645,12 +851,21 @@ function getPdfViewerHtml(): string {
  * That gets its OWN honest surface plus an explicit hand-off, and it never throws the
  * member into another app on its own.
  */
-function ViewerVideoSurface({ uri, onHandOff }: { uri: string; onHandOff: () => void }) {
+function ViewerVideoSurface({ uri, onHandOff, chromeHidden = false, onChromeReveal }: { uri: string; onHandOff: () => void; chromeHidden?: boolean; onChromeReveal?: () => void }) {
   const player = useVideoPlayer(uri);
   const failed = player.status === 'error';
   return (
     <View style={styles.mediaBox}>
       <VideoView player={player} style={styles.media} nativeControls contentFit="contain" />
+      {/* HC-POL-058 — while the chrome is hidden the native controls are not
+          what the member is reaching for: any tap on the media reveals the
+          chrome again. While the chrome is VISIBLE this overlay is absent, so
+          the native player controls own every gesture. */}
+      {chromeHidden && onChromeReveal ? (
+        <Pressable style={styles.chromeReveal} onPress={onChromeReveal} accessibilityRole="button" accessibilityLabel="Mostrar los controles del visor">
+          <View />
+        </Pressable>
+      ) : null}
       {failed ? (
         <View style={styles.inlineFailure}>
           <AppText variant="caption" tone="danger" align="center">{VIEWER_VIDEO_RENDER_MESSAGE}</AppText>
@@ -691,6 +906,237 @@ function ViewerAudioSurface({ uri, title }: { uri: string; title: string }) {
   );
 }
 
+/**
+ * Superficie Office (OFFICE-3: DOCX/DOC/XLSX/XLS/PPTX/PPT, read-only;
+ * OFFICE-2: visor embebido).
+ *
+ * La sesión trae la config firmada por el backend con `type: "embedded"`,
+ * `editorConfig.mode: "view"` y el `documentType` por familia (word | cell |
+ * slide): el WebView muestra el CONTENIDO del documento (páginas legibles,
+ * hojas con pestañas, slides navegables, zoom y scroll del propio visor
+ * embebido), no un workspace de edición. Sin enlaces de
+ * compartir/embeber/descargar por parte del DocServer: el original se
+ * comparte desde HomePlus.
+ *
+ * Fases: preparando (sesión autorizada) -> cargando (editor) -> visible.
+ * Cerrar cancela la sesión best-effort; la expiración la impone el backend.
+ * El WebView solo navega al origen del DocServer entregado POR SESIÓN.
+ * `domStorageEnabled` es requerido por el editor (a diferencia del PDF
+ * bloqueado); la compensación es el allowlist estricto de navegación.
+ *
+ * Exportada (no solo local) para que la suite monte la superficie REAL;
+ * producción la usa siempre a través del Viewer.
+ */
+export function ViewerOfficeSurface({
+  file,
+  accessToken,
+  onExternalOpen,
+  externalAvailable,
+  externalBusy,
+}: {
+  file: { readonly id: string; readonly displayName: string };
+  accessToken: string;
+  onExternalOpen: () => void;
+  externalAvailable: boolean;
+  externalBusy: boolean;
+}) {
+  const [status, setStatus] = useState<'preparing' | 'loading' | 'visible' | 'failed'>('preparing');
+  const [session, setSession] = useState<OfficeViewingSession | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // OFFICE-2: `appReady` distingue "el editor arrancó pero el documento no
+  // llegó" (descarga/conversión) de "ni siquiera arrancó" (api.js/red/init).
+  // Solo alimenta el código de diagnóstico; nunca expone URLs ni tokens.
+  const [appReady, setAppReady] = useState(false);
+  const [html, setHtml] = useState<string | null>(null);
+  const sessionRef = useRef<string | null>(null);
+  // HC-POL-061 — an EXPLICIT retry: a failed session is re-created from scratch
+  // (a new authorized session, never a replay of the dead one), and the honest
+  // hand-off stays offered beside it.
+  const [retryToken, setRetryToken] = useState(0);
+  // HC-POL-061 — the loading overlay fades out only when the bridge has REALLY
+  // confirmed DOCUMENT_READY. A WebView that merely mounted never crosses it.
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+  const [overlayGone, setOverlayGone] = useState(false);
+  const reducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    let active = true;
+    const targetId = file.id;
+    setStatus('preparing');
+    setSession(null);
+    setError(null);
+    setAppReady(false);
+    setHtml(null);
+    setOverlayGone(false);
+    overlayOpacity.setValue(1);
+    createOfficeViewingSession(accessToken, targetId)
+      .then((created) => {
+        if (!active) {
+          // La pantalla ya se fue: cancelar lo recién creado.
+          void cancelOfficeViewingSession(accessToken, created.sessionId);
+          return;
+        }
+        const nextHtml = buildOfficeViewerHtml({
+          apiJsUrl: `${created.documentServerUrl.replace(/\/+$/, '')}/web-apps/apps/api/documents/api.js`,
+          config: created.config,
+          token: created.token,
+        });
+        sessionRef.current = created.sessionId;
+        setSession(created);
+        setHtml(nextHtml);
+        setStatus('loading');
+      })
+      .catch(() => {
+        if (!active) return;
+        setError('No pudimos preparar este documento. Revisá tu conexión o intentá de nuevo. Código: office_session_failed.');
+        setStatus('failed');
+      });
+    return () => {
+      active = false;
+      const pending = sessionRef.current;
+      sessionRef.current = null;
+      if (pending) void cancelOfficeViewingSession(accessToken, pending);
+    };
+  }, [file.id, accessToken, retryToken, overlayOpacity]);
+
+  useEffect(() => {
+    if (status !== 'loading') return undefined;
+    const timer = setTimeout(() => {
+      // Sin DOCUMENT_READY en 60 s: fallo honesto con etapa. Si la app
+      // arrancó, el documento no llegó (descarga/conversión, OFFICE-2);
+      // si no, falló el arranque (red/api.js/init) o el WebView miente.
+      setError(
+        appReady
+          ? 'El editor arrancó pero el documento no terminó de cargar. Código: office_timeout_app_ready.'
+          : 'El visor tardó demasiado en responder. Código: office_timeout_no_app_ready.',
+      );
+      setStatus('failed');
+    }, OFFICE_VIEWER_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [status, appReady]);
+
+  const allowedOrigin = useMemo(
+    () => (session ? officeViewerAllowedOrigin(session.documentServerUrl) : null),
+    [session],
+  );
+
+  const handleMessage = useCallback((event: { nativeEvent: { data: unknown } }) => {
+    const message = parseOfficeViewerMessage(event.nativeEvent.data);
+    if (!message) return;
+    if (message.type === 'APP_READY') {
+      setAppReady(true);
+      return;
+    }
+    if (message.type === 'DOCUMENT_READY') {
+      // HC-POL-061 — READY is what crosses the loading overlay away, and it is
+      // the BRIDGE's word, never the WebView's mount. The overlay fades over
+      // 200 ms so the document arrives instead of flashing in.
+      setStatus('visible');
+      Animated.timing(overlayOpacity, {
+        toValue: 0,
+        duration: reducedMotion ? 40 : MOTION.officeReady,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(() => setOverlayGone(true));
+      return;
+    }
+    // LOAD_ERROR trae un código acotado del puente (`api-missing`,
+    // `editor-error:<detalle>`…): se muestra tal cual, sin URLs ni tokens.
+    setError(`Este dispositivo no pudo mostrar el documento. Código: ${message.message}.`);
+    setStatus('failed');
+  }, [overlayOpacity, reducedMotion]);
+
+  if (status === 'preparing') {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={colors.brand} />
+        <AppText variant="caption" tone="secondary">Preparando documento…</AppText>
+      </View>
+    );
+  }
+
+  if (status === 'failed') {
+    return (
+      <View style={styles.center}>
+        <HomePlusIcon name="alert-circle-outline" size={28} color={colors.danger.base} />
+        <AppText variant="title3" weight="800" align="center">No pudimos mostrar el archivo</AppText>
+        <AppText variant="body" tone="secondary" align="center">{error ?? 'Intentá de nuevo.'}</AppText>
+        {/* HC-POL-061 — the explicit retry: a FRESH authorized session, never a
+            replay of the failed one. The honest system hand-off stays beside it. */}
+        <AppButton
+          title="Reintentar"
+          variant="secondary"
+          onPress={() => setRetryToken((previous) => previous + 1)}
+          style={{ marginTop: spacing[3] }}
+          accessibilityLabel="Reintentar la vista previa del documento"
+        />
+        <AppButton
+          title="Abrir o compartir con…"
+          onPress={onExternalOpen}
+          disabled={externalBusy || !externalAvailable}
+          style={{ marginTop: spacing[2] }}
+          accessibilityLabel="Abrir o compartir el archivo con otra app"
+        />
+      </View>
+    );
+  }
+
+  if (!html || !allowedOrigin) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={colors.brand} />
+        <AppText variant="caption" tone="secondary">Cargando visor…</AppText>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.officeBox}>
+      <WebView
+        key={session?.sessionId ?? file.id}
+        source={{ html, baseUrl: allowedOrigin }}
+        originWhitelist={[allowedOrigin]}
+        style={styles.office}
+        javaScriptEnabled
+        domStorageEnabled
+        allowFileAccess={false}
+        allowFileAccessFromFileURLs={false}
+        allowUniversalAccessFromFileURLs={false}
+        allowingReadAccessToURL={undefined}
+        setSupportMultipleWindows={false}
+        javaScriptCanOpenWindowsAutomatically={false}
+        sharedCookiesEnabled={false}
+        thirdPartyCookiesEnabled={false}
+        mediaPlaybackRequiresUserAction
+        mixedContentMode="never"
+        onShouldStartLoadWithRequest={(request) => {
+          const url = typeof request?.url === 'string' ? request.url : '';
+          if (url === 'about:blank' || url.startsWith('about:blank#') || url === 'about:srcdoc') return true;
+          return url.startsWith(`${allowedOrigin}/`);
+        }}
+        onMessage={handleMessage}
+        onError={() => {
+          setError('Este dispositivo no pudo mostrar el documento. Código: office_webview_error.');
+          setStatus('failed');
+        }}
+        onHttpError={() => {
+          setError('Este dispositivo no pudo mostrar el documento. Código: office_webview_http_error.');
+          setStatus('failed');
+        }}
+      />
+      {/* HC-POL-061 — the overlay stays until the bridge confirms READY, then it
+          FADES: the document is revealed, not swapped in. Once the fade finished
+          it unmounts, so it can never intercept an editor touch. */}
+      {status === 'loading' && !overlayGone ? (
+        <Animated.View style={[styles.officeLoading, { opacity: overlayOpacity }]}>
+          <ActivityIndicator color={colors.brand} />
+          <AppText variant="caption" tone="secondary">Cargando visor…</AppText>
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background.base, paddingHorizontal: spacing[5] },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing[3], marginBottom: spacing[2] },
@@ -701,8 +1147,35 @@ const styles = StyleSheet.create({
   inlineFailure: { alignItems: 'center', gap: spacing[2], paddingVertical: spacing[3] },
   pdfBox: { width: '100%', minHeight: 480, borderRadius: radius.lg, overflow: 'hidden' },
   pdf: { width: '100%', height: 560, backgroundColor: colors.surface.card },
-  pdfPager: { alignItems: 'center', paddingVertical: spacing[1] },
+  /** HC-POL-059 — the auto-hiding page chip. Absolute at the box's corner, so it
+      describes the document without ever displacing or permanently covering it. */
+  pdfPageChip: {
+    position: 'absolute',
+    top: spacing[2],
+    right: spacing[2],
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1],
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.surface.card,
+  },
   media: { width: '100%', height: 320, borderRadius: radius.lg, backgroundColor: colors.surface.card },
+  officeFill: { flex: 1 },
+  officeBox: { flex: 1, borderRadius: radius.lg, overflow: 'hidden' },
+  office: { flex: 1, backgroundColor: '#ffffff' },
+  officeLoading: { alignItems: 'center', paddingVertical: spacing[3], gap: spacing[1] },
+  /** HC-POL-058 — the fading chrome block. Layout-neutral: opacity only. */
+  chromeBlock: { marginBottom: spacing[2] },
+  chromeToggle: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+  },
+  /** The whole-media reveal while the video chrome is hidden. */
+  chromeReveal: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   textBlock: { gap: spacing[2] },
   mono: { lineHeight: 20 },
 });

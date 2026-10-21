@@ -172,6 +172,16 @@ const reactStub: Record<string, unknown> = {
   useCallback: (...args: never[]) => hostOf().useCallback(...(args as [never])),
   useEffect: (...args: never[]) => hostOf().useEffect(...(args as [never])),
   createElement: (...args: never[]) => hostOf().createElement(...(args as [never, never, ...never[]])),
+  // The shared reduced-motion hook (used by the HC-POL viewer transition) is
+  // built on `useSyncExternalStore`, so the stub has to expose it too.
+  useSyncExternalStore: (
+    subscribe: (onStoreChange: () => void) => () => void,
+    getSnapshot: () => unknown,
+  ) => {
+    const [value, setValue] = hostOf().useState(getSnapshot as () => never);
+    hostOf().useEffect(() => subscribe(() => setValue(getSnapshot as () => never)), []);
+    return value;
+  },
 };
 reactStub.default = reactStub;
 reactStub.Fragment = Symbol.for('react.fragment');
@@ -200,6 +210,54 @@ const reactNativeStub = {
       backHandlers.set(key, handler);
       return { remove: () => { backHandlers.delete(key); } };
     },
+  },
+  // The animation clock the HC-POL viewer transition needs. Deterministic:
+  // every animation settles on its target in one step, so a tree can be asserted
+  // in the state a device would have reached. `Animated.View` keeps its own tag
+  // so assertions about a plain `View` never count animated wrappers.
+  Animated: {
+    createAnimatedComponent: (component: unknown) => component,
+    View: 'Animated.View',
+    Text: 'Animated.Text',
+    Image: 'Animated.Image',
+    Value: class AnimatedValueStub {
+      private current: number;
+      constructor(initial: number) { this.current = initial; }
+      setValue(next: number): void { this.current = next; }
+      interpolate(): this { return this; }
+      addListener(): string { return 'listener'; }
+      removeListener(): void { }
+      stopAnimation(callback?: (value: number) => void): void { callback?.(this.current); }
+    },
+    timing: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    spring: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    sequence: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+    parallel: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+  },
+  Easing: {
+    linear: (value: number) => value,
+    ease: (value: number) => value,
+    quad: (value: number) => value,
+    cubic: (value: number) => value,
+    in: () => (value: number) => value,
+    out: () => (value: number) => value,
+    inOut: () => (value: number) => value,
+  },
+  AccessibilityInfo: {
+    isReduceMotionEnabled: async () => false,
+    addEventListener: () => ({ remove: () => undefined }),
   },
 };
 
@@ -608,71 +666,90 @@ export async function runViewerBranchTests(options: {
     record((wv?.props as Record<string, unknown>)?.allowFileAccess === false,
       'V-L1h. file access is explicitly off');
     record(typeof (wv?.props as Record<string, unknown>)?.onShouldStartLoadWithRequest === 'function'
+      && ((wv?.props as Record<string, unknown>)?.onShouldStartLoadWithRequest as (request: unknown) => boolean)({ url: 'about:blank' }) === true,
+      'V-L1i. the local bootstrap document is allowed to load, so iOS cannot blank the viewer at startup');
+    record(typeof (wv?.props as Record<string, unknown>)?.onShouldStartLoadWithRequest === 'function'
       && ((wv?.props as Record<string, unknown>)?.onShouldStartLoadWithRequest as (request: unknown) => boolean)({ url: 'https://evil.example/' }) === false,
-      'V-L1i. navigation is blocked: even an explicit load request returns false');
+      'V-L1j. remote navigation is still blocked: an explicit external load request returns false');
     record(native.downloads.length === 1 && native.downloads[0]?.url === access.signedUrl,
-      'V-L1j. exactly one authorized transfer staged the bytes, from the signed original');
+      'V-L1k. exactly one authorized transfer staged the bytes, from the signed original');
     record(native.downloads[0]?.destination.startsWith('file:///cache/'),
-      'V-L1k. into the TEMPORARY cache, never into a folder that looks like a library');
+      'V-L1l. into the TEMPORARY cache, never into a folder that looks like a library');
     record(native.downloads[0]?.idempotent === true,
-      'V-L1l. idempotently, so a repeat view replaces its own slot instead of colliding');
+      'V-L1m. idempotently, so a repeat view replaces its own slot instead of colliding');
 
     // Drive the versioned protocol: READY -> INIT + chunks -> DOCUMENT_LOADED.
     const { sent } = attachBridge(tree);
     await surface.settle();
     fireViewer(tree, { v: 1, type: 'READY', docId: 'boot' });
     const inits = sentMessages(sent, 'INIT_DOCUMENT');
-    record(inits.length === 1, 'V-L1m. READY triggers exactly one bounded transfer session');
+    record(inits.length === 1, 'V-L1n. READY triggers exactly one bounded transfer session');
     const docId = inits[0]?.docId;
     record(typeof docId === 'string' && (inits[0]?.byteLength as number) === Buffer.byteLength(PDF_BODY),
-      'V-L1n. and the session declares the REAL byte length');
+      'V-L1o. and the session declares the REAL byte length');
     fireViewer(tree, { v: 1, type: 'READY', docId: 'boot' });
     record(sentMessages(sent, 'INIT_DOCUMENT').length === 1,
-      'V-L1o. a duplicate READY does NOT re-send the document');
+      'V-L1p. a duplicate READY does NOT re-send the document');
     const chunks = sentMessages(sent, 'LOAD_CHUNK').sort((a, b) => Number(a.index) - Number(b.index));
     const reassembled = Buffer.from(chunks.map((chunk) => String(chunk.data)).join(''), 'base64').toString('utf8');
     record(chunks.length >= 1 && reassembled === PDF_BODY,
-      `V-L1p. the chunks reassemble to the EXACT staged bytes (${chunks.length} chunk(s))`);
+      `V-L1q. the chunks reassemble to the EXACT staged bytes (${chunks.length} chunk(s))`);
     record(sent.every((raw) => { try { JSON.parse(raw); return true; } catch { return false; } }),
-      'V-L1q. every bridge message is well-formed protocol JSON');
+      'V-L1r. every bridge message is well-formed protocol JSON');
     fireViewer(tree, { v: 1, type: 'DOCUMENT_LOADED', docId, pages: 4 });
     surface.render();
     tree = surface.expanded();
     record(renderText(tree).some((text) => text.includes('1 / 4')),
-      'V-L1r. the shell reports the current page once the document loads');
+      'V-L1s. the shell reports the current page once the document loads');
     fireViewer(tree, { v: 1, type: 'PAGE_CHANGED', docId, page: 3, pages: 4 });
     surface.render();
     tree = surface.expanded();
     record(renderText(tree).some((text) => text.includes('3 / 4')),
-      'V-L1s. and follows page movement');
+      'V-L1t. and follows page movement');
     // A stale session cannot steer the live one.
     fireViewer(tree, { v: 1, type: 'PAGE_CHANGED', docId: 'stale-session', page: 2, pages: 4 });
     surface.render();
     tree = surface.expanded();
     record(renderText(tree).some((text) => text.includes('3 / 4')),
-      'V-L1t. a message for a FOREIGN session is ignored');
+      'V-L1u. a message for a FOREIGN session is ignored');
     // A single bad page must not nuke a readable document.
     fireViewer(tree, { v: 1, type: 'RENDER_ERROR', docId, page: 3 });
     surface.render();
     tree = surface.expanded();
     record(renderText(tree).some((text) => text.includes('3 / 4')),
-      'V-L1u. a single RENDER_ERROR keeps the document instead of failing it');
+      'V-L1v. a single RENDER_ERROR keeps the document instead of failing it');
 
     // A renderer that cannot open the document gets an HONEST surface, never a blank one.
-    fireViewer(tree, { v: 1, type: 'LOAD_ERROR', docId, code: 'corrupt' });
+    fireViewer(tree, {
+      v: 1,
+      type: 'LOAD_ERROR',
+      docId,
+      code: 'corrupt',
+      stage: 'decode_size_mismatch',
+      engineName: 'none',
+      byteLength: Buffer.byteLength(PDF_BODY),
+      totalChunks: chunks.length,
+      receivedChunks: chunks.length,
+      durationMs: 12,
+      engineReady: true,
+    });
     surface.render();
     const failed = surface.expanded();
     const failedText = renderText(failed).join(' ');
     record(/no pudimos abrir este pdf/i.test(failedText),
-      'V-L1v. a PDF the device cannot open says so SPECIFICALLY instead of showing nothing');
+      'V-L1w. a PDF the device cannot open says so SPECIFICALLY instead of showing nothing');
     record(/contraseña|dañado/i.test(failedText),
-      'V-L1w. and it names the two honest reasons: password-protected or damaged');
+      'V-L1x. and it names the two honest reasons: password-protected or damaged');
+    record(/pdf_engine_corrupt/.test(failedText),
+      'V-L1y. and includes a sanitized diagnostic code for device QA without leaking URLs or contents');
+    record(/decode_size_mismatch/.test(failedText) && /Chunks:/.test(failedText) && /Motor listo: sí/.test(failedText),
+      'V-L1y2. and the sanitized stage/counter telemetry is visible without paths, tokens or raw contents');
     record(findAll(failed, (element) => element.type === 'AppButton' && element.props?.title === 'Abrir o compartir con…').length === 1,
-      'V-L1x. and it still offers the explicit system hand-off');
-    record(!/at \w+ \(|Error:|stack/i.test(failedText), 'V-L1y. and never a stack trace');
+      'V-L1z. and it still offers the explicit system hand-off');
+    record(!/at \w+ \(|Error:|stack/i.test(failedText), 'V-L1aa. and never a stack trace');
     surface.unmount();
     record(native.deletions.some((uri) => uri.includes('viewer-c-pdf.pdf')),
-      'V-L1z. closing the Viewer removes the staged copy');
+      'V-L1ab. closing the Viewer removes the staged copy');
   }
 
   console.log('\n--- V-L2: a target change releases the previous staging ---');
@@ -788,16 +865,102 @@ export async function runViewerBranchTests(options: {
     backSurface.unmount();
     record(backHandlers.size === 0, 'V-L5g. with no handler left behind');
 
-    const office = await mount(file({ id: 'c-docx', displayName: 'plan.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
-    const officeTree = office.expanded();
-    const officeText = renderText(officeTree).join(' ');
-    record(/vista previa no disponible/i.test(officeText), 'V-L5h. an Office document is an honest external hand-off');
-    record(findAll(officeTree, (element) => element.type === 'AppButton' && element.props?.title === 'Abrir o compartir con…').length === 1,
-      'V-L5i. with the hand-off actually offered');
-    record(findOne(officeTree, (element) => element.type === 'WebView') === null,
-      'V-L5j. and no PDF renderer is mounted for it, because it is not a PDF');
-    record(native.downloads.length === 1, 'V-L5k. and the exact original WAS staged, so the hand-off is real');
-    office.unmount();
+    // OFFICE-3: XLSX/XLS/PPTX/PPT ya NO terminan en "vista previa no
+    // disponible": enrutan a la superficie Office integrada (sesión
+    // autorizada), igual que DOCX. En este harness el backend no existe,
+    // así que la superficie queda pidiendo la sesión ("Preparando
+    // documento…") — la rama de hand-off externo deja de ser la ÚNICA.
+    const OFFICE_V1_CASES = [
+      ['V-L5m', 'plan.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+      ['V-L5m2', 'PLAN.XLS', 'application/vnd.ms-excel'],
+      ['V-L5m3', 'deck.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+      ['V-L5m4', 'DECK.PPT', 'application/vnd.ms-powerpoint'],
+    ] as const;
+    for (const [label, name, mime] of OFFICE_V1_CASES) {
+      const office = await mount(file({ id: `c-office-${label.toLowerCase()}`, displayName: name, mimeType: mime }));
+      const officeText = renderText(office.expanded()).join(' ');
+      record(/preparando documento/i.test(officeText),
+        `${label}. ${name} routes into the integrated Office surface (OFFICE-3), not the no-preview branch`);
+      record(native.downloads.length === 1,
+        `${label}. the exact original WAS staged, so the backup hand-off stays real`);
+      office.unmount();
+    }
+
+    // Los formatos Office NO-V1 (XLSM, ODT, RTF, ODP…) conservan el hand-off
+    // externo honesto: OFFICE-3 no finge compatibilidad con los que no son de
+    // los seis formatos V1.
+    const nonV1 = await mount(file({ id: 'c-xlsm', displayName: 'libro.xlsm', mimeType: 'application/vnd.ms-excel.sheet.macroEnabled.12' }));
+    const nonV1Tree = nonV1.expanded();
+    record(/vista previa no disponible/i.test(renderText(nonV1Tree).join(' ')),
+      'V-L5n. a non-V1 Office format (XLSM) keeps the honest external hand-off');
+    record(findAll(nonV1Tree, (element) => element.type === 'AppButton' && element.props?.title === 'Abrir o compartir con…').length === 1,
+      'V-L5n2. with the hand-off actually offered');
+    record(findOne(nonV1Tree, (element) => element.type === 'WebView') === null,
+      'V-L5n3. and no renderer WebView is mounted for it');
+    nonV1.unmount();
+
+    // OFFICE-1: un DOCX ya no termina en "vista previa no disponible": entra a
+    // la superficie Office (sesión autorizada). Se monta la superficie REAL
+    // directamente (precedente V-L6i). En este harness el backend no existe,
+    // así que la sesión falla y la superficie muestra el fallo honesto con el
+    // hand-off todavía ofrecido — nunca una pantalla en blanco.
+    const officeSurface = (viewerModule as { ViewerOfficeSurface?: unknown }).ViewerOfficeSurface;
+    record(typeof officeSurface === 'function', 'V-L5h2. the real Office surface is exported for direct mounting');
+    if (typeof officeSurface === 'function') {
+      const surface = officeSurface as (props: Record<string, unknown>) => unknown;
+      let externalCalls = 0;
+      const box = {
+        current: {
+          file: { id: 'c-docx', displayName: 'plan.docx' },
+          accessToken: 'token-de-prueba',
+          onExternalOpen: () => { externalCalls += 1; },
+          externalAvailable: true,
+          externalBusy: false,
+        },
+      };
+      const host = createViewerHost();
+      activeViewerHost = host;
+      const view = () => surface(box.current);
+      host.__render(view);
+      host.__commit();
+      const direct = {
+        render: () => { host.__render(view); host.__commit(); },
+        settle: async (rounds = 10, waitMs = 5) => { await host.__settle(view, rounds, waitMs); host.__render(view); host.__commit(); },
+        expanded: () => expand(host.__lastTree(), 0),
+        unmount: () => host.__unmount(),
+      };
+      const preparingText = renderText(direct.expanded()).join(' ');
+      record(/preparando documento/i.test(preparingText),
+        'V-L5h3. a DOCX enters the integrated Office surface instead of the no-preview branch');
+      await direct.settle();
+      const failedTree = direct.expanded();
+      const failedText = renderText(failedTree).join(' ');
+      record(/no pudimos mostrar/i.test(failedText),
+        'V-L5i2. when the session cannot be authorized it fails honestly, never blank');
+      const handoff = findAll(failedTree, (element) => element.type === 'AppButton' && element.props?.title === 'Abrir o compartir con…');
+      record(handoff.length === 1 && handoff[0]?.props?.disabled !== true,
+        'V-L5i3. with the system hand-off still offered from the Office failure');
+      (handoff[0]?.props?.onPress as (() => void) | undefined)?.();
+      record(externalCalls === 1,
+        'V-L5i4. and the hand-off button actually fires the system hand-off');
+      record(findOne(failedTree, (element) => element.type === 'Image') === null,
+        'V-L5j2. and no foreign renderer is mounted for it');
+      // Cerrar cancela la sesión best-effort: desmontar no debe lanzar.
+      let unmountThrew = false;
+      try {
+        direct.unmount();
+      } catch {
+        unmountThrew = true;
+      }
+      record(!unmountThrew, 'V-L5j3. closing cancels the session best-effort without throwing');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    // El Viewer integrado también se alcanza desde el Viewer completo.
+    const word = await mount(file({ id: 'c-docx2', displayName: 'plan.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+    const wordPreparingText = renderText(word.expanded()).join(' ');
+    record(/preparando documento/i.test(wordPreparingText),
+      'V-L5h4. the full Viewer routes a DOCX into the Office surface');
+    word.unmount();
 
     const svg = await mount(file({ id: 'c-svg', displayName: 'logo.svg', mimeType: 'image/svg+xml' }));
     const svgTree = svg.expanded();
@@ -838,6 +1001,35 @@ export async function runViewerBranchTests(options: {
       'V-L6b. and still offers the safe hand-off');
     locked.unmount();
 
+    // V-L6b2. A generic engine rejection is NOT mislabeled as unsupported.
+    const engineFailed = await mount(file({ id: 'c-engine', displayName: 'motor.pdf' }));
+    stagedText.body = PDF_BODY;
+    const engineTree = refresh(engineFailed);
+    const engineBridge = attachBridge(engineTree);
+    await engineFailed.settle();
+    fireViewer(engineTree, { v: 1, type: 'READY', docId: 'boot' });
+    const engineInit = sentMessages(engineBridge.sent, 'INIT_DOCUMENT')[0];
+    fireViewer(engineTree, {
+      v: 1,
+      type: 'LOAD_ERROR',
+      docId: engineInit?.docId,
+      code: 'engine_failed',
+      stage: 'get_document_promise',
+      engineName: 'Error',
+      byteLength: Buffer.byteLength(PDF_BODY),
+      totalChunks: sentMessages(engineBridge.sent, 'LOAD_CHUNK').length,
+      receivedChunks: sentMessages(engineBridge.sent, 'LOAD_CHUNK').length,
+      durationMs: 44,
+      engineReady: true,
+    });
+    engineFailed.render();
+    const engineText = renderText(engineFailed.expanded()).join(' ');
+    record(/pdf_get_document_rejected/.test(engineText) && /get_document_promise/.test(engineText) && /Clase: Error/.test(engineText),
+      'V-L6b2. a real engine rejection reports its stage/error class instead of the old unsupported bucket');
+    record(!/pdf_engine_unsupported/.test(engineText) && !/token=secret|file:\/\/|cache\/HomeCloudViewer/i.test(engineText),
+      'V-L6b3. and the engine diagnostic leaks no old broad unsupported code, token, file URI or cache path');
+    engineFailed.unmount();
+
     // V-L6c. An oversized PDF never reaches the bridge: intentional fallback.
     const huge = await mount(file({ id: 'c-huge', displayName: 'manual.pdf' }));
     stagedText.body = `x`.repeat(8 * 1024 * 1024 + 1);
@@ -877,6 +1069,7 @@ export async function runViewerBranchTests(options: {
     fireViewer(linkedTree, { v: 1, type: 'SELF_DESTRUCT', docId: linkedDoc });
     fireViewer(linkedTree, { v: 999, type: 'READY', docId: linkedDoc });
     fireViewer(linkedTree, { v: 1, type: 'LOAD_ERROR', docId: linkedDoc, code: 'rm -rf' });
+    fireViewer(linkedTree, { v: 1, type: 'LOAD_ERROR', docId: linkedDoc, code: 'unsupported' });
     linked.render();
     const hostileTree = linked.expanded();
     const hostileText = renderText(hostileTree).join(' ');

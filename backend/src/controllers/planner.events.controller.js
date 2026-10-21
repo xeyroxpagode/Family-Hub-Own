@@ -12,7 +12,7 @@ const {
   withIdempotency,
 } = require('../lib/plannerIdempotencyAdapter');
 const { resolveCapabilities, assertCapability } = require('../lib/plannerCapabilities');
-const { sendApiError } = require('../lib/httpErrors');
+const { createHttpError, sendApiError } = require('../lib/httpErrors');
 
 function buildCapabilities(context) {
   return resolveCapabilities({
@@ -20,6 +20,29 @@ function buildCapabilities(context) {
     membershipStatus: context.membership?.status,
     household: context.household,
   });
+}
+
+// S7-01: origin_* lo emite el SERVIDOR. La via HTTP publica de Planner
+// rechaza el intento de inyectarlo.
+const PROTECTED_ORIGIN_FIELDS = Object.freeze([
+  'origin_module',
+  'origin_entity_type',
+  'origin_entity_id',
+  'origin_reason',
+]);
+
+function assertNoOriginInjection(body) {
+  const field = PROTECTED_ORIGIN_FIELDS.find((key) =>
+    Object.prototype.hasOwnProperty.call(body ?? {}, key),
+  );
+  if (field) {
+    throw createHttpError(
+      400,
+      'La referencia de origen la define el servidor y no se puede enviar.',
+      'protected_event_origin_field',
+      { field },
+    );
+  }
 }
 
 const listEvents = async (req, res) => {
@@ -51,9 +74,11 @@ const createEvent = async (req, res) => {
     const context = await getPlannerContext(req);
     const capabilities = buildCapabilities(context);
 
-    const isPersonal = req.body?.visibility === 'personal';
-    const requiredCap = isPersonal ? 'event.create_personal' : 'event.create_household';
-    assertCapability(capabilities, requiredCap);
+    if (req.body?.visibility === 'personal' || req.body?.scope === 'personal') {
+      throw createHttpError(400, 'Los eventos personales no están disponibles.', 'personal_events_not_supported');
+    }
+    assertCapability(capabilities, 'event.create_household');
+    assertNoOriginInjection(req.body);
 
     const operation = 'planner.events.create';
     const mutationId = requireMutationId(req);

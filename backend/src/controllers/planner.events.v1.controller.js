@@ -16,6 +16,29 @@ const { createHttpError, sendApiError } = require('../lib/httpErrors');
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+// S7-01: origin_* lo emite el SERVIDOR. La via HTTP publica de Planner
+// rechaza el intento de inyectarlo (el body llega crudo al RPC).
+const PROTECTED_ORIGIN_FIELDS = Object.freeze([
+  'origin_module',
+  'origin_entity_type',
+  'origin_entity_id',
+  'origin_reason',
+]);
+
+function assertNoOriginInjection(body) {
+  const field = PROTECTED_ORIGIN_FIELDS.find((key) =>
+    Object.prototype.hasOwnProperty.call(body ?? {}, key),
+  );
+  if (field) {
+    throw createHttpError(
+      400,
+      'La referencia de origen la define el servidor y no se puede enviar.',
+      'protected_event_origin_field',
+      { field },
+    );
+  }
+}
+
 function requireUuid(value, field = 'id') {
   if (!UUID_PATTERN.test(String(value ?? ''))) {
     throw createHttpError(400, `${field} no es un UUID válido.`, 'validation_error');
@@ -62,8 +85,12 @@ async function createEventV1(req, res) {
     const context = await getEventV1Context(req);
     const operation = 'planner.events.v1.create';
     const mutation = mutationContractV2(req, operation);
+    assertNoOriginInjection(req.body);
     const scopeType = req.body?.scope ?? 'household';
-    const scopeId = scopeType === 'personal' ? context.personId : (req.body?.householdId ?? context.householdId);
+    if (scopeType !== 'household') {
+      throw createHttpError(400, 'Los eventos personales no están disponibles.', 'personal_events_not_supported');
+    }
+    const scopeId = req.body?.householdId ?? context.householdId;
     if (!scopeId) throw createHttpError(400, 'scopeId required', 'validation_error');
 
     const rpcAdapter = async (client) => {

@@ -15,6 +15,7 @@ export type AppInputVariant = 'default' | 'large' | 'multiline' | 'search';
 
 export type AppInputProps = Omit<TextInputProps, 'style'> & {
   label: string;
+  labelVisible?: boolean;
   helperText?: string;
   errorText?: string;
   variant?: AppInputVariant;
@@ -31,6 +32,7 @@ const variantHeights: Record<AppInputVariant, number> = {
 
 export function AppInput({
   label,
+  labelVisible = true,
   helperText,
   errorText,
   variant = 'default',
@@ -49,10 +51,10 @@ export function AppInput({
   const isDisabled = editable === false;
 
   return (
-    <View style={[{ gap: spacing[2] }, containerStyle]}>
-      <AppText variant="caption" tone="secondary" weight="700">
+    <View style={[{ gap: labelVisible ? spacing[2] : 0 }, containerStyle]}>
+      {labelVisible ? <AppText variant="caption" tone="secondary" weight="700">
         {label}
-      </AppText>
+      </AppText> : null}
       <TextInput
         accessibilityLabel={accessibilityLabel ?? label}
         editable={editable}

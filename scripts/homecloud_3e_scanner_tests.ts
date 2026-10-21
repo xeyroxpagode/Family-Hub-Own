@@ -14,8 +14,10 @@ import {
   buildScannerArtifact,
   buildScannerIntakeContext,
   canCreatePdf,
+  createScannerPage,
   defaultScanFileName,
   deletePage,
+  getPageEffectiveUri,
   normalizeScanFileName,
   replacePage,
   SCANNER_INTAKE_SOURCE,
@@ -31,7 +33,7 @@ function record(ok: boolean, message: string) {
   else { failCount += 1; console.error(`  FAIL: ${message}`); }
 }
 
-const page = (id: string): ScannerPage => ({ id, uri: `file:///tmp/${id}.jpg`, width: 1000, height: 1400 });
+const page = (id: string): ScannerPage => createScannerPage(id, `file:///tmp/${id}.jpg`, 1000, 1400);
 const now = new Date(2026, 8, 25, 13, 30); // 25-09-2026
 
 console.log('\n=== HC-3E SCANNER PURE LOGIC TESTS ===\n');
@@ -42,11 +44,15 @@ record(JSON.stringify(appendPage([], pages[0]).map((p) => p.id)) === '["a"]', 'a
 record(JSON.stringify(appendPage(appendPage([pages[0]], pages[1]), pages[2]).map((p) => p.id)) === '["a","b","c"]', 'append preserves capture order');
 record(appendPage(pages, page('d')).map((p) => p.id).join(',') === 'a,b,c,d', 'adding page appends at the end');
 
+// --- fresh capture contract (B1): original kept, no edit, no processed file ---
+record(pages[0].originalUri === 'file:///tmp/a.jpg' && pages[0].processedUri === null && pages[0].edit === null, 'fresh page keeps the original and no edit');
+record(getPageEffectiveUri(pages[0]) === pages[0].originalUri, 'effective uri falls back to the original');
+
 // --- retake replaces the SAME index ---
-const retaken = replacePage(pages, 'b', { id: 'b2', uri: 'file:///tmp/b2.jpg' });
+const retaken = replacePage(pages, 'b', createScannerPage('b2', 'file:///tmp/b2.jpg'));
 record(retaken.map((p) => p.id).join(',') === 'a,b2,c', 'retake keeps page position');
-record(retaken[1].uri === 'file:///tmp/b2.jpg', 'retake swaps the capture uri');
-record(retaken[0].uri === pages[0].uri && retaken[2].uri === pages[2].uri, 'retake leaves other pages untouched');
+record(retaken[1].originalUri === 'file:///tmp/b2.jpg', 'retake swaps the capture uri');
+record(retaken[0].originalUri === pages[0].originalUri && retaken[2].originalUri === pages[2].originalUri, 'retake leaves other pages untouched');
 record(pages[1].id === 'b', 'retake does not mutate the input list');
 
 // --- delete ---

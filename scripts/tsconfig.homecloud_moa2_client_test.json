@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./compiled-moa2client"
+  },
+  "include": [
+    "../front/mi-front-limpio/services/homecloud/homecloudReadService.ts"
+  ],
+  "exclude": ["node_modules"]
+}

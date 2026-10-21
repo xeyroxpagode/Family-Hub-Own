@@ -47,7 +47,9 @@ const linking: LinkingOptions<RootStackParamList> = {
               // An entity belonging to another household results in deny/not-found.
               TaskDetail: 'tasks/:entityId',
               EventDetail: 'events/:entityId',
-              GoalDetail: 'goals/:entityId',
+              // Plan deep links keep the historical `goals/` path but resolve
+              // against `planner_goals`, the single Plan root.
+              PlanDetail: 'goals/:entityId',
               PlannerSearch: 'search',
             },
           },

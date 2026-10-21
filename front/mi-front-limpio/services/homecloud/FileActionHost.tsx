@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { ActionSheet, AppButton, AppInput, AppText, DatePickerSheet, FormActionRow } from '../../components/ui';
-import { spacing } from '../../constants/theme';
+import { ActionSheet, AdaptiveActionMenu, AdaptiveMenuRow, AdaptiveMenuSeparator, AppButton, AppInput, AppText, InteractivePressable, type MenuAnchor } from '../../components/ui';
+import { HomePlusIcon } from '../../constants/icons';
+import { colors, motion, spacing } from '../../constants/theme';
 import {
   resolveFileActions,
   type HomeCloudFileActionId,
@@ -29,6 +30,7 @@ export interface FileTransferFeedback {
 
 export interface FileActionHostProps {
   file: HomeCloudFile | null;
+  anchor?: MenuAnchor | null;
   /** The household folder catalogue — the ONLY source that can answer a move. */
   folders: readonly HomeCloudFolder[];
   permissions: HomeCloudFileActionPermissions;
@@ -70,16 +72,81 @@ export interface FileActionHostProps {
    * File; it never keeps its own copy of the preference.
    */
   onFavorite: (isFavorite: boolean) => void;
+  /**
+   * LIFECYCLE V1 — send this File to the household Papelera.
+   *
+   * Reversible by contract (Restore), so the danger row asks for NO dialog:
+   * the Papelera is the recovery path, and a confirmation here would only
+   * promise protection the product does not need while hiding the honest
+   * reversal. The surface owns the mutation and the refresh.
+   */
+  onTrash: () => void;
+  /**
+   * The Papelera mutation is in flight. PER ACTION, like favoriteBusy: sending
+   * one File to the Papelera must not freeze Renombrar or Cerrar, and no other
+   * row must look busy because of it.
+   */
+  trashBusy?: boolean;
   onDownload: () => void;
   onShare: () => void;
 }
 
-type HostView = 'actions' | 'info';
+type HostView = 'actions' | 'info' | 'rename';
+
+/**
+ * HC-POL-024 — ONE information row, with the hierarchy metadata needs.
+ *
+ * Metadata is dense, so the label and the value must not compete: the label is a
+ * quiet 12-13 pt caption and the value is the 15-17 pt answer, stacked with the
+ * gap the contract names. The chevron is the EDITABLE indicator and it exists
+ * only on a row that can actually be changed — a read-only fact is never dressed
+ * up as a control, which is what "no false affordance" means here.
+ */
+function FileInfoRow({
+  label,
+  value,
+  onPress,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  onPress?: () => void;
+  disabled?: boolean;
+}) {
+  const copy = (
+    <View style={styles.rowCopy}>
+      <AppText variant="caption" tone="secondary" weight="700" style={styles.rowLabel}>{label}</AppText>
+      <AppText variant="body" numberOfLines={2} style={styles.rowValue}>{value}</AppText>
+    </View>
+  );
+  if (!onPress) {
+    return <View style={styles.row}>{copy}</View>;
+  }
+  return (
+    <InteractivePressable
+      style={styles.row}
+      onPress={() => { onPress(); }}
+      disabled={disabled}
+      haptic="light"
+      pressScale={motion.scale.card}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${value}`}
+    >
+      {copy}
+      <HomePlusIcon name="chevron-forward-outline" size={18} color={disabled ? colors.text.tertiary : colors.text.secondary} />
+    </InteractivePressable>
+  );
+}
 
 /**
  * HomeCloud Files — THE CANONICAL FILE ACTION HOST.
  *
- * One ActionSheet-based host owns the action grammar for a File: it renders what
+ * PATCH 1B — the short command catalog is a trigger-anchored COMPACT POPOVER
+ * (one 44 pt row per command), never a modal sheet of large card-buttons.
+ * Only secondary work becomes a sheet: Información and Renombrar replace the
+ * popover in the same commit (one host, one visible surface — menu and sheet
+ * never coexist, no overlapping backdrop, no stale button), and Mover hands
+ * off to the surface's shared destination picker. It renders what
  * `resolveFileActions` returns, in canonical order, capability-gated, and every
  * control carries a meaningful accessibility label. There is no second menu that
  * can perform a File operation, so "rename this file" has exactly one home.
@@ -90,23 +157,24 @@ type HostView = 'actions' | 'info';
  */
 export function FileActionHost({
   file,
+  anchor = null,
   folders,
   permissions,
   saving,
   favoriteBusy = false,
+  trashBusy = false,
   actionError = null,
   downloadFeedback,
   onClose,
   onSave,
   onMoveRequest,
   onFavorite,
+  onTrash,
   onDownload,
   onShare,
 }: FileActionHostProps) {
   const [view, setView] = useState<HostView>('actions');
   const [name, setName] = useState('');
-  const [note, setNote] = useState('');
-  const [datePicker, setDatePicker] = useState(false);
   // Which fields the member has actually typed into. Until they do, what a field
   // shows is the File's CURRENT state and not a snapshot — and it is per field,
   // because a name being edited has nothing to say about a note that is not.
@@ -115,14 +183,12 @@ export function FileActionHost({
   // each field follow the File on its own, without re-publishing when an
   // unrelated part of the File changed.
   const currentName = file?.displayName ?? '';
-  const currentNote = file?.note ?? '';
 
   // A different File is a different subject: the host reopens on the action list
   // with that File's own metadata, never with the previous File's draft.
   useEffect(() => {
     setView('actions');
     setName(file?.displayName ?? '');
-    setNote(file?.note ?? '');
     setDraft({ name: false, note: false });
   }, [file?.id]);
 
@@ -139,9 +205,6 @@ export function FileActionHost({
   useEffect(() => {
     if (!draft.name) setName(currentName);
   }, [currentName, draft.name]);
-  useEffect(() => {
-    if (!draft.note) setNote(currentNote);
-  }, [currentNote, draft.note]);
 
   if (!file) return null;
 
@@ -151,15 +214,18 @@ export function FileActionHost({
   const actions = resolveFileActions(permissions, { isFavorite: file.isFavorite === true });
   const currentFolderLabel = folders.find((folder) => folder.id === file.folderId)?.name ?? ROOT_DESTINATION_LABEL;
   const showInfo = view === 'info';
+  const showRename = view === 'rename';
 
   const run = (id: HomeCloudFileActionId): void => {
     // One row, one guard. A row that is already busy does not re-dispatch: a
     // double tap on a slow connection used to send two identical PATCHes.
-    if (id === 'favorite' ? favoriteBusy : saving) return;
+    if (id === 'favorite' ? favoriteBusy : id === 'trash' ? trashBusy : saving) return;
     switch (id) {
       case 'info':
-      case 'rename':
         setView('info');
+        return;
+      case 'rename':
+        setView('rename');
         return;
       case 'move':
         onMoveRequest();
@@ -173,40 +239,43 @@ export function FileActionHost({
       case 'share':
         onShare();
         return;
+      case 'trash':
+        onTrash();
+        return;
       default:
-        // A seam (`open`, `trash`) can never reach here: the grammar filters
+        // A seam (`open`) can never reach here: the grammar filters
         // unimplemented actions out before the host renders them.
         return;
     }
   };
 
+  const actionContent = (
+    <>
+      <AppText variant="caption" tone="secondary">{currentFolderLabel}</AppText>
+      {actions.map((action) => (
+        <React.Fragment key={action.id}>
+        {(action.id === 'download' || action.id === 'trash') ? <AdaptiveMenuSeparator /> : null}
+        <AdaptiveMenuRow
+          title={action.label}
+          variant={action.intent === 'danger' ? 'danger' : action.intent === 'primary' ? 'primary' : 'neutral'}
+          disabled={!action.available || (action.id === 'favorite' ? favoriteBusy : action.id === 'trash' ? trashBusy : saving)}
+          busy={(action.id === 'favorite' && favoriteBusy) || (action.id === 'trash' && trashBusy)}
+          accessibilityLabel={`${action.label} ${file.displayName}`}
+          onPress={() => run(action.id)}
+        /></React.Fragment>
+      ))}
+      {actionError ? <AppText variant="bodySmall" tone="danger" accessibilityRole="alert" accessibilityLabel={`Error: ${actionError}`} testID="file-action-error">{actionError}</AppText> : null}
+      {downloadFeedback ? <AppText variant="bodySmall" tone={downloadFeedback.tone}>{downloadFeedback.message}</AppText> : null}
+    </>
+  );
+
   return (
     <>
-      <ActionSheet
+      {showInfo ? <ActionSheet
         visible
-        title={showInfo ? 'Información del archivo' : file.displayName}
+        title="Información del archivo"
         onRequestClose={onClose}
-        // STAGE 2 REOPEN — REACHABILITY.
-        //
-        // This was `content`: a BOUNDED, NON-scrollable content box. Six action
-        // rows plus a caption do not fit a short or notched sheet at a raised font
-        // scale, so the LAST rows — the Favorite included — were clipped off the
-        // bottom of the sheet and became unreachable, with no error and no disabled
-        // control to explain it. `fileActionSheetLayoutPolicy` decides that
-        // overflow from the real tokens; `scrollable-content` plus the scroll
-        // container below is what makes the answer "reachable" instead of
-        // "present in the tree but clipped away on a real device".
         size="scrollable-content"
-        footer={showInfo ? (
-          <View style={styles.list}>
-            <AppButton
-              title="Guardar cambios"
-              disabled={!permissions.organize || saving}
-              onPress={() => onSave({ displayName: name, note })}
-              accessibilityLabel={`Guardar cambios de ${file.displayName}`}
-            />
-          </View>
-        ) : null}
       >
         <ScrollView
           style={styles.scroll}
@@ -214,69 +283,18 @@ export function FileActionHost({
           showsVerticalScrollIndicator
           keyboardShouldPersistTaps="handled"
         >
-          {showInfo ? (
-            <>
-              <AppInput label="Nombre" value={name} onChangeText={(next) => { setDraft((previous) => ({ ...previous, name: true })); setName(next); }} editable={permissions.organize} />
-              <AppInput label="Nota" value={note} onChangeText={(next) => { setDraft((previous) => ({ ...previous, note: true })); setNote(next); }} editable={permissions.organize} multiline />
-              <FormActionRow
-                label="Carpeta"
-                value={currentFolderLabel}
-                disabled={!permissions.organize}
-                onPress={onMoveRequest}
-              />
-              <FormActionRow
-                label="Fecha del documento"
-                value={file.documentDate ?? 'Agregar fecha'}
-                disabled={!permissions.organize}
-                onPress={() => setDatePicker(true)}
-              />
-            </>
-          ) : (
-            <>
-              <AppText variant="caption" tone="secondary">{currentFolderLabel}</AppText>
-              {actions.map((action) => (
-                <AppButton
-                  key={action.id}
-                  title={action.label}
-                  variant={action.intent === 'danger' ? 'danger' : action.intent}
-                  // PER-ACTION BUSY. The Favorite is busy while ITS OWN mutation is
-                  // in flight; the other rows are disabled only by a mutation they
-                  // would actually conflict with. `favoriteBusy` therefore never
-                  // makes Renombrar or Cerrar look dead.
-                  disabled={!action.available || (action.id === 'favorite' ? favoriteBusy : saving)}
-                  loading={action.id === 'favorite' && favoriteBusy}
-                  accessibilityLabel={`${action.label} ${file.displayName}`}
-                  accessibilityState={{
-                    busy: action.id === 'favorite' ? favoriteBusy : saving,
-                  }}
-                  onPress={() => run(action.id)}
-                />
-              ))}
-              {actionError ? (
-                <AppText
-                  variant="bodySmall"
-                  tone="danger"
-                  accessibilityRole="alert"
-                  accessibilityLabel={`Error: ${actionError}`}
-                  testID="file-action-error"
-                >{actionError}</AppText>
-              ) : null}
-              {downloadFeedback ? (
-                <AppText variant="bodySmall" tone={downloadFeedback.tone}>{downloadFeedback.message}</AppText>
-              ) : null}
-            </>
-          )}
+          {/* HC-POL-024 — TYPE FIRST, then the name, then where it lives and the
+              domain metadata. The type line is the same honest data the Viewer
+              shows: the real mime type and the real size, never an invented kind. */}
+          <AppText variant="caption" tone="secondary" accessibilityLabel={`Tipo: ${file.mimeType ?? 'desconocido'}`}>
+            {[file.mimeType, file.sizeBytes ? `${Math.max(1, Math.round(file.sizeBytes / 1024))} KB` : null].filter(Boolean).join(' · ')}
+          </AppText>
+          <FileInfoRow label="Nombre" value={file.displayName} />
+          <FileInfoRow label="Carpeta" value={currentFolderLabel} />
+          {file.documentDate ? <FileInfoRow label="Fecha del documento" value={file.documentDate} /> : null}
+          {file.note ? <FileInfoRow label="Nota" value={file.note} /> : null}
         </ScrollView>
-      </ActionSheet>
-      <DatePickerSheet
-        visible={datePicker}
-        value={file.documentDate ?? new Date().toISOString().slice(0, 10)}
-        onClose={() => setDatePicker(false)}
-        onConfirm={(documentDate) => {
-          setDatePicker(false);
-          onSave({ documentDate });
-        }}
-      />
+      </ActionSheet> : showRename ? <ActionSheet visible title="Renombrar" onRequestClose={onClose} size="content" footer={<AppButton title="Guardar" disabled={!permissions.organize || saving || !name.trim()} onPress={() => onSave({ displayName: name.trim() })} accessibilityLabel={`Guardar nombre de ${file.displayName}`} />}><AppInput label="Nombre" value={name} onChangeText={(next) => { setDraft((previous) => ({ ...previous, name: true })); setName(next); }} autoFocus /></ActionSheet> : <AdaptiveActionMenu visible title={file.displayName} anchor={anchor} itemCount={actions.length} onRequestClose={onClose}><View style={styles.list}>{actionContent}</View></AdaptiveActionMenu>}
     </>
   );
 }
@@ -287,4 +305,21 @@ const styles = StyleSheet.create({
   // would measure its full content and clip the overflow it exists to expose.
   scroll: { flexShrink: 1 },
   list: { gap: spacing[3], paddingBottom: spacing[2] },
+  separator: { height: 1, backgroundColor: colors.border.default },
+  /** HC-POL-024 — the row is >=52 pt so a metadata sheet is thumb-reachable. */
+  row: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing[2],
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[2],
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    backgroundColor: colors.surface.soft,
+  },
+  rowCopy: { flex: 1, gap: spacing[1] },
+  rowLabel: { letterSpacing: 0.4 },
+  rowValue: { color: colors.text.primary },
 });

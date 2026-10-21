@@ -31,10 +31,8 @@ import {
   type UpdatePlannerTaskAssignmentV1Payload,
   type UpdatePlannerTaskPayload,
 } from '../../plannerTasks';
-import {
-  restoreGoal,
-  restoreGoalMilestone,
-} from '../../plannerGoals';
+import { restoreGoalMilestone } from '../../plannerGoals';
+import { restorePlanV1 } from '../../plannerPlansV1Frontend';
 import {
   autosavePlannerDraft,
   restorePlannerDraft,
@@ -239,7 +237,7 @@ export function createPlannerReliabilityPlanAdapter(): PlannerReliabilityDomainA
       if (operation.descriptor.operationType === 'goal.restore') {
         const goalId = String(payload.goalId ?? '');
         const expectedVersion = Number(payload.expectedVersion ?? 0);
-        const response = await restoreGoal(
+        const response = await restorePlanV1(
           context.accessToken,
           goalId,
           expectedVersion,

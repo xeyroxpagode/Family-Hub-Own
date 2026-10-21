@@ -547,6 +547,11 @@ const approveRestockRequest = async (context, requestId, body = {}) => {
     category: 'Compras',
     assigned_to_member_id: body.assigned_to_member_id || undefined,
     requires_verification: Boolean(body.requires_verification),
+  }
+
+  // S7-01: la referencia server-side viaja por la via interna canonica
+  // (`correlation.origin`), nunca por el body de la Task.
+  const origin = {
     origin_module: 'inventory',
     origin_entity_type: 'inventory_item',
     origin_entity_id: inventoryItemId,
@@ -559,6 +564,7 @@ const approveRestockRequest = async (context, requestId, body = {}) => {
     mutationId: taskOperationId,
     idempotencyKey: taskOperationId,
     operation: 'inventory.restock_requests.approve.task.create',
+    origin,
   })
 
   const assignedMember = body.assigned_to_member_id

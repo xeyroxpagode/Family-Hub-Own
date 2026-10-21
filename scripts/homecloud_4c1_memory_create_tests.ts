@@ -29,7 +29,23 @@ console.log('\n=== HOMECLOUD 4C1 MEMORY CREATE TESTS ===\n');
 
 test('+ in Files preserves the existing Files menu', () => assert.match(filesScreen, /title="Agregar"/));
 test('+ in Memories mounts productive MemoryIntake', () => assert.match(screen, /<MemoryIntake/));
-test('create sheet exposes photo/video/audio import', () => assert.match(component, /title="Elegir foto\/video\/audio"/));
+test('create sheet is 5 flat actions in frozen order (no submenu)', () => {
+  const anchors = [`'Fotos y videos'`, `title="Capturar momento"`, `'Importar audio'`, `title="Grabar audio"`, `title="Escribir un recuerdo"`];
+  let from = -1;
+  for (const anchor of anchors) {
+    const at = component.indexOf(anchor);
+    assert.ok(at > from, `missing or misordered create action: ${anchor}`);
+    from = at;
+  }
+  assert.doesNotMatch(component, /Elegir contenido/);
+  assert.doesNotMatch(component, /title="Elegir foto\/video\/audio"/);
+  assert.doesNotMatch(component, /type Sheet = 'create' \| 'source'/);
+});
+test('Fotos y videos routes to the gallery picker only', () => assert.ok(component.includes('chooseMedia') && service.includes('pickMemory')));
+test('Fotos y videos excludes audio at the picker seam', () => assert.match(picker, /mediaTypes: \['images', 'videos'\]/));
+test('Importar audio reuses the existing audio picker', () => assert.ok(component.includes('chooseAudio') && service.includes('pickAudio')));
+test('binary review edits the semantic date instead of showing a summary', () => assert.ok(component.includes('<MemorySemanticDateFields') && component.includes('semanticDateValueFromDraft(binaryDate)')));
+test('binary submit sends no synthetic day', () => assert.doesNotMatch(component, /setDate\(1\)|day = 1|getDate\(\) \|\| 1/));
 test('create sheet exposes Written', () => assert.match(component, /title="Escribir un recuerdo"/));
 test('create sheet exposes unified in-app capture', () => assert.match(component, /title="Capturar momento"/));
 test('create sheet removes split camera actions', () => { assert.doesNotMatch(component, /title="Sacar foto"/); assert.doesNotMatch(component, /title="Grabar video"/); });

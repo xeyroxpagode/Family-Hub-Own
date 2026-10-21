@@ -133,7 +133,7 @@ runTest('Tab keys — isPlannerTabKey guard', () => {
 
 runTest('Navigation source — closed enum', () => {
   const valid: PlannerNavigationSource[] = [
-    'planner', 'home', 'quick_action', 'deep_link', 'notification', 'unknown',
+    'planner', 'home', 'quick_action', 'deep_link', 'notification', 'assets', 'unknown',
   ];
   for (const v of valid) {
     assert(isPlannerNavigationSource(v), `${v} accepted`);
@@ -147,6 +147,47 @@ runTest('Navigation source — normalize', () => {
   assert(normalizePlannerNavigationSource('invalid') === 'unknown', 'invalid -> unknown');
   assert(normalizePlannerNavigationSource(null) === 'unknown', 'null -> unknown');
   assert(normalizePlannerNavigationSource(123) === 'unknown', 'number -> unknown');
+});
+
+// ---------------------------------------------------------------------------
+// S7 — ASSETS <-> PLANNER: source 'assets'.
+//
+// El source 'assets' es el que usa el detalle de un activo para abrir una
+// Task/Event real de Planner. El returnTo congelado es 'previous': al
+// volver, el usuario aterriza en el detalle del activo.
+// ---------------------------------------------------------------------------
+
+runTest('Navigation source S7 — assets se conserva y los desconocidos siguen siendo unknown', () => {
+  assert(isPlannerNavigationSource('assets'), 'assets es un source válido');
+  assert(normalizePlannerNavigationSource('assets') === 'assets', 'assets se preserva');
+  assert(normalizePlannerNavigationSource('assetsX') === 'unknown', 'assetsX -> unknown');
+  assert(normalizePlannerNavigationSource('Assets') === 'unknown', 'Assets (mayúscula) -> unknown');
+  assert(normalizePlannerNavigationSource('asset') === 'unknown', 'asset -> unknown');
+});
+
+runTest('Navigation source S7 — deep_link y los sources previos siguen intactos', () => {
+  assert(normalizePlannerNavigationSource('deep_link') === 'deep_link', 'deep_link intacto');
+  assert(normalizePlannerNavigationSource('quick_action') === 'quick_action', 'quick_action intacto');
+  assert(normalizePlannerNavigationSource('notification') === 'notification', 'notification intacto');
+});
+
+runTest('Navigation S7 — el contrato de detalle transporta entityId + source assets + returnTo previous', () => {
+  const params = buildPlannerEntityDetailParams({
+    entityId: '550e8400-e29b-41d4-a716-446655440000',
+    source: 'assets',
+    returnTo: 'previous',
+  });
+  assert(params.entityId === '550e8400-e29b-41d4-a716-446655440000', 'entityId');
+  assert(params.source === 'assets', 'source assets');
+  assert(params.returnTo === 'previous', 'returnTo previous');
+  assert(isSerializablePlannerRouteParam(params), 'params serializables');
+
+  const parsed = parsePlannerEntityDetailParams({
+    entityId: '550e8400-e29b-41d4-a716-446655440000',
+    source: 'assets',
+    returnTo: 'previous',
+  });
+  assert(parsed.source === 'assets', 'el parse conserva assets');
 });
 
 // ---------------------------------------------------------------------------

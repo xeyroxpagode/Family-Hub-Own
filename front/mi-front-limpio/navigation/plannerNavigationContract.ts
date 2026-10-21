@@ -66,6 +66,7 @@ export type PlannerNavigationSource =
   | 'quick_action'
   | 'deep_link'
   | 'notification'
+  | 'assets'
   | 'unknown';
 
 const SOURCE_VALUES: readonly PlannerNavigationSource[] = [
@@ -74,6 +75,7 @@ const SOURCE_VALUES: readonly PlannerNavigationSource[] = [
   'quick_action',
   'deep_link',
   'notification',
+  'assets',
   'unknown',
 ] as const;
 
@@ -137,18 +139,26 @@ export function assertValidPlannerEntityId(value: unknown, label: string): asser
 // 5. Route names — single authority
 // ---------------------------------------------------------------------------
 
+/**
+ * Canonical Plan routes resolve against `planner_goals`, the single Plan root.
+ * The physical route names are `PlanList` / `PlanDetail` / `CreatePlan` and are
+ * registered in `HomeTabNavigator`. Legacy `'GoalDetail'` / `'CreateGoal'`
+ * physical routes still exist for compatibility but are NOT the Plan authority:
+ * they resolve against legacy surfaces and must not receive Plan traffic.
+ */
 export const ROUTE_NAMES = {
   Planner: 'Planner',
   TaskDetail: 'TaskDetail',
   EventDetail: 'EventDetail',
-  PlanDetail: 'GoalDetail',
+  PlanList: 'PlanList',
+  PlanDetail: 'PlanDetail',
   PlannerSearch: 'PlannerSearch',
   PlannerAttentionActivity: 'PlannerAttentionActivity',
   TaskCreate: 'CreateTask',
   TaskEdit: 'EditTask',
   EventCreate: 'CreateEvent',
   EventEdit: 'EditEvent',
-  PlanCreate: 'CreateGoal',
+  PlanCreate: 'CreatePlan',
   PlanStructureEdit: 'EditGoal',
   PresetLibrary: 'PlannerPresetLibrary',
   PresetDetail: 'PlannerPresetDetail',
@@ -160,6 +170,9 @@ export const ROUTE_NAMES = {
   Trash: 'PlannerTrash',
   PlanArchive: 'PlannerPlanArchive',
   ConflictReview: 'PlannerConflictReview',
+  // Event Series / Horarios — the recurring-definition surface (frozen §19/§36).
+  Series: 'PlannerSeries',
+  Responsibilities: 'Responsibilities',
 } as const;
 
 export type PlannerRouteName = (typeof ROUTE_NAMES)[keyof typeof ROUTE_NAMES];
@@ -168,6 +181,7 @@ export const PLANNER_ROUTE_NAMES: readonly PlannerRouteName[] = [
   ROUTE_NAMES.Planner,
   ROUTE_NAMES.TaskDetail,
   ROUTE_NAMES.EventDetail,
+  ROUTE_NAMES.PlanList,
   ROUTE_NAMES.PlanDetail,
   ROUTE_NAMES.PlannerSearch,
   ROUTE_NAMES.PlannerAttentionActivity,
@@ -187,6 +201,8 @@ export const PLANNER_ROUTE_NAMES: readonly PlannerRouteName[] = [
   ROUTE_NAMES.Trash,
   ROUTE_NAMES.PlanArchive,
   ROUTE_NAMES.ConflictReview,
+  ROUTE_NAMES.Series,
+  ROUTE_NAMES.Responsibilities,
 ] as const;
 
 export function isPlannerRouteName(value: unknown): value is PlannerRouteName {
@@ -236,6 +252,8 @@ export type PlannerEntityDetailParams = {
    * navigations.
    */
   justCreated?: boolean;
+  /** Open this same detail route directly in its in-place editing state. */
+  editMode?: boolean;
 };
 
 /**
@@ -318,6 +336,7 @@ export function parsePlannerEntityDetailParams(input: unknown): PlannerEntityDet
   if (isPlannerNavigationSource(record.source)) clean.source = record.source;
   if (isPlannerReturnTarget(record.returnTo)) clean.returnTo = record.returnTo;
   if (typeof record.justCreated === 'boolean') clean.justCreated = record.justCreated;
+  if (typeof record.editMode === 'boolean') clean.editMode = record.editMode;
 
   return dropUndefined(clean);
 }
@@ -360,6 +379,7 @@ export function buildPlannerEntityDetailParams(input: {
   source?: unknown;
   returnTo?: unknown;
   justCreated?: unknown;
+  editMode?: unknown;
 }): PlannerEntityDetailParams {
   const entityId = input.entityId;
   if (!isValidPlannerEntityId(entityId)) {
@@ -369,6 +389,7 @@ export function buildPlannerEntityDetailParams(input: {
   if (isPlannerNavigationSource(input.source)) clean.source = input.source;
   if (isPlannerReturnTarget(input.returnTo)) clean.returnTo = input.returnTo;
   if (typeof input.justCreated === 'boolean') clean.justCreated = input.justCreated;
+  if (typeof input.editMode === 'boolean') clean.editMode = input.editMode;
   return dropUndefined(clean);
 }
 

@@ -234,6 +234,16 @@ const reactStub: Record<string, unknown> = {
   useCallback: (...args: unknown[]) => hostModules().useCallback(...(args as [never])),
   useEffect: (...args: unknown[]) => hostModules().useEffect(...(args as [never])),
   createElement: (...args: unknown[]) => hostModules().createElement(...(args as [never, never, ...never[]])),
+  // The shared reduced-motion hook (used by the HC-POL motion surfaces) is built
+  // on `useSyncExternalStore`, so the stub has to expose it too.
+  useSyncExternalStore: (
+    subscribe: (onStoreChange: () => void) => () => void,
+    getSnapshot: () => unknown,
+  ) => {
+    const [value, setValue] = hostModules().useState(getSnapshot as () => never);
+    hostModules().useEffect(() => subscribe(() => setValue(getSnapshot as () => never)), []);
+    return value;
+  },
 };
 reactStub.default = reactStub;
 reactStub.Fragment = Symbol.for('react.fragment');
@@ -303,6 +313,71 @@ const reactNativeStub = {
   StyleSheet: { create: <T,>(styles: T): T => styles, flatten: (style: unknown) => style },
   PanResponder: panResponderStub,
   AppState: appStateStub,
+  // The viewer layer's box (HC-POL-012/057) is the window, so the screen reads
+  // the window dimensions at tap time.
+  useWindowDimensions: () => ({ width: 360, height: 640, scale: 2, fontScale: 1 }),
+  // The animation clock the HC-POL motion surfaces need. It is deterministic:
+  // every animation settles on its target in one step, so a tree can be
+  // asserted in the state a device would have reached. `Animated.View` keeps its
+  // own tag so assertions about a plain `View` never start counting wrappers.
+  Animated: {
+    createAnimatedComponent: (component: unknown) => component,
+    View: 'Animated.View',
+    Text: 'Animated.Text',
+    Image: 'Animated.Image',
+    Value: class AnimatedValueStub {
+      private current: number;
+      constructor(initial: number) { this.current = initial; }
+      setValue(next: number): void { this.current = next; }
+      /**
+       * RN parity: `AnimatedInterpolation.js::checkValidRanges` throws while it
+       * BUILDS a config whose ranges disagree — so an incompatible pair kills a
+       * screen during RENDER, not during a gesture. A stub that returned `this`
+       * for any config is exactly what let that defect reach iOS, so the
+       * invariant is enforced here, on the real mount path.
+       */
+      interpolate(config?: { inputRange?: readonly number[]; outputRange?: readonly number[] }): this {
+        const inputRange = config?.inputRange;
+        const outputRange = config?.outputRange;
+        if (inputRange && outputRange && inputRange.length !== outputRange.length) {
+          throw new Error(`Invariant Violation: inputRange (${inputRange.length}) and outputRange (${outputRange.length}) must have the same length`);
+        }
+        return this;
+      }
+      addListener(): string { return 'listener'; }
+      removeListener(): void { }
+      stopAnimation(callback?: (value: number) => void): void { callback?.(this.current); }
+    },
+    timing: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    spring: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    sequence: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+    parallel: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+  },
+  Easing: {
+    linear: (value: number) => value,
+    ease: (value: number) => value,
+    quad: (value: number) => value,
+    cubic: (value: number) => value,
+    in: () => (value: number) => value,
+    out: () => (value: number) => value,
+    inOut: () => (value: number) => value,
+  },
+  AccessibilityInfo: {
+    isReduceMotionEnabled: async () => false,
+    addEventListener: () => ({ remove: () => undefined }),
+  },
 };
 
 let focusEffect: EffectCallback | null = null;
@@ -323,9 +398,13 @@ const uiStub = {
   AppText: 'AppText',
   AppInput: 'AppInput',
   ActionSheet: 'ActionSheet',
+  AdaptiveActionMenu: 'AdaptiveActionMenu',
+  AdaptiveMenuRow: 'AdaptiveMenuRow',
+  AdaptiveMenuSeparator: 'AdaptiveMenuSeparator',
   DatePickerSheet: 'DatePickerSheet',
   ErrorState: 'ErrorState',
   FormActionRow: 'FormActionRow',
+  menuAnchorFromEvent: () => null,
   // The header controls are InteractivePressables; leaving this out of the stub made the
   // component resolve to undefined and every header control mount with no type.
   InteractivePressable: 'InteractivePressable',
@@ -661,8 +740,10 @@ function pressFolder(tree: unknown, folderId: string): boolean {
  * return re-reads.
  */
 async function chooseSortThroughFilterMenu(surface: { tree: unknown; settle: (rounds?: number, waitMs?: number) => Promise<void> }, orderLabel: string): Promise<boolean> {
+    // PATCH-1 frozen vocabulary: the filter icon announces itself as
+    // `Organizar. ...`, not `Filtros y orden.`.
     const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
-      && element.props.accessibilityLabel.startsWith('Filtros y orden.')
+      && element.props.accessibilityLabel.startsWith('Organizar.')
       && typeof element.props?.onPress === 'function');
     if (!filterIcon) return false;
     filterIcon.props.onPress();
@@ -724,9 +805,11 @@ const openTileActions = (tree: unknown, id: string): boolean => {
     const index = (props.data ?? []).findIndex((item) => item.kind === 'file' && item.value.id === id);
     if (index === -1) return false;
     const tile = props.renderItem({ item: props.data[index], index }) as TestElement;
-    const gesture = tile?.props?.onLongPress ?? tile?.props?.onMore;
-    if (typeof gesture !== 'function') return false;
-    (gesture as () => void)();
+    // PATCH 1B — contextual actions open exclusively from the visible ⋯
+    // control. Long press is selection now and never opens the menu.
+    const menu = tile?.props?.onMenu;
+    if (typeof menu !== 'function') return false;
+    (menu as (event: unknown) => void)({ nativeEvent: { pageX: 0, pageY: 0 } });
     return true;
   };
 
@@ -1036,7 +1119,7 @@ async function testContextSurvivesTheReturn(): Promise<void> {
 
   record(pressFolder(surface.tree, 'ff-viajes'), 'B2.1. a folder is entered');
   await surface.settle();
-  record(await chooseSortThroughFilterMenu(surface, 'A-Z'), 'B2.2. the order is changed through the filter menu');
+  record(await chooseSortThroughFilterMenu(surface, 'A–Z'), 'B2.2. the order is changed through the filter menu');
   await surface.settle();
   record(typeSearch(surface.tree, 'pasaporte'), 'B2.3. a query is typed');
   await surface.settle(24, 20);
@@ -1229,7 +1312,7 @@ async function testOpenInfoSheetShowsCurrentMetadata(): Promise<void> {
   const file = {
     id: 'c-1', householdId: 'hh-e2', role: 'file', lifecycle: 'active',
     displayName: 'antes.txt', mimeType: 'text/plain', sizeBytes: 10,
-    folderId: null, note: 'nota vieja', documentDate: null,
+    folderId: null, note: 'nota vieja', documentDate: '2026-03-04',
   };
   const host = mountActionHost(hostProps({ file }));
 
@@ -1238,21 +1321,28 @@ async function testOpenInfoSheetShowsCurrentMetadata(): Promise<void> {
   record(host.press('Información'), 'E2.2. the Info view is reachable from it');
   record(host.field('Nombre')?.props?.value === 'antes.txt', 'E2.3. the sheet shows the File\'s own name');
   record(host.field('Nota')?.props?.value === 'nota vieja', 'E2.4. and its own note');
-  record(host.field('Fecha del documento') !== null, 'E2.5. with the document date row too');
+  record(host.field('Fecha del documento')?.props?.value === '2026-03-04', 'E2.5. with the document date row too');
 
-  // Another member renames and re-notes it: the sheet stays open and follows.
-  const current = { ...file, displayName: 'despues.pdf', note: 'nota nueva' };
+  // Another member renames, re-notes and re-dates it: the sheet stays open and follows.
+  const current = { ...file, displayName: 'despues.pdf', note: 'nota nueva', documentDate: '2026-05-06' };
   host.render(hostProps({ file: current }));
   record(host.field('Nombre')?.props?.value === 'despues.pdf', 'E2.6. the shown name became CURRENT without closing the sheet');
   record(host.field('Nota')?.props?.value === 'nota nueva', 'E2.7. and so did the note');
-  record(host.field('Fecha del documento') !== null, 'E2.8. and the sheet is still the Info view of the same File');
+  record(host.field('Fecha del documento')?.props?.value === '2026-05-06', 'E2.8. and the sheet is still the Info view of the same File');
 
-  // Now the member types, and a refresh lands: the draft outranks the refresh.
-  record(host.type('Nombre', 'borrador-en-curso.txt'), 'E2.9. the member edits the name');
-  record(host.field('Nombre')?.props?.value === 'borrador-en-curso.txt', 'E2.10. and the field shows their own edit');
+  // Now the member renames, and a refresh lands: the draft outranks the refresh.
+  // PATCH 1B PATH: the rename draft lives in the Renombrar sheet (reached from
+  // the actions catalog), not in the info view. The proven behavior is the
+  // same: typing outranks a background refresh, untouched fields follow it.
+  const renameHost = mountActionHost(hostProps({ file: current }));
+  record(renameHost.press('Renombrar'), 'E2.9. the member opens the rename sheet');
+  record(renameHost.type('Nombre', 'borrador-en-curso.txt'), 'E2.9b. and edits the name');
+  record(renameHost.field('Nombre')?.props?.value === 'borrador-en-curso.txt', 'E2.10. and the field shows their own edit');
 
+  renameHost.render(hostProps({ file: { ...current, displayName: 'otro-miembro.pdf', note: 'nota de otro' } }));
+  record(renameHost.field('Nombre')?.props?.value === 'borrador-en-curso.txt', 'E2.11. a refresh mid-draft never silently discards what was typed');
+  renameHost.unmount();
   host.render(hostProps({ file: { ...current, displayName: 'otro-miembro.pdf', note: 'nota de otro' } }));
-  record(host.field('Nombre')?.props?.value === 'borrador-en-curso.txt', 'E2.11. a refresh mid-draft never silently discards what was typed');
   record(host.field('Nota')?.props?.value === 'nota de otro', 'E2.12. while the field the member did not touch still follows the File');
   host.unmount();
 }
@@ -1321,12 +1411,23 @@ function testBoundaries(): void {
   record(/onPanResponderRelease: \(\) => disarmDragSelection\(\)/.test(screen)
     && /onPanResponderTerminate: \(\) => disarmDragSelection\(\)/.test(screen),
     'F1c. both gesture ends go through the one disarming function');
-  record(/const disarmDragSelection = useCallback\(\(\) => \{\s*dragGestureRef\.current = null;\s*stopAutoScroll\(\);/.test(screen),
-    'F1d. which clears the armed state AND the timer together');
-  record(/useEffect\(\(\) => \{ disarmDragSelection\(\); \}, \[dragScope/.test(screen)
-    && /useEffect\(\(\) => \(\) => disarmDragSelection\(\)/.test(screen),
-    'F1e. and a context change or an unmount disarms it as well');
-  record((screen.match(/setTimeout\(/g) || []).length === 1, 'F2. and exactly one timeout - the pre-existing search debounce, not a repeat');
+  record(/const disarmDragSelection = useCallback\(\(\) => \{\s*dragGestureRef\.current = null;\s*setSelectionStrokeActive\(false\);\s*stopAutoScroll\(\);/.test(screen),
+    'F1d. which clears the armed state, the stroke ownership AND the timer together');
+  // PATCH 1B — entering selection must NOT disarm (a long press arms the stroke
+  // in the same intent that enters the mode), so the scope effect fires ONLY
+  // on a real scope change (through a ref, never on dispatch identity) and a
+  // separate transition effect disarms ONLY when leaving selection mode.
+  record(/useEffect\(\(\) => \{ disarmRef\.current\(\); \}, \[dragScope\]/.test(screen)
+    && /if \(was && !selection\.mode\) disarmDragSelection\(\)/.test(screen),
+    'F1e. a context change disarms it, and leaving selection mode disarms it — but entering never does');
+  record(/useEffect\(\(\) => \(\) => \{ disarmRef\.current\(\); \}, \[\]\)/.test(screen),
+    'F1e2. and unmount disarms it as well');
+  // PATCH 1B/1C reconciliation: TWO legitimate timeouts exist — the
+  // pre-existing search debounce and the Grid/List first-switch scroll
+  // restore (the supported remount boundary; it never re-reads). What must
+  // stay true is that neither is a duplicate read loop: no per-keystroke
+  // repeat, no polling.
+  record((screen.match(/setTimeout\(/g) || []).length === 2, 'F2. exactly the two legitimate timeouts - the search debounce and the Grid/List restore, never a repeat');
   record(!/supabase|createClient|\.channel\(|postgres_changes/i.test(screen), 'F3. no realtime subscription of any kind');
   // `new Map(` now legitimately appears once, as the MEASURED TILE FRAME map the drag
   // sweep hit-tests against. That is layout measurement, not a data cache: it is never
@@ -1341,7 +1442,7 @@ function testBoundaries(): void {
   record(/AppState\.addEventListener\('change'/.test(screen), "F7. the lifecycle signal is the platform's own AppState");
   record(/subscription\.remove\(\)/.test(screen), 'F8. and it is removed on teardown');
   record(/<HomeCloudFilesView visible=\{section === 'files'\} \/>/.test(shell), 'F9. the shell signals visibility with ONE prop — no shell redesign');
-  record(/display: 'none'/.test(shell), 'F10. and both panes are still mounted, exactly as before');
+  record((shell.match(/<Animated\.View/g) ?? []).length === 2 && /pointerEvents=\{section === 'files' \? 'auto' : 'none'\}/.test(shell), 'F10. both panes stay mounted while the inactive pane is non-interactive');
   record(/refreshPreservingWindow/.test(pagination), 'F11. the window-preserving primitive is untouched and still the refresh path');
 }
 

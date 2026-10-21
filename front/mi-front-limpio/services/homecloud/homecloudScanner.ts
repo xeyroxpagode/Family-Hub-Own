@@ -11,13 +11,57 @@
  */
 
 import type { UploadIntakeContext, UploadLocalArtifact } from './homecloudUploadTypes';
+import { DEFAULT_MAX_OUTPUT_SIDE, buildPerspectivePlan } from './homecloudScannerPerspective';
+import {
+  orientedSize,
+  rectToQuad,
+  type Rect,
+  type Quad,
+  type RotationSteps,
+} from './homecloudScannerGeometry';
+
+export type { Quad, Rect, RotationSteps } from './homecloudScannerGeometry';
+
+/**
+ * Edit parameters applied to the ORIGINAL capture. Always reversible: the
+ * original file is never mutated, so resetting is just dropping these.
+ *
+ * `cropQuad` is normalized (0..1) against the ORIENTED image, which is the B2
+ * canonical selection authority shared by the overlay, handles and perspective
+ * processor. `cropRect` remains as a backward-compatible bounding projection
+ * for B1 tests and old route snapshots.
+ */
+export interface ScannerPageEdit {
+  readonly cropRect: Rect;
+  readonly cropQuad?: Quad;
+  readonly rotationSteps: RotationSteps;
+}
 
 /** Temporary local capture. Never persisted to backend as HomeCloud content. */
 export interface ScannerPage {
   readonly id: string;
-  readonly uri: string;
+  /** Original, unmodified capture URI. Never mutated during editing. */
+  readonly originalUri: string;
+  /**
+   * Current processed image URI: the result of applying `edit` to `originalUri`.
+   * Null while no edit has been confirmed. Once set, the SCANNER owns it and
+   * must delete it on replace/reset/delete/discard.
+   */
+  readonly processedUri: string | null;
   readonly width?: number;
   readonly height?: number;
+  /** Edit parameters. Null means no edits applied. */
+  readonly edit: ScannerPageEdit | null;
+}
+
+/**
+ * What the editor hands back to the Scanner. Serializable: it travels as a
+ * navigation param, so it must survive JSON.
+ */
+export interface ScannerPageEditOutcome {
+  readonly pageId: string;
+  readonly edit: ScannerPageEdit;
+  readonly processedUri: string;
 }
 
 export const SCANNER_PDF_MIME_TYPE = 'application/pdf';
@@ -29,6 +73,18 @@ export const SCANNER_INTAKE_SOURCE = 'files:scanner';
 // ---------------------------------------------------------------------------
 // Page list operations (pure; capture order is the source of truth)
 // ---------------------------------------------------------------------------
+
+/** Create a ScannerPage from a fresh capture. */
+export function createScannerPage(id: string, uri: string, width?: number, height?: number): ScannerPage {
+  return {
+    id,
+    originalUri: uri,
+    processedUri: null,
+    width,
+    height,
+    edit: null,
+  };
+}
 
 /** Append a captured page. Adding always appends. */
 export function appendPage(pages: readonly ScannerPage[], page: ScannerPage): ScannerPage[] {
@@ -47,6 +103,102 @@ export function replacePage(
   next: ScannerPage,
 ): ScannerPage[] {
   return pages.map((page) => (page.id === pageId ? next : page));
+}
+
+/**
+ * HC-POL-022 — Reorder: swap one page with its NEIGHBOUR, never a free drag.
+ *
+ * The multipage review reorders by discrete steps on purpose: a confirmed scan
+ * is an ordered document, and a one-step swap is the smallest change a member
+ * can see, undo and understand. Like every list op in this module these return
+ * a FRESH array and never mutate; the surface guards the edges, so a step that
+ * cannot happen is simply never requested.
+ */
+export function movePageEarlier(pages: readonly ScannerPage[], pageId: string): ScannerPage[] {
+  const index = pages.findIndex((page) => page.id === pageId);
+  if (index <= 0) return [...pages];
+  const next: ScannerPage[] = [...pages];
+  const previous = next[index - 1];
+  next[index - 1] = next[index];
+  next[index] = previous;
+  return next;
+}
+
+export function movePageLater(pages: readonly ScannerPage[], pageId: string): ScannerPage[] {
+  const index = pages.findIndex((page) => page.id === pageId);
+  if (index === -1 || index === pages.length - 1) return [...pages];
+  const next: ScannerPage[] = [...pages];
+  const following = next[index + 1];
+  next[index + 1] = next[index];
+  next[index] = following;
+  return next;
+}
+
+/**
+ * Adopt a confirmed editor outcome: apply the canonical edit parameters and
+ * take ownership of the freshly generated processed file. The caller is
+ * responsible for deleting the page's PREVIOUS processedUri first — this
+ * function is pure and never touches the filesystem.
+ *
+ * Unknown pageId is a no-op, so a late outcome for a deleted page can never
+ * resurrect it.
+ */
+export function adoptPageEditOutcome(
+  pages: readonly ScannerPage[],
+  outcome: ScannerPageEditOutcome,
+): ScannerPage[] {
+  return pages.map((page) =>
+    page.id === outcome.pageId
+      ? { ...page, edit: outcome.edit, processedUri: outcome.processedUri }
+      : page,
+  );
+}
+
+/**
+ * Reset a page's edits (back to original). The caller deletes the page's
+ * processedUri BEFORE calling this; the function itself stays pure.
+ */
+export function resetPageEdit(pages: readonly ScannerPage[], pageId: string): ScannerPage[] {
+  return pages.map((page) =>
+    page.id === pageId ? { ...page, edit: null, processedUri: null } : page,
+  );
+}
+
+/** Get the effective URI for a page (processed if edited, otherwise original). */
+export function getPageEffectiveUri(page: ScannerPage): string {
+  return page.processedUri ?? page.originalUri;
+}
+
+/**
+ * Effective dimensions for a page: what the PDF (and any preview) actually
+ * embeds. With an edit, this is the RESULT of the exact same processing plan
+ * the editor runs — crop size after rotation — so the PDF page aspect always
+ * matches the generated image. One geometry authority for editor and PDF.
+ */
+export function getPageEffectiveDimensions(page: ScannerPage): { width: number; height: number } | null {
+  if (!page.width || !page.height) return null;
+  const source = { width: page.width, height: page.height };
+  if (!page.edit) return source;
+  const plan = buildPerspectivePlan(
+    source,
+    page.edit.cropQuad ?? rectToQuad(page.edit.cropRect),
+    page.edit.rotationSteps,
+    DEFAULT_MAX_OUTPUT_SIDE,
+  );
+  return plan.status === 'ok' ? plan.outputSize : orientedSize(source, page.edit.rotationSteps);
+}
+
+/**
+ * PDF cache key: content identity of the whole scan. It is built from the
+ * EFFECTIVE image per page, so any adoption, retake, reset, deletion or reorder
+ * changes the key and the previously generated PDF is never reused. Same
+ * content + same name -> same key (cache hit).
+ */
+export function buildScanPdfCacheKey(pages: readonly ScannerPage[], name: string): string {
+  // HC-POL-022 — POSITION is part of the content identity. The PDF embeds the
+  // pages in order, so a reorder is a content change: without the index in the
+  // key, a reordered scan would silently reuse a PDF built with the old order.
+  return `${pages.map((page, index) => `${index}:${page.id}:${getPageEffectiveUri(page)}`).join('|')}#${name}`;
 }
 
 /** A PDF can only be created from at least one captured page. */

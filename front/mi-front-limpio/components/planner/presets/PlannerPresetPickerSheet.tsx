@@ -33,6 +33,7 @@ export type PlannerPresetPickerSheetProps = {
   /** When absent the picker renders nothing (no session available). */
   readonly accessToken?: string | null;
   readonly onSelect: (preset: PlannerPreset) => void;
+  readonly onCreate?: () => void;
   readonly onClose: () => void;
 };
 
@@ -40,6 +41,7 @@ export function PlannerPresetPickerSheet({
   visible,
   accessToken,
   onSelect,
+  onCreate,
   onClose,
 }: PlannerPresetPickerSheetProps) {
   const theme = useAppTheme();
@@ -101,6 +103,17 @@ export function PlannerPresetPickerSheet({
       onRequestClose={onClose}
       size="content"
     >
+      {onCreate ? (
+        <Pressable
+          style={styles.createRow}
+          onPress={() => { onClose(); onCreate(); }}
+          accessibilityRole="button"
+          accessibilityLabel="Crear preset desde este borrador"
+        >
+          <HomePlusIcon name="add" size={18} color={colors.terracotta[600]} />
+          <AppText variant="body" weight="700" tone="brand">Crear preset</AppText>
+        </Pressable>
+      ) : null}
       {loading && presets.length === 0 ? (
         <View style={styles.stateBox}>
           <ActivityIndicator color={colors.terracotta[500]} />
@@ -178,6 +191,14 @@ function createStyles(theme: AppResolvedTheme) {
       maxHeight: 420,
       marginHorizontal: -4,
       paddingHorizontal: 4,
+    },
+    createRow: {
+      minHeight: 48,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border.subtle,
     },
     sectionHeader: {
       color: colors.text.tertiary,

@@ -70,14 +70,17 @@ import {
 
 let passCount = 0;
 let failCount = 0;
+// Failure messages are collected and printed in the summary: streaming them to
+// stderr interleaves with the runner's own output and hides WHICH assertions
+// actually failed.
+const failures: string[] = [];
 
 function assert(condition: boolean, message: string): void {
   if (condition) {
-    console.log(`  \u2713 ${message}`);
     passCount++;
   } else {
-    console.error(`  \u2717 ${message}`);
     failCount++;
+    failures.push(message);
   }
 }
 
@@ -343,7 +346,21 @@ console.log('\n=== 3. Search Access Gate ===\n');
   assert(access2.kind === 'loading', 'capabilities not ready → loading');
 }
 
-// 3.2 Disabled — flag false
+// STALE ASSERTIONS — superseded by the overnight Planner closure (frozen §41).
+//
+// Old assertions (and the block below): the Search ENTRY returns `disabled`
+// whenever `planner.search_entry` is missing/false, and `disabled` wins over
+// `forbidden` when both are absent.
+//
+// Superseding truth: Planner Search is a REQUIRED V1 capability (backend route,
+// canonical reader and a registered screen all exist). Gating its entry behind
+// an off-by-default flag made a live feature UNREACHABLE, which frozen §41
+// classifies as not-PASS. The entry is therefore governed by the canonical
+// `planner.search` capability ALONE; `disabled` is no longer a reachable state.
+//
+// Replacement coverage: the capability IS the authority (granted → available,
+// denied → forbidden), and the reserved flag key still exists untouched for the
+// HomePlus Core registry/override allowlist.
 {
   const access = resolvePlannerSearchAccess({
     flags: {},
@@ -351,7 +368,7 @@ console.log('\n=== 3. Search Access Gate ===\n');
     capabilities: { 'planner.search': true },
     capabilitiesReady: true,
   });
-  assert(access.kind === 'disabled', 'flag missing → disabled');
+  assert(access.kind === 'available', 'capability granted → available regardless of reserved flag');
 
   const access2 = resolvePlannerSearchAccess({
     flags: { 'planner.search_entry': false },
@@ -359,29 +376,18 @@ console.log('\n=== 3. Search Access Gate ===\n');
     capabilities: { 'planner.search': true },
     capabilitiesReady: true,
   });
-  assert(access2.kind === 'disabled', 'flag false → disabled');
-}
+  assert(access2.kind === 'available', 'reserved flag false does not disable a required entry');
 
-// 3.3 Disabled — flag error/undefined
-{
-  const access = resolvePlannerSearchAccess({
+  const access3 = resolvePlannerSearchAccess({
     flags: null,
     flagsLoading: false,
     capabilities: { 'planner.search': true },
     capabilitiesReady: true,
   });
-  assert(access.kind === 'disabled', 'flags null → disabled (deny-safe)');
-
-  const access2 = resolvePlannerSearchAccess({
-    flags: undefined,
-    flagsLoading: false,
-    capabilities: { 'planner.search': true },
-    capabilitiesReady: true,
-  });
-  assert(access2.kind === 'disabled', 'flags undefined → disabled (deny-safe)');
+  assert(access3.kind === 'available', 'flags null does not disable a required entry');
 }
 
-// 3.4 Forbidden — flag true but capability false
+// 3.4 Forbidden — capability denied
 {
   const access = resolvePlannerSearchAccess({
     flags: { 'planner.search_entry': true },
@@ -421,13 +427,15 @@ console.log('\n=== 3. Search Access Gate ===\n');
 
 // 3.6 Deny-safe across all error/missing conditions
 {
-  // All combinations where either flag or capability is missing/error → deny
+  // Deny-safe: a missing/false CAPABILITY always denies, whatever the reserved
+  // flag projection says. The flag is no longer a gate (frozen §41), so it must
+  // not appear as a deny reason.
   const cases: Array<{ flags: Record<string, boolean> | null | undefined; caps: Record<string, boolean> | null | undefined; expected: string }> = [
-    { flags: null, caps: null, expected: 'disabled' },
-    { flags: {}, caps: {}, expected: 'disabled' },
+    { flags: null, caps: null, expected: 'forbidden' },
+    { flags: {}, caps: {}, expected: 'forbidden' },
     { flags: { 'planner.search_entry': true }, caps: {}, expected: 'forbidden' },
     { flags: { 'planner.search_entry': true }, caps: { 'other_cap': true }, expected: 'forbidden' },
-    { flags: { 'planner.search_entry': false }, caps: { 'planner.search': true }, expected: 'disabled' },
+    { flags: { 'planner.search_entry': false }, caps: { 'planner.search': true }, expected: 'available' },
   ];
 
   for (const c of cases) {
@@ -472,12 +480,13 @@ console.log('\n=== 3. Search Access Gate ===\n');
   assert(!isPlannerSearchAccessResolved(loading), 'loading → NOT resolved');
 }
 
-// 3.10 Pure gate function (canOpenPlannerSearch)
+// 3.10 Pure gate function (canOpenPlannerSearch) — capability is the authority.
+// The reserved `planner.search_entry` flag no longer closes a REQUIRED entry.
 {
   assert(canOpenPlannerSearch({ 'planner.search_entry': true }, { 'planner.search': true }),
     'canOpenPlannerSearch with both true → true');
-  assert(!canOpenPlannerSearch({ 'planner.search_entry': false }, { 'planner.search': true }),
-    'canOpenPlannerSearch flag false → false');
+  assert(canOpenPlannerSearch({ 'planner.search_entry': false }, { 'planner.search': true }),
+    'canOpenPlannerSearch ignores the reserved flag when capability is granted');
   assert(!canOpenPlannerSearch({ 'planner.search_entry': true }, { 'planner.search': false }),
     'canOpenPlannerSearch cap false → false');
   assert(!canOpenPlannerSearch(null, null),
@@ -688,28 +697,42 @@ console.log('\n=== 7. Regression ===\n');
   assert(ROUTE_NAMES.PlannerSearch !== ('Search' as string), 'NOT legacy "Search" route name');
 }
 
-// 7.2 No Search endpoint created (pure frontend check — flag is `false`)
+// STALE REGRESSION ASSERTION — superseded by the overnight Planner closure.
+//
+// Old assertion: with an empty flag projection the Search entry is `disabled`.
+// Superseding truth: the entry is capability-governed (frozen §41), so an empty
+// RESERVED-flag projection no longer disables it. What must still hold is the
+// deny-safe direction: without the capability the entry is never available.
 {
   const access = resolvePlannerSearchAccess({
-    flags: {}, // empty flags → flag is effectively false
+    flags: {}, // reserved flag projection empty — not a gate anymore
     flagsLoading: false,
     capabilities: {},
     capabilitiesReady: true,
   });
-  assert(access.kind === 'disabled', 'default state: search is disabled');
+  assert(access.kind === 'forbidden', 'no capability → forbidden (deny-safe)');
 }
 
-// 7.3 Search entry hidden by default
+// STALE REGRESSION ASSERTION (same supersession as 7.2): a granted
+// `planner.search` capability opens the entry regardless of the reserved flag,
+// and the entry stays closed when the capability is absent.
 {
-  // When flag is not set (default projection empty), entry is disabled
-  const access = resolvePlannerSearchAccess({
+  const granted = resolvePlannerSearchAccess({
     flags: {},
     flagsLoading: false,
     capabilities: { 'planner.search': true },
     capabilitiesReady: true,
   });
-  assert(access.kind === 'disabled', 'empty flags → entry disabled by default');
-  assert(!isPlannerSearchAvailable(access), 'entry NOT available by default');
+  assert(granted.kind === 'available', 'capability granted → entry available');
+  assert(isPlannerSearchAvailable(granted), 'granted entry is available');
+
+  const denied = resolvePlannerSearchAccess({
+    flags: {},
+    flagsLoading: false,
+    capabilities: {},
+    capabilitiesReady: true,
+  });
+  assert(!isPlannerSearchAvailable(denied), 'entry NOT available without capability');
 }
 
 // 7.4 Search screen would show `disabled` not an error
@@ -726,8 +749,9 @@ console.log('\n=== 7. Regression ===\n');
 console.log(`\n=== Planner V1 M7 Tests: ${passCount} pass / ${failCount} fail ===\n`);
 
 if (failCount > 0) {
-  console.error(`\u2717 M7 TESTS FAILED: ${failCount} failure(s)`);
+  failures.forEach((message) => console.log(`  FAIL ${message}`));
+  console.log(`✗ M7 TESTS FAILED: ${failCount} failure(s)`);
   process.exitCode = 1;
 } else {
-  console.log(`\u2713 M7 TESTS PASSED (${passCount} assertions)`);
+  console.log(`✓ M7 TESTS PASSED (${passCount} assertions)`);
 }

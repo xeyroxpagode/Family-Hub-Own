@@ -37,3 +37,29 @@ test('R27 invalid fixed member -> requires adjustment', () => assert.equal(valid
 test('R28 Task origin -> schema has immutable linkage', () => { const migration = require('fs').readFileSync(require('path').join(__dirname, '../supabase/migrations/20260916000001_planner_responsibilities_p2_1.sql'), 'utf8'); assert.match(migration, /responsibility_occurrence_sequence/); assert.match(migration, /on delete restrict/) })
 test('R29 temporary replacement -> occurrence slot is separately persisted', () => { const migration = require('fs').readFileSync(require('path').join(__dirname, '../supabase/migrations/20260916000001_planner_responsibilities_p2_1.sql'), 'utf8'); assert.match(migration, /rotation_slot_member_id/) })
 test('R30 reopen resolved old occurrence -> ledger resolution is not rolled back', () => { const source = require('fs').readFileSync(require('path').join(__dirname, '../backend/src/services/planner.responsibilities.service.js'), 'utf8'); assert.doesNotMatch(source, /delete\(\).*planner_responsibility_occurrences/); assert.doesNotMatch(source, /next_sequence\s*[-=]/) })
+test('R31 materialization is an explicit endpoint and task reads remain read-only', () => {
+  const fs = require('fs'); const path = require('path');
+  const router = fs.readFileSync(path.join(__dirname, '../backend/src/routes/planner.js'), 'utf8');
+  const tasksController = fs.readFileSync(path.join(__dirname, '../backend/src/controllers/planner.tasks.controller.js'), 'utf8');
+  const responsibilityService = fs.readFileSync(path.join(__dirname, '../backend/src/services/planner.responsibilities.service.js'), 'utf8');
+  assert.match(router, /post\('\/responsibilities\/materialize-due'/);
+  assert.doesNotMatch(tasksController, /materializeHousehold/);
+  assert.doesNotMatch(responsibilityService.match(/async function listResponsibilities[\s\S]*?async function getResponsibility/)?.[0] ?? '', /materializeHousehold/);
+})
+test('R32 occurrence ledger blocks direct authenticated writes while the established materializer resolves linked Tasks', () => {
+  const fs = require('fs'); const path = require('path');
+  const migration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261004000001_planner_responsibility_closure_hardening.sql'), 'utf8');
+  const service = fs.readFileSync(path.join(__dirname, '../backend/src/services/planner.responsibilities.service.js'), 'utf8');
+  assert.match(migration, /revoke insert, update, delete on table public\.planner_responsibility_occurrences from authenticated/);
+  assert.match(migration, /drop policy if exists planner_responsibility_occurrences_insert/);
+  assert.match(migration, /drop policy if exists planner_responsibility_occurrences_update/);
+  assert.match(migration, /update public\.planner_responsibility_occurrences/);
+  assert.doesNotMatch(service, /planner_responsibility_occurrences'\)\.update/);
+})
+test('R33 responsibility and member writes reuse the visible API authority', () => {
+  const fs = require('fs'); const path = require('path');
+  const migration = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261004000001_planner_responsibility_closure_hardening.sql'), 'utf8');
+  assert.match(migration, /planner_current_actor_has_capability\(household_id, 'task\.create_household'\)/);
+  assert.match(migration, /planner_current_actor_has_capability\(household_id, 'planner\.view'\)/);
+  assert.match(migration, /create policy planner_responsibility_members_delete/);
+})

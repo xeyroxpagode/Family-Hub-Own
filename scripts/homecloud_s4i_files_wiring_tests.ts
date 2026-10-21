@@ -225,6 +225,15 @@ const reactStub: Record<string, unknown> = {
   useCallback: (...args: unknown[]) => (hostModules().useCallback as (...a: unknown[]) => unknown)(...args),
   useEffect: (...args: unknown[]) => (hostModules().useEffect as (...a: unknown[]) => unknown)(...args),
   createElement: (...args: unknown[]) => (hostModules().createElement as (...a: unknown[]) => unknown)(...args),
+  // The shared reduced-motion hook (used by the HC-POL motion surfaces) is built
+  // on `useSyncExternalStore`, so the stub has to expose it too.
+  useSyncExternalStore: (subscribe: (onStoreChange: () => void) => () => void, getSnapshot: () => unknown) => {
+    const useState = hostModules().useState as (initial: unknown) => readonly [unknown, (next: unknown) => void];
+    const useEffect = hostModules().useEffect as (effect: () => unknown, deps?: readonly unknown[]) => void;
+    const [value, setValue] = useState((() => getSnapshot()));
+    useEffect(() => subscribe(() => setValue(getSnapshot())), []);
+    return value;
+  },
 };
 reactStub.default = reactStub;
 reactStub.Fragment = Symbol.for('react.fragment');
@@ -271,6 +280,69 @@ const reactNativeStub = {
   // device primitive is part of what this host must provide. It is inert here:
   // no test in this file drives it.
   AppState: { currentState: 'active', addEventListener: () => ({ remove: () => undefined }) },
+  // The animation clock the HC-POL motion surfaces need. Deterministic: every
+  // animation settles on its target in one step. `Animated.View` keeps its own
+  // tag so assertions about a plain `View` never count animated wrappers.
+  Animated: {
+    createAnimatedComponent: (component: unknown) => component,
+    View: 'Animated.View',
+    Text: 'Animated.Text',
+    Image: 'Animated.Image',
+    Value: class AnimatedValueStub {
+      private current: number;
+      constructor(initial: number) { this.current = initial; }
+      setValue(next: number): void { this.current = next; }
+      /**
+       * RN parity: `AnimatedInterpolation.js::checkValidRanges` throws while it
+       * BUILDS a config whose ranges disagree — so an incompatible pair kills a
+       * screen during RENDER, not during a gesture. A stub that returned `this`
+       * for any config is exactly what let that defect reach iOS, so the
+       * invariant is enforced here, on the real mount path.
+       */
+      interpolate(config?: { inputRange?: readonly number[]; outputRange?: readonly number[] }): this {
+        const inputRange = config?.inputRange;
+        const outputRange = config?.outputRange;
+        if (inputRange && outputRange && inputRange.length !== outputRange.length) {
+          throw new Error(`Invariant Violation: inputRange (${inputRange.length}) and outputRange (${outputRange.length}) must have the same length`);
+        }
+        return this;
+      }
+      addListener(): string { return 'listener'; }
+      removeListener(): void { }
+      stopAnimation(callback?: (value: number) => void): void { callback?.(this.current); }
+    },
+    timing: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    spring: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    sequence: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+    parallel: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+  },
+  Easing: {
+    linear: (value: number) => value,
+    ease: (value: number) => value,
+    quad: (value: number) => value,
+    cubic: (value: number) => value,
+    in: () => (value: number) => value,
+    out: () => (value: number) => value,
+    inOut: () => (value: number) => value,
+  },
+  AccessibilityInfo: {
+    isReduceMotionEnabled: async () => false,
+    addEventListener: () => ({ remove: () => undefined }),
+  },
+  // The viewer layer's box (HC-POL-012/057) is the window.
+  useWindowDimensions: () => ({ width: 360, height: 640, scale: 2, fontScale: 1 }),
 };
 
 const navigationStub = {
@@ -582,8 +654,9 @@ function typeSearch(tree: unknown, text: string): boolean {
  * the filter icon's own accessibility label and the order chip's own label.
  */
 async function chooseSortThroughFilterMenu(surface: { tree: unknown; settle: () => Promise<void> }, orderLabel: string): Promise<boolean> {
+  // PATCH-1 frozen vocabulary: the filter icon announces itself as `Organizar.`.
   const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
-    && element.props.accessibilityLabel.startsWith('Filtros y orden.')
+    && element.props.accessibilityLabel.startsWith('Organizar.')
     && typeof element.props?.onPress === 'function');
   if (!filterIcon) return false;
   filterIcon.props.onPress();
@@ -716,7 +789,7 @@ async function testSortReachesTheRead(): Promise<void> {
   record(transport.lastFileRead()?.params.get('sort') === 'recent', 'C1. the surface starts on the default sort');
   record(newestFirst === 'c-100', 'C2. and the list follows it (newest first, as the read ordered it)');
 
-  record(await chooseSortThroughFilterMenu(surface, 'A-Z'), 'C3. the sort control is reachable through the filter menu');
+  record(await chooseSortThroughFilterMenu(surface, 'A–Z'), 'C3. the sort control is reachable through the filter menu');
   await surface.settle();
 
   const read = transport.lastFileRead();

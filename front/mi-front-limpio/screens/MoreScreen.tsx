@@ -11,6 +11,16 @@ import { colors, radius, spacing } from '../constants/theme';
 
 const MODULES = [
   {
+    id: 'assets',
+    label: 'Activos',
+    description: 'Objetos, vehículos, mascotas y propiedades',
+    icon: 'cube-outline',
+    color: colors.terracotta[600],
+    bg: colors.terracotta[50],
+    screen: 'Assets' as const,
+    isDemo: false,
+  },
+  {
     id: 'homecloud',
     label: 'HomeCloud',
     description: 'Archivos del hogar',

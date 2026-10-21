@@ -72,6 +72,9 @@ async function main() {
     await client.end();
   }
 
+  runCommand('Plans R3 root foundation database suite', 'node', ['scripts/planner_plan_root_foundation_database_tests.js']);
+  runCommand('Plans R4b write authority database suite', 'node', ['scripts/planner_plan_write_authority_database_tests.js']);
+  runCommand('Event Series materialization bound database suite', 'node', ['scripts/planner_event_series_materialization_bound_database_tests.js']);
   runCommand('G0.4 transactional database suite', 'node', ['scripts/homeplus_g0_4_database_tests.js']);
   runCommand('M11.INT-01 Shared idempotency database suite', 'node', ['scripts/planner_m11_int_01_shared_database_tests.js']);
   runCommand('M11.INT-01 Shared S1 idempotency replay matrix', 'node', ['scripts/planner_m11_int_01_shared_s1_matrix_tests.js']);

@@ -24,10 +24,12 @@ const crypto = require('node:crypto');
 
 const EXPECTED_PDFJS_VERSION = '3.11.174';
 const ENGINE_FILENAME = 'pdf.min.js';
+const WORKER_FILENAME = 'pdf.worker.min.js';
 
 const repoRoot = path.resolve(__dirname, '..');
 const frontDir = path.join(repoRoot, 'front', 'mi-front-limpio');
 const enginePath = path.join(frontDir, 'node_modules', 'pdfjs-dist', 'build', ENGINE_FILENAME);
+const workerPath = path.join(frontDir, 'node_modules', 'pdfjs-dist', 'build', WORKER_FILENAME);
 const installedVersionPath = path.join(frontDir, 'node_modules', 'pdfjs-dist', 'package.json');
 const outPath = path.join(frontDir, 'services', 'homecloud', 'pdfJsEngine.generated.ts');
 
@@ -37,6 +39,7 @@ function fail(message) {
 }
 
 if (!fs.existsSync(enginePath)) fail(`engine build not found at ${enginePath} (is pdfjs-dist installed?)`);
+if (!fs.existsSync(workerPath)) fail(`worker build not found at ${workerPath} (is pdfjs-dist installed?)`);
 if (!fs.existsSync(installedVersionPath)) fail('pdfjs-dist package.json not found');
 
 const installedVersion = JSON.parse(fs.readFileSync(installedVersionPath, 'utf8')).version;
@@ -45,17 +48,24 @@ if (installedVersion !== EXPECTED_PDFJS_VERSION) {
 }
 
 const source = fs.readFileSync(enginePath, 'utf8');
+const workerSource = fs.readFileSync(workerPath, 'utf8');
 if (source.length < 100 * 1024) fail(`engine source suspiciously small (${source.length} chars)`);
+if (workerSource.length < 100 * 1024) fail(`worker source suspiciously small (${workerSource.length} chars)`);
 if (!/pdfjsLib/.test(source.slice(0, 4000)) && !source.includes('pdfjsLib')) {
   fail('engine source does not expose the pdfjsLib global; refusing to vendor an unknown build shape');
 }
+if (!workerSource.includes('pdfjsWorker') || !workerSource.includes('WorkerMessageHandler')) {
+  fail('worker source does not expose the pdfjsWorker handler; refusing to vendor an unknown build shape');
+}
 
 const sha256 = crypto.createHash('sha256').update(source, 'utf8').digest('hex');
+const workerSha256 = crypto.createHash('sha256').update(workerSource, 'utf8').digest('hex');
 // An unescaped `</script>` inside the inlined engine would terminate the host
 // <script> element and break the Viewer (or worse). pdf.js ships it escaped, but
 // the guarantee is checked here rather than assumed.
-const closers = (source.match(/<\/script/gi) || []).length;
-const escaped = (source.match(/<\\\/script/gi) || []).length;
+const combinedSource = `${workerSource}\n;\n${source}`;
+const closers = (combinedSource.match(/<\/script/gi) || []).length;
+const escaped = (combinedSource.match(/<\\\/script/gi) || []).length;
 if (closers !== escaped) {
   fail(`engine contains ${closers} closing </script> sequences but only ${escaped} escaped; refusing to inline`);
 }
@@ -68,12 +78,14 @@ const header = `/**
  * Viewer makes NO network request for its rendering engine.
  *
  * - pdfjs-dist version : ${installedVersion} (pinned in front/mi-front-limpio/package.json)
- * - vendored build     : build/${ENGINE_FILENAME} (UMD, exposes the pdfjsLib global)
- * - sha256             : ${sha256}
- * - source length      : ${source.length} chars
- * - worker             : NOT vendored on purpose; the Viewer runs with the worker
- *                        disabled (see homecloudPdfViewerHtml.ts), so no worker file,
- *                        no blob worker and no file-origin worker handshake is needed.
+ * - vendored engine    : build/${ENGINE_FILENAME} (UMD, exposes the pdfjsLib global)
+ * - engine sha256      : ${sha256}
+ * - vendored worker    : build/${WORKER_FILENAME} (UMD, exposes pdfjsWorker.WorkerMessageHandler)
+ * - worker sha256      : ${workerSha256}
+ * - source length      : ${combinedSource.length} chars
+ * - worker loading     : the worker handler is inlined before the main engine so
+ *                        PDF.js can use its local fake-worker path without a worker
+ *                        URL, blob worker, file-origin handshake or network request.
  * - standard fonts / CMaps: NOT bundled on purpose; the Viewer configures no remote
  *                        font/CMap URL, so pdf.js never fetches them. Documents that
  *                        rely on non-embedded exotic glyphs may show substituted glyphs.
@@ -84,7 +96,7 @@ const header = `/**
  */
 `;
 
-const body = `export const PDFJS_ENGINE_VERSION = ${JSON.stringify(installedVersion)};\n\nexport const PDFJS_ENGINE_SHA256 = ${JSON.stringify(sha256)};\n\nexport const PDFJS_ENGINE_SOURCE: string = ${JSON.stringify(source)};\n`;
+const body = `export const PDFJS_ENGINE_VERSION = ${JSON.stringify(installedVersion)};\n\nexport const PDFJS_ENGINE_SHA256 = ${JSON.stringify(sha256)};\n\nexport const PDFJS_WORKER_SHA256 = ${JSON.stringify(workerSha256)};\n\nexport const PDFJS_ENGINE_SOURCE: string = ${JSON.stringify(combinedSource)};\n`;
 
 fs.writeFileSync(outPath, header + body, 'utf8');
-console.log(`vendor-pdfjs: PASS: pdfjs-dist@${installedVersion} (${source.length} chars, sha256 ${sha256.slice(0, 16)}…) -> ${path.relative(repoRoot, outPath)}`);
+console.log(`vendor-pdfjs: PASS: pdfjs-dist@${installedVersion} (${combinedSource.length} chars, engine ${sha256.slice(0, 16)}…, worker ${workerSha256.slice(0, 16)}…) -> ${path.relative(repoRoot, outPath)}`);

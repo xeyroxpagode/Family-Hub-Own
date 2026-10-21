@@ -11,14 +11,14 @@ const PLAN_LIFECYCLE_VALUES = [
 ];
 
 const PLAN_LIFECYCLE_TRANSITIONS = {
-  preparation: ['active', 'cancelled'],
-  active: ['paused', 'completed', 'cancelled'],
-  paused: ['active', 'completed', 'cancelled'],
+  preparation: ['active', 'archive'],
+  active: ['paused', 'completed', 'cancelled', 'archive'],
+  paused: ['resume', 'completed', 'cancelled', 'archive'],
   completed: ['reopen', 'archive'],
   cancelled: ['reopen', 'archive'],
 };
 
-const PLAN_SCOPE_VALUES = ['personal', 'household'];
+const PLAN_SCOPE_VALUES = ['household'];
 
 const validateLifecycle = (value) => {
   if (value === undefined || value === null || value === '') {
@@ -38,7 +38,7 @@ const validateScope = (value) => {
   }
   if (!PLAN_SCOPE_VALUES.includes(value)) {
     const error = new Error('scope invalido.');
-    error.code = 'invalid_scope';
+    error.code = value === 'personal' ? 'personal_plans_not_supported' : 'invalid_scope';
     throw error;
   }
   return value;
@@ -58,33 +58,11 @@ const validateLifecycleTransition = (fromLifecycle, toLifecycle) => {
   }
 };
 
-const toPlanDto = (goal, milestones) => {
-  const progress = goal.progress_percentage ?? null;
-  const tasksTotal = goal.tasks_total ?? null;
-  const tasksCompleted = goal.tasks_completed ?? null;
-  const tasksPending = goal.tasks_pending ?? null;
-  const milestonesTotal = goal.milestones_total ?? (milestones?.length ?? 0);
-  const milestonesCompleted = goal.milestones_completed ?? (milestones?.filter(m => m.achieved).length ?? 0);
-
-  return {
-    id: goal.id,
-    title: goal.title,
-    description: goal.description,
-    scope: goal.visibility,
-    targetDate: goal.target_date ?? goal.ends_at,
-    lifecycle: goal.lifecycle,
-    archivedAt: goal.archived_at,
-    trashedAt: goal.trashed_at,
-    createdAt: goal.created_at,
-    updatedAt: goal.updated_at,
-    version: goal.version,
-    progress: progress !== null ? {
-      percentage: progress,
-      tasks: tasksTotal !== null ? { total: tasksTotal, completed: tasksCompleted, pending: tasksPending } : undefined,
-      milestones: milestonesTotal !== null ? { total: milestonesTotal, completed: milestonesCompleted } : undefined,
-    } : undefined,
-  };
-};
+// The production DTO IS the single authority for the Plan shape. Importing it
+// (instead of re-declaring a copy here) is what makes these assertions able to
+// fail when the contract changes; a local copy could only ever confirm itself.
+const { toPlanDto: productionToPlanDto, getPlanAvailableActions: productionAvailableActions, PLAN_DTO_FIELDS } =
+  require('../backend/src/services/planner.plans.v1.dto');
 
 function assert(condition, message) {
   if (!condition) throw new Error(`Assertion failed: ${message}`);
@@ -118,13 +96,13 @@ assertEqual(PLAN_LIFECYCLE_VALUES.includes('cancelled'), true, 'has cancelled');
 console.log('Testing PLAN_LIFECYCLE_TRANSITIONS...');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.preparation.length, 2, 'preparation transitions');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.preparation.includes('active'), true, 'preparation -> active');
-assertEqual(PLAN_LIFECYCLE_TRANSITIONS.preparation.includes('cancelled'), true, 'preparation -> cancelled');
-assertEqual(PLAN_LIFECYCLE_TRANSITIONS.active.length, 3, 'active transitions');
+assertEqual(PLAN_LIFECYCLE_TRANSITIONS.preparation.includes('cancelled'), false, 'preparation cannot cancel');
+assertEqual(PLAN_LIFECYCLE_TRANSITIONS.active.length, 4, 'active transitions');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.active.includes('paused'), true, 'active -> paused');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.active.includes('completed'), true, 'active -> completed');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.active.includes('cancelled'), true, 'active -> cancelled');
-assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.length, 3, 'paused transitions');
-assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.includes('active'), true, 'paused -> active');
+assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.length, 4, 'paused transitions');
+assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.includes('resume'), true, 'paused -> resume');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.includes('completed'), true, 'paused -> completed');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.paused.includes('cancelled'), true, 'paused -> cancelled');
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.completed.length, 2, 'completed transitions');
@@ -135,8 +113,8 @@ assertEqual(PLAN_LIFECYCLE_TRANSITIONS.cancelled.includes('reopen'), true, 'canc
 assertEqual(PLAN_LIFECYCLE_TRANSITIONS.cancelled.includes('archive'), true, 'cancelled -> archive');
 
 console.log('Testing PLAN_SCOPE_VALUES...');
-assertEqual(PLAN_SCOPE_VALUES.length, 2, 'scope values count');
-assertEqual(PLAN_SCOPE_VALUES.includes('personal'), true, 'has personal');
+assertEqual(PLAN_SCOPE_VALUES.length, 1, 'scope values count');
+assertEqual(PLAN_SCOPE_VALUES.includes('personal'), false, 'personal Plans are unsupported');
 assertEqual(PLAN_SCOPE_VALUES.includes('household'), true, 'has household');
 
 console.log('Testing validateLifecycle...');
@@ -152,7 +130,7 @@ assertThrows(() => validateLifecycle('invalid'), 'invalid_lifecycle', 'invalid l
 assertThrows(() => validateLifecycle('draft'), 'invalid_lifecycle', 'draft not allowed');
 
 console.log('Testing validateScope...');
-assertEqual(validateScope('personal'), 'personal', 'valid personal');
+assertThrows(() => validateScope('personal'), 'personal_plans_not_supported', 'personal Plans are rejected');
 assertEqual(validateScope('household'), 'household', 'valid household');
 assertEqual(validateScope(), 'household', 'default to household');
 assertEqual(validateScope(null), 'household', 'null defaults to household');
@@ -169,11 +147,11 @@ assertThrows(() => validateLifecycleTransition('completed', 'paused'), 'invalid_
 
 // Valid transitions
 validateLifecycleTransition('preparation', 'active');
-validateLifecycleTransition('preparation', 'cancelled');
+assertThrows(() => validateLifecycleTransition('preparation', 'cancelled'), 'invalid_lifecycle_transition', 'preparation -> cancelled throws');
 validateLifecycleTransition('active', 'paused');
 validateLifecycleTransition('active', 'completed');
 validateLifecycleTransition('active', 'cancelled');
-validateLifecycleTransition('paused', 'active');
+validateLifecycleTransition('paused', 'resume');
 validateLifecycleTransition('paused', 'completed');
 validateLifecycleTransition('paused', 'cancelled');
 validateLifecycleTransition('completed', 'reopen');
@@ -203,7 +181,7 @@ const mockGoal = {
   milestones_completed: 2,
 };
 
-const dto = toPlanDto(mockGoal, []);
+const dto = productionToPlanDto(mockGoal, []);
 assertEqual(dto.id, 'plan-1', 'dto id');
 assertEqual(dto.title, 'Test Plan', 'dto title');
 assertEqual(dto.description, 'Description', 'dto description');
@@ -213,12 +191,27 @@ assertEqual(dto.lifecycle, 'active', 'dto lifecycle');
 assertEqual(dto.archivedAt, null, 'dto archivedAt');
 assertEqual(dto.trashedAt, null, 'dto trashedAt');
 assertEqual(dto.version, 1, 'dto version');
-assertEqual(dto.progress.percentage, 50, 'dto progress percentage');
-assertEqual(dto.progress.tasks.total, 10, 'dto progress tasks total');
-assertEqual(dto.progress.tasks.completed, 5, 'dto progress tasks completed');
-assertEqual(dto.progress.tasks.pending, 5, 'dto progress tasks pending');
-assertEqual(dto.progress.milestones.total, 4, 'dto progress milestones total');
-assertEqual(dto.progress.milestones.completed, 2, 'dto progress milestones completed');
+
+// Frozen: NO universal percentage is a Plan V1 progress authority, and
+// milestones are NOT Plan V1 components (§20). Readiness/progress come from
+// the dedicated aggregate endpoint, never from this DTO.
+assertEqual(dto.progress, undefined, 'dto publishes no legacy percentage/milestone progress');
+assert(
+  !('percentage' in (dto.progress ?? {})) && !('milestones' in (dto.progress ?? {})),
+  'dto progress carries neither percentage nor milestones',
+);
+assert(
+  !('milestones' in dto),
+  'dto publishes no milestone list',
+);
+assert(
+  Array.isArray(dto.availableActions) && dto.availableActions.includes('pause'),
+  'dto projects availableActions (the single action authority)',
+);
+assert(
+  Object.keys(dto).every((key) => PLAN_DTO_FIELDS.includes(key)),
+  `dto projects only contract fields (got ${Object.keys(dto).join(',')})`,
+);
 
 // Test with ends_at fallback
 const mockGoal2 = {
@@ -226,7 +219,19 @@ const mockGoal2 = {
   target_date: null,
   ends_at: '2026-06-30',
 };
-const dto2 = toPlanDto(mockGoal2, []);
+const dto2 = productionToPlanDto(mockGoal2, []);
 assertEqual(dto2.targetDate, '2026-06-30', 'dto targetDate falls back to ends_at');
+
+// Archive is orthogonal to lifecycle and swaps archive ⇄ unarchive.
+const archivedDto = productionToPlanDto({ ...mockGoal, archived_at: '2026-02-02T00:00:00.000Z' });
+assert(archivedDto.availableActions.includes('unarchive'), 'archived Plan offers unarchive');
+assert(!archivedDto.availableActions.includes('archive'), 'archived Plan does not offer archive');
+assertEqual(archivedDto.lifecycle, 'active', 'archive preserves lifecycle');
+// A trashed Plan is inert.
+assertEqual(
+  productionAvailableActions({ ...mockGoal, trashed_at: '2026-02-02T00:00:00.000Z' }).join(','),
+  'restore',
+  'trashed Plan offers restore only',
+);
 
 console.log('\nAll tests passed!');

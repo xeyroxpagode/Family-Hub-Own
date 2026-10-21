@@ -391,7 +391,11 @@ async function testAcceptedBindingSurvives(): Promise<void> {
   const memoryService = createMemoryIntakeService({
     householdId: 'hh-a', accessToken: 'tok', capabilities: memoryDescriptor, getAccessToken: () => 'tok', intakeSource: 'memories:w1a',
   });
-  await memoryService.loadAlbums();
+  // MO-A2 retarget: the seam is still "make the destinations readable", it is
+  // just RE-RUNNABLE now instead of a one-shot load. The property under test is
+  // unchanged: a same-value capabilities revalidation must not rebuild the
+  // service nor lose its loaded destinations.
+  await memoryService.reloadDestinations();
   record(memoryService.getAvailableDestinations().length > 0,
     'C14. the Memory intake service loaded its destinations');
   const memoryRebuilt = Object.is(evaluateStableHomeCloudCapabilities(sameCapsAgain()), memoryDescriptor)

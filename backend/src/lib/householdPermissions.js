@@ -90,6 +90,36 @@ const DEFAULT_HOUSEHOLD_PERMISSIONS = Object.freeze({
     senior: false,
     guest: false,
   },
+
+  // Assets capabilities (A2.1 — Product Freeze V2.0 §43)
+  // Assets owns capability identifiers; role -> capability defaults live here
+  // in the Global Permissions authority. Hierarchy: MANAGE ⇒ CONTRIBUTE ⇒ VIEW.
+  // Defaults are set to false for all roles (fail-closed): no capability is granted
+  // without an explicit grant in household.config.permissions[capability][role].
+  'assets.view': {
+    coordinator: false,
+    adult: false,
+    adolescent: false,
+    child: false,
+    senior: false,
+    guest: false,
+  },
+  'assets.contribute': {
+    coordinator: false,
+    adult: false,
+    adolescent: false,
+    child: false,
+    senior: false,
+    guest: false,
+  },
+  'assets.manage': {
+    coordinator: false,
+    adult: false,
+    adolescent: false,
+    child: false,
+    senior: false,
+    guest: false,
+  },
 });
 
 const HOUSEHOLD_CAPABILITIES = createCapabilityCatalog(Object.keys(DEFAULT_HOUSEHOLD_PERMISSIONS));

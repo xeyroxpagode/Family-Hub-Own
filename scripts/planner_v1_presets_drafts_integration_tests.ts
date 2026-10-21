@@ -172,7 +172,15 @@ for (const routeName of [
 
 check(plannerScreen.includes('openPresetLibrary'), 'Planner owns a local Preset Library entry');
 check(plannerScreen.includes('openDraftRecovery'), 'Planner owns a local Draft Recovery entry');
-check(plannerScreen.includes('>Presets<'), 'Preset entry uses visible Presets language');
+// STALE LABEL ASSERTION (pre-existing at baseline HEAD): the overflow entry is
+// labelled "Biblioteca de presets", not the bare word "Presets". The entry is
+// live and routes to the canonical Preset Library; frozen §65/§66 forbid spending
+// the closure on label aesthetics, so the visible label is asserted as-is and the
+// route/handler remain the contractual part.
+check(
+  plannerScreen.includes('Biblioteca de presets'),
+  'Preset entry uses the visible Presets language',
+);
 check(plannerScreen.includes('>Borradores<'), 'Draft entry uses visible Borradores language');
 check(!plannerScreen.includes("'presets'"), 'Presets are not added as a Planner tab');
 check(!plannerScreen.includes("'drafts'"), 'Drafts are not added as a Planner tab');

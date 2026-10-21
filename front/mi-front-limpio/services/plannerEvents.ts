@@ -37,6 +37,8 @@ export type CreatePlannerEventPayload = {
   all_day?: boolean;
   location_name?: string;
   recurrence?: PlannerEventRecurrence;
+  goal_id?: string;
+  plan_classification?: 'necessary' | 'supporting';
 };
 
 export type UpdatePlannerEventPayload = Partial<CreatePlannerEventPayload> & {

@@ -76,7 +76,7 @@ export function mapLegacyPlannerHomeParams(legacy: {
   initialSheet?: 'task' | 'event';
   sheetKey?: number;
   refreshKey?: number;
-}): { initialTab?: PlannerTabKey; source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown' } {
+}): { initialTab?: PlannerTabKey; source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'assets' | 'unknown' } {
   return buildPlannerRootParams({ initialTab: legacy.initialTab });
 }
 
@@ -87,8 +87,8 @@ export function mapLegacyPlannerHomeParams(legacy: {
  */
 export function mapLegacyGoalDetailParams(legacy: {
   goalId: string;
-  source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown';
-}): { entityId: string; source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'unknown'; returnTo?: 'planner' | 'home' | 'previous'; justCreated?: boolean } {
+  source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'assets' | 'unknown';
+}): { entityId: string; source?: 'planner' | 'home' | 'quick_action' | 'deep_link' | 'notification' | 'assets' | 'unknown'; returnTo?: 'planner' | 'home' | 'previous'; justCreated?: boolean } {
   return buildPlannerEntityDetailParams({
     entityId: legacy.goalId,
     source: normalizePlannerNavigationSource(legacy.source),

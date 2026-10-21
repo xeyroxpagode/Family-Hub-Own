@@ -14,9 +14,11 @@ const activityController = require('../controllers/planner.activity.controller')
 const capabilitiesController = require('../controllers/planner.capabilities.controller')
 const schedulesController = require('../controllers/planner.schedules.controller')
 const responsibilitiesController = require('../controllers/planner.responsibilities.controller')
+const eventSeriesController = require('../controllers/planner.event-series.controller')
 const presetsDraftsRouter = require('./planner.presets-drafts')
 const plansV1Router = require('./planner.v1')
 const { plannerObservabilityMiddleware } = require('../lib/plannerObservability')
+const { requireUuidParams } = require('../middleware/requireUuidParams')
 
 const router = express.Router()
 
@@ -37,6 +39,41 @@ router.use(plannerCacheMiddleware)
 router.use(plannerObservabilityMiddleware)
 
 router.get('/responsibilities', responsibilitiesController.list)
+router.post('/responsibilities/materialize-due', responsibilitiesController.materializeDue)
+// `materialize-range` is a LITERAL segment, but `router.use('/event-series/:id')`
+// would match it (`:id` = 'materialize-range'). Express matches in registration
+// order, so the concrete route MUST be registered before the `:id` guards or the
+// guard swallows it.
+router.post('/event-series/materialize-range', eventSeriesController.materializeRange)
+
+// Path params that address a row. A malformed value is answered like an absent
+// one (same status/message/code) so a deep link always terminates in a terminal
+// state and never leaks existence or a raw driver SQLSTATE.
+// The path list is REQUIRED: a bare `router.use(fn)` runs before Express matches
+// a route, so `req.params` would be empty and the guard would silently do
+// nothing.
+router.use(
+  [
+    '/event-series/:id',
+    '/event-series/:id/pause',
+    '/event-series/:id/resume',
+    '/event-series/:id/trash',
+    '/event-series/:id/restore',
+  ],
+  requireUuidParams(['id'], {
+    status: 404,
+    message: 'Horario no encontrado.',
+    code: 'event_series_not_found',
+  }),
+);
+router.get('/event-series', eventSeriesController.list)
+router.post('/event-series', eventSeriesController.create)
+router.get('/event-series/:id', eventSeriesController.get)
+router.patch('/event-series/:id', eventSeriesController.update)
+router.post('/event-series/:id/pause', eventSeriesController.pause)
+router.post('/event-series/:id/resume', eventSeriesController.resume)
+router.post('/event-series/:id/trash', eventSeriesController.trash)
+router.post('/event-series/:id/restore', eventSeriesController.restore)
 router.post('/responsibilities', responsibilitiesController.create)
 router.get('/responsibilities/:id', responsibilitiesController.get)
 router.patch('/responsibilities/:id', responsibilitiesController.update)
@@ -86,6 +123,35 @@ router.post('/v1/tasks/:taskId/fulfillments/:fulfillmentId/resubmit', tasksContr
 router.post('/v1/tasks/:taskId/fulfillments/:fulfillmentId/revert', tasksController.revertTaskFulfillmentV1)
 router.post('/v1/tasks/:taskId/fulfillments/:fulfillmentId/reopen', tasksController.reopenTaskFulfillmentV1)
 
+// Path params that address a row on the legacy Task surface. A malformed value
+// is answered like an absent one (same status/message/code) so a deep link
+// always terminates in a terminal state and never leaks existence.
+router.use(
+  ['/tasks/:id/evidence/artifacts/:artifactId/authorize', '/tasks/:id/evidence/artifacts/:artifactId/confirm', '/tasks/:id/evidence/artifacts/:artifactId/cancel', '/tasks/:id/evidence/media/:artifactId/access', '/tasks/:id/evidence/submissions/:fulfillmentId', '/tasks/:id/evidence/submissions/:fulfillmentId/:submissionId/review'],
+  requireUuidParams(['id', 'fulfillmentId', 'artifactId', 'submissionId'], {
+    status: 404,
+    message: 'Tarea no encontrada.',
+    code: 'task_not_found',
+  }),
+);
+router.use(
+  ['/tasks/:id', '/tasks/:id/evidence', '/tasks/:id/evidence/:fulfillmentId', '/tasks/:id/audit', '/v1/tasks/:taskId', '/v1/tasks/:taskId/fulfillments/:fulfillmentId'],
+  requireUuidParams(['id', 'taskId', 'fulfillmentId'], {
+    status: 404,
+    message: 'Tarea no encontrada.',
+    code: 'task_not_found',
+  }),
+);
+
+router.post('/tasks/:id/evidence/artifacts', tasksController.registerTaskEvidenceArtifact)
+router.post('/tasks/:id/evidence/artifacts/:artifactId/authorize', tasksController.authorizeTaskEvidenceArtifact)
+router.post('/tasks/:id/evidence/artifacts/:artifactId/confirm', tasksController.confirmTaskEvidenceArtifact)
+router.post('/tasks/:id/evidence/artifacts/:artifactId/cancel', tasksController.cancelTaskEvidenceArtifact)
+router.get('/tasks/:id/evidence/media/:artifactId/access', tasksController.getTaskEvidenceMediaAccess)
+router.post('/tasks/:id/evidence/submissions/:fulfillmentId', tasksController.submitTaskEvidenceV2)
+router.post('/tasks/:id/evidence/submissions/:fulfillmentId/:submissionId/review', tasksController.reviewTaskEvidenceV2)
+router.get('/tasks/:id/evidence/submissions', tasksController.getTaskEvidenceHistoryV2)
+
 router.post('/tasks/:id/evidence/:fulfillmentId', tasksController.submitTaskEvidence)
 router.get('/tasks/:id/evidence', tasksController.getTaskEvidenceHistory)
 router.get('/tasks/:id/audit', tasksController.getTaskAuditHistory)
@@ -131,6 +197,20 @@ router.post('/goals/:id/complete', goalsController.completeGoal)
 router.post('/goals/:id/close', goalsController.closeGoal)
 router.post('/goals/:id/reopen', goalsController.reopenGoal)
 router.post('/goals/:id/fail', goalsController.failGoal)
+
+router.use(
+  [
+    '/goals/:goalId/milestones',
+    '/goals/:goalId/milestones/:milestoneId',
+    '/goals/:goalId/milestones/:milestoneId/trash',
+    '/goals/:goalId/milestones/:milestoneId/restore',
+  ],
+  requireUuidParams(['goalId', 'milestoneId'], {
+    status: 404,
+    message: 'Meta no encontrada.',
+    code: 'goal_not_found',
+  }),
+);
 
 router.get('/goals/:goalId/milestones', goalsController.listMilestones)
 router.post('/goals/:goalId/milestones', goalsController.createMilestone)

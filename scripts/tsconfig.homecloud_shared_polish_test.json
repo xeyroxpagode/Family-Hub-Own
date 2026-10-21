@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "outDir": "./compiled-homecloud-shared-polish"
+  },
+  "include": [
+    "homecloud_shared_polish_tests.ts",
+    "../front/mi-front-limpio/services/homecloud/adaptiveActionMenuLayout.ts"
+  ]
+}

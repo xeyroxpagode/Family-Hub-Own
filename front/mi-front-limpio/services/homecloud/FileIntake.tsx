@@ -12,9 +12,13 @@ export interface FileIntakeProps {
   config: FileIntakeConfig;
   onComplete?: (contentId: string) => void;
   onDismiss?: () => void;
+  /** Open the native picker as soon as this controller mounts. */
+  autoPick?: boolean;
+  /** Hide the legacy in-app launcher when Files already supplied the trigger. */
+  renderLauncher?: boolean;
 }
 
-export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
+export function FileIntake({ config, onComplete, onDismiss, autoPick = false, renderLauncher = true }: FileIntakeProps) {
   const { householdId, capabilities, initialFolderId, initialFolderName, intakeSource } = config;
   const accessTokenRef = React.useRef(config.accessToken);
   accessTokenRef.current = config.accessToken;
@@ -23,6 +27,8 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
   const [destinationSheetVisible, setDestinationSheetVisible] = useState(false);
   const [destinations, setDestinations] = useState<FileIntakeDestination[]>([]);
   const [showInitialDestination, setShowInitialDestination] = useState(false);
+  const autoPickStarted = React.useRef(false);
+  const previousStatus = React.useRef<FileIntakeState['status']>('idle');
 
   const service = React.useMemo(() => createFileIntakeService({
     householdId,
@@ -72,6 +78,18 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
     // household-wide guess, which is exactly what Gap D forbids. Closing this UI
     // still never cancels the job nor deletes its durable artifact.
   }, [service]);
+
+  useEffect(() => {
+    if (!autoPick || autoPickStarted.current) return;
+    autoPickStarted.current = true;
+    void handlePickFile();
+  }, [autoPick, handlePickFile]);
+
+  useEffect(() => {
+    const before = previousStatus.current;
+    previousStatus.current = state.status;
+    if (autoPick && before === 'picking' && state.status === 'idle') onDismiss?.();
+  }, [autoPick, onDismiss, state.status]);
 
   const handleSelectDestination = useCallback((folderId: string | null, folderName: string | null) => {
     service.selectDestination(folderId, folderName);
@@ -240,10 +258,10 @@ export function FileIntake({ config, onComplete, onDismiss }: FileIntakeProps) {
 
   return (
     <View style={styles.container}>
-      {renderTrigger()}
-      {showInitialDestination && renderDestinationSelector()}
-      {renderStatus()}
-      {renderDestinationSheet()}
+      {renderLauncher ? renderTrigger() : null}
+      {renderLauncher && showInitialDestination ? renderDestinationSelector() : null}
+      {renderLauncher ? renderStatus() : null}
+      {renderLauncher ? renderDestinationSheet() : null}
     </View>
   );
 }

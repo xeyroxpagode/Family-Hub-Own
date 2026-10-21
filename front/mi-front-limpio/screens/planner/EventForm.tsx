@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,6 +20,11 @@ import {
   type CreatePlannerEventPayload,
   type PlannerEventRecurrence,
 } from '../../services/plannerEvents';
+// S7 — creación desde un activo: la fachada de Assets compone el origin y
+// delega en el service canónico de Planner.
+import { createAssetPlannerItem, assetPlannerDescription } from '../../services/assets/plannerItems';
+import type { AssetRef } from '../../services/planner/plannerSheetState';
+import type { PlannerMutationIntent } from '../../services/planner/plannerMutationIntent';
 import {
   enqueuePlannerEventCancel,
   enqueuePlannerEventCreate,
@@ -30,6 +35,13 @@ import { createIdempotencyKey } from '../../services/idempotency';
 import { omitUndefinedPlannerPayloadProperties } from '../../services/planner/plannerPayloadFilter';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
+import { usePlannerSheet } from '../../context/PlannerSheetContext';
+import {
+  buildEventDraftSnapshot,
+  sameEventDraft,
+  type PlannerEventDraftSnapshot,
+} from '../../services/planner/plannerSheetGuard';
+import { usePlannerScreenDirtyGuard } from '../../hooks/usePlannerScreenDirtyGuard';
 import { HomePlusIcon } from '../../constants/icons';
 import { buildLocalIso, dateToYMD, addDays, plannerStyles as S, recurrenceLabels } from './plannerShared';
 import { colors } from '../../constants/theme';
@@ -48,9 +60,19 @@ type EventFormProps = {
   onClose?: () => void;
   onSaved?: (message: string) => void;
   createMutationId?: string;
+  /**
+   * S7 — identidad completa del intento del composer. Cuando hay `assetRef`,
+   * el Event se crea por la fachada de Assets usando EXACTAMENTE esta
+   * identidad (mismo mutationId + misma Idempotency-Key) en todos los
+   * reintentos: nunca se genera una clave nueva.
+   */
+  createIntent?: PlannerMutationIntent;
+  /** S7 — el activo de origen. Su presencia cambia el destino del create. */
+  assetRef?: AssetRef;
   onSubmitBegin?: (intentId: string) => void;
   onSubmitEnd?: (intentId: string) => void;
 };
+
 
 const recurrenceOptions: PlannerEventRecurrence[] = ['none', 'daily', 'weekly', 'monthly'];
 
@@ -108,25 +130,37 @@ export function EventForm({
   onClose,
   onSaved,
   createMutationId,
+  createIntent,
+  assetRef,
   onSubmitBegin,
   onSubmitEnd,
 }: EventFormProps) {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const { session, loading: authLoading } = useAuth();
+  const { session, loading: authLoading, authMe } = useAuth();
   const { markPlannerChanged } = useAppRefresh();
   const accessToken = session?.access_token;
+  // S7 — Household activo: destino del create desde un activo.
+  const householdId = authMe?.active_household?.id ?? null;
   const eventId = eventIdProp ?? route.params?.eventId as string | undefined;
   const routeReturnTo = (route.params?.returnTo as string) || undefined;
   const routeInitialTab = (route.params?.initialTab as string) || undefined;
+  const initialPlanId = route.params?.initialPlanId as string | undefined;
+  const initialPlanTitle = route.params?.initialPlanTitle as string | undefined;
 
   const [loading, setLoading] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [planClassification, setPlanClassification] = useState<'necessary' | 'supporting'>('necessary');
   const [editScope, setEditScope] = useState<'occurrence' | 'series'>('occurrence');
   const [title, setTitle] = useState('');
   const [titleTouched, setTitleTouched] = useState(false);
-  const [description, setDescription] = useState('');
+  const [description, setDescription] = useState(() => (
+    // S7 — seed inicial de la descripción cuando el Event nace de un activo.
+    // Se siembra UNA vez (al abrir el composer) y nunca se vuelve a
+    // sobrescribir: si el usuario la modifica, su texto manda.
+    mode === 'create' && assetRef ? assetPlannerDescription(assetRef.assetName) : ''
+  ));
   const [date, setDate] = useState(() => {
     if (mode === 'create' && initialDate && DATE_REGEX.test(initialDate)) {
       return initialDate;
@@ -150,6 +184,60 @@ export function EventForm({
   const occurrenceOverrideKeyRef = useRef(createIdempotencyKey('planner.events.occurrences.override.create'));
   // Re-entry guard for the submit button (same rationale as TaskForm).
   const submitInFlightRef = useRef(false);
+
+  // --- Dirty guard derivation (Phase 1 / Figma §23.7 + §36.7) ---
+  // The prototype only flagged the title (registered contradiction C-08);
+  // Phase 1 derives dirty from the full normalized event draft vs the
+  // opening snapshot, captured after async hydration completes.
+  const currentDraftRef = useRef<PlannerEventDraftSnapshot | null>(null);
+  currentDraftRef.current = buildEventDraftSnapshot({
+    title,
+    description,
+    date,
+    startTime,
+    endTime,
+    allDay,
+    locationName,
+    recurrence,
+    planClassification,
+  });
+  const openingSnapshotRef = useRef<PlannerEventDraftSnapshot | null>(null);
+  const isEventDraftDirty = useCallback((): boolean => {
+    const opening = openingSnapshotRef.current;
+    const current = currentDraftRef.current;
+    if (!opening || !current) return false;
+    return !sameEventDraft(current, opening);
+  }, []);
+  useEffect(() => {
+    if (loading) return;
+    if (!openingSnapshotRef.current) {
+      openingSnapshotRef.current = currentDraftRef.current;
+    }
+  }, [loading]);
+
+  const { registerDirtyProbe } = usePlannerSheet();
+  useEffect(() => registerDirtyProbe(isEventDraftDirty), [registerDirtyProbe, isEventDraftDirty]);
+
+  const performScreenClose = () => {
+    if (routeReturnTo === 'PlannerHome') {
+      const tab = routeInitialTab ?? 'calendar';
+      const refreshKey = Date.now();
+      navigation.replace('PlannerHome', { refreshKey, initialTab: tab });
+      return;
+    }
+
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'calendar' });
+  };
+  const screenDirtyGuard = usePlannerScreenDirtyGuard({
+    enabled: !embedded,
+    isDirty: isEventDraftDirty,
+    onDiscard: performScreenClose,
+  });
 
   const isFormReadyForSubmit = React.useMemo(() => {
     if (authLoading || loading || saving) return false;
@@ -309,6 +397,8 @@ export function EventForm({
       all_day: allDay,
       location_name: locationName.trim() || undefined,
       recurrence,
+      goal_id: mode === 'create' ? initialPlanId : undefined,
+      plan_classification: mode === 'create' && initialPlanId ? planClassification : undefined,
       expected_version: mode === 'edit' ? entityVersion ?? undefined : undefined,
     });
 
@@ -357,6 +447,43 @@ if (isGeneratedRecurringOccurrence) {
           Alert.alert('Planner', 'Evento actualizado.');
         }
         eventUpdateKeyRef.current = createIdempotencyKey('planner.events.update');
+      } else if (assetRef && createIntent?.idempotencyKey && householdId) {
+        // S7 — el Event nace de un activo: la escritura pasa por la fachada
+        // de Assets (que compone el quartet origin server-side y delega en el
+        // service canónico de Planner). La IDENTIDAD del intento es la del
+        // composer (createIntent): el mismo mutationId y la misma
+        // Idempotency-Key en cualquier reintento.
+        const outcome = await createAssetPlannerItem(
+          accessToken,
+          householdId,
+          assetRef.assetId,
+          {
+            title: payload.title,
+            description: payload.description ?? null,
+            starts_at: payload.starts_at,
+            ends_at: payload.ends_at ?? null,
+            all_day: payload.all_day,
+            location_name: payload.location_name ?? null,
+            recurrence: 'none',
+          },
+          'event',
+          {
+            mutationId: createIntent.mutationId,
+            idempotencyKey: createIntent.idempotencyKey,
+          },
+        );
+
+        if (outcome.status === 'failed' || outcome.status === 'unknown') {
+          // El draft se conserva: el error se muestra dentro del composer.
+          throw outcome.error;
+        }
+
+        markPlannerChanged();
+        if (onSaved) {
+          onSaved('Evento creado.');
+        } else {
+          Alert.alert('Planner', 'Evento creado.');
+        }
       } else {
         await enqueuePlannerEventCreate(payload, {
           idempotencyKey: eventCreateKeyRef.current,
@@ -438,20 +565,7 @@ onPress: async () => {
       onClose();
       return;
     }
-
-    if (routeReturnTo === 'PlannerHome') {
-      const tab = routeInitialTab ?? 'calendar';
-      const refreshKey = Date.now();
-      navigation.replace('PlannerHome', { refreshKey, initialTab: tab });
-      return;
-    }
-
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-      return;
-    }
-
-    navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'calendar' });
+    screenDirtyGuard.requestClose();
   };
 
   const handlePressOutside = () => {
@@ -493,6 +607,26 @@ onPress: async () => {
         {error ? (
           <View style={S.errorBox}>
             <Text style={S.errorText}>{error}</Text>
+          </View>
+        ) : null}
+
+        {mode === 'create' && initialPlanId ? (
+          <View style={S.eventFormSection}>
+            <Text style={S.formLabelHuman}>Plan: {initialPlanTitle ?? 'Plan actual'}</Text>
+            <View style={[S.row, { gap: 8 }]}>
+              {(['necessary', 'supporting'] as const).map((classification) => (
+                <TouchableOpacity
+                  key={classification}
+                  style={[S.eventFormChip, planClassification === classification && S.eventFormChipActive]}
+                  onPress={() => setPlanClassification(classification)}
+                  accessibilityState={{ selected: planClassification === classification }}
+                >
+                  <Text style={[S.eventFormChipText, planClassification === classification && S.eventFormChipTextActive]}>
+                    {classification === 'necessary' ? 'Requerido' : 'Opcional'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         ) : null}
 
@@ -617,6 +751,12 @@ onPress: async () => {
             />
           </View>
 
+        {/*
+          S7 — desde un activo NO se ofrece recurrencia: la fachada de Assets
+          la rechaza con 400 assets_planner_recurrence_not_supported. El
+          control se oculta para no ofrecer algo que el servidor va a negar.
+        */}
+        {assetRef ? null : (
         <View style={S.eventFormSection}>
             <Text style={S.formLabelHuman}>Repetición</Text>
             <View style={[S.row, { marginBottom: 0 }]}>
@@ -636,6 +776,7 @@ onPress: async () => {
               })}
             </View>
           </View>
+        )}
 
         <TouchableOpacity
           style={[S.primaryBtn, saving && { opacity: 0.6 }]}
@@ -667,6 +808,7 @@ onPress: async () => {
       <DatePickerSheet visible={activePicker === 'date'} value={date} onClose={() => setActivePicker(null)} onConfirm={(nextDate) => { setDate(nextDate); setDateTouched(true); setError(null); setActivePicker(null); }} />
       <TimePickerSheet visible={activePicker === 'start'} value={startTime} onClose={() => setActivePicker(null)} onConfirm={(nextTime) => { setStartTime(nextTime); setStartTimeTouched(true); setError(null); setActivePicker(null); }} />
       <TimePickerSheet visible={activePicker === 'end'} value={endTime} onClose={() => setActivePicker(null)} onConfirm={(nextTime) => { setEndTime(nextTime); setEndTimeTouched(true); setError(null); setActivePicker(null); }} />
+      {screenDirtyGuard.guardElement}
     </View>
   );
 

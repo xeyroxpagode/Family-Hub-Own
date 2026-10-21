@@ -1,4 +1,5 @@
 const { createHttpError } = require('../lib/httpErrors')
+const { applyPlanReadScope } = require('../lib/plannerGoalWriteAuthority')
 const { resolveCapabilities, assertCapability, hasCapability } = require('../lib/plannerCapabilities')
 const { hashIdempotencyRequestV2 } = require('../lib/plannerIdempotencyAdapter')
 const {
@@ -34,7 +35,27 @@ const PROTECTED_TASK_CREATE_FIELDS = Object.freeze([
   'version',
 ])
 
+// S7-01: el quartet origin_* lo compone el SERVIDOR que integra (Assets,
+// Inventory). La via HTTP publica de Planner no puede escribirlo: el cliente
+// no elige un origen cross-domain.
+const PROTECTED_TASK_ORIGIN_FIELDS = Object.freeze([
+  'origin_module',
+  'origin_entity_type',
+  'origin_entity_id',
+  'origin_reason',
+])
+
 const assertTaskCreateBody = (body) => {
+  const protectedOriginField = PROTECTED_TASK_ORIGIN_FIELDS.find((field) => hasOwn(body, field))
+  if (protectedOriginField) {
+    throw createHttpError(
+      400,
+      'La referencia de origen la define el servidor y no se puede enviar.',
+      'protected_task_origin_field',
+      { field: protectedOriginField },
+    )
+  }
+
   const protectedField = PROTECTED_TASK_CREATE_FIELDS.find((field) => hasOwn(body, field))
   if (protectedField) {
     throw createHttpError(
@@ -167,6 +188,19 @@ const throwSupabaseError = (error) => {
     throw createHttpError(403, 'No tenes permiso para realizar esta accion sobre tareas.', 'rls_violation')
   }
 
+  // Defensive: Plan link guard trigger violations surfacing as raw SQLSTATEs
+  // (e.g. writers that bypass the V0 RPC). Keep them structured.
+  const triggerMessage = String(error?.message ?? '') + ' ' + String(error?.details ?? '')
+  if (error?.code === '23514' && /Plan classification|plan_classification/i.test(triggerMessage)) {
+    throw createHttpError(400, 'Clasificación de plan inválida (necessary/supporting).', 'invalid_plan_classification')
+  }
+  if (error?.code === '23514' && /trashed Plan|same household/i.test(triggerMessage)) {
+    throw createHttpError(409, 'El plan no admite este vínculo de componente.', 'plan_locked')
+  }
+  if (error?.code === '55000') {
+    throw createHttpError(409, 'Transición inválida para el estado actual.', 'invalid_transition')
+  }
+
   const httpError = createHttpError(500, 'Error interno.', 'internal_error')
   httpError.internalCode = error.code ?? null
   httpError.details = error.details
@@ -209,11 +243,11 @@ const validateNullableDuration = (value, fieldName) => {
 }
 
 const validateNullableChecklist = (value) => {
-  if (value === undefined || value === null || value === '') return '[]'
+  if (value === undefined || value === null || value === '') return []
   if (!Array.isArray(value)) {
     throw createHttpError(400, 'checklist debe ser un array.', 'validation_error')
   }
-  for (const item of value) {
+  return value.map((item) => {
     if (!item || typeof item !== 'object') {
       throw createHttpError(400, 'Cada item del checklist debe ser un objeto.', 'validation_error')
     }
@@ -224,8 +258,8 @@ const validateNullableChecklist = (value) => {
     if (typeof item.checked !== 'boolean') {
       throw createHttpError(400, 'El campo checked del checklist debe ser booleano.', 'validation_error')
     }
-  }
-  return JSON.stringify(value)
+    return { text, checked: item.checked }
+  })
 }
 
 const isTrueQuery = (value) => value === true || value === 'true' || value === '1'
@@ -350,6 +384,32 @@ const validateOriginReason = (value) => {
   }
 
   return normalized
+}
+
+/**
+ * Normaliza el quartet origin_* recibido desde una integracion server-side
+ * (via canonica: `correlation.origin`). Devuelve null cuando no hay
+ * referencia (create normal de Planner).
+ *
+ * Mismo contrato que `planner.events.service.js#buildOriginPayload`.
+ */
+const buildOriginPayload = (origin) => {
+  if (!origin || typeof origin !== 'object') {
+    return null
+  }
+
+  const originModule = validateOriginModule(origin.origin_module)
+
+  if (!originModule) {
+    return null
+  }
+
+  return {
+    origin_module: originModule,
+    origin_entity_type: validateOriginEntityType(origin.origin_entity_type),
+    origin_entity_id: validateOriginEntityId(origin.origin_entity_id),
+    origin_reason: validateOriginReason(origin.origin_reason),
+  }
 }
 
 const hydrateMembers = async (client, tasks) => {
@@ -491,14 +551,15 @@ const listTasks = async (context, query) => {
       throw createHttpError(400, 'goal_id debe ser un uuid valido.', 'validation_error')
     }
 
-    const { data: goalExists, error: goalErr } = await context.client
-      .from('planner_goals')
-      .select('id')
-      .eq('id', query.goal_id)
-      .eq('household_id', context.householdId)
-      .is('deleted_at', null)
-      .is('trashed_at', null)
-      .maybeSingle()
+    const { data: goalExists, error: goalErr } = await applyPlanReadScope(
+      context.client
+        .from('planner_goals')
+        .select('id')
+        .eq('id', query.goal_id)
+        .is('deleted_at', null)
+        .is('trashed_at', null),
+      context,
+    ).maybeSingle()
 
     if (goalErr) {
       throwSupabaseError(goalErr)
@@ -563,6 +624,9 @@ const mapV0Outcome = (data, expectedVersion) => {
     planner_forbidden: [403, 'No tenes permiso para realizar esta accion sobre tareas.', 'planner_forbidden'],
     forbidden: [403, 'No tenes permiso para realizar esta accion sobre tareas.', 'planner_forbidden'],
     validation_error: [400, 'Payload de tarea invalido.', 'validation_error'],
+    invalid_assignment: [400, 'La configuración de asignación no es válida.', 'invalid_assignment'],
+    invalid_plan_classification: [400, 'Clasificación de plan inválida (necessary/supporting).', 'invalid_plan_classification'],
+    plan_locked: [409, 'El plan no admite cambios de componentes en su estado actual.', 'plan_locked'],
     invalid_transition: [409, 'Transicion de tarea invalida.', 'task_invalid_transition'],
     invalid_state: [409, 'La task no esta awaiting_verification.', 'task_not_awaiting_verification'],
     self_verification: [409, 'La misma persona no puede verificar su completion.', 'cannot_verify_own_completion'],
@@ -634,6 +698,15 @@ const hydrateTaskResult = async (context, data, expectedVersion) => {
   }
 }
 
+/**
+ * Create canonico de Task (S7-01 / S7-03).
+ *
+ * `correlation` transporta la identidad del intento (mutationId +
+ * idempotencyKey) y la referencia server-side `origin` (cuarteto). La via
+ * HTTP publica NUNCA envia `origin`: lo compone el servidor que integra
+ * (Assets, Inventory). Asi el cliente no puede escribir un origen
+ * cross-domain.
+ */
 const createTask = async (context, body, correlation = {}) => {
   assertTaskCreateBody(body)
 
@@ -663,16 +736,15 @@ const createTask = async (context, body, correlation = {}) => {
     requires_verification: Boolean(body?.requires_verification),
     assigned_to_member_id: normalizeNullableUuid(body?.assigned_to_member_id, 'assigned_to_member_id'),
     goal_id: normalizeNullableUuid(body?.goal_id, 'goal_id'),
+    plan_classification: validatePlanClassification(body?.plan_classification, body?.goal_id),
     checklist: validateNullableChecklist(body?.checklist),
   }
 
-  const originModule = validateOriginModule(body?.origin_module)
-
-  if (originModule) {
-    payload.origin_module = originModule
-    payload.origin_entity_type = validateOriginEntityType(body?.origin_entity_type)
-    payload.origin_entity_id = validateOriginEntityId(body?.origin_entity_id)
-    payload.origin_reason = validateOriginReason(body?.origin_reason)
+  // S7-01: la referencia server-side (cuarteto) viaja por la via interna
+  // canonica (`correlation.origin`), nunca por el body publico.
+  const originPayload = buildOriginPayload(correlation?.origin)
+  if (originPayload) {
+    Object.assign(payload, originPayload)
   }
 
   const data = await invokeTaskV0AtomicMutation(context, {
@@ -686,7 +758,7 @@ const createTask = async (context, body, correlation = {}) => {
 }
 
 const getTaskCompletionAuthorization = async (context, taskId) => {
-  await getTaskOrThrow(context.client, context.householdId, taskId)
+  const task = await getTaskOrThrow(context.client, context.householdId, taskId)
 
   const { data: config, error: configError } = await context.client
     .from('planner_task_assignment_configs')
@@ -713,6 +785,7 @@ const getTaskCompletionAuthorization = async (context, taskId) => {
     assignmentKind: config.assignment_kind,
     fulfillmentMode: config.fulfillment_mode,
     isAssignee: Boolean(assignee),
+    requiresVerification: Boolean(task.requires_verification),
   }
 }
 
@@ -794,7 +867,46 @@ const buildTaskPatch = async (context, body) => {
     }
   }
 
+  if (hasOwn(body, 'plan_classification')) {
+    patch.plan_classification = validatePlanClassificationPatch(body.plan_classification)
+  }
+
   return patch
+}
+
+const PLAN_CLASSIFICATIONS = Object.freeze(['necessary', 'supporting'])
+
+const normalizePlanClassification = (value) => {
+  if (value === undefined || value === null || value === '') return null
+  const normalized = String(value).trim().toLowerCase()
+  return PLAN_CLASSIFICATIONS.includes(normalized) ? normalized : value
+}
+
+// Create: classification defaults to Required when linked; forbidden without link.
+const validatePlanClassification = (value, goalId) => {
+  const hasGoal = goalId !== undefined && goalId !== null && goalId !== ''
+  const normalized = normalizePlanClassification(value)
+  if (!hasGoal) {
+    if (normalized !== null && normalized !== undefined && normalized !== '') {
+      throw createHttpError(400, 'plan_classification requiere goal_id.', 'invalid_plan_classification')
+    }
+    return null
+  }
+  if (normalized === null) return 'necessary'
+  if (!PLAN_CLASSIFICATIONS.includes(normalized)) {
+    throw createHttpError(400, 'plan_classification debe ser necessary o supporting.', 'invalid_plan_classification')
+  }
+  return normalized
+}
+
+// Update: explicit null clears only via goal_id clearing (shape guard lives in SQL).
+const validatePlanClassificationPatch = (value) => {
+  if (value === undefined || value === null || value === '') return null
+  const normalized = normalizePlanClassification(value)
+  if (!PLAN_CLASSIFICATIONS.includes(normalized)) {
+    throw createHttpError(400, 'plan_classification debe ser necessary o supporting.', 'invalid_plan_classification')
+  }
+  return normalized
 }
 
 const updateTask = async (context, taskId, body, expectedVersion, correlation = {}) => {
@@ -837,6 +949,9 @@ const reactivateTask = async (context, taskId, expectedVersion, correlation = {}
 const completeTask = async (context, taskId, expectedVersion, correlation = {}) => {
   const completionAuth = await getTaskCompletionAuthorization(context, taskId)
   assertTaskCompletionCapabilities(context, completionAuth)
+  if (completionAuth.requiresVerification) {
+    throw createHttpError(409, 'Esta tarea requiere evidencia antes de pasar a revisión.', 'evidence_submission_required')
+  }
   const data = await invokeTaskV0AtomicMutation(context, {
     action: 'complete',
     taskId,
@@ -849,6 +964,10 @@ const completeTask = async (context, taskId, expectedVersion, correlation = {}) 
 
 const verifyTaskViaFulfillment = async (context, taskId, expectedVersion, correlation = {}) => {
   assertTaskVerificationCapabilities(context)
+  const guardedTask = await getTaskOrThrow(context.client, context.householdId, taskId)
+  if (guardedTask.requires_verification) {
+    throw createHttpError(409, 'La revisión debe aplicarse a la versión de evidencia vigente.', 'evidence_review_required')
+  }
   const data = await invokeTaskV0AtomicMutation(context, {
     action: 'verify',
     taskId,
@@ -1329,6 +1448,21 @@ const mutateTaskFulfillmentV1 = async (context, taskId, fulfillmentId, action, b
     throw createHttpError(409, 'La transiciÃ³n de cumplimiento no es vÃ¡lida.', 'fulfillment_invalid_transition')
   }
   await assertV1FulfillmentCapability(context, taskId, fulfillmentId, action)
+  if (['complete', 'verify', 'request_correction', 'resubmit'].includes(action)) {
+    const { data: guardedTask, error: guardedTaskError } = await context.client
+      .from('planner_tasks')
+      .select('requires_verification')
+      .eq('id', taskId)
+      .eq('household_id', context.householdId)
+      .single()
+    if (guardedTaskError) throwSupabaseError(guardedTaskError)
+    if (guardedTask.requires_verification && action === 'complete') {
+      throw createHttpError(409, 'Esta tarea requiere evidencia antes de pasar a revisión.', 'evidence_submission_required')
+    }
+    if (guardedTask.requires_verification && ['verify', 'request_correction', 'resubmit'].includes(action)) {
+      throw createHttpError(409, 'La operación debe aplicarse a la versión de evidencia vigente.', 'evidence_review_required')
+    }
+  }
   const payload = {
     action,
     comment: body?.comment ?? null,
@@ -1363,7 +1497,13 @@ const mutateTaskFulfillmentV1 = async (context, taskId, fulfillmentId, action, b
   return getTaskFulfillmentV1(context, taskId)
 }
 
+// Evidence submission is DEFERRED product surface (frozen §18): it still
+// resolves and mutates through the canonical fulfillment boundary, but the
+// mutation itself carries no idempotency context yet.
 const submitTaskEvidence = async (context, taskId, fulfillmentId, body, correlation = {}) => {
+  // The caller supplies correlation for symmetry with every other mutation; the
+  // evidence write is not yet idempotent-backed (deferred product surface).
+  void correlation;
   const { photo_reference, comment } = body ?? {}
   if (!photo_reference && !comment) {
     throw createHttpError(400, 'Se requiere al menos una foto o un comentario.', 'validation_error')
@@ -1402,7 +1542,7 @@ const { data: task, error: taskError } = await context.client
     throw createHttpError(409, 'La tarea no está operativa.', 'task_not_operational')
   }
 
-  let fulfillment = null
+  let fulfillment
   if (fulfillmentId) {
     const { data: f, error: fErr } = await context.client
       .from('planner_task_fulfillments')
@@ -1484,7 +1624,7 @@ const { data: task, error: taskError } = await context.client
   if (evidenceError) throwSupabaseError(evidenceError)
 
   if (task.requires_verification) {
-    const { data: updated, error: updErr } = await context.client
+    const { error: updErr } = await context.client
       .from('planner_task_fulfillments')
       .update({ status: 'awaiting_verification' })
       .eq('id', fulfillment.id)
@@ -1494,7 +1634,7 @@ const { data: task, error: taskError } = await context.client
       .single()
     if (updErr) throwSupabaseError(updErr)
   } else {
-    const { data: updated, error: updErr } = await context.client
+    const { error: updErr } = await context.client
       .from('planner_task_fulfillments')
       .update({
         status: 'completed',

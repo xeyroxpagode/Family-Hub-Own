@@ -273,7 +273,7 @@ export function createPlannerDeepLinkCoordinator(options?: {
       case 'goal_detail': {
         if (!intent.entityId) return { outcome: 'rejected', reason: 'invalid_entity_id', intent };
         navigation.navigate('PlannerTab', {
-          screen: 'GoalDetail',
+          screen: 'PlanDetail',
           params: { entityId: intent.entityId, source: intent.source, returnTo: 'previous' },
         });
         return { outcome: 'navigated', intent };

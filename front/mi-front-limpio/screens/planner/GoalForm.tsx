@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -24,8 +24,16 @@ import {
   type PlannerGoalProgressMode,
 } from '../../services/plannerGoals';
 import { createIdempotencyKey } from '../../services/idempotency';
+import { openGoalDetail } from '../../navigation/plannerNavigationHelpers';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRefresh } from '../../context/AppRefreshContext';
+import { usePlannerSheet } from '../../context/PlannerSheetContext';
+import {
+  buildGoalDraftSnapshot,
+  sameGoalDraft,
+  type PlannerGoalDraftSnapshot,
+} from '../../services/planner/plannerSheetGuard';
+import { usePlannerScreenDirtyGuard } from '../../hooks/usePlannerScreenDirtyGuard';
 import { AppText } from '../../components/ui';
 import { colors, radius, spacing } from '../../constants/theme';
 import { HomePlusIcon } from '../../constants/icons';
@@ -472,7 +480,12 @@ export function GoalForm({
           const tab = routeInitialTab ?? 'goals';
           navigation.replace('PlannerHome', { refreshKey: Date.now(), initialTab: tab });
         } else {
-          navigation.navigate('GoalDetail', { goalId: goal.id });
+          openGoalDetail(navigation, {
+            entityId: goal.id,
+            source: 'planner',
+            returnTo: 'planner',
+            justCreated: true,
+          });
         }
       } else if (goalId) {
         await updateGoal(accessToken, goalId, payloadWithVersion, { idempotencyKey: goalUpdateKeyRef.current });
@@ -492,12 +505,37 @@ export function GoalForm({
     }
   };
 
-  const closeForm = () => {
-    if (onClose) {
-      onClose();
-      return;
+  // --- Dirty guard derivation (Phase 1 / Figma §23.7) ---
+  const currentDraftRef = useRef<PlannerGoalDraftSnapshot | null>(null);
+  currentDraftRef.current = buildGoalDraftSnapshot({
+    title,
+    description,
+    category,
+    visibility,
+    targetValue,
+    currentValue,
+    unit,
+    startsAt,
+    endsAt,
+  });
+  const openingSnapshotRef = useRef<PlannerGoalDraftSnapshot | null>(null);
+  const isGoalDraftDirty = useCallback((): boolean => {
+    const opening = openingSnapshotRef.current;
+    const current = currentDraftRef.current;
+    if (!opening || !current) return false;
+    return !sameGoalDraft(current, opening);
+  }, []);
+  useEffect(() => {
+    if (loading) return;
+    if (!openingSnapshotRef.current) {
+      openingSnapshotRef.current = currentDraftRef.current;
     }
+  }, [loading]);
 
+  const { registerDirtyProbe } = usePlannerSheet();
+  useEffect(() => registerDirtyProbe(isGoalDraftDirty), [registerDirtyProbe, isGoalDraftDirty]);
+
+  const performScreenClose = () => {
     if (routeReturnTo === 'PlannerHome') {
       const tab = routeInitialTab ?? 'goals';
       navigation.replace('PlannerHome', { refreshKey: Date.now(), initialTab: tab });
@@ -510,6 +548,19 @@ export function GoalForm({
     }
 
     navigation.navigate('PlannerHome', { refreshKey: Date.now(), initialTab: 'goals' });
+  };
+  const screenDirtyGuard = usePlannerScreenDirtyGuard({
+    enabled: !embedded,
+    isDirty: isGoalDraftDirty,
+    onDiscard: performScreenClose,
+  });
+
+  const closeForm = () => {
+    if (onClose) {
+      onClose();
+      return;
+    }
+    screenDirtyGuard.requestClose();
   };
 
   const handlePressOutside = () => {
@@ -1012,6 +1063,7 @@ export function GoalForm({
 
         <View style={{ height: 32 }} />
       </KeyboardAwareScrollView>
+      {screenDirtyGuard.guardElement}
     </Pressable>
   );
 

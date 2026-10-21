@@ -541,17 +541,44 @@ export const glass = {
   },
 } as const;
 
-export const motion = {
-  press: 80,
-  tap: 80,
+/**
+ * Shared motion vocabulary. Durations are grouped by intent so HomeCloud does
+ * not grow another collection of unrelated magic numbers. Native controls keep
+ * their platform timing; these values only govern app-owned transitions.
+ */
+export const MOTION = {
+  feedback: 120,
+  feedbackExit: 100,
+  state: 180,
+  stateExit: 120,
+  navigation: 260,
+  tabCrossFade: 150,
+  viewerOrigin: 280,
+  reducedFade: 30,
+  press: 120,
+  tap: 120,
   navActive: 150,
   fast: 150,
-  toggle: 200,
-  fade: 200,
-  screenEnter: 240,
+  toggle: 180,
+  fade: 180,
+  screenEnter: 260,
   screenExit: 200,
-  normal: 240,
-  sheet: 300,
+  /**
+   * HC-POL-011 — folder enter/back. The content slides in the direction it was
+   * travelled; the breadcrumb settles slightly behind it.
+   */
+  folderSlide: 200,
+  folderBreadcrumb: 140,
+  /** HC-POL-013 — the selection header morph, cross-fade plus <=4 pt. */
+  selectionMorph: 150,
+  /** HC-POL-014 — the selection check settling onto its ring. */
+  selectionCheck: 120,
+  /** HC-POL-021 — the favorite badge arriving on a tile that is already there. */
+  favoriteBadge: 150,
+  /** HC-POL-061/062 — Office readiness fade and the viewer close. */
+  officeReady: 200,
+  normal: 260,
+  sheet: 280,
   success: 420,
   max: 500,
   scale: {
@@ -565,6 +592,9 @@ export const motion = {
     release: { damping: 18, stiffness: 300, mass: 0.8 },
   },
 } as const;
+
+/** Backwards-compatible name for callers outside the Shared polish scope. */
+export const motion = MOTION;
 
 export const touchTargets = {
   normal: 44,

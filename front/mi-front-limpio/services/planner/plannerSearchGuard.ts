@@ -59,9 +59,9 @@ export function useCanOpenPlannerSearch(): boolean {
  */
 export function prepareSearchFallbackRoute(
   source: 'planner' | 'home' | 'deep_link' = 'planner',
-): { routeName: 'Planner'; params: { source: 'planner' | 'home' | 'deep_link' } } {
+): { routeName: 'PlannerHome'; params: { source: 'planner' | 'home' | 'deep_link' } } {
   return {
-    routeName: 'Planner',
+    routeName: 'PlannerHome',
     params: { source },
   };
 }

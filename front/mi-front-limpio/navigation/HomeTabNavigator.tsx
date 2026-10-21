@@ -13,7 +13,10 @@ import { HomeAdolescente } from '../screens/home/HomeAdolescente';
 import { HomeAdultoMayor } from '../screens/home/HomeAdultoMayor';
 import { FamilyScreen } from '../screens/FamilyScreen';
 import { HomeCloudScreen } from '../screens/HomeCloudScreen';
+import { HomeCloudFilesTrashScreen } from '../screens/HomeCloudFilesTrashScreen';
 import { HomeCloudScannerScreen } from '../screens/HomeCloudScannerScreen';
+import { ScannerImageEditorScreen } from '../screens/ScannerImageEditorScreen';
+import { isHomeCloudImmersiveChromeHidden, subscribeHomeCloudImmersiveChrome } from '../services/homecloud/homecloudImmersiveChrome';
 import { FinanceScreen } from '../screens/finance/FinanceScreen';
 import { InventarioScreen } from '../screens/inventory/InventarioScreen';
 import { PlannerScreen } from '../screens/planner/PlannerScreen';
@@ -25,14 +28,17 @@ import { CreateGoalScreen } from '../screens/planner/CreateGoalScreen';
 import { PlannerPlanStructureEditScreen } from '../screens/planner/PlannerPlanStructureEditScreen';
 import { PlannerPlanDetailScreen } from '../screens/planner/PlannerPlanDetailScreen';
 import { PlannerPlanCreateScreen } from '../screens/planner/PlannerPlanCreateScreen';
+import { PlannerPlanEditScreen } from '../screens/planner/PlannerPlanEditScreen';
 import { PlannerPlanListScreen } from '../screens/planner/PlannerPlanListScreen';
 import { PlannerPlanDetailScreen as PlannerPlanDetailScreenV1 } from '../screens/planner/PlannerPlanDetailScreenV1';
 import { PlannerTrashScreen } from '../screens/planner/PlannerTrashScreen';
 import { PlannerSearchScreen } from '../screens/planner/PlannerSearchScreen';
 import { PlannerAttentionActivityScreen } from '../screens/planner/PlannerAttentionActivityScreen';
 import { TaskDetailScreen } from '../screens/planner/TaskDetailScreen';
+import { EvidenceComposerScreen } from '../screens/planner/EvidenceComposerScreen';
 import { EventDetailScreen } from '../screens/planner/EventDetailScreen';
 import { ResponsibilitiesScreen } from '../screens/planner/ResponsibilitiesScreen';
+import { PlannerSeriesScreen } from '../screens/planner/PlannerSeriesScreen';
 import { ResponsibilityFormScreen } from '../screens/planner/ResponsibilityFormScreen';
 import { ResponsibilityDetailScreen } from '../screens/planner/ResponsibilityDetailScreen';
 import {
@@ -45,6 +51,13 @@ import {
   PlannerPresetLibraryRoute,
 } from '../components/planner/presets/PlannerPresetDraftsIntegrationRoutes';
 import { MoreScreen } from '../screens/MoreScreen';
+import {
+  AssetsRootScreen,
+  AssetsArchivedScreen,
+  AssetsTrashScreen,
+} from '../screens/assets/AssetsListScreen';
+import { AssetDetailScreen } from '../screens/assets/AssetDetailScreen';
+import { AssetRecordsScreen, AssetCareScreen } from '../screens/assets/AssetRecordsScreen';
 import { FinanceAccountsScreen } from '../screens/finance/FinanceAccountsScreen';
 import { FinancePapeleraScreen } from '../screens/finance/FinancePapeleraScreen';
 import { FinancePoolManagementScreen } from '../components/finance/FinancePoolManagementScreen';
@@ -61,6 +74,7 @@ import {
   HouseholdSwitcherSheet,
   IconButton,
 } from '../components/ui';
+import { isMemoryViewerOpen, subscribeMemoryViewerOpen } from '../services/homecloud/homecloudViewerVisibility';
 import { PlannerSheetProvider, usePlannerSheet } from '../context/PlannerSheetContext';
 import { PlannerSheetHost } from '../components/planner/PlannerSheetHost';
 import { PlannerDeepLinkProvider } from '../services/planner/plannerDeepLinkProvider';
@@ -197,7 +211,7 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="CreateGoal" component={CreateGoalScreen} />
       <PlannerStack.Screen name="EditGoal" component={PlannerPlanStructureEditScreen} />
       <PlannerStack.Screen name="GoalDetail" component={PlannerPlanDetailScreen} />
-      <PlannerStack.Screen name="EditPlan" component={PlannerPlanStructureEditScreen} />
+      <PlannerStack.Screen name="EditPlan" component={PlannerPlanEditScreen} />
       <PlannerStack.Screen name="PlanList" component={PlannerPlanListScreen} />
       <PlannerStack.Screen name="PlanDetail" component={PlannerPlanDetailScreenV1} />
       <PlannerStack.Screen name="PlannerTrash" component={PlannerTrashScreen} />
@@ -211,11 +225,13 @@ function PlannerStackScreen() {
       <PlannerStack.Screen name="PlannerSearch" component={PlannerSearchScreen} />
       <PlannerStack.Screen name="PlannerAttentionActivity" component={PlannerAttentionActivityScreen} />
       <PlannerStack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <PlannerStack.Screen name="EvidenceComposer" component={EvidenceComposerScreen} options={{ animation: 'slide_from_bottom' }} />
       <PlannerStack.Screen name="EventDetail" component={EventDetailScreen} />
       <PlannerStack.Screen name="Responsibilities" component={ResponsibilitiesScreen} />
-      <PlannerStack.Screen name="ResponsibilityCreate" component={ResponsibilityFormScreen} />
-      <PlannerStack.Screen name="ResponsibilityEdit" component={ResponsibilityFormScreen} />
+      <PlannerStack.Screen name="ResponsibilityCreate" component={ResponsibilityFormScreen} options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+      <PlannerStack.Screen name="ResponsibilityEdit" component={ResponsibilityFormScreen} options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
       <PlannerStack.Screen name="ResponsibilityDetail" component={ResponsibilityDetailScreen} />
+      <PlannerStack.Screen name="PlannerSeries" component={PlannerSeriesScreen} />
       <PlannerStack.Screen name="CreatePlan" component={PlannerPlanCreateScreen} />
     </PlannerStack.Navigator>
   );
@@ -225,9 +241,28 @@ function MoreStackScreen() {
   return (
     <MoreStack.Navigator screenOptions={{ headerShown: false }}>
       <MoreStack.Screen name="MoreHome" component={MoreScreen} />
+      <MoreStack.Screen name="Assets" component={AssetsRootScreen} />
+      <MoreStack.Screen name="AssetsArchived" component={AssetsArchivedScreen} />
+      <MoreStack.Screen name="AssetsTrash" component={AssetsTrashScreen} />
+      <MoreStack.Screen name="AssetsDetail" component={AssetDetailScreen} />
+      <MoreStack.Screen name="AssetRecords" component={AssetRecordsScreen} />
+      <MoreStack.Screen name="AssetCare" component={AssetCareScreen} />
       <MoreStack.Screen name="Family" component={FamilyScreen} />
       <MoreStack.Screen name="HomeCloud" component={HomeCloudScreen} />
-      <MoreStack.Screen name="HomeCloudScanner" component={HomeCloudScannerScreen} />
+  <MoreStack.Screen name="HomeCloudFilesTrash" component={HomeCloudFilesTrashScreen} />
+  <MoreStack.Screen name="HomeCloudScanner" component={HomeCloudScannerScreen} />
+  {/* PATCH 1C — the scanner editor is TRUE FULLSCREEN. The previous `card`
+      push was claimed fullscreen but physical QA showed a blank upper half:
+      a card nested in the tab-embedded More stack does not own the whole
+      window. `fullScreenModal` is presented at window level, which guarantees
+      the editor covers the entire viewport (no partial sheet/card semantics,
+      no parent chrome). The screen itself owns the column: safe-area top
+      header, flex canvas, safe-area bottom controls. */}
+  <MoreStack.Screen
+    name="ScannerImageEditor"
+    component={ScannerImageEditorScreen}
+    options={{ presentation: 'fullScreenModal', headerShown: false, contentStyle: { backgroundColor: colors.background.base } }}
+  />
       <MoreStack.Screen name="Inventory" component={InventarioScreen} />
       <MoreStack.Screen name="Finance" component={FinanceScreen} />
       <MoreStack.Screen name="FinanceAccounts" component={FinanceAccountsScreen} />
@@ -298,6 +333,18 @@ export function HomeTabNavigator() {
   
   const [showHouseholdSwitcher, setShowHouseholdSwitcher] = useState(false);
   const [showAccountSheet, setShowAccountSheet] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(isMemoryViewerOpen());
+  useEffect(() => subscribeMemoryViewerOpen(() => setViewerOpen(isMemoryViewerOpen())), []);
+  const [homeCloudImmersive, setHomeCloudImmersive] = useState(isHomeCloudImmersiveChromeHidden());
+  useEffect(() => subscribeHomeCloudImmersiveChrome(() => setHomeCloudImmersive(isHomeCloudImmersiveChromeHidden())), []);
+  /**
+   * ST-4: global chrome UNMOUNTS while the Viewer is open inside MoreTab. The
+   * Viewer/tab state stays owned by Memories; this only mirrors the flag. The
+   * previous extra `activeTab === 'MoreTab'` guard was fragile because this
+   * navigator's state listener can start stale when the More stack is already
+   * focused, leaving the physical bottom navbar mounted over the Viewer.
+   */
+  const chromeHidden = viewerOpen || homeCloudImmersive;
 
   const personName = authMe?.person?.display_name ?? 'Usuario';
   const personAvatarUrl = authMe?.person?.avatar_url ?? null;
@@ -325,6 +372,7 @@ export function HomeTabNavigator() {
 
   return (
     <View style={styles.container}>
+      {chromeHidden ? null : (
       <AppTopBar
         personName={personName}
         personAvatarUrl={personAvatarUrl}
@@ -340,11 +388,12 @@ export function HomeTabNavigator() {
           />
         )}
       />
+      )}
 
       <PlannerDeepLinkProvider>
         <PlannerSheetProvider>
         <Tab.Navigator
-          tabBar={(props) => <MainFloatingTabBar {...props} />}
+          tabBar={(props) => (chromeHidden ? null : <MainFloatingTabBar {...props} />)}
           screenOptions={{
             headerShown: false,
             tabBarShowLabel: false,

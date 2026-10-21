@@ -36,7 +36,7 @@ export function useMemoryPreviewUrl(
     const current = ++requestId.current;
     const controller = new AbortController();
     setState({ phase: 'loading' });
-    void getMemoryPreviewUrl(accessToken, contentId, { signal: controller.signal })
+    void getMemoryPreviewUrl(accessToken, contentId, { signal: controller.signal, timeoutMs: 15000 })
       .then((result) => {
         if (current !== requestId.current || controller.signal.aborted) return;
         if (result.status === 'ready') setState({ phase: 'ready', url: result.url });

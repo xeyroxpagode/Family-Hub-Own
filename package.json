@@ -47,6 +47,8 @@
     "outbox:process": "node backend/scripts/process-outbox.js",
     "outbox:inspect": "node backend/scripts/inspect-outbox.js",
     "outbox:retry": "node backend/scripts/retry-outbox.js",
+    "planner:evidence:purge": "node backend/scripts/purge-planner-evidence.js",
+    "test:planner:evidence:db": "node scripts/planner_tasks_patch2_evidence_database_tests.js",
     "seed:finance": "node backend/scripts/seed-finance-comprehensive.js"
   },
   "devDependencies": {

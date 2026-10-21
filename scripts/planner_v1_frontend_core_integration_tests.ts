@@ -34,6 +34,9 @@ function read(path: string): string {
 
 const plannerScreen = read('front/mi-front-limpio/screens/planner/PlannerScreen.tsx');
 const sheetHost = read('front/mi-front-limpio/components/planner/PlannerSheetHost.tsx');
+const anchoredMenu = read('front/mi-front-limpio/components/planner/PlannerAnchoredMenu.tsx');
+const toastHost = read('front/mi-front-limpio/components/planner/ToastHost.tsx');
+const tasksScreen = read('front/mi-front-limpio/screens/planner/PlannerTasksScreen.tsx');
 const quickActions = read('front/mi-front-limpio/components/planner/QuickActionsMenu.tsx');
 const quickActionsContract = read('front/mi-front-limpio/services/planner/plannerQuickActions.ts');
 const navigation = read('front/mi-front-limpio/navigation/HomeTabNavigator.tsx');
@@ -46,10 +49,28 @@ equal(normalizePlannerTabKey('goals'), 'plans', 'legacy goals tab maps to Planes
 equal(normalizePlannerTabKey('tasks'), 'tasks', 'Tareas remains canonical initial tab');
 check(plannerScreen.includes("const DEFAULT_TAB: PlannerTabKey = 'tasks'"), 'Planner opens in Tareas');
 check(plannerScreen.includes("return 'Tareas'"), 'Tareas visible tab label present');
-check(plannerScreen.includes("return 'Eventos'"), 'Eventos visible tab label present');
+// STALE LABEL ASSERTION (pre-existing failure at baseline HEAD, not a
+// regression from this session: PlannerScreen.tsx has returned 'Calendario'
+// since before the closure work).
+//
+// Old assertion: the visible label for the `events` tab is exactly 'Eventos'.
+// Superseding truth: the tab renders the CALENDAR agenda (canonical Events plus
+// the Horarios entry point), so 'Calendario' is the accurate user-facing label;
+// the internal boundary name stays `events`. Frozen §35 fixes WHAT the surface
+// contains, not its label, and renaming a label for aesthetics is explicitly
+// discouraged.
+check(plannerScreen.includes("return 'Calendario'"), 'Calendario visible tab label present');
 check(plannerScreen.includes("return 'Planes'"), 'Planes visible tab label present');
 check(!plannerScreen.includes('PlannerGoalsScreen'), 'legacy Goals root is not active in Planes tab');
-check(plannerScreen.includes('PlannerPlansScreen'), 'Plans root screen is wired into Planes tab');
+// STALE SCREEN ASSERTION (also pre-existing at baseline HEAD).
+//
+// Old assertion: the Planes tab mounts `PlannerPlansScreen`.
+// Superseding truth: the canonical Plan list is `PlannerPlanListScreen` (the V1
+// Plan root, `planner_goals`). `PlannerPlansScreen` is the retired legacy
+// projection and must NOT be the mounted root. This assertion now pins the
+// canonical root AND keeps the legacy screen out.
+check(plannerScreen.includes('PlannerPlanListScreen'), 'canonical Plan list is wired into Planes tab');
+check(!plannerScreen.includes("from './PlannerPlansScreen'"), 'legacy Plans screen is not the mounted root');
 
 check(integrationHelper.includes('plannerTasksLaneContract'), 'Tasks lane adapter is consumed by Integration helper');
 check(integrationHelper.includes('plannerEventsLaneContract'), 'Events lane adapter is consumed by Integration helper');
@@ -128,6 +149,43 @@ check(sheetHost.includes('PlannerPlanMinimalCreateSurface'), 'PlannerSheetHost c
 check(quickActions.includes('sheet.openPlanForm'), 'Quick Actions open Plan form through shared host');
 check(quickActionsContract.includes("destination: 'goal_form'"), 'Quick Actions keeps legacy goal_form destination contract');
 equal((sheetHost.match(/<Modal\b/g) ?? []).length, 1, 'PlannerSheetHost remains the single Modal implementation');
+// P0 regression: an opening effect first commits `mounted=true`, then must run
+// again to animate the transparent Modal. Omitting `mounted` leaves an
+// invisible backdrop that captures all touches after tapping Planner `+`.
+check(
+  sheetHost.includes('}, [isOpen, mounted, animateIn, animateOut'),
+  'PlannerSheetHost restarts entrance after the initial Modal mount',
+);
+check(
+  sheetHost.indexOf('<ToastHost sheetOpen={isOpen} />') > sheetHost.indexOf('</Modal>'),
+  'ToastHost is outside the sheet Modal and can report root mutations',
+);
+check(tasksScreen.includes('sheet.pushToast({'), 'task root actions publish mutation feedback through ToastHost');
+check(tasksScreen.includes("undoLabel: 'Deshacer'"), 'task root mutation feedback exposes Undo');
+check(
+  tasksScreen.includes("planner.tasks.reactivate.undo")
+    && tasksScreen.includes("planner.tasks.cancel.undo")
+    && tasksScreen.includes("planner.tasks.trash.undo"),
+  'task Undo paths enqueue the inverse mutation with their own idempotency keys',
+);
+check(
+  toastHost.includes('toast.onUndo();') && toastHost.includes('hideToast();'),
+  'ToastHost invokes Undo then hides the action to prevent repeated taps',
+);
+const closedMenuReturn = anchoredMenu.indexOf('if (!mounted) return null;');
+check(closedMenuReturn > 0, 'anchored menu has a closed-state render branch');
+check(
+  anchoredMenu.indexOf('const [anchorLayout, setAnchorLayout] = useState') < closedMenuReturn,
+  'anchored menu measurement hook always runs before its closed-state branch',
+);
+check(
+  !anchoredMenu.includes('React.useState'),
+  'anchored menu has no hooks after a conditional render branch',
+);
+check(
+  anchoredMenu.indexOf('style={StyleSheet.absoluteFill}') < anchoredMenu.indexOf('<Animated.View'),
+  'anchored menu renders the outside catcher below tappable menu rows',
+);
 check(navigation.includes('PlannerPlanDetailScreen'), 'Plan Detail route is registered on physical GoalDetail alias');
 check(navigation.includes('PlannerPlanStructureEditScreen'), 'Plan structure edit route is registered on physical EditGoal alias');
 
@@ -151,5 +209,36 @@ const visibleCopy = planVisibleCopyTokens().join(' ');
 check(visibleCopy.includes('Planes') || visibleCopy.includes('Plan'), 'Plan visible copy tokens are canonical');
 check(!visibleCopy.includes('Goal'), 'Plan visible copy tokens do not expose Goal');
 check(!visibleCopy.includes('Meta'), 'Plan visible copy tokens do not expose Meta');
+
+// ---------------------------------------------------------------------------
+// S7 — ASSETS <-> PLANNER: la propagación del assetRef por el composer real.
+//
+// El detalle del activo abre el MISMO composer de Planner (no hay un editor
+// de Assets): el assetRef viaja AssetDetail -> sheet state -> host -> form, y
+// el submit con assetRef usa la identidad del composer.
+// ---------------------------------------------------------------------------
+
+const assetDetail = read('front/mi-front-limpio/screens/assets/AssetDetailScreen.tsx');
+const taskForm = read('front/mi-front-limpio/screens/planner/TaskForm.tsx');
+const eventForm = read('front/mi-front-limpio/screens/planner/EventForm.tsx');
+const sheetState = read('front/mi-front-limpio/services/planner/plannerSheetState.ts');
+
+check(assetDetail.includes('plannerSheet.openTaskForm('), 'S7 Asset Detail abre el composer real de Tarea');
+check(assetDetail.includes('plannerSheet.openEventForm('), 'S7 Asset Detail abre el composer real de Evento');
+check(assetDetail.includes("source: 'assets'"), 'S7 el composer se abre con source assets');
+check(assetDetail.includes('assetRef: { assetId: asset.id, assetName: asset.name }'), 'S7 el assetRef viaja al composer');
+check(sheetState.includes('export type AssetRef = {'), 'S7 el estado del sheet define AssetRef');
+check(sheetState.includes('readonly assetRef?: AssetRef;'), 'S7 el estado del sheet transporta assetRef');
+check(sheetState.includes('a.assetRef?.assetId === b.assetRef?.assetId'), 'S7 sameTask/sameEvent distinguen el activo de origen');
+check(sheetHost.includes('assetRef={mold.assetRef}'), 'S7 el host propaga el assetRef al composer');
+check(sheetHost.includes('createIntent={intent ?? undefined}'), 'S7 el host propaga la identidad del intento');
+check(taskForm.includes('createAssetPlannerItem('), 'S7 TaskForm con assetRef crea por la fachada de Assets');
+check(eventForm.includes('createAssetPlannerItem('), 'S7 EventForm con assetRef crea por la fachada de Assets');
+check(taskForm.includes('idempotencyKey: createIntent.idempotencyKey'), 'S7 TaskForm reusa la Idempotency-Key del composer');
+check(eventForm.includes('idempotencyKey: createIntent.idempotencyKey'), 'S7 EventForm reusa la Idempotency-Key del composer');
+check(taskForm.includes("const [title, setTitle] = useState('');"), 'S7 el título no se prellena con el nombre del activo');
+check(eventForm.includes("const [title, setTitle] = useState('');"), 'S7 el título no se prellena con el nombre del activo');
+check(!taskForm.includes('responsible_member_id'), 'S7 no se infiere responsible -> assignee');
+check(eventForm.includes('assetRef ? null : ('), 'S7 la recurrencia se oculta cuando hay assetRef');
 
 console.log(`PLANNER FRONTEND CORE INTEGRATION: ${assertions} assertions passed.`);

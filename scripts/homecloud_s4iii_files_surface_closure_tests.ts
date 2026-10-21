@@ -227,6 +227,16 @@ const reactStub: Record<string, unknown> = {
   useCallback: (...args: unknown[]) => hostModules().useCallback(...(args as [never])),
   useEffect: (...args: unknown[]) => hostModules().useEffect(...(args as [never])),
   createElement: (...args: unknown[]) => hostModules().createElement(...(args as [never, never, ...never[]])),
+  // The shared reduced-motion hook (used by the HC-POL motion surfaces) is built
+  // on `useSyncExternalStore`, so the stub has to expose it too.
+  useSyncExternalStore: (
+    subscribe: (onStoreChange: () => void) => () => void,
+    getSnapshot: () => unknown,
+  ) => {
+    const [value, setValue] = hostModules().useState(getSnapshot as () => never);
+    hostModules().useEffect(() => subscribe(() => setValue(getSnapshot as () => never)), []);
+    return value;
+  },
 };
 reactStub.default = reactStub;
 reactStub.Fragment = Symbol.for('react.fragment');
@@ -276,6 +286,69 @@ const reactNativeStub = {
   // the device primitive is part of what this host must provide. It is inert
   // here: no test in this file drives it.
   AppState: { currentState: 'active', addEventListener: () => ({ remove: () => undefined }) },
+  // The animation clock the HC-POL motion surfaces need. Deterministic: every
+  // animation settles on its target in one step. `Animated.View` keeps its own
+  // tag so assertions about a plain `View` never count animated wrappers.
+  Animated: {
+    createAnimatedComponent: (component: unknown) => component,
+    View: 'Animated.View',
+    Text: 'Animated.Text',
+    Image: 'Animated.Image',
+    Value: class AnimatedValueStub {
+      private current: number;
+      constructor(initial: number) { this.current = initial; }
+      setValue(next: number): void { this.current = next; }
+      /**
+       * RN parity: `AnimatedInterpolation.js::checkValidRanges` throws while it
+       * BUILDS a config whose ranges disagree — so an incompatible pair kills a
+       * screen during RENDER, not during a gesture. A stub that returned `this`
+       * for any config is exactly what let that defect reach iOS, so the
+       * invariant is enforced here, on the real mount path.
+       */
+      interpolate(config?: { inputRange?: readonly number[]; outputRange?: readonly number[] }): this {
+        const inputRange = config?.inputRange;
+        const outputRange = config?.outputRange;
+        if (inputRange && outputRange && inputRange.length !== outputRange.length) {
+          throw new Error(`Invariant Violation: inputRange (${inputRange.length}) and outputRange (${outputRange.length}) must have the same length`);
+        }
+        return this;
+      }
+      addListener(): string { return 'listener'; }
+      removeListener(): void { }
+      stopAnimation(callback?: (value: number) => void): void { callback?.(this.current); }
+    },
+    timing: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    spring: (value: { setValue(next: number): void }, config: { toValue: number }) => ({
+      start: (callback?: () => void) => { value.setValue(config.toValue); callback?.(); },
+      stop: () => undefined,
+    }),
+    sequence: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+    parallel: (steps: { start(callback?: () => void): void }[]) => ({
+      start: (callback?: () => void) => { for (const step of steps) step.start(); callback?.(); },
+      stop: () => undefined,
+    }),
+  },
+  Easing: {
+    linear: (value: number) => value,
+    ease: (value: number) => value,
+    quad: (value: number) => value,
+    cubic: (value: number) => value,
+    in: () => (value: number) => value,
+    out: () => (value: number) => value,
+    inOut: () => (value: number) => value,
+  },
+  AccessibilityInfo: {
+    isReduceMotionEnabled: async () => false,
+    addEventListener: () => ({ remove: () => undefined }),
+  },
+  // The viewer layer's box (HC-POL-012/057) is the window.
+  useWindowDimensions: () => ({ width: 360, height: 640, scale: 2, fontScale: 1 }),
 };
 
 /** The held native transfer: `uploadAsync()` stays pending until released. */
@@ -355,12 +428,16 @@ const uiStub = {
   AppText: 'AppText',
   AppInput: 'AppInput',
   ActionSheet: 'ActionSheet',
+  AdaptiveActionMenu: 'AdaptiveActionMenu',
+  AdaptiveMenuRow: 'AdaptiveMenuRow',
+  AdaptiveMenuSeparator: 'AdaptiveMenuSeparator',
   DatePickerSheet: 'DatePickerSheet',
   ErrorState: 'ErrorState',
   FormActionRow: 'FormActionRow',
   // The header controls are InteractivePressables; leaving this out of the stub made the
   // component resolve to undefined and every header control mount with no type.
   InteractivePressable: 'InteractivePressable',
+  menuAnchorFromEvent: () => null,
 };
 const iconsStub = { HomePlusIcon: 'HomePlusIcon' };
 const fileIntakeStub = { FileIntake: 'FileIntake' };
@@ -721,8 +798,9 @@ function searchText(tree: unknown): string {
  * folder navigation, and one intentional change costs EXACTLY ONE read.
  */
 async function chooseSortThroughFilterMenu(surface: { tree: unknown; settle: () => Promise<void> }, orderLabel: string): Promise<boolean> {
+    // PATCH-1 frozen vocabulary: the filter icon announces itself as `Organizar.`.
     const filterIcon = findOne(surface.tree, (element) => typeof element.props?.accessibilityLabel === 'string'
-      && element.props.accessibilityLabel.startsWith('Filtros y orden.')
+      && element.props.accessibilityLabel.startsWith('Organizar.')
       && typeof element.props?.onPress === 'function');
     if (!filterIcon) return false;
     filterIcon.props.onPress();
@@ -791,9 +869,11 @@ function openTileActions(tree: unknown, kind: 'folder' | 'file', id: string): bo
     const index = props.data.findIndex((item) => item.kind === kind && item.value.id === id);
     if (index === -1) return false;
     const tile = props.renderItem({ item: props.data[index], index }) as TestElement;
-    const gesture = tile?.props?.onLongPress ?? tile?.props?.onMore;
-    if (typeof gesture !== 'function') return false;
-    (gesture as () => void)();
+    // PATCH 1B — contextual actions open exclusively from the visible ⋯
+    // control. Long press is selection now and never opens a menu.
+    const menu = tile?.props?.onMenu;
+    if (typeof menu !== 'function') return false;
+    (menu as (event: unknown) => void)({ nativeEvent: { pageX: 0, pageY: 0 } });
     return true;
   }
 
@@ -801,6 +881,20 @@ function pressButton(tree: unknown, title: string): boolean {
   const button = findAll(tree, (element) => element.props?.title === title && typeof element.props?.onPress === 'function');
   if (button.length === 0) return false;
   button[button.length - 1].props.onPress();
+  return true;
+}
+
+/**
+ * Press the FIRST match. Closed popovers stay mounted but invisible, so when a
+ * menu row and a sheet CTA share a title, the menu row (earlier in the tree)
+ * is the one that opens the confirmation — pressing the last would hit the
+ * still-closed confirmation CTA, which correctly refuses to run with no
+ * pending confirmation.
+ */
+function pressFirstButton(tree: unknown, title: string): boolean {
+  const button = findAll(tree, (element) => element.props?.title === title && typeof element.props?.onPress === 'function');
+  if (button.length === 0) return false;
+  button[0].props.onPress();
   return true;
 }
 
@@ -900,7 +994,7 @@ async function testFolderCatalogueInvalidation(): Promise<void> {
   const nameInput = findOne(surface.tree, (element) => element.props?.label === 'Nombre' && typeof element.props?.onChangeText === 'function');
   nameInput?.props.onChangeText('Viajes');
   surface.render();
-  record(pressButton(surface.tree, 'Guardar'), 'A3. the create control is reachable');
+  record(pressButton(surface.tree, 'Crear'), 'A3. the create control is reachable');
   await surface.settle();
 
   record(household.folderMutations.some((entry) => entry.startsWith('create:')), 'A4. the create really reached the backend');
@@ -933,7 +1027,11 @@ async function testFolderCatalogueInvalidation(): Promise<void> {
   // 3. DELETE, with files inside it.
   record(openTileActions(surface.tree, 'folder', 'ff-recetas'), 'A16. the delete affordance is reachable');
   surface.render();
-  record(pressButton(surface.tree, 'Eliminar carpeta'), 'A17. the delete control is reachable');
+  record(pressFirstButton(surface.tree, 'Eliminar carpeta'), 'A17. the delete control is reachable');
+  surface.render();
+  // The menu row opens the destructive confirmation (contents are promoted,
+  // never deleted); the confirmation's own CTA executes it.
+  record(pressButton(surface.tree, 'Eliminar carpeta'), 'A17b. the delete confirmation is confirmed');
   await surface.settle();
 
   record(household.folderMutations.includes('delete:ff-recetas'), 'A18. the delete really reached the backend');
@@ -1107,7 +1205,7 @@ async function testNavigationAndQuery(): Promise<void> {
   record(bIds.length === 2 && bIds.every((id) => id.startsWith('in-ff-viajes')), 'B34. and the list is folder B\'s own files');
 
   // SORT SURVIVES NAVIGATION.
-  record(await chooseSortThroughFilterMenu(surface, 'A-Z'), 'B35. the sort control is reachable through the filter menu');
+  record(await chooseSortThroughFilterMenu(surface, 'A–Z'), 'B35. the sort control is reachable through the filter menu');
   await surface.settle();
   record(household.lastFileRead()?.params.get('sort') === 'name', 'B36. the new sort reached the read');
   const sortBeforeNav = household.lastFileRead()?.params.get('sort');
@@ -1136,7 +1234,7 @@ async function testNavigationAndQuery(): Promise<void> {
   record(debounced.lastFileRead()?.params.get('query') === 'a', 'B36. carrying the intended query');
 
   const readsBeforeSort = debounced.fileReads().length;
-  record(await chooseSortThroughFilterMenu(debounceSurface, 'A-Z'), 'B37. a sort change');
+  record(await chooseSortThroughFilterMenu(debounceSurface, 'A–Z'), 'B37. a sort change');
   await debounceSurface.settle();
   record(debounced.fileReads().length === readsBeforeSort + 1, 'B38. costs exactly ONE read (no duplicate)');
   debounceSurface.unmount();
