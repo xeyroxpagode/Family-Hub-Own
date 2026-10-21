@@ -158,6 +158,13 @@ const commands = {
   // pager, the sheet, the canonical selector, the workspace and the single
   // Inventory state authority.
   'inventory-v2-premium-shared-system': () => runCommand('Inventory V2 Premium UX shared system', 'node', ['scripts/compiled/scripts/inventory_v2_premium_shared_system_tests.js']),
+  // Block 2 (Premium UX Products). The suite compiles the pure Products
+  // domain model (collection, filters, selection semantics, select-all over
+  // the WHOLE collection) and runs the frozen contracts of the Products
+  // surfaces: row layout, swipe, one-sheet product flow, unified location
+  // form, drag-only reorder, bottom chrome, offline vs permission and the
+  // realtime patch.
+  'inventory-v2-premium-products-contract': () => runCommand('Inventory V2 Premium UX products', 'node', ['scripts/compiled/scripts/inventory_v2_premium_products_tests.js']),
   'backend-syntax': () => runCommand('Backend/test syntax', 'node', ['tests/static/backend-syntax.js']),
   'migration-uniqueness': () => runCommand('Migration uniqueness guard', 'node', ['tests/static/migration-uniqueness.js']),
   'backend-eslint': () => runCommand('Backend ESLint', 'npm', ['exec', 'eslint', '--', '.'], { cwd: backendRoot }),
@@ -1837,7 +1844,11 @@ const suites = {
   'inventory-v2-mobile-qa': ['inventory-v2-mobile-qa-entry-contract', 'inventory-v2-mobile-qa-native-runtime', 'frontend-typecheck', 'test-typecheck', 'whitespace'],
   // Block 1 gate: the Premium UX shared system (detents, pager, sheet,
   // keyboard, motion, haptics, bottom chrome, overlay, state authority).
-  'inventory-v2-premium': ['compile-frontend-tests', 'inventory-v2-premium-shared-system', 'inventory-v2-foundation-contract', 'inventory-v2-products-ui', 'inventory-v2-shopping-purchase-contract', 'inventory-v2-mobile-qa-entry-contract', 'inventory-v2-mobile-qa-native-runtime', 'frontend-typecheck', 'test-typecheck', 'whitespace'],
+  'inventory-v2-premium': ['compile-frontend-tests', 'inventory-v2-premium-shared-system', 'inventory-v2-premium-products-contract', 'inventory-v2-foundation-contract', 'inventory-v2-products-ui', 'inventory-v2-shopping-purchase-contract', 'inventory-v2-mobile-qa-entry-contract', 'inventory-v2-mobile-qa-native-runtime', 'frontend-typecheck', 'test-typecheck', 'whitespace'],
+  // Block 2 gate: the Premium UX Products block (collection, filters,
+  // selection semantics, one-sheet product flow, unified location form,
+  // drag-only reorder, bottom chrome, offline/stale/realtime).
+  'inventory-v2-premium-products': ['compile-frontend-tests', 'inventory-v2-premium-products-contract', 'inventory-v2-premium-shared-system', 'inventory-v2-products-ui', 'frontend-typecheck', 'test-typecheck', 'whitespace'],
 typecheck: ['frontend-typecheck', 'test-typecheck'],
   'homecloud-hc2b-media-viewer': ['homecloud-hc2b-media-viewer-contract'],
   // HC2-C Run A gate. It carries BOTH the new Foundation evidence AND the whole

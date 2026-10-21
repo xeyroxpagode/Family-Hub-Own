@@ -1,19 +1,92 @@
 import React,{useEffect,useState} from 'react';
-import {Pressable,StyleSheet,View} from 'react-native';
-import {HomePlusIcon} from '../../constants/icons';
-import {colors,radius} from '../../constants/theme';
+import {StyleSheet,View} from 'react-native';
 import {useInventoryV2} from '../../context/InventoryV2Context';
 import {createInventoryLocation,updateInventoryLocation,type InventoryLocation} from '../../services/inventoryV2';
-import {INVENTORY_LOCATION_ICONS} from '../../services/inventoryV2Presentation';
-import {ActionSheet,AppButton,AppInput,AppText} from '../ui';
+import {BottomSheet,AppButton,AppText} from '../ui';
+import {
+  INVENTORY_LOCATION_DEFAULT_ICON,
+  InventoryLocationForm,
+  InventoryLocationIconGrid,
+  emptyInventoryLocationDraft,
+  isInventoryLocationDraftDirty,
+  validateInventoryLocationName,
+  type InventoryLocationDraft,
+} from './InventoryLocationForm';
+
 const identity=()=>{const value=`inventory-${Date.now()}-${Math.random().toString(36).slice(2)}`;return{mutationId:value,idempotencyKey:value};};
+
+/**
+ * The standalone Create/Edit Location sheet.
+ *
+ * It is the SAME form authority the ProductFlow uses (see
+ * `InventoryLocationForm`), mounted on the shared `BottomSheet` primitive:
+ * one backdrop, one host, one detent state, a dirty guard and a commit lock.
+ *
+ * Contract source:
+ * `docs/implementation/inventory/v2/03_INVENTORY_PREMIUM_UX_FREEZE.md`
+ * §14.11.3, §14.12.
+ */
 export function InventoryLocationFormSheet({visible,location,onClose,onSaved}:{visible:boolean;location:InventoryLocation|null;onClose:()=>void;onSaved:(location:InventoryLocation)=>void}){
-  const {accessToken,state}=useInventoryV2();const [name,setName]=useState('');const [icon,setIcon]=useState('cube-outline');const [picking,setPicking]=useState(false);const [saving,setSaving]=useState(false);const [confirmDiscard,setConfirmDiscard]=useState(false);const baseName=location?.name??'';const baseIcon=location?.icon_key??'cube-outline';const dirty=name.trim()!==baseName||icon!==baseIcon;
-  useEffect(()=>{if(visible){setName(baseName);setIcon(baseIcon);setPicking(false);setConfirmDiscard(false);}},[visible,location?.id]);
-  const close=()=>{if(dirty){setConfirmDiscard(true);return;}onClose();};
-  const save=async()=>{if(!accessToken||!name.trim()||name.trim().length>60||state.networkStatus==='offline')return;setSaving(true);try{const response=location?await updateInventoryLocation(accessToken,location.id,{name:name.trim(),icon_key:icon},identity()):await createInventoryLocation(accessToken,{name:name.trim(),icon_key:icon},identity());onSaved(response.location);onClose();}finally{setSaving(false);}};
-  return <ActionSheet visible={visible} title={confirmDiscard?'Descartar cambios':location?'Editar lugar':'Nuevo lugar'} onRequestClose={close} closeDisabled={saving} transition="controlled" keyboardAware size="scrollable-content" footer={!picking&&!confirmDiscard?<AppButton title={location?'Guardar':'Crear lugar'} onPress={save} loading={saving} disabled={!name.trim()||name.trim().length>60||state.networkStatus==='offline'}/>:undefined}>
-    {confirmDiscard?<View style={styles.form}><AppText tone="secondary">Los cambios que hiciste no se guardaron.</AppText><AppButton title="Seguir editando" onPress={()=>setConfirmDiscard(false)}/><AppButton title="Descartar" variant="danger" onPress={onClose}/></View>:picking?<View style={styles.grid}>{INVENTORY_LOCATION_ICONS.map(option=><Pressable key={option.icon} style={[styles.choice,icon===option.icon&&styles.selected]} onPress={()=>{setIcon(option.icon);setPicking(false);}} accessibilityLabel={option.label}><HomePlusIcon name={option.icon} size={25} color={colors.brand}/><AppText variant="micro" align="center">{option.label}</AppText></Pressable>)}</View>:<View style={styles.form}><AppInput label="Nombre" value={name} onChangeText={setName} maxLength={60} errorText={!name.trim()?'Ingresá un nombre.':undefined}/><Pressable style={styles.row} onPress={()=>setPicking(true)}><HomePlusIcon name={icon as any} size={24} color={colors.brand}/><View style={{flex:1}}><AppText variant="caption" tone="secondary">Icono</AppText><AppText>{INVENTORY_LOCATION_ICONS.find(x=>x.icon===icon)?.label??'Otro'}</AppText></View><HomePlusIcon name="chevron-forward" size={20} color={colors.text.tertiary}/></Pressable>{state.networkStatus==='offline'?<AppText variant="caption">Necesitás conexión para guardar.</AppText>:null}</View>}
-  </ActionSheet>;
+  const {accessToken,state}=useInventoryV2();
+  const [draft,setDraft]=useState<InventoryLocationDraft>(emptyInventoryLocationDraft());
+  const [base,setBase]=useState<InventoryLocationDraft>(emptyInventoryLocationDraft());
+  const [page,setPage]=useState<'form'|'icons'|'discard'>('form');
+  const [saving,setSaving]=useState(false);
+  const online=state.networkStatus==='online';
+  const dirty=isInventoryLocationDraftDirty(draft,base);
+  const error=validateInventoryLocationName(draft.name);
+
+  useEffect(()=>{
+    if(!visible)return;
+    const next:InventoryLocationDraft={name:location?.name??'',icon:location?.icon_key??INVENTORY_LOCATION_DEFAULT_ICON};
+    setDraft(next);setBase(next);setPage('form');
+  },[visible,location?.id,location?.name,location?.icon_key]);
+
+  const close=()=>{if(dirty&&page!=='discard'){setPage('discard');return;}onClose();};
+
+  const save=async()=>{
+    if(!accessToken||error||!draft.name.trim()||!online)return;
+    setSaving(true);
+    try{
+      const response=location
+        ?await updateInventoryLocation(accessToken,location.id,{name:draft.name.trim(),icon_key:draft.icon},identity())
+        :await createInventoryLocation(accessToken,{name:draft.name.trim(),icon_key:draft.icon},identity());
+      setBase({name:draft.name.trim(),icon:draft.icon});
+      onSaved(response.location);
+      onClose();
+    }finally{setSaving(false);}
+  };
+
+  const title=page==='discard'?'¿Descartar cambios?':page==='icons'?'Elegir icono':location?'Editar lugar':'Nuevo lugar';
+
+  return <BottomSheet
+    visible={visible}
+    title={title}
+    variant="standard"
+    onRequestClose={close}
+    dirty={dirty&&page==='form'}
+    onRequestDismissGuard={()=>setPage('discard')}
+    committing={saving}
+    footer={page==='form'?<AppButton title={location?'Guardar':'Crear lugar'} onPress={save} loading={saving} disabled={!draft.name.trim()||!online||Boolean(error)}/>:undefined}
+  >
+    {page==='discard'?(
+      <View style={styles.stack}>
+        <AppText tone="secondary">Los cambios de este lugar no se guardaron.</AppText>
+        <AppButton title="Seguir editando" onPress={()=>setPage('form')}/>
+        <AppButton title="Descartar" variant="danger" onPress={onClose}/>
+      </View>
+    ):page==='icons'?(
+      <InventoryLocationIconGrid icon={draft.icon} onSelect={icon=>{setDraft(current=>({...current,icon}));setPage('form');}}/>
+    ):(
+      <InventoryLocationForm
+        draft={draft}
+        onChange={setDraft}
+        onPickIcon={()=>setPage('icons')}
+        errorText={draft.name.trim()&&error?error:undefined}
+        disabled={!online}
+      />
+    )}
+    {!online&&page==='form'?<AppText variant="caption" tone="secondary">Necesitás conexión para guardar.</AppText>:null}
+  </BottomSheet>;
 }
-const styles=StyleSheet.create({form:{gap:16},row:{minHeight:56,borderWidth:1,borderColor:colors.border.default,borderRadius:radius.md,paddingHorizontal:12,flexDirection:'row',alignItems:'center',gap:12},grid:{flexDirection:'row',flexWrap:'wrap',gap:8},choice:{width:'23%',minHeight:82,borderWidth:1,borderColor:colors.border.default,borderRadius:radius.md,alignItems:'center',justifyContent:'center',gap:6,padding:6},selected:{borderColor:colors.brand,backgroundColor:colors.brandSoft}});
+const styles=StyleSheet.create({stack:{gap:12}});

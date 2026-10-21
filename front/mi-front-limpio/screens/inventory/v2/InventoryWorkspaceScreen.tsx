@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useRoute } from '@react-navigation/native';
 
 import {
   AdaptiveActionMenu,
@@ -82,7 +82,6 @@ function tabFromIndex(index: number): InventoryWorkspaceTab {
 }
 
 export function InventoryWorkspaceScreen() {
-  const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { width } = useWindowDimensions();
   const chrome = useBottomChrome();
@@ -125,10 +124,14 @@ export function InventoryWorkspaceScreen() {
     setAddNonce((current) => current + 1);
   }, [route.params?.openAddNonce]);
 
-  // Products normal / Shopping normal own the bottom navigation.
+  // Products normal / Shopping normal own the bottom navigation. The
+  // declaration happens ONCE: a pushed screen (a list, the locations
+  // manager) declares its own chrome while it is on top and restores the
+  // navigation on the way out.
+  const {setSlot}=chrome;
   useEffect(() => {
-    chrome.setSlot('bottom-nav');
-  }, [chrome]);
+    setSlot('bottom-nav');
+  }, [setSlot]);
 
   const declareOverflowActions = useCallback(
     (tab: InventoryWorkspaceTab) => (actions: InventoryWorkspaceAction[]) => {
@@ -158,8 +161,11 @@ export function InventoryWorkspaceScreen() {
   const handleSelect = useCallback((value: InventoryWorkspaceTab) => {
     // The pager is the single authority of the progress: the selector follows
     // the live gesture and the settle animation from the pager itself.
+    // The selection lock keeps the collection stable: with an active
+    // selection the tab cannot change.
+    if (selectionRef.current[settledTab]) return;
     setTargetTab(value);
-  }, []);
+  }, [settledTab]);
 
   const handleAdd = useCallback(() => {
     setAddNonce((current) => current + 1);
@@ -179,6 +185,9 @@ export function InventoryWorkspaceScreen() {
 
   const settledSelection = selection[settledTab];
   const overflowActions = overflowActionsRef.current[settledTab] ?? [];
+  // Selection lock: with an active selection the pager is disabled, so the
+  // collection under the selection can never change behind the user's back.
+  const selectionLocked = Boolean(settledSelection);
 
   const pages = useMemo(
     () => [
@@ -266,6 +275,7 @@ export function InventoryWorkspaceScreen() {
         }}
         onProgress={(value) => setProgress(value)}
         onTransitionChange={setTransitioning}
+        disabled={selectionLocked}
         testID="inventory-workspace-pager"
       >
         {pages}

@@ -532,16 +532,561 @@ inventa PASS.
 
 ---
 
-## 14. RESERVADO — BLOCK 2 (PRODUCTS PREMIUM TARGET)
+## 14. BLOCK 2 — PRODUCTS PREMIUM TARGET
 
-> **Sección reservada.** No se implementa en Block 1.
-> Se formaliza en `docs/implementation/inventory/v2/` al abrir Block 2.
+> **Autoridad de target de Productos.** Especificación completa del bloque 2
+> (`inventory/premium-ux-v1-20261021`, base `0e055e2`).
+> Principio rector: **SAME PRODUCT / SAME CONCEPT / PREMIUM EXECUTION**.
+> Si esta sección NO exige cambiar una superficie: **PRESERVAR CURRENT**.
+> No se construye "Inventory V3".
 
-* [ ] Root de Productos: header, buscador, filtros, estados vacíos
-* [ ] Listados y filas: `ProductRow swipe` sobre la foundation de gestos
-* [ ] `ProductFlow`: catálogo ↔ editor con el sheet premium
-* [ ] Selección y barra de lote
-* [ ] Detalle de lugar / archivados / papelera
+### 14.0 PRINCIPIO Y NO-GOALS
+
+| Regla | Detalle |
+|---|---|
+| Concepto | Products YA funciona y tiene una UX base correcta. Se ejecuta, no se rediseña. |
+| Preservación | Si el freeze no pide un cambio ⇒ **PRESERVAR CURRENT**. |
+| Canvas | El root sigue **plano**. Sin dashboard, sin metric cards, sin rail de Lugares, sin cards de lugares. |
+| Lugares | **Vertical**, en el root y en el manager. Nunca horizontal, nunca cardificado. |
+| Dominio | NO se cambia Product Truth, DB schema, migrations ni RPCs. |
+| Estado | NO se crea `ProductsStore` ni otro provider. `InventoryV2Context` sigue siendo la única autoridad. |
+| Primitives | NO se clonan primitives globales. Se consumen las de Block 1. |
+| Alcance | Este bloque NO implementa el Premium completo de Shopping/Purchase/History (Block 3) ni el cutover (Block 4). |
+
+### 14.1 ROOT DE PRODUCTOS (KEEP del concepto)
+
+```
+<AppTopBar global>
+
+Inventario                         +   •••
+
+[ selector canónico ]
+
+[ Buscar productos ]
+
+Lugares                      Ver lugares
+
+Sin lugar                         5
+Heladera                          1
+Cocina                            4
+Baño                              2
+...
+
+[ Agotados 2 ] [ Poco stock 4 ]
+
+Todos los productos               >
+Archivados                        >
+Papelera                          >
+```
+
+* `Lugares` **vertical**, con `Sin lugar` arriba y el conteo a la derecha.
+* `Agotados` / `Poco stock` siguen **compactos** (chips), no cards.
+* Canvas plano: sin card contenedora, sin sombras-as-divisores.
+* `+` ⇒ Add Product. `•••` ⇒ acciones administrativas canónicas de Products
+  (Gestionar lugares / Archivados / Papelera).
+* El `+` y `•••` los aporta el **context header del workspace** (§2.2). Products
+  **no** dibuja un header propio cuando está embebido.
+* Mientras el pager transiciona, las acciones del header están **deshabilitadas**
+  (contrato §2.5). No se crea un header nuevo específico de Products.
+
+### 14.2 EMPTY ROOT
+
+```
+Inventario                         +   •••
+
+Productos | Compras
+
+              icon
+
+Todavía no hay productos
+
+Agregá lo que querés controlar
+en tu casa.
+
+[ Agregar producto ]
+[ Crear lugares ]
+```
+
+* El `+` del header y el CTA `Agregar producto` **coexisten**: es deliberado.
+  NO se elimina uno por redundancia.
+* El empty vive **sobre el canvas**. Sin white card contenedora.
+
+### 14.3 SEARCH ROOT
+
+* La búsqueda **NO es una route**: es un estado local del root.
+* `tap Search` ⇒ foco + teclado + los resultados **reemplazan** el contenido
+  inferior.
+* Limpiar ⇒ `query=""` ⇒ vuelve el contenido Root anterior.
+* **No** hay autofocus al entrar a Products.
+* Al alternar Products → Shopping → Products: la query **se preserva**, el scroll
+  razonable **se preserva** y el teclado **NO** reaparece solo (las páginas
+  siguen montadas en el pager).
+* Se usa el `SearchField` canónico.
+
+### 14.4 ALL PRODUCTS (KEEP de la base)
+
+```
+← Todos los productos             •••
+
+[ Buscar ]
+
+Todos | Agotados | Poco stock | Lugar | Categoría →
+
+ProductRows
+```
+
+* Canvas, densidad, lógica de lista, status inline y composición general: **KEEP**.
+* Back ⇒ Products Root **exacto** anterior (la página del workspace sigue
+  montada ⇒ el scroll del padre se preserva).
+
+### 14.5 FILTER BAR
+
+* Filtros: `Todos` · `Agotados` · `Poco stock` · `Lugar` · `Categoría`.
+* **Horizontal**, sin wrap, gap canónico, con *peek* del siguiente chip válido.
+* Tap ⇒ respuesta inmediata, transición de estado **~130–150 ms**, chip
+  seleccionado claramente visible y auto-scroll mínimo para mantenerlo visible.
+* **Search ∧ filtro** (intersección). Search **no** borra el filtro y el filtro
+  **no** borra la búsqueda.
+* Durante Selection Mode la barra de filtros queda **visualmente estable** y
+  **no** cambia la colección (§14.12).
+
+### 14.6 PRODUCT ROW (PRESERVAR)
+
+```
+[icon 40]  Leche                         2
+           Heladera · Poco stock
+```
+
+| Token | Valor |
+|---|---|
+| Alto | 60–64 |
+| Leading | 40 |
+| Gap | 12 |
+| Nombre | 1 línea, truncado |
+| Metadata | 1 línea |
+| Cantidad (derecha) | slot estable, nunca se desplaza por un nombre largo |
+
+* **No** cards, **no** big badges, **no** fila roja, **no** chevrons nuevos.
+* La cantidad usa cifras tabulares cuando el runtime las soporta limpiamente.
+
+### 14.7 STATUS
+
+```
+Heladera · Poco stock
+Lavadero · Agotado
+Cocina
+```
+
+* El status **no** se convierte en badge. El color puede reforzar la semántica
+  con tokens globales, pero **nunca** color-only.
+* Un cambio de status cambia **sólo** metadata/cifra: la fila no se re-anima.
+
+### 14.8 TAP / LONG PRESS
+
+| Gesto | Resultado |
+|---|---|
+| Tap | press feedback inmediato ⇒ **ProductFlowSheet (Editor)**. NO es route. La lista queda **montada** debajo. Al cerrar: mismo scroll, misma búsqueda, mismo filtro, misma colección. |
+| Long press | **Selection Mode**. Haptic `selection`. Morph del header. Leading visual ⇒ checkbox. Entra la SelectionBar. No navega. |
+
+### 14.9 PRODUCT ROW SWIPE (CHANGE real)
+
+```
+swipe left  →  [ Lista ] [ Más ]
+```
+
+* Máximo **dos** acciones. Sin full-swipe destructivo: no archivar ni tirar a
+  papelera por swipe completo.
+* `Lista` usa la **mutación canónica** de Shopping (`addInventoryShoppingItem`,
+  `source:'inventory'`). No se crea un endpoint paralelo.
+  Si el producto ya está en la lista ⇒ estado equivalente a `✓ En lista` y
+  **no** se duplica la línea (se deriva del estado compartido, no de un flag
+  local).
+* `Más` ⇒ AdaptiveActionMenu canónico (popover si entra; action sheet si el
+  viewport / Dynamic Type no lo permite).
+* El swipe sigue el dedo **1:1**, dispara **un** haptic al cruzar el umbral
+  (con histéresis), se asienta con el motion compartido, **una sola fila**
+  abierta a la vez y **no roba** el scroll vertical.
+* All Products es drill-down: **no** muestra el pager ⇒ no hay conflicto
+  artificial entre el swipe y el pager.
+
+### 14.10 PRODUCT CONTEXT MENU
+
+```
+Editar
+Mover
+Agregar a lista / En lista
+Archivar
+Mover a Papelera
+```
+
+Sólo las acciones válidas para el `capability` / `lifecycle` actual. Sin
+duplicar acciones inválidas.
+
+### 14.11 ADD PRODUCT / PRODUCT FLOW (UNA SOLA SHEET)
+
+* El `+` abre el **shared BottomSheet** en preset `FLOW`. **Sin autofocus**.
+* El **Catálogo** es una **página interna** del ProductFlow: no es route, no es
+  un segundo modal, no es sheet sobre sheet.
+* El resultado del catálogo ⇒ **Editor dentro del MISMO sheet**.
+* Transición interna: **~170–180 ms total**, entrada y salida **en paralelo**
+  (no `170 OUT + 170 IN`).
+* Sin resultados ⇒ `No encontramos “…”` + `Crear “…”` ⇒ Editor con el nombre
+  prefilled, mismo sheet, mismo stack interno, sin wizard adicional.
+* Una sola backdrop, un solo host, un solo detent por flow.
+
+#### 14.11.1 EDITOR (preservar la lógica)
+
+```
+← Producto / Editar producto            ×
+
+Nombre
+[ ... ]
+
+Cantidad
+[ − ]     N     [ + ]
+
+Lugar
+[ Cocina                              › ]
+
+Reposición automática                 toggle
+
+Más opciones                           ˅
+
+[ Guardar cambios ]
+```
+
+* No se rediseñan los campos ni se agregan secciones innecesarias.
+* Stepper normalizado a primitive compartido, touch target **≥ 44**. Tap `±`
+  ⇒ feedback inmediato, microtransición **~100–120 ms**, haptic `light`, **sin**
+  Toast de "cantidad actualizada".
+* `Más opciones` sigue siendo **accordion** (no una screen nueva): alto +
+  opacidad, **~160–180 ms**, sin bounce.
+* La configuración de reposición automática **no cambia Product Truth**: se
+  mantienen `enabled`, `threshold`, `target`, categoría y notas. Activar el
+  toggle **no** abre un modal.
+
+#### 14.11.2 LOCATION PICKER / CATEGORY PICKER (páginas internas)
+
+```
+← Lugar                               ×      ← Categoría                  ×
+Sin lugar                                   Alimentos y bebidas
+Cocina                                      Limpieza
+Baño                                        Cuidado personal
+Lavadero                                    Salud
++ Crear lugar                               Bebé
+                                            Mascotas
+                                            Hogar / descartables
+                                            Otros
+```
+
+* Tap ⇒ feedback de selección, haptic `selection`, el valor se actualiza y
+  vuelve al Editor. Sin botón "Aceptar" extra. Sin sheet nuevo.
+
+#### 14.11.3 UNA SOLA AUTORIDAD DE FORMULARIO DE LUGAR
+
+`Create Location desde ProductFlow` y `Create/Edit Location desde Locations
+Manager` comparten **una sola implementación reusable**:
+
+```
+Nombre
+Icono
+
+[ Guardar / Crear lugar ]
+```
+
+* En ProductFlow se renderiza como **página interna** del mismo Flow Sheet.
+* En Locations Manager se renderiza dentro del **shared BottomSheet**
+  (`STANDARD`).
+* **No** se duplica validación ni selector de iconos.
+* El **icon picker** es una página interna más: grid canónico, tap ⇒ selección
+  + haptic + vuelta al formulario.
+
+#### 14.11.4 SAVE / DIRTY / DUPLICATE / CONFLICT
+
+| Situación | Target |
+|---|---|
+| Save | CTA estable ⇒ `Guardando…` en la **misma geometría**. Commit lock del shared BottomSheet. Éxito ⇒ el sheet cierra y las derivadas se actualizan (sin reload global, sin Toast redundante). Fallo ⇒ el editor sigue abierto, error local, **sin perder el draft**. |
+| Dirty | Cerrar / backdrop / drag dismiss ⇒ el sheet **vuelve al detent** y pregunta. Copy concreto: `¿Descartar cambios?` / `Los cambios de este producto no se guardaron.` / `[ Descartar ]` / `Seguir editando`. Mover el sheet entre detents **no** dispara el guard. |
+| Duplicate | Se resuelve **dentro** del ProductFlow (no error genérico). `Ya existe un producto parecido.` + el producto existente + `[ Ver producto existente ]`. La opción de crear igual **sólo** existe si el dominio la permite. |
+| Conflict | Realtime/version conflict con cambios locales ⇒ el sheet **no** se cierra, no hay overwrite silencioso. Notice interno `Este producto cambió en otro dispositivo.` + `[ Revisar cambios ]` ⇒ página interna con el diff real. |
+
+#### 14.11.5 READ-ONLY / CAPABILITIES
+
+Se respetan `view` · `use` · `manage` · `destroy`.
+
+* `manage=false`, `use=true` ⇒ metadata **en lectura**, cantidad ** operable**.
+  No se grisorea todo.
+* `destroy=false` ⇒ el permanent delete no está disponible.
+* Backend / RLS siguen siendo la autoridad.
+
+#### 14.11.6 LIFECYCLE EN EL EDITOR
+
+Las acciones de lifecycle bajan de jerarquía respecto de Save:
+
+```
+Gestión
+
+Archivar producto                  >
+Mover a Papelera                   >
+```
+
+`Guardar` sigue siendo inequívocamente la primary action. Archive y Move to
+Trash son directos + Undo cuando el contrato lo permite. Permanent delete
+exige confirmación.
+
+### 14.12 LOCATIONS MANAGER / REORDER / DELETE
+
+```
+← Lugares                           +
+```
+
+* Rows compactas: `[icon] Cocina   12   •••`. Sin cards.
+* `+` ⇒ shared location form.
+* `Sin lugar` navega a su detail, pero **no** se renombra, **no** se borra,
+  **no** se reordena, **no** se le cambia el icono.
+
+#### 14.12.1 REORDER (CHANGE)
+
+```
+← Ordenar lugares               Listo
+
+☰ Cocina
+☰ Baño
+☰ Lavadero
+```
+
+* **Un solo mecanismo**: drag directo. Se eliminan las flechas `↑` / `↓` y el
+  drag handle redundante NO convive con ellas.
+* Lift con scale/elevation leve, haptic al cruzar, reflow del resto, snap al
+  soltar.
+* `Sin lugar` **nunca** entra al reorder.
+
+#### 14.12.2 DELETE / MOVE
+
+* Sin productos ⇒ directo/reversible + Undo si el contrato lo permite; si no,
+  Confirm.
+* Con productos ⇒ **no** se borra de forma ambigua:
+
+```
+Eliminar “Despensa”
+
+Hay 4 productos en este lugar.
+
+○ Mover a Sin lugar
+○ Mover a otro lugar
+
+[ Continuar ]
+```
+
+* El destino se elige **dentro del mismo flow**. El commit es atómico con el
+  contrato actual. Ningún producto queda huérfano fuera de la semántica
+  `NULL` / `Sin lugar`.
+
+### 14.13 LOCATION DETAIL
+
+```
+← Cocina                           •••
+
+4 productos
+
+[ Buscar en Cocina ]
+
+Todos | Agotados | Poco stock
+
+ProductRows
+```
+
+* Reusa el **mismo** sistema de contenido que All Products: mismas filas,
+  mismos status, mismas acciones según scope. No es una screen distinta.
+* Empty ⇒ `Todavía no hay productos en Cocina.` + `[ Agregar producto ]` +
+  `[ Mover productos acá ]` (dos journeys distintos ⇒ dos CTAs válidos), sin
+  white card.
+
+### 14.14 ARCHIVED / TRASH
+
+```
+← Archivados                       •••      ← Papelera                     •••
+[ Buscar ]                                     [ Buscar ]
+ProductRows                                   ProductRows
+```
+
+* Mismo sistema de contenido. Sin filtros de stock en Archivados (el
+  lifecycle los vuelve irrelevantes).
+* Acciones Archivados: `Restaurar` · `Mover a…` · `Mover a Papelera`.
+* Acciones Papelera: `Restaurar` · `Eliminar definitivamente`.
+* Permanent delete ⇒ Confirm obligatorio.
+* `Vaciar Papelera` desde el overflow ⇒ Confirm con el conteo real; es un
+  commit crítico: **no** hay éxito optimista.
+* Empty contextual sobre canvas: `La Papelera está vacía.` Sin card, sin
+  ilustración gigante, sin CTA absurdo.
+
+### 14.15 SELECTION MODE
+
+```
+×       3 seleccionados            Todos
+```
+
+* Mismo footprint del ContextHeader. **No** hay barra adicional.
+* Leading visual: icono del producto ⇒ checkbox. Fila seleccionada: superficie
+  selected sutil.
+* SelectionBar: **una** superficie elevada inferior (`Mover` · `Archivar` ·
+  `•••`). Sin sticky CTA adicional. El BottomChrome reserva el espacio y el
+  BottomNav queda debajo.
+* Search y FilterBar **visualmente estables** y **no** cambian la colección. El
+  pager Products↔Shopping queda bloqueado por el selection lock.
+* Realtime **sí** puede invalidar items: si un item seleccionado deja de
+  pertenecer a la colección ⇒ se quita de la selección y se actualiza el
+  contador. Si la selección llega a 0 ⇒ se sale automáticamente de Selection
+  Mode.
+
+#### 14.15.1 SELECT ALL (P0 semántico)
+
+> `Todos` = **TODOS** los resultados reales de la colección/filtro activo,
+> **independientemente de la paginación**. No "todos los cargados".
+
+* Se resuelven los IDs recorriendo las páginas del query activo con las APIs
+  existentes (sin cambiar schema ni dominio).
+* Si el contrato de batch no pudiese cubrir el result set completo, se reporta
+  como **GAP** explícito: no se finge.
+
+### 14.16 BATCH OPERATIONS
+
+| Operación | Target |
+|---|---|
+| Mover | Standard BottomSheet con destinos + `[ Mover ]`. Toast global `4 productos movidos · Deshacer` sólo si el Undo es seguro. |
+| Archivar | **Sin** Confirm. Mutación reversible. Toast `4 productos archivados · Deshacer`. Colapso de filas en paralelo, sin stagger largo. |
+| Categoría / reposición | Standard Sheet y primitives compartidos. Sin layout bespoke, sin route. Se preserva Product Truth. |
+
+### 14.17 OFFLINE / STALE / REALTIME
+
+| Estado | Target |
+|---|---|
+| Offline | Snapshot navegable y read-only para mutaciones remotas. Se puede navegar, buscar, filtrar, abrir detail y leer el estado cacheado. Las mutaciones remotas quedan bloqueadas. Notice persistente: `Sin conexión` / `Mostrando datos guardados.` |
+| Offline — capabilities | **NO** se esconde el `+` porque el refresh de capabilities falló. **NO** se interpreta un error de red como pérdida de permisos. **NO** se borran las capabilities de última confianza. Las acciones pueden seguir visibles deshabilitadas + motivo. |
+| Stale | Separado de offline: `No pudimos actualizar.` / `Mostrando datos anteriores.` No hay error screen global si hay datos útiles. Se mantienen las capabilities de última confianza. |
+| Realtime | Sin refresh visual global. Parche local: cantidad `3 → 2`, status con crossfade de metadata, insert con entrada de fila, remove con colapso. Si el item está fuera del viewport no hay auto-scroll. Si el usuario está editando ⇒ conflict contextual. Sin spinner global, sin "Actualizando…" por evento. |
+
+### 14.18 MOTION / HAPTICS (Products)
+
+| Evento | Duración | Haptic |
+|---|---|---|
+| press | ~80 | — |
+| cantidad | ~110–120 | `light` |
+| toggle / chip | ~130–150 | `selection` (chip) |
+| status | ~130 | — |
+| selection mode | ~160 | `selection` |
+| insert / remove de fila | ~160–170 | — |
+| accordion | ~170 | — |
+| navegación interna del sheet | ~170–180 | `selection` (picker) |
+| popover | 130 / 100 | — |
+| route | ~200 | — |
+| sheet | shared 200 / 175 | — |
+
+* Las transiciones relacionadas van **en paralelo**. Sin stagger decorativo, sin
+  bounce.
+* Haptics: **sí** en long-press selection, checkbox de selección, stepper,
+  picker, umbral de swipe y cruce de reorder. **No** en botón normal, Back,
+  Search, apertura/cierre de sheet, scroll ni guardado normal.
+* Histéresis: no se repite el haptic continuamente alrededor del mismo umbral.
+
+### 14.19 KEYBOARD (Products)
+
+* Contrato compartido de Block 1. Hard requirements: sin autofocus en Add
+  Product, el top del ProductFlow no salta, el teclado puede promover el detent,
+  el footer queda arriba del teclado, el backdrop cubre el BottomNav, el nav
+  translúcido no se ve detrás del teclado y al cerrar el teclado **no** se baja
+  el detent por default.
+* Superficies a probar: búsqueda de catálogo, nombre del producto, notas,
+  producto custom, nombre de lugar.
+
+### 14.20 BOTTOM INSETS
+
+* Se usa `BottomChromeContext` / el resolver compartido. **Prohibido**
+  `paddingBottom: 137` mágico por screen.
+* El contenido de lista reserva: BottomNav + SelectionBar (cuando existe) +
+  safe area + aire. **Sin** doble safe-area inset.
+
+### 14.21 TRACEABILITY — 74 SURFACES DE PRODUCTS (CURRENT → TARGET)
+
+Leyenda: **KEEP** = se preserva · **CHANGE** = cambia · **FIX** = se corrige ·
+**REMOVE** = se elimina.
+
+| # | Superficie (forensic audit) | CURRENT | Decisión | TARGET | Evidencia de aceptación |
+|---|---|---|---|---|---|
+| 01 | Productos Root | Canvas, header propio embebido, Lugares vertical | CHANGE | Canvas plano, header del workspace, Lugares vertical, chrome por resolver | `inventory-v2-premium-products` · root contract |
+| 02 | Productos Root overflow | Popover con 4 acciones | KEEP | Popover canónico, acciones administrativas | suite premium products |
+| 03 | Root — búsqueda activa | Debounce 120 ms, server query | CHANGE | Mismo concepto, SearchField canónico, sin autofocus | suite + QA visual #3 |
+| 04 | Root — búsqueda sin resultados | EmptyState con alta | CHANGE | Copy explícito + alta que abre el flow | suite + QA visual #4 |
+| 05 | Todos los productos | Lista con filtros | KEEP | Canvas, densidad, status inline | suite + QA visual #4 |
+| 06 | Filtro Agotados | Chip + server query | CHANGE | Chip con peek, transition 130–150 ms | suite + QA visual #5 |
+| 07 | Filtro Poco stock | Chip + server query | CHANGE | Chip con peek, transition 130–150 ms | suite + QA visual #5 |
+| 08 | Filtro Lugar (abierto) | ChoiceSheet legacy | CHANGE | Internal/shared sheet, sin doble sheet | suite |
+| 09 | Filtro Lugar (aplicado) | Chip con nombre | CHANGE | Chip seleccionado + auto-scroll mínimo | suite |
+| 10 | Filtro Categoría (abierto) | ChoiceSheet legacy | CHANGE | Internal/shared sheet | suite |
+| 11 | Filtro Categoría (aplicado) | Chip | CHANGE | Chip seleccionado | suite |
+| 12 | Listado con búsqueda | Debounce + filtro cliente | CHANGE | Intersección search ∧ filtro | suite |
+| 13 | Listado sin resultados | EmptyState | CHANGE | Copy contextual, sin card | suite |
+| 14 | Fila normal | 64 px, leading 40, gap 12 | KEEP | Contrato de layout congelado | suite (layout contract) |
+| 15 | Fila agotado | Metadata brand | CHANGE | Metadata con status, color como refuerzo | suite |
+| 16 | Fila poco stock | Metadata brand | CHANGE | Metadata con status, color como refuerzo | suite |
+| 17 | Fila swipe abierto | 1 acción `Más`, 72 px | CHANGE | 2 acciones `Lista` + `Más`, 1:1, haptic | suite (swipe contract) |
+| 18 | Menú contextual de producto | Popover 4 items | CHANGE | Popover canónico, acciones por capability | suite |
+| 19 | Add — catálogo inicial | Sheet legacy con autofocus | CHANGE | Flow sheet, **sin autofocus** | suite (no autofocus) |
+| 20 | Add — catálogo con resultados | SearchField | KEEP | Mismo SearchField canónico | suite |
+| 21 | Add — catálogo sin resultados | EmptyState + crear | CHANGE | Copy `No encontramos “…”` + crear prefilled | suite |
+| 22 | Editor nuevo | Formulario | CHANGE | Flow interno, mismo sheet | suite (one-sheet) |
+| 23 | Editor — más opciones (cerrado) | Accordion | KEEP | Accordion, sin screen nueva | suite |
+| 24 | Editor — más opciones (abierto) | Accordion 180 ms | CHANGE | Alto + opacidad, 160–180 ms, sin bounce | suite (motion) |
+| 25 | Picker de categoría | Página interna | CHANGE | Página interna con haptic `selection` | suite |
+| 26 | Picker de lugar | Página interna | CHANGE | Página interna con haptic `selection` | suite |
+| 27 | Duplicado — otro lugar | Banner | CHANGE | Resolución dentro del flow | suite |
+| 28 | Duplicado — mismo lugar | Banner + acciones | CHANGE | `Ver producto existente` | suite |
+| 29 | Crear lugar (en flow) | Formulario duplicado | CHANGE | **Una sola** autoridad de formulario | suite (unified location form) |
+| 30 | Crear lugar — iconos | Grid | CHANGE | Icon picker como página interna única | suite |
+| 31 | Crear lugar — confirmado | Formulario | CHANGE | Formulario compartido | suite |
+| 32 | Confirm de descarte | Página interna | CHANGE | Copy concreto + snap back del sheet | suite (dirty guard) |
+| 33 | Editor existente | Formulario | CHANGE | Flow interno, read-only por capability | suite |
+| 34 | Stepper de cantidad | ± sobre `draft` | CHANGE | Primitive compartido, ≥44, haptic `light`, sin Toast | suite |
+| 35 | Acción papelera | Botón rojo de alto peso | CHANGE | Grupo `Gestión` de bajo peso + Undo | suite |
+| 36 | Conflicto | Página interna | CHANGE | Notice + `Revisar cambios` | suite (conflict) |
+| 37 | Lugares — manager | Lista + `Ordenar` | CHANGE | Drag único, sin flechas | suite (reorder) |
+| 38 | Lugares — búsqueda | SearchField | KEEP | SearchField canónico, local | suite |
+| 39 | Menú de lugar | Popover | CHANGE | Popover canónico | suite |
+| 40 | Crear lugar (manager) | Sheet legacy duplicado | CHANGE | Shared BottomSheet + form único | suite |
+| 41 | Editar lugar (manager) | Sheet legacy duplicado | CHANGE | Shared BottomSheet + form único | suite |
+| 42 | Editar lugar — iconos | Grid | CHANGE | Icon picker único | suite |
+| 43 | Reordenar lugares | Handle + ↑ + ↓ | CHANGE | **Drag único** | suite (reorder) |
+| 44 | Eliminar lugar sin productos | Confirm | CHANGE | Confirm / directo + Undo | suite |
+| 45 | Eliminar lugar con productos | ActionSheet legacy | CHANGE | Flow con destino + `[ Continuar ]` | suite |
+| 46 | Mover productos (desde lugar) | ChoiceSheet legacy | CHANGE | Shared sheet atómico | suite |
+| 47 | Fila `Sin lugar` | Fila virtual | KEEP | Virtual, sin rename/delete/reorder/icon | suite |
+| 48 | Detalle de lugar (poblado) | Lista de productos | KEEP | Reusa el mismo sistema de contenido | suite |
+| 49 | Detalle de lugar (vacío) | EmptyState | CHANGE | Copy + 2 CTAs válidos | suite |
+| 50 | Detalle de lugar — overflow | Popover | CHANGE | Popover canónico | suite |
+| 51 | Mover productos acá | ActionSheet legacy | CHANGE | Shared sheet | suite |
+| 52 | Archivados root | Lista | KEEP | Mismo sistema de contenido | suite |
+| 53 | Archivados — búsqueda | SearchField | KEEP | SearchField canónico | suite |
+| 54 | Archivados — menú | Popover | CHANGE | Acciones por lifecycle | suite |
+| 55 | Archivados — selección | Header + bar | CHANGE | Header morph + SelectionBar con chrome | suite (selection) |
+| 56 | Papelera root | Lista | KEEP | Mismo sistema de contenido | suite |
+| 57 | Papelera — menú | Popover | CHANGE | Acciones por lifecycle + destroy | suite |
+| 58 | Papelera — eliminar confirm | Confirm | CHANGE | Confirm obligatorio | suite |
+| 59 | Papelera — vaciar confirm | Confirm | CHANGE | Copy con N real, commit crítico | suite |
+| 60 | Papelera — selección | Header + bar | CHANGE | Header morph + SelectionBar | suite |
+| 61 | Productos — selección | Header + bar | CHANGE | Header morph, checkbox, chrome | suite (selection) |
+| 62 | Batch bar activa | SelectionBar `bottom:84` | CHANGE | Posición por chrome compartido | suite (bottom chrome) |
+| 63 | Batch overflow acciones | ActionSheet legacy | CHANGE | Shared sheet, sin layout bespoke | suite |
+| 64 | Batch mover sheet | ChoiceSheet legacy | CHANGE | Standard BottomSheet | suite |
+| 65 | Batch categoría sheet | ChoiceSheet legacy | CHANGE | Standard BottomSheet | suite |
+| 66 | Batch reposición | ActionSheet legacy | CHANGE | Standard BottomSheet | suite |
+| 67 | Undo toast | Toast con Deshacer | KEEP | Toast con Deshacer cuando el Undo es seguro | suite |
+| 68 | Root sin `manage` | `+` oculto | CHANGE | `+` **visible** (deshabilitado si capabilities desconocidas) | suite (capabilities) |
+| 69 | Lista sin `manage` | Sin swipe / sin lifecycle | CHANGE | Igual, sin acciones inválidas | suite |
+| 70 | Producto read-only | Editor read-only | CHANGE | Metadata lectura, cantidad operativa si `use` | suite |
+| 71 | Root vacío | Empty + 2 CTAs | KEEP | Empty sobre canvas, `+` y CTA conviven | suite + QA visual #2 |
+| 72 | Add — catálogo hogar vacío | Empty de catálogo | KEEP | Catálogo vacío con create | suite |
+| 73 | Root offline | Banner | CHANGE | `Sin conexión` / `Mostrando datos guardados.` | suite (offline) |
+| 74 | Root stale | Banner | CHANGE | `No pudimos actualizar.` / `Mostrando datos anteriores.` | suite (stale) |
 
 ## 15. RESERVADO — BLOCK 3 (SHOPPING / PURCHASE PREMIUM TARGET)
 

@@ -51,7 +51,7 @@ function reducer(state:InventoryV2State,action:Action):InventoryV2State{
   }
 }
 const queryKey=(query:ProductListQuery)=>JSON.stringify(Object.entries(query).filter(([,value])=>value!==undefined&&value!==null&&value!=='').sort(([a],[b])=>a.localeCompare(b)));
-type ContextValue={state:InventoryV2State;accessToken:string|null;refresh:()=>Promise<void>;loadProducts:(query?:ProductListQuery,append?:boolean)=>Promise<InventoryQueryState|undefined>;queryProducts:(query?:ProductListQuery)=>InventoryProductV2[];patchProduct:(product:InventoryProductV2)=>void;removeProduct:(id:string)=>void;setMutationBusy:(busy:boolean)=>void;toast:AppToast|null;showToast:(toast:Omit<AppToast,'id'>)=>void;dismissToast:()=>void;sheetOpen:boolean;setSheetOpen:(open:boolean)=>void};
+type ContextValue={state:InventoryV2State;accessToken:string|null;refresh:()=>Promise<void>;refreshShopping:()=>Promise<void>;loadProducts:(query?:ProductListQuery,append?:boolean)=>Promise<InventoryQueryState|undefined>;queryProducts:(query?:ProductListQuery)=>InventoryProductV2[];patchProduct:(product:InventoryProductV2)=>void;removeProduct:(id:string)=>void;setMutationBusy:(busy:boolean)=>void;toast:AppToast|null;showToast:(toast:Omit<AppToast,'id'>)=>void;dismissToast:()=>void;sheetOpen:boolean;setSheetOpen:(open:boolean)=>void};
 const InventoryContext=createContext<ContextValue|null>(null);
 
 export function InventoryV2Provider({children}:{children:React.ReactNode}){
@@ -81,6 +81,20 @@ export function InventoryV2Provider({children}:{children:React.ReactNode}){
     catch(error){if(!controller.signal.aborted&&requestGeneration===generation.current)dispatch({type:'error',message:error instanceof Error?error.message:'No pudimos cargar Inventario.'});}finally{finishController(controller);}
   },[accessToken,scopeKey]);
 
+  /**
+   * Reload ONLY the shopping state of the same authority.
+   *
+   * The Products quick action ("Lista") needs the shared shopping list to be
+   * current WITHOUT reloading the whole bootstrap: the membership of a
+   * product in the list is DERIVED from this state, never from a local flag.
+   */
+  const refreshShopping=useCallback(async()=>{
+    if(!accessToken||!scopeKey||stateRef.current.networkStatus==='offline')return;
+    const controller=makeController();const requestGeneration=generation.current;const options={signal:controller.signal,contextScope:`inventory-v2:${scopeKey}:shopping`};
+    try{const [shopping,activePurchase]=await Promise.all([getInventoryShoppingList(accessToken,options),getActiveInventoryPurchase(accessToken,options)]);if(requestGeneration!==generation.current)return;dispatch({type:'shoppingState',shopping,activePurchase});}
+    catch(error){if(!controller.signal.aborted&&requestGeneration===generation.current)dispatch({type:'error',message:error instanceof Error?error.message:'No pudimos actualizar la lista de compras.'});}finally{finishController(controller);}
+  },[accessToken,scopeKey]);
+
   useEffect(()=>{generation.current+=1;controllers.current.forEach(controller=>controller.abort());controllers.current.clear();setSheetOpen(false);setToast(null);let cancelled=false;
     void NetInfo.fetch().then(async net=>{if(cancelled)return;const online=net.isConnected!==false;dispatch({type:'reset',scopeKey,online});if(snapshotKey){const raw=await AsyncStorage.getItem(snapshotKey);if(!cancelled&&raw){try{dispatch({type:'hydrate',scopeKey:scopeKey!,payload:JSON.parse(raw) as Snapshot});}catch{await AsyncStorage.removeItem(snapshotKey);}}}if(!cancelled&&online)void refresh();});
     return()=>{cancelled=true;};
@@ -98,7 +112,7 @@ export function InventoryV2Provider({children}:{children:React.ReactNode}){
 
   const exposedState=state.scopeKey===scopeKey?state:emptyState(scopeKey,state.networkStatus==='online');
   const queryProducts=useCallback((query:ProductListQuery={})=>{const q=stateRef.current.productQueries[queryKey(query)];return(q?.ids??[]).map(id=>stateRef.current.productsById[id]).filter(Boolean);},[]);
-  const value=useMemo<ContextValue>(()=>({state:exposedState,accessToken,refresh,loadProducts,queryProducts,patchProduct:product=>dispatch({type:'patchProduct',product}),removeProduct:id=>dispatch({type:'removeProduct',id}),setMutationBusy:busy=>dispatch({type:'mutation',busy}),toast,showToast,dismissToast,sheetOpen,setSheetOpen}),[exposedState,accessToken,refresh,loadProducts,queryProducts,toast,showToast,dismissToast,sheetOpen]);
+  const value=useMemo<ContextValue>(()=>({state:exposedState,accessToken,refresh,refreshShopping,loadProducts,queryProducts,patchProduct:product=>dispatch({type:'patchProduct',product}),removeProduct:id=>dispatch({type:'removeProduct',id}),setMutationBusy:busy=>dispatch({type:'mutation',busy}),toast,showToast,dismissToast,sheetOpen,setSheetOpen}),[exposedState,accessToken,refresh,refreshShopping,loadProducts,queryProducts,toast,showToast,dismissToast,sheetOpen]);
   return <InventoryContext.Provider value={value}>{children}</InventoryContext.Provider>;
 }
 export const useInventoryV2=()=>{const value=useContext(InventoryContext);if(!value)throw new Error('useInventoryV2 debe usarse dentro de InventoryV2Provider.');return value;};
