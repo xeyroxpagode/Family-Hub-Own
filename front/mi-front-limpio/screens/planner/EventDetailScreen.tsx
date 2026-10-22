@@ -37,6 +37,7 @@ import {
 import {
   resolvePlannerBackBehavior,
 } from '../../navigation/plannerNavigationHelpers';
+import { PlannerAssetSourceRow } from '../../components/planner/PlannerAssetSourceRow';
 import { plannerStyles as S } from './plannerShared';
 
 const styles = StyleSheet.create({
@@ -320,6 +321,23 @@ export function EventDetailScreen() {
               </AppText>
             </View>
           ) : null}
+
+          {/* S9 — el origen Assets del evento (la fila sólo aparece si el
+              evento nació de un activo). */}
+          <PlannerAssetSourceRow
+            accessToken={accessToken}
+            origin={{
+              origin_module: event.origin_module,
+              origin_entity_type: event.origin_entity_type,
+              origin_entity_id: event.origin_entity_id,
+            }}
+            onOpenAsset={(assetId) => {
+              navigation.navigate('HomeTabs', {
+                screen: 'MoreTab',
+                params: { screen: 'AssetsDetail', params: { assetId } },
+              });
+            }}
+          />
         </View>
 
         <View style={{ height: 32 }} />

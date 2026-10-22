@@ -53,11 +53,87 @@ const STALE_WRITE_CODES = new Set([
 ]);
 
 const BLOCKED_RESOLUTION_CODES = new Set([
+  'assets_archive_blocked_dependents',
+  'assets_trash_blocked_dependents',
+  'assets_profile_change_dependents',
   'assets_property_dependents_block',
   'assets_record_restore_no_valid_asset',
   'assets_care_restore_owner_not_valid',
   'assets_placement_blocked',
 ]);
+
+/**
+ * S9 — the DEPENDENT blockers (O33).
+ *
+ * A lifecycle operation on a PROPERTY is blocked while other Assets of the
+ * same Household are located in it. The backend answers a typed 409 with the
+ * list of blocking dependents; these codes are the ones that carry it.
+ */
+export const ASSET_DEPENDENT_BLOCKER_CODES = new Set([
+  'assets_archive_blocked_dependents',
+  'assets_trash_blocked_dependents',
+  'assets_profile_change_dependents',
+]);
+
+/** One blocking dependent, as the backend reports it. */
+export type AssetDependent = {
+  id: string;
+  name: string | null;
+  lifecycle_status: string | null;
+  dependent_type: 'asset';
+};
+
+/** The typed payload of a dependent blocker. */
+export type AssetDependentBlocker = {
+  dependents: AssetDependent[];
+  dependent_count: number;
+  resolution_hint: string | null;
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * True when the failure is a DEPENDENT blocker (the world must change
+ * before the operation can succeed).
+ *
+ * This is decided by the CODE only: even if the payload is malformed the
+ * retry still has to be a NEW decision.
+ */
+export const isAssetDependentBlocker = (
+  failure: AssetsFailure | null | undefined,
+): boolean => Boolean(failure?.code && ASSET_DEPENDENT_BLOCKER_CODES.has(failure.code));
+
+/**
+ * The typed review payload of a dependent blocker.
+ *
+ * Returns null when the failure is not a dependent blocker (or when the
+ * payload carries no usable dependent). The projection NEVER invents a
+ * dependent: a row without an id is dropped, because it cannot be opened.
+ */
+export const getAssetDependentBlocker = (
+  failure: AssetsFailure | null | undefined,
+): AssetDependentBlocker | null => {
+  if (!isAssetDependentBlocker(failure)) return null;
+  const details = isPlainObject(failure?.details) ? failure.details : null;
+  const rawDependents = details && Array.isArray(details.dependents) ? details.dependents : [];
+  const dependents: AssetDependent[] = rawDependents
+    .filter(isPlainObject)
+    .map((row) => ({
+      id: typeof row.id === 'string' ? row.id : '',
+      name: typeof row.name === 'string' ? row.name : null,
+      lifecycle_status: typeof row.lifecycle_status === 'string' ? row.lifecycle_status : null,
+      dependent_type: 'asset' as const,
+    }))
+    .filter((row) => row.id !== '');
+  const dependentCount =
+    details && typeof details.dependent_count === 'number'
+      ? details.dependent_count
+      : dependents.length;
+  const resolutionHint =
+    details && typeof details.resolution_hint === 'string' ? details.resolution_hint : null;
+  return { dependents, dependent_count: dependentCount, resolution_hint: resolutionHint };
+};
 
 const isStaleWrite = (status: number | null, code: string | null): boolean => {
   if (status === 409) return true;

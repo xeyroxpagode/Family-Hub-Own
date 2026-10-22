@@ -34,10 +34,13 @@ import { AssetFileUploadSheet } from './AssetFileUploadSheet';
 import { ErrorBar } from './ErrorBar';
 import { useAssetFiles } from '../../hooks/assets/useAssetFiles';
 import {
+  invalidateAssetFiles,
   unlinkAssetFile,
+  type AssetFileIncludeScope,
   type AssetFileOwnerType,
   type AssetFileRelation,
 } from '../../services/assets/assetsFiles';
+import { assetFileOwnerStatus } from './AssetFileRow';
 import {
   createAssetsFileAttachIntent,
   attachExistingHomeCloudFile,
@@ -92,11 +95,16 @@ export function AssetFilesSection({
   onFilesChanged?: () => void;
 }) {
   const theme = useAppTheme();
+  // S9 — the Asset owner reads the AGGREGATED read model (the direct Files
+  // plus the Files owned by its Records and its Care). The Record and the
+  // Care owners have no children: they always read the direct list.
+  const includeScope: AssetFileIncludeScope = ownerType === 'asset' ? 'all' : 'direct';
   const { files, loading, error, reload } = useAssetFiles(
     accessToken,
     householdId,
     ownerType,
     ownerId,
+    includeScope,
   );
 
   const [menuVisible, setMenuVisible] = useState(false);
@@ -107,6 +115,21 @@ export function AssetFilesSection({
   const [unlinkError, setUnlinkError] = useState<string | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // S9 — the aggregated view is a SECONDARY control: the direct Files stay
+  // primary and the section is not overwhelmed.
+  const [showAllFiles, setShowAllFiles] = useState(false);
+
+  // S9 — the direct Files and the Files owned by the Records/Care of THIS
+  // Asset. The ownership never changes: a Record file stays a Record file.
+  const directFiles = useMemo(
+    () => files.filter((relation) => relation.owner_type === 'asset'),
+    [files],
+  );
+  const relatedFiles = useMemo(
+    () => files.filter((relation) => relation.owner_type !== 'asset'),
+    [files],
+  );
+  const visibleFiles = showAllFiles ? files : directFiles;
 
   // The owner lifecycle gate (frozen):
   //   ACTIVE / INACTIVE -> attach and unlink are allowed.
@@ -143,6 +166,20 @@ export function AssetFilesSection({
   const handleOpenFile = useCallback(
     (relation: AssetFileRelation) => onOpenFile?.(relation),
     [onOpenFile],
+  );
+
+  /**
+   * S9 — the unlink gate of ONE relation.
+   *
+   * The Asset owner follows the section gate. A Record/Care owner that was
+   * REMOVED freezes its writes: its Files can be seen but NOT detached.
+   */
+  const relationAllowsUnlink = useCallback(
+    (relation: AssetFileRelation): boolean => {
+      if (relation.owner_type === 'asset') return true;
+      return assetFileOwnerStatus(relation) !== 'REMOVED';
+    },
+    [],
   );
 
   // The Asset `+` menu can open THIS menu (one menu, never two).
@@ -185,12 +222,16 @@ export function AssetFilesSection({
     setUnlinkError(null);
     const intent = createAssetsFileAttachIntent();
     try {
+      // S9 — the unlink acts on the REAL owner relation of the row: a Record
+      // file is detached from its Record, a Care file from its Care. It is
+      // NEVER detached from the Asset.
+      const target = unlinkTarget;
       const response = await unlinkAssetFile(
         accessToken,
         {
-          owner_type: ownerType,
-          owner_id: ownerId,
-          file_id: unlinkTarget.file_id,
+          owner_type: target.owner_type,
+          owner_id: target.owner_id,
+          file_id: target.file_id,
         },
         { intent: { mutationId: intent.mutationId, idempotencyKey: intent.idempotencyKey } },
       );
@@ -199,6 +240,11 @@ export function AssetFilesSection({
       if (response.already_removed) {
         // A repeated unlink is idempotent, never an error.
         setToast('El archivo ya estaba quitado.');
+      }
+      // The detached owner and the Asset aggregated list are both stale.
+      invalidateAssetFiles({ householdId }, target.owner_type, target.owner_id);
+      if (ownerType === 'asset' && target.owner_type !== 'asset') {
+        invalidateAssetFiles({ householdId }, 'asset', ownerId);
       }
       refresh();
     } catch (caught) {
@@ -288,23 +334,50 @@ export function AssetFilesSection({
           Todavía no hay archivos agregados.
         </AppText>
       ) : (
-        <View style={styles.list}>
-          {files.map((relation) => (
-            <AssetFileRow
-              key={relation.relation_id}
-              relation={relation}
-              canUnlink={!unlinkBlocked && canContribute}
-              onPress={
-                relation.state === 'available' && onOpenFile
-                  ? () => handleOpenFile(relation)
-                  : undefined
-              }
-              onUnlink={
-                !unlinkBlocked && canContribute ? () => setUnlinkTarget(relation) : undefined
+        <>
+          {/* S9 — the secondary control: it appears ONLY when the Records or
+              the Care of this Asset own files. The direct Files stay
+              primary. */}
+          {relatedFiles.length > 0 ? (
+            <AppButton
+              variant="ghost"
+              size="sm"
+              title={showAllFiles ? 'Ver sólo los archivos del activo' : `Todos los archivos (${files.length})`}
+              onPress={() => setShowAllFiles((current) => !current)}
+              accessibilityLabel={
+                showAllFiles
+                  ? 'Ver sólo los archivos del activo'
+                  : `Ver todos los archivos del activo (${files.length})`
               }
             />
-          ))}
-        </View>
+          ) : null}
+          <View style={styles.list}>
+            {visibleFiles.map((relation) => (
+              <AssetFileRow
+                key={relation.relation_id}
+                relation={relation}
+                showOwner={showAllFiles}
+                canUnlink={!unlinkBlocked && canContribute && relationAllowsUnlink(relation)}
+                onPress={
+                  relation.state === 'available' && onOpenFile
+                    ? () => handleOpenFile(relation)
+                    : undefined
+                }
+                onUnlink={
+                  !unlinkBlocked && canContribute && relationAllowsUnlink(relation)
+                    ? () => setUnlinkTarget(relation)
+                    : undefined
+                }
+              />
+            ))}
+          </View>
+          {showAllFiles ? (
+            <AppText variant="caption" tone="tertiary">
+              Los archivos de registros y cuidados siguen siendo de esos: quitarlos acá los saca de
+              su dueño real.
+            </AppText>
+          ) : null}
+        </>
       )}
 
       <AssetActionMenu
@@ -334,7 +407,7 @@ export function AssetFilesSection({
 
       <AssetFileUnlinkSheet
         visible={unlinkTarget !== null}
-        ownerType={ownerType}
+        ownerType={unlinkTarget?.owner_type ?? ownerType}
         pending={unlinkPending}
         onCancel={() => {
           setUnlinkTarget(null);

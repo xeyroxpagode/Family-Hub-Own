@@ -146,6 +146,32 @@ export const getAssetById = (
     readOptions(accessToken, options),
   ).then((raw) => ({ asset: normalizeAsset(raw.asset) }));
 
+/**
+ * S9 — the MINIMAL projection another domain needs to NAME an Asset.
+ *
+ * It is the Assets-owned authority for the "linked source" row of Planner:
+ * the caller uses its OWN token, so Assets decides what it may see. An
+ * unknown Asset and an Asset of another Household answer the same 404.
+ *
+ * It answers ONLY { id, name, profile }: no serial number, no Holder, no
+ * Placement, no financial data and no Files.
+ */
+export type AssetLinkLabel = {
+  id: string;
+  name: string;
+  profile: string;
+};
+
+export const getAssetLinkLabel = (
+  accessToken: string,
+  assetId: string,
+  options?: AssetsRequestOptions,
+) =>
+  requestJson<{ asset: AssetLinkLabel }>(
+    `/api/assets/${assetId}/link-label`,
+    readOptions(accessToken, options),
+  ).then((raw) => raw.asset);
+
 export const listCategories = (accessToken: string, options?: AssetsRequestOptions) =>
   requestJson<{ categories: AssetCategory[] }>(
     '/api/assets/categories',

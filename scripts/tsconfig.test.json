@@ -54,6 +54,7 @@
     "../scripts/assets_s8_o36_retry_tests.ts",
     "../scripts/assets_s8_permissions_tests.ts",
     "../scripts/assets_s8_error_idempotency_tests.ts",
+    "../scripts/assets_s9_contract_tests.ts",
     "../front/mi-front-limpio/services/core/*.ts",
     "../front/mi-front-limpio/services/planner/*.ts",
     "../front/mi-front-limpio/services/planner/reliability/*.ts",

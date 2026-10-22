@@ -27,6 +27,15 @@ export type PlannerEvent = {
   cancelled_by_member_id?: string | null;
   cancelled_reason?: string | null;
   cancelled_from_status?: string | null;
+  /**
+   * S9 — the server-side origin reference (the same quartet the Task DTO
+   * already carries). It is written ONLY by the integrating domain; the
+   * public Planner API rejects it in the body.
+   */
+  origin_module?: string | null;
+  origin_entity_type?: string | null;
+  origin_entity_id?: string | null;
+  origin_reason?: string | null;
 };
 
 export type CreatePlannerEventPayload = {

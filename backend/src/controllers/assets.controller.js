@@ -33,6 +33,8 @@ module.exports = {
   createAsset: (req, res) => dispatch(req, res, () => assetsService.createAsset(req, req.body ?? {}), 201),
   listAssets: (req, res) => dispatch(req, res, () => assetsService.listAssets(req, req.query ?? {})),
   getAssetById: (req, res) => dispatch(req, res, () => assetsService.getAssetById(req, req.params?.assetId)),
+  getAssetLinkLabel: (req, res) =>
+    dispatch(req, res, () => assetsService.getAssetLinkLabel(req, req.params?.assetId)),
   updateAssetName: (req, res) =>
     dispatch(req, res, () => assetsService.updateAssetName(req, req.params?.assetId, req.body ?? {})),
   updateAssetIdentity: (req, res) =>
@@ -139,7 +141,8 @@ module.exports = {
     }
   },
   listAssetFiles: (req, res) =>
-    dispatch(req, res, () => assetsFilesService.listOwnerFiles(req, 'asset', req.params?.assetId)),
+    dispatch(req, res, () =>
+      assetsFilesService.listAssetFilesForAsset(req, req.params?.assetId, req.query?.include)),
   listAssetRecordFiles: (req, res) =>
     dispatch(req, res, () => assetsFilesService.listOwnerFiles(req, 'record', req.params?.recordId)),
   listAssetCareFiles: (req, res) =>

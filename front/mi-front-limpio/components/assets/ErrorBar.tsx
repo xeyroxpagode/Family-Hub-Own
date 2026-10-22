@@ -174,24 +174,32 @@ export function ErrorBar({
  *   (el caller conserva el intent).
  * - forbidden / definitive (400, 403, 409 dependencia): mensaje humano, sin
  *   retry automático.
+ *
+ * `action` (S9) permite que la pantalla ofrezca su propia acción tipada
+ * sobre el MISMO ErrorBar (por ejemplo "Revisar" los dependientes de un
+ * bloqueo 409). No hay un segundo sistema de errores: la acción se decide en
+ * un único punto y se renderiza con el mismo primitive.
  */
 export function AssetsFailureBar({
   failure,
   onRetry,
   onReconcile,
+  action,
   style,
   testID,
 }: {
   failure: AssetsFailure | null;
   onRetry?: () => void;
   onReconcile?: () => void;
+  /** Acción propia de la pantalla (tiene prioridad sobre la derivada). */
+  action?: ErrorBarAction;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }) {
   if (!failure) return null;
   const kind: ErrorBarKind =
     failure.kind === 'stale_write' ? 'warning' : 'error';
-  const action =
+  const derivedAction =
     failure.kind === 'stale_write' && onReconcile
       ? { label: 'Actualizar', onPress: onReconcile }
       : failure.retryAllowed &&
@@ -204,7 +212,7 @@ export function AssetsFailureBar({
       visible
       message={failure.message}
       kind={kind}
-      action={action}
+      action={action ?? derivedAction}
       style={style}
       testID={testID}
     />

@@ -36,6 +36,47 @@ export const ASSET_FILE_STATE_BADGE: Record<
 /** The frozen copy of a File that no longer exists. */
 export const ASSET_FILE_MISSING_LABEL = 'Archivo no disponible';
 
+/**
+ * S9 — the label of the OWNER of a relation, for the aggregated list.
+ *
+ * It says where the File comes from. It NEVER implies that the ownership
+ * changed: a Record file stays owned by its Record.
+ */
+export function assetFileOwnerLabel(relation: AssetFileRelation): string {
+  if (relation.owner_type === 'asset') return 'Activo';
+  if (relation.owner_type === 'record') return 'Registro';
+  return 'Historial/Cuidado';
+}
+
+/**
+ * S9 — the human label of the owner (its title or description).
+ */
+export function assetFileOwnerDetail(relation: AssetFileRelation): string | null {
+  const context = relation.owner_context;
+  if (!context) return null;
+  if (context.type === 'record') {
+    return context.record_label ?? context.record_title ?? null;
+  }
+  if (context.type === 'care') {
+    return context.care_label ?? context.care_description ?? null;
+  }
+  return null;
+}
+
+/**
+ * S9 — the owner lifecycle of the relation.
+ *
+ * A REMOVED Record or Care FREEZES its writes: its Files can be seen but
+ * NOT detached.
+ */
+export function assetFileOwnerStatus(relation: AssetFileRelation): string | null {
+  const context = relation.owner_context;
+  if (!context) return null;
+  if (context.type === 'record') return context.record_status ?? null;
+  if (context.type === 'care') return context.care_status ?? null;
+  return null;
+}
+
 /** True when the viewer may be opened for this state. */
 export function assetFileStateAllowsViewer(state: AssetFileState): boolean {
   return state === 'available';
@@ -61,6 +102,7 @@ export function AssetFileRow({
   onPress,
   onUnlink,
   canUnlink = true,
+  showOwner = false,
 }: {
   relation: AssetFileRelation;
   /** Opens the real HomeCloud viewer (only for the `available` state). */
@@ -68,6 +110,8 @@ export function AssetFileRow({
   /** Detaches the File (the relation only). */
   onUnlink?: () => void;
   canUnlink?: boolean;
+  /** S9: shows WHO owns the relation (the aggregated list). */
+  showOwner?: boolean;
 }) {
   const theme = useAppTheme();
   const { state, file } = relation;
@@ -80,6 +124,8 @@ export function AssetFileRow({
       : [file.extension ? file.extension.toUpperCase() : null, formatAssetFileSize(file.size_bytes)]
           .filter(Boolean)
           .join(' · ');
+  const ownerLabel = showOwner ? assetFileOwnerLabel(relation) : null;
+  const ownerDetail = showOwner ? assetFileOwnerDetail(relation) : null;
 
   return (
     <View
@@ -120,6 +166,12 @@ export function AssetFileRow({
           {badge ? (
             <AppText variant="caption" tone={badge.tone} weight="600">
               {badge.label}
+            </AppText>
+          ) : null}
+          {ownerLabel ? (
+            <AppText variant="caption" tone="tertiary" numberOfLines={1}>
+              {ownerLabel}
+              {ownerDetail ? ` · ${ownerDetail}` : ''}
             </AppText>
           ) : null}
         </View>

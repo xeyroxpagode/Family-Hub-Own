@@ -867,6 +867,10 @@ export function AssetDetailScreen() {
         visible={archiveSheet}
         asset={asset}
         onRequestClose={() => setArchiveSheet(false)}
+        onOpenDependent={(dependentId) => {
+          setArchiveSheet(false);
+          navigation.navigate('AssetsDetail', { assetId: dependentId });
+        }}
         onSaved={(updated) => {
           setArchiveSheet(false);
           handleAssetSaved(updated);
@@ -885,6 +889,10 @@ export function AssetDetailScreen() {
         visible={trashSheet}
         asset={asset}
         onRequestClose={() => setTrashSheet(false)}
+        onOpenDependent={(dependentId) => {
+          setTrashSheet(false);
+          navigation.navigate('AssetsDetail', { assetId: dependentId });
+        }}
         onSaved={(updated) => {
           setTrashSheet(false);
           handleAssetSaved(updated);

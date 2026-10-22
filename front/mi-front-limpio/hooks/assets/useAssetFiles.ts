@@ -20,6 +20,7 @@ import { assetsCache } from '../../services/assets/assetsCache';
 import { assetsKeys } from '../../services/assets/assetsKeys';
 import {
   listAssetFiles,
+  type AssetFileIncludeScope,
   type AssetFileOwnerType,
   type AssetFileRelation,
 } from '../../services/assets/assetsFiles';
@@ -39,6 +40,13 @@ export function useAssetFiles(
   householdId: string | null,
   ownerType: AssetFileOwnerType,
   ownerId: string | null,
+  /**
+   * S9 — the aggregation scope. 'direct' is the default (the Files attached
+   * to the owner itself); 'all' adds the Files owned by the Records and the
+   * Care of THAT Asset. It is part of the cache key, so the two read models
+   * never share an entry.
+   */
+  include: AssetFileIncludeScope = 'direct',
 ): AssetFilesState {
   const [files, setFiles] = useState<AssetFileRelation[]>([]);
   const [loading, setLoading] = useState(false);
@@ -56,11 +64,11 @@ export function useAssetFiles(
       try {
         const response = await listAssetFiles(accessToken, ownerType, ownerId, {
           contextScope: `assets-files:${householdId}`,
-        });
+        }, include);
         if (sequence !== requestSeq.current) return;
         const rows = response.files ?? [];
         setFiles(rows);
-        assetsCache.set(assetsKeys.files({ householdId }, ownerType, ownerId), rows);
+        assetsCache.set(assetsKeys.files({ householdId }, ownerType, ownerId, include), rows);
         setError(null);
         setErrorStatus(null);
       } catch (caught) {
@@ -78,7 +86,7 @@ export function useAssetFiles(
         }
       }
     },
-    [accessToken, householdId, ownerId, ownerType],
+    [accessToken, householdId, include, ownerId, ownerType],
   );
 
   useEffect(() => {
@@ -91,7 +99,7 @@ export function useAssetFiles(
       return;
     }
     const cached = assetsCache.get<AssetFileRelation[]>(
-      assetsKeys.files({ householdId }, ownerType, ownerId),
+      assetsKeys.files({ householdId }, ownerType, ownerId, include),
     );
     if (cached) {
       setFiles(cached);
@@ -101,7 +109,7 @@ export function useAssetFiles(
     }
     setFiles([]);
     void runFetch(false);
-  }, [accessToken, householdId, ownerId, ownerType, runFetch]);
+  }, [accessToken, householdId, include, ownerId, ownerType, runFetch]);
 
   // FOCUS revalidation: there is no HomeCloud -> Assets event bus, so the
   // TTL alone would keep a trashed/purged/restored File invisible for a

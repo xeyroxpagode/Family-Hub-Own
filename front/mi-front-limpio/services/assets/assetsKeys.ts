@@ -116,13 +116,18 @@ const plannerItems = (
  *
  * The owner type is part of the key because the same id space is shared by
  * the three owner kinds.
+ *
+ * S9 — the last element is the AGGREGATION scope ('direct' | 'all'): the
+ * direct list and the aggregated list of the same Asset are DIFFERENT read
+ * models and must never share a cache entry.
  */
 const files = (
   scope: AssetsHouseholdScope,
   ownerType: 'asset' | 'record' | 'care',
   ownerId: string,
+  include: 'direct' | 'all' = 'direct',
 ): readonly (string | number)[] =>
-  ['assets', 'files', scope.householdId, ownerType, ownerId];
+  ['assets', 'files', scope.householdId, ownerType, ownerId, include];
 
 export const assetsKeys = {
   root,

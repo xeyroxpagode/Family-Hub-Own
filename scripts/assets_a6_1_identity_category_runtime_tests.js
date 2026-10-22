@@ -818,6 +818,26 @@ async function run() {
         'M scripts/assets_a6_1_identity_category_runtime_tests.js',
         'M scripts/assets_a6_2_lifecycle_archive_runtime_tests.js',
         'M scripts/assets_a6_3_trash_restore_runtime_tests.js',
+        // ─ S9 (CIERRE FUNCIONAL V1) ───────────────────────────────────────────
+        // S9 NO cruza a otro dominio: cierra la funcionalidad de V1. Se
+        // registran UNICAMENTE los puntos de S9 (el picker de registros, la
+        // revision del bloqueo, la agregacion de archivos y la fila de origen
+        // de Planner) mas el script canonico del purge de HomeCloud.
+        'M backend/scripts/process-purges.js',
+        'M backend/src/services/assets.files.service.js',
+        'M front/mi-front-limpio/components/assets/AssetFileRow.tsx',
+        'M front/mi-front-limpio/components/assets/AssetFilesSection.tsx',
+        'M front/mi-front-limpio/components/assets/AssetLifecycleSheets.tsx',
+        'M front/mi-front-limpio/components/assets/ErrorBar.tsx',
+        'M front/mi-front-limpio/hooks/assets/useAssetFiles.ts',
+        'M front/mi-front-limpio/screens/planner/EventDetailScreen.tsx',
+        'M front/mi-front-limpio/screens/planner/TaskDetailScreen.tsx',
+        'M front/mi-front-limpio/services/assets/assetsFiles.ts',
+        'M front/mi-front-limpio/services/assets/client.ts',
+        'M front/mi-front-limpio/services/assets/errors.ts',
+        'M front/mi-front-limpio/services/plannerEvents.ts',
+        'M package.json',
+        'M scripts/assets_s8_file_lifecycle_tests.ts',
       ]);
       const allowedUntrackedPrefixes = [
         '?? backend/src/services/assets.service.js',
@@ -843,7 +863,9 @@ async function run() {
         '?? backend/src/controllers/homecloud.contentstates.controller.js',
         '?? backend/src/services/homecloudContentStates.service.js',
         '?? scripts/homecloud_contents_states_contract_tests.js',
-      ];
+        // ─ S9: la fila de origen de Planner (el resto ya cubre components/assets
+        // y scripts/assets_*) ─────────────────────────────────────────────────
+        '?? front/mi-front-limpio/components/planner/PlannerAssetSourceRow.tsx',      ];
       const violations = lines.filter((line) => {
         if (allowedTracked.has(line)) return false;
         if (line.startsWith('M tests/run.js')) return false;

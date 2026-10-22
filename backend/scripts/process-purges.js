@@ -4,14 +4,18 @@
 /**
  * HomeCloud Files — LIFECYCLE V1 purge worker entry point.
  *
- * One pass over the durable purge queue:
+ * One pass over the durable purge queue (the canonical command):
  *
- *   node scripts/process-purges.js
+ *   npm run purge:process
+ *
+ * The same worker, invoked directly:
+ *
+ *   node backend/scripts/process-purges.js
  *
  * Continuous mode (recovery/cron replacement; every pass is one durable
  * claim/lease batch, so the process can be killed at any instant):
  *
- *   node scripts/process-purges.js --interval=30
+ *   npm run purge:process -- --interval=30
  *
  * Companion of the canonical outbox runner (process-outbox.js). The API also
  * kicks one opportunistic batch after each confirmed purge; this script is

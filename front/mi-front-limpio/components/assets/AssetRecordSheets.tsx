@@ -20,6 +20,7 @@ import { InteractivePressable } from '../ui/InteractivePressable';
 import { colors, radius } from '../../constants/theme';
 import { AssetActionMenu, AssetFormSheet, AssetConfirmSheet } from './AssetSheet';
 import { AssetsFailureBar } from './ErrorBar';
+import { AssetsSearchField } from './AssetsSearchField';
 import { AssetFilesSection } from './AssetFilesSection';
 import { useHomeCloudCapabilities } from '../../services/homecloud/useHomeCloudCapabilities';
 import { HomeCloudFileViewer } from '../../screens/HomeCloudFileViewerScreen';
@@ -343,6 +344,12 @@ export function AssetRecordCreateSheet({
 
 // ── O10/O11 Vincular registro existente (BG-02 discovery) ──────────────────
 
+/** The picker page size (frozen: the discovery page size of the backend). */
+export const ASSET_RECORD_PICKER_PAGE_SIZE = 50;
+
+/** The debounce of the search input (frozen: same window as the file picker). */
+export const ASSET_RECORD_PICKER_SEARCH_DEBOUNCE_MS = 250;
+
 export function AssetRecordLinkSheet({
   visible,
   asset,
@@ -363,43 +370,87 @@ export function AssetRecordLinkSheet({
   const householdId = currentHousehold?.id ?? null;
 
   const [records, setRecords] = useState<AssetRecordDto[]>([]);
+  const [searchInput, setSearchInput] = useState('');
+  const [query, setQuery] = useState('');
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [failure, setFailure] = useState<AssetsFailure | null>(null);
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const retryLast = useRef<(() => void) | null>(null);
+  // The sequence guard discards the response of a request that is no longer
+  // the current one: a slow page can never overwrite a newer search.
+  const requestSeq = useRef(0);
+  const assetId = asset?.id ?? null;
+
+  // The search input is debounced into the `q` parameter. The search is
+  // SERVER side: the picker never filters a local page of 50 rows.
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setQuery(searchInput.trim()),
+      ASSET_RECORD_PICKER_SEARCH_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const load = useCallback(
-    async (refresh: boolean) => {
-      if (!accessToken || !asset) return;
-      if (!refresh && loading) return;
-      retryLast.current = () => void load(true);
-      setLoading(true);
+    async (offset: number) => {
+      if (!accessToken || !assetId) return;
+      const sequence = (requestSeq.current += 1);
+      if (offset === 0) setLoading(true);
+      else setLoadingMore(true);
       setFailure(null);
+      retryLast.current = () => void load(offset);
       try {
         const response = await listHouseholdRecords(
           accessToken,
-          { exclude_asset_id: asset.id, limit: 50 },
+          {
+            exclude_asset_id: assetId,
+            limit: ASSET_RECORD_PICKER_PAGE_SIZE,
+            offset,
+            ...(query ? { q: query } : {}),
+          },
           { contextScope: `assets-records-discovery:${householdId}` },
         );
-        setRecords(response.records ?? []);
+        if (sequence !== requestSeq.current) return;
+        const rows = response.records ?? [];
+        setRecords((current) => (offset === 0 ? rows : [...current, ...rows]));
+        setNextOffset(response.nextOffset ?? null);
       } catch (caught) {
+        if (sequence !== requestSeq.current) return;
         setFailure(toAssetsFailure(caught));
       } finally {
-        setLoading(false);
+        if (sequence === requestSeq.current) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
       }
     },
-    [accessToken, asset, householdId, loading],
+    [accessToken, assetId, householdId, query],
   );
 
+  // The sheet is reset when it CLOSES: the next opening always starts from a
+  // clean search, and the state is already clean when the open read runs (so
+  // the first read of the new opening never carries the previous query).
   useEffect(() => {
-    if (visible) {
-      setRecords([]);
-      setLinkingId(null);
-      setFailure(null);
-      void load(true);
-    }
-    // load cambia por closure; visible es el disparador real.
-  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (visible) return;
+    requestSeq.current += 1;
+    setRecords((current) => (current.length === 0 ? current : []));
+    setSearchInput('');
+    setQuery('');
+    setNextOffset(null);
+    setLinkingId(null);
+    setFailure(null);
+    setLoading(false);
+    setLoadingMore(false);
+  }, [visible]);
+
+  // The list is read again whenever the query changes: a new search starts
+  // from the FIRST page (the offset resets with the query).
+  useEffect(() => {
+    if (!visible) return;
+    void load(0);
+  }, [visible, query, load]);
 
   if (!asset) return null;
 
@@ -419,6 +470,8 @@ export function AssetRecordLinkSheet({
     }
   };
 
+  const searching = query !== '';
+
   return (
     <AssetFormSheet
       visible={visible}
@@ -430,6 +483,11 @@ export function AssetRecordLinkSheet({
         <AssetsFailureBar failure={failure} onRetry={() => retryLast.current?.()} />
       }
     >
+      <AssetsSearchField
+        value={searchInput}
+        onChangeText={setSearchInput}
+        placeholder="Buscar por nombre, emisor o identificador"
+      />
       {loading && records.length === 0 ? (
         <AppText variant="bodySmall" tone="tertiary">
           Buscando registros del hogar…
@@ -440,7 +498,9 @@ export function AssetRecordLinkSheet({
         </AppText>
       ) : records.length === 0 ? (
         <AppText variant="bodySmall" tone="secondary" style={styles.helper}>
-          No hay otros registros para vincular. Podés crear uno nuevo con “Guardar información”.
+          {searching
+            ? 'No encontramos registros con esa búsqueda.'
+            : 'No hay otros registros para vincular. Podés crear uno nuevo con “Guardar información”.'}
         </AppText>
       ) : (
         <View style={styles.optionList}>
@@ -472,6 +532,20 @@ export function AssetRecordLinkSheet({
           ))}
         </View>
       )}
+      {nextOffset !== null && !loadingMore ? (
+        <AppButton
+          variant="secondary"
+          size="sm"
+          title="Cargar más registros"
+          onPress={() => void load(nextOffset)}
+          accessibilityLabel="Cargar más registros del hogar"
+        />
+      ) : null}
+      {loadingMore ? (
+        <AppText variant="caption" tone="tertiary">
+          Cargando más registros…
+        </AppText>
+      ) : null}
     </AssetFormSheet>
   );
 }

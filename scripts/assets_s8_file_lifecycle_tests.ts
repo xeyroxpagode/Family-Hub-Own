@@ -122,7 +122,19 @@ runTest('Un File restaurado vuelve a available sin relink', () => {
 
 runTest('El unlink está disponible salvo que el dueño esté en la papelera', () => {
   assert.match(section, /const unlinkBlocked = ownerLifecycle === 'TRASH' \|\| ownerLifecycle === 'REMOVED';/, 'la papelera bloquea el unlink');
-  assert.match(section, /canUnlink=\{!unlinkBlocked && canContribute\}/, 'el resto de estados permite quitar');
+  // S9: el unlink agregado opera sobre la RELACION REAL, asi que el gate
+  // depende tambien del dueño de cada fila (un Record/Care REMOVED congela
+  // sus escrituras).
+  assert.match(
+    section,
+    /canUnlink=\{!unlinkBlocked && canContribute && relationAllowsUnlink\(relation\)\}/,
+    'el unlink respeta el gate del dueño de la fila',
+  );
+  assert.match(
+    section,
+    /const relationAllowsUnlink = useCallback\(/,
+    'el gate por fila existe',
+  );
 });
 
 console.log(`\n=== SUMMARY ===`);

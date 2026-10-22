@@ -1471,6 +1471,49 @@ async function getAssetById(req, assetId) {
 }
 
 /**
+ * GET /api/assets/:assetId/link-label — the MINIMAL Assets-owned projection
+ * another domain (Planner) needs to NAME this Asset.
+ *
+ * It exists because Planner shows the source of an item it did not create
+ * (origin_module='assets'), and a cross-domain resolver framework does not
+ * exist. Assets stays the FINAL AUTHORITY: this endpoint requires the
+ * caller's own `assets.view` capability, so Planner item visibility NEVER
+ * implies Asset visibility.
+ *
+ * It answers ONLY { id, name, profile }: no serial number, no Holder, no
+ * Placement, no financial data and no Files. Any lifecycle state is
+ * addressable (same rule as GET /api/assets/:assetId): an unknown id and an
+ * id of another Household answer the SAME 404 (no disclosure).
+ */
+async function getAssetLinkLabel(req, assetId) {
+  const context = await contextWithCapability(req, 'assets.view');
+  const id = assertValidAssetId(assetId);
+
+  const { data, error } = await supabaseAdmin
+    .from('assets')
+    .select('id, name, profile')
+    .eq('id', id)
+    .eq('household_id', context.householdId)
+    .maybeSingle();
+
+  if (error) {
+    throw createHttpError(500, 'No se pudo leer el activo.', 'assets_not_found');
+  }
+  if (!data) {
+    // Unknown id and cross-Household id answer the SAME 404.
+    throw createHttpError(404, 'Activo no encontrado.', 'assets_not_found');
+  }
+
+  return {
+    asset: {
+      id: data.id,
+      name: data.name,
+      profile: data.profile,
+    },
+  };
+}
+
+/**
  * PATCH /api/assets/:assetId — edit ONLY the Name.
  *
  * Concurrency: the caller must state the updated_at it observed (If-Match or
@@ -2741,7 +2784,10 @@ async function changeAssetProfile(req, assetId, body = {}) {
         409,
         'La Property tiene Assets ubicados: reconciliá sus Placement explícitamente antes de cambiar el Profile.',
         'assets_profile_change_dependents',
-        { dependents: outcome.dependents },
+        projectDependentDetails(outcome.dependents, {
+          dependentCount: outcome.dependent_count,
+          resolutionHint: 'reconcile_placement_then_retry',
+        }),
       );
     }
     if (outcome.status !== 'changed') {
@@ -3025,11 +3071,10 @@ async function archiveAsset(req, assetId, body = {}) {
           409,
           'La Property tiene Assets con Placement operacional: reconciliá sus ubicaciones explícitamente antes de archivar.',
           'assets_archive_blocked_dependents',
-          {
-            dependents: outcome.dependents ?? [],
-            dependent_count: outcome.dependent_count ?? 0,
-            resolution_hint: outcome.resolution_hint ?? 'reconcile_placement_then_retry',
-          },
+          projectDependentDetails(outcome.dependents, {
+            dependentCount: outcome.dependent_count,
+            resolutionHint: outcome.resolution_hint,
+          }),
         );
       }
       if (outcome.status !== 'archived') {
@@ -3304,11 +3349,10 @@ async function trashAsset(req, assetId, body = {}) {
           409,
           'La Property tiene Assets con Placement operacional: reconciliá sus ubicaciones explícitamente antes de enviarla a la papelera.',
           'assets_trash_blocked_dependents',
-          {
-            dependents: outcome.dependents ?? [],
-            dependent_count: outcome.dependent_count ?? 0,
-            resolution_hint: outcome.resolution_hint ?? 'reconcile_placement_then_retry',
-          },
+          projectDependentDetails(outcome.dependents, {
+            dependentCount: outcome.dependent_count,
+            resolutionHint: outcome.resolution_hint,
+          }),
         );
       }
       if (outcome.status !== 'trashed') {
@@ -5244,6 +5288,32 @@ async function loadCareDtos(context, careIds, options = {}) {
   return dtos;
 }
 
+/**
+ * Project the operational dependents of a Property for the REVIEW surface.
+ *
+ * The blocker (O33) is a PROPERTY with operational dependents: other Assets
+ * of the SAME Household whose Placement points at it. The RPC returns
+ * { id, name, lifecycle_status }; the SERVICE adds the explicit type so the
+ * review surface never has to guess what kind of entity it is listing.
+ *
+ * The blocker SEMANTICS are untouched: this is a read projection of the same
+ * rows the RPC already reported. No cascade, no reassignment, no mutation.
+ */
+function projectDependentDetails(dependents, { dependentCount, resolutionHint } = {}) {
+  const rows = Array.isArray(dependents) ? dependents : [];
+  return {
+    dependents: rows.map((row) => ({
+      id: row?.id ?? null,
+      name: row?.name ?? null,
+      lifecycle_status: row?.lifecycle_status ?? null,
+      dependent_type: 'asset',
+    })),
+    dependent_count:
+      dependentCount === undefined || dependentCount === null ? rows.length : dependentCount,
+    resolution_hint: resolutionHint ?? 'reconcile_placement_then_retry',
+  };
+}
+
 // ── A5.1 operations ──────────────────────────────────────────────────────────
 
 /**
@@ -5881,6 +5951,7 @@ module.exports = {
   createAsset,
   listAssets,
   getAssetById,
+  getAssetLinkLabel,
   updateAssetName,
   updateAssetIdentity,
   setAssetCategory,
@@ -5931,4 +6002,8 @@ module.exports = {
   reserveAssetsIdempotency,
   completeAssetsIdempotency,
   hashAssetsRequest,
+  // S9: la agregacion de archivos (include=all) reutiliza las proyecciones
+  // canonicas de Record y Care. No hay una segunda forma de proyectarlos.
+  loadRecordDtos,
+  loadCareDtos,
 };

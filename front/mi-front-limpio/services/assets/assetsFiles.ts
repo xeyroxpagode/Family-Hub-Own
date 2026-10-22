@@ -26,6 +26,42 @@ import type { AssetsRequestOptions, MutationCallOptions } from './client';
 export type AssetFileOwnerType = 'asset' | 'record' | 'care';
 
 /**
+ * The aggregation scopes of the read model (S9).
+ *
+ *   direct -> ONLY the Files attached to the owner itself (the default).
+ *   all    -> the union of the direct Files and the Files owned by the
+ *             Records and the Care of THAT Asset.
+ */
+export type AssetFileIncludeScope = 'direct' | 'all';
+
+/**
+ * WHO owns the relation (S9).
+ *
+ * It is a READ projection: it never changes the ownership and it is never
+ * persisted. It exists so the aggregated list can say where a File comes
+ * from without implying that the ownership moved.
+ */
+export type AssetFileOwnerContext =
+  | { type: 'asset'; asset_id?: string | null }
+  | {
+      type: 'record';
+      record_id: string;
+      record_type?: string | null;
+      record_title?: string | null;
+      record_label?: string | null;
+      record_issuer?: string | null;
+      record_status?: string | null;
+    }
+  | {
+      type: 'care';
+      care_id: string;
+      care_description?: string | null;
+      care_label?: string | null;
+      care_date_label?: string | null;
+      care_status?: string | null;
+    };
+
+/**
  * The authoritative Assets file state set.
  *
  * `purging` is NOT collapsed into `trashed`: the frozen API plan and the
@@ -51,6 +87,8 @@ export type AssetFileRelation = {
   file_id: string;
   state: AssetFileState;
   file: AssetFileProjection | null;
+  /** S9: who owns the relation (read projection, never persisted). */
+  owner_context?: AssetFileOwnerContext | null;
 };
 
 export type AssetFilesResponse = {
@@ -93,14 +131,25 @@ const readOptions = (accessToken: string, options?: AssetsRequestOptions) => ({
  * The read model projects the LIVE HomeCloud metadata, so a rename or a
  * lifecycle change in HomeCloud is visible here without touching the Assets
  * relation rows.
+ *
+ * `include` (S9) is ONLY meaningful for the Asset owner:
+ *   - 'direct' (default) -> the Files attached to the Asset itself.
+ *   - 'all'               -> the union of those and the Files owned by the
+ *                            Records and the Care of THAT Asset.
+ * The Record and the Care owners are always direct: they have no children.
  */
 export const listAssetFiles = (
   accessToken: string,
   ownerType: AssetFileOwnerType,
   ownerId: string,
   options?: AssetsRequestOptions,
-): Promise<AssetFilesResponse> =>
-  requestJson<AssetFilesResponse>(OWNER_PATHS[ownerType](ownerId), readOptions(accessToken, options));
+  include: AssetFileIncludeScope = 'direct',
+): Promise<AssetFilesResponse> => {
+  const path = OWNER_PATHS[ownerType](ownerId);
+  const query =
+    ownerType === 'asset' && include === 'all' ? `?include=${include}` : '';
+  return requestJson<AssetFilesResponse>(`${path}${query}`, readOptions(accessToken, options));
+};
 
 /**
  * Attach an existing HomeCloud File to an owner.

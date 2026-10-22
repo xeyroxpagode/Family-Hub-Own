@@ -5,6 +5,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useHousehold } from '../../context/HouseholdContext';
 import {
   createAssetsIntent,
+  getAssetDependentBlocker,
+  isAssetDependentBlocker,
   mutations,
   type AssetArchiveDisposition,
   type AssetDto,
@@ -16,6 +18,7 @@ import { AppInput } from '../ui/AppInput';
 import { AppText } from '../ui/AppText';
 import { colors, radius } from '../../constants/theme';
 import { AssetFormSheet } from './AssetSheet';
+import { AssetDependentsSheet } from './AssetDependentsSheet';
 import { InteractivePressable } from '../ui/InteractivePressable';
 import { AssetsFailureBar } from './ErrorBar';
 import { LIFECYCLE_LABEL } from './assetLabels';
@@ -117,11 +120,14 @@ export function AssetArchiveSheet({
   asset,
   onRequestClose,
   onSaved,
+  onOpenDependent,
 }: {
   visible: boolean;
   asset: AssetDto | null;
   onRequestClose: () => void;
   onSaved: (asset: AssetDto) => void;
+  /** S9: abre el activo dependiente que bloquea la operación. */
+  onOpenDependent?: (assetId: string) => void;
 }) {
   const { session } = useAuth();
   const { currentHousehold } = useHousehold();
@@ -134,6 +140,8 @@ export function AssetArchiveSheet({
   const [failure, setFailure] = useState<AssetsFailure | null>(null);
   const [attempted, setAttempted] = useState(false);
   const [intent, setIntent] = useState<AssetsMutationIntent | undefined>(undefined);
+  // S9 — the REVIEW surface of the blocker (O33).
+  const [reviewVisible, setReviewVisible] = useState(false);
 
   React.useEffect(() => {
     if (visible) {
@@ -143,6 +151,7 @@ export function AssetArchiveSheet({
       setFailure(null);
       setAttempted(false);
       setIntent(undefined);
+      setReviewVisible(false);
     }
   }, [visible]);
 
@@ -155,8 +164,17 @@ export function AssetArchiveSheet({
     setAttempted(true);
     setPending(true);
     setFailure(null);
-    const activeIntent = intent ?? createAssetsIntent('asset.archive');
-    if (!intent) setIntent(activeIntent);
+    // S9 — un bloqueo por dependientes es un 409 DETERMINISTA que se resuelve
+    // cambiando el mundo (reconciliando la ubicación de cada dependiente).
+    // El reintento es entonces una decisión NUEVA y necesita un intent NUEVO:
+    // reutilizar la clave reproduciría el 409 guardado y el bloqueo nunca
+    // se resolvería. Para el resto de los fallos el intent se conserva
+    // (misma Idempotency-Key, nunca last-write-wins).
+    const blockerRetry = isAssetDependentBlocker(failure);
+    const activeIntent = blockerRetry
+      ? createAssetsIntent('asset.archive')
+      : intent ?? createAssetsIntent('asset.archive');
+    if (!intent || blockerRetry) setIntent(activeIntent);
     const outcome = await mutations.archive(
       accessToken,
       householdId,
@@ -181,6 +199,8 @@ export function AssetArchiveSheet({
       ? 'Contanos brevemente por qué lo archivás.'
       : null;
 
+  const blocker = getAssetDependentBlocker(failure);
+
   return (
     <AssetFormSheet
       visible={visible}
@@ -190,7 +210,14 @@ export function AssetArchiveSheet({
       closeDisabled={pending}
       footer={
         <View style={styles.footer}>
-          <AssetsFailureBar failure={failure} onRetry={() => void submit()} />
+          <AssetsFailureBar
+            failure={failure}
+            action={
+              blocker
+                ? { label: 'Revisar', onPress: () => setReviewVisible(true) }
+                : undefined
+            }
+          />
           <AppButton
             title={pending ? 'Archivando…' : 'Archivar'}
             onPress={() => void submit()}
@@ -232,6 +259,16 @@ export function AssetArchiveSheet({
           accessibilityLabel="Motivo del archivado"
         />
       ) : null}
+      <AssetDependentsSheet
+        visible={reviewVisible}
+        dependents={blocker?.dependents ?? []}
+        dependentCount={blocker?.dependent_count ?? null}
+        onRequestClose={() => setReviewVisible(false)}
+        onOpenDependent={(assetId) => {
+          setReviewVisible(false);
+          onOpenDependent?.(assetId);
+        }}
+      />
     </AssetFormSheet>
   );
 }
@@ -243,11 +280,14 @@ export function AssetTrashSheet({
   asset,
   onRequestClose,
   onSaved,
+  onOpenDependent,
 }: {
   visible: boolean;
   asset: AssetDto | null;
   onRequestClose: () => void;
   onSaved: (asset: AssetDto) => void;
+  /** S9: abre el activo dependiente que bloquea la operación. */
+  onOpenDependent?: (assetId: string) => void;
 }) {
   const { session } = useAuth();
   const { currentHousehold } = useHousehold();
@@ -256,12 +296,15 @@ export function AssetTrashSheet({
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<AssetsFailure | null>(null);
   const [intent, setIntent] = useState<AssetsMutationIntent | undefined>(undefined);
+  // S9 — the REVIEW surface of the blocker (O33).
+  const [reviewVisible, setReviewVisible] = useState(false);
 
   React.useEffect(() => {
     if (visible) {
       setPending(false);
       setFailure(null);
       setIntent(undefined);
+      setReviewVisible(false);
     }
   }, [visible]);
 
@@ -269,8 +312,13 @@ export function AssetTrashSheet({
     if (!accessToken || !householdId || !asset || pending) return;
     setPending(true);
     setFailure(null);
-    const activeIntent = intent ?? createAssetsIntent('asset.trash');
-    if (!intent) setIntent(activeIntent);
+    // S9 — ver AssetArchiveSheet: un bloqueo por dependientes se resuelve
+    // cambiando el mundo, así que el reintento es un intent NUEVO.
+    const blockerRetry = isAssetDependentBlocker(failure);
+    const activeIntent = blockerRetry
+      ? createAssetsIntent('asset.trash')
+      : intent ?? createAssetsIntent('asset.trash');
+    if (!intent || blockerRetry) setIntent(activeIntent);
     const outcome = await mutations.trash(accessToken, householdId, asset.id, {
       expected_lifecycle_status:
         asset.lifecycle_status === 'ARCHIVED' || asset.lifecycle_status === 'INACTIVE'
@@ -287,6 +335,8 @@ export function AssetTrashSheet({
     }
   };
 
+  const blocker = getAssetDependentBlocker(failure);
+
   return (
     <AssetFormSheet
       visible={visible}
@@ -296,7 +346,14 @@ export function AssetTrashSheet({
       closeDisabled={pending}
       footer={
         <View style={styles.footer}>
-          <AssetsFailureBar failure={failure} onRetry={() => void submit()} />
+          <AssetsFailureBar
+            failure={failure}
+            action={
+              blocker
+                ? { label: 'Revisar', onPress: () => setReviewVisible(true) }
+                : undefined
+            }
+          />
           <View style={styles.confirmRow}>
             <AppButton
               variant="secondary"
@@ -321,6 +378,16 @@ export function AssetTrashSheet({
         Se va a la papelera sin borrarse nada. Va a dejar de aparecer en tus activos hasta que lo
         restaures. Estado actual: {asset ? LIFECYCLE_LABEL[asset.lifecycle_status] : ''}.
       </AppText>
+      <AssetDependentsSheet
+        visible={reviewVisible}
+        dependents={blocker?.dependents ?? []}
+        dependentCount={blocker?.dependent_count ?? null}
+        onRequestClose={() => setReviewVisible(false)}
+        onOpenDependent={(assetId) => {
+          setReviewVisible(false);
+          onOpenDependent?.(assetId);
+        }}
+      />
     </AssetFormSheet>
   );
 }

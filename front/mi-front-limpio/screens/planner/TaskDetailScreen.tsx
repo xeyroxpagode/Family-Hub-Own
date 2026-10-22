@@ -41,6 +41,7 @@ import { createIdempotencyKey } from '../../services/idempotency';
 import { getTaskEvidenceHistory } from '../../services/plannerTasks';
 import { getEvidenceMediaAccess, getEvidenceSubmissions, reviewEvidenceVersion, type EvidenceSubmission } from '../../services/plannerEvidenceV2';
 import { PlannerEvidenceViewer } from '../../components/planner/PlannerEvidenceViewer';
+import { PlannerAssetSourceRow } from '../../components/planner/PlannerAssetSourceRow';
 import { taskToPresetPayload } from '../../services/planner/plannerPresetTaskDomain';
 import { listPlansV1 } from '../../services/plannerPlansV1Frontend';
 import { getResponsibility } from '../../services/plannerResponsibilities';
@@ -1455,6 +1456,24 @@ export function TaskDetailScreen() {
                   <AppText variant="caption" weight="700" style={styles.metaValue}>{responsibilityTitle ?? 'Responsabilidad'} ›</AppText>
                 </TouchableOpacity>
               )}
+              {/* S9 — el origen Assets de la tarea (la fila sólo aparece si
+                  la tarea nació de un activo). */}
+              {!editingInline ? (
+                <PlannerAssetSourceRow
+                  accessToken={accessToken}
+                  origin={{
+                    origin_module: task.origin_module,
+                    origin_entity_type: task.origin_entity_type,
+                    origin_entity_id: task.origin_entity_id,
+                  }}
+                  onOpenAsset={(assetId) => {
+                    navigation.navigate('HomeTabs', {
+                      screen: 'MoreTab',
+                      params: { screen: 'AssetsDetail', params: { assetId } },
+                    });
+                  }}
+                />
+              ) : null}
             </View>
 
             {editingInline && editDraft ? <AppInput label="Nota" value={editDraft.description} onChangeText={(description) => setEditDraft((current) => current && ({ ...current, description }))} variant="multiline" /> : task.description ? <AppText variant="body" tone="secondary" style={styles.description}>{task.description}</AppText> : null}

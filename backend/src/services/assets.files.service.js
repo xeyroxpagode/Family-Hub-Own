@@ -53,6 +53,8 @@ const {
   reserveAssetsIdempotency,
   completeAssetsIdempotency,
   hashAssetsRequest,
+  loadRecordDtos,
+  loadCareDtos,
 } = require('./assets.service');
 const {
   resolveHomeCloudCapabilities,
@@ -194,8 +196,12 @@ function mapFileProjection(contentState) {
 
 /**
  * Project one relation row into the canonical Assets file DTO.
+ *
+ * `ownerContext` is a READ projection: it says WHO owns the relation so the
+ * aggregated view can label it. It is NEVER persisted and it NEVER changes
+ * the ownership of the relation.
  */
-function mapRelationRowToDto(row, ownerType, ownerId, contentState) {
+function mapRelationRowToDto(row, ownerType, ownerId, contentState, ownerContext = null) {
   const state = mapHomeCloudStateToAssetState(contentState);
   return {
     relation_id: row.id,
@@ -204,7 +210,77 @@ function mapRelationRowToDto(row, ownerType, ownerId, contentState) {
     file_id: row.file_id,
     state,
     file: mapFileProjection(contentState),
+    owner_context: ownerContext ?? defaultOwnerContext(ownerType, ownerId),
   };
+}
+
+/**
+ * The owner context of a DIRECT Asset relation.
+ */
+function defaultOwnerContext(ownerType, ownerId) {
+  if (ownerType === 'asset') return { type: 'asset', asset_id: ownerId };
+  if (ownerType === 'record') return { type: 'record', record_id: ownerId };
+  return { type: 'care', care_id: ownerId };
+}
+
+/**
+ * The owner context of a Record relation (canonical Record projection).
+ *
+ * The Record MUST belong to the Asset: the caller never supplies an owner id
+ * here — the ids are derived from the Asset's own links.
+ */
+function recordOwnerContext(dto) {
+  if (!dto) return null;
+  return {
+    type: 'record',
+    record_id: dto.id,
+    record_type: dto.type ?? null,
+    record_title: dto.title ?? null,
+    record_label: dto.title ?? null,
+    record_issuer: dto.issuer ?? null,
+    record_status: dto.status ?? null,
+  };
+}
+
+/**
+ * The owner context of a Care relation (canonical Care projection).
+ */
+function careOwnerContext(dto) {
+  if (!dto) return null;
+  return {
+    type: 'care',
+    care_id: dto.id,
+    care_description: dto.description ?? null,
+    care_label: truncateLabel(dto.description ?? null),
+    care_date_label: careDateLabel(dto),
+    care_status: dto.status ?? null,
+  };
+}
+
+const MAX_LABEL_LENGTH = 120;
+
+function truncateLabel(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (trimmed === '') return null;
+  return trimmed.length > MAX_LABEL_LENGTH
+    ? `${trimmed.slice(0, MAX_LABEL_LENGTH - 1)}…`
+    : trimmed;
+}
+
+/**
+ * The human date label of a Care, built ONLY from the canonical projection.
+ */
+function careDateLabel(dto) {
+  const precision = dto?.date_precision;
+  if (precision === 'exact' && dto.occurred_on) return String(dto.occurred_on);
+  if (precision === 'month_year' && dto.occurred_year) {
+    return dto.occurred_month
+      ? `${String(dto.occurred_month).padStart(2, '0')}/${dto.occurred_year}`
+      : String(dto.occurred_year);
+  }
+  if (precision === 'year' && dto.occurred_year) return String(dto.occurred_year);
+  return null;
 }
 
 // ── Owner resolution ──────────────────────────────────────────────────────────
@@ -650,6 +726,177 @@ async function listOwnerFiles(req, ownerType, ownerId) {
   return { files };
 }
 
+// ── Aggregation (S9) ──────────────────────────────────────────────────────────
+
+/**
+ * The aggregation scopes of the Asset file read model.
+ *
+ *   direct -> ONLY the Files attached to the Asset itself (the default, and
+ *             the exact behaviour frozen by S8).
+ *   all    -> the UNION of the direct Files and the Files owned by the
+ *             Records and the Care of THAT Asset.
+ */
+const FILE_INCLUDE_SCOPES = Object.freeze(['direct', 'all']);
+
+/**
+ * Normalize the `include` query parameter.
+ *
+ * An unknown scope is a typed 400: a silent fallback would answer a DIFFERENT
+ * question than the caller asked.
+ */
+function normalizeFileInclude(value) {
+  if (value === undefined || value === null || value === '') return 'direct';
+  if (typeof value !== 'string' || !FILE_INCLUDE_SCOPES.includes(value)) {
+    throw createHttpError(
+      400,
+      `include inválido. Debe ser uno de: ${FILE_INCLUDE_SCOPES.join(', ')}.`,
+      'assets_invalid_file_include',
+      { allowed_include: FILE_INCLUDE_SCOPES },
+    );
+  }
+  return value;
+}
+
+/**
+ * Read the active relation rows of one table for a set of owners.
+ */
+async function readOwnerRelations(relationTable, ownerColumn, ownerIds, householdId) {
+  if (!ownerIds || ownerIds.length === 0) return [];
+  const { data, error } = await supabaseAdmin
+    .from(relationTable)
+    .select(`id, file_id, household_id, created_at, removed_at, ${ownerColumn}`)
+    .in(ownerColumn, ownerIds)
+    .eq('household_id', householdId)
+    .is('removed_at', null)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    throw createHttpError(500, 'No se pudieron leer los archivos.', 'assets_file_list_failed');
+  }
+  return data ?? [];
+}
+
+/**
+ * The Records that are CURRENTLY linked to this Asset.
+ *
+ * The ids are DERIVED from the Asset's own links: the caller never supplies
+ * an owner id, so a Record of another Asset (or of another Household) can
+ * never be pulled into the aggregation.
+ */
+async function readLinkedRecordIds(householdId, assetId) {
+  const { data, error } = await supabaseAdmin
+    .from('assets_record_links')
+    .select('record_id')
+    .eq('asset_id', assetId)
+    .eq('household_id', householdId)
+    .is('ended_at', null);
+
+  if (error) {
+    throw createHttpError(500, 'No se pudieron leer los archivos.', 'assets_file_list_failed');
+  }
+  return [...new Set((data ?? []).map((row) => row.record_id))];
+}
+
+/**
+ * The Care that belongs to this Asset.
+ *
+ * `assets_care.asset_id` IS the ownership: the Care is owned by the Asset.
+ */
+async function readAssetCareIds(householdId, assetId) {
+  const { data, error } = await supabaseAdmin
+    .from('assets_care')
+    .select('id')
+    .eq('asset_id', assetId)
+    .eq('household_id', householdId);
+
+  if (error) {
+    throw createHttpError(500, 'No se pudieron leer los archivos.', 'assets_file_list_failed');
+  }
+  return (data ?? []).map((row) => row.id);
+}
+
+/**
+ * GET /api/assets/:assetId/files — the Files of ONE Asset.
+ *
+ * include=direct (DEFAULT): the Files attached to the Asset itself.
+ * include=all: the UNION of the direct Files and the Files owned by the
+ * Records and the Care of THAT Asset.
+ *
+ * The aggregation NEVER changes the ownership of a relation: a Record file
+ * keeps its Record owner and a Care file keeps its Care owner. The
+ * `owner_context` field is a READ projection of that ownership (it says who
+ * owns it so the UI can label it) and it is NEVER persisted.
+ *
+ * Capability: assets.view AND homecloud.view.
+ * Cross-Household Asset: the same nondisclosure 404 as an unknown Asset.
+ */
+async function listAssetFilesForAsset(req, assetId, include) {
+  const scope = normalizeFileInclude(include);
+  if (scope === 'direct') {
+    return listOwnerFiles(req, 'asset', assetId);
+  }
+
+  const context = await contextWithCapability(req, 'assets.view');
+  assertHomeCloudView(context);
+
+  const owner = await resolveFileOwner(context, 'asset', assetId);
+
+  const [recordIds, careIds] = await Promise.all([
+    readLinkedRecordIds(context.householdId, owner.id),
+    readAssetCareIds(context.householdId, owner.id),
+  ]);
+
+  const [directRows, recordRows, careRows] = await Promise.all([
+    readOwnerRelations('assets_asset_files', 'asset_id', [owner.id], context.householdId),
+    readOwnerRelations('assets_record_files', 'record_id', recordIds, context.householdId),
+    readOwnerRelations('assets_care_files', 'care_id', careIds, context.householdId),
+  ]);
+
+  // The canonical projections of the owners. REMOVED owners are included on
+  // purpose: their relation is still active and the File is still there.
+  const [recordDtos, careDtos] = await Promise.all([
+    loadRecordDtos(context, recordIds, { includeRemoved: true }),
+    loadCareDtos(context, careIds, { includeRemoved: true }),
+  ]);
+
+  const relations = [
+    ...directRows.map((row) => ({
+      row,
+      ownerType: 'asset',
+      ownerId: owner.id,
+      ownerContext: defaultOwnerContext('asset', owner.id),
+    })),
+    ...recordRows.map((row) => ({
+      row,
+      ownerType: 'record',
+      ownerId: row.record_id,
+      ownerContext: recordOwnerContext(recordDtos.get(row.record_id)),
+    })),
+    ...careRows.map((row) => ({
+      row,
+      ownerType: 'care',
+      ownerId: row.care_id,
+      ownerContext: careOwnerContext(careDtos.get(row.care_id)),
+    })),
+  ];
+
+  const fileIds = relations.map((entry) => entry.row.file_id);
+  const states = await listContentStates({ householdId: context.householdId, ids: fileIds });
+  const stateById = new Map(states.map((state) => [String(state.id).toLowerCase(), state]));
+
+  const files = relations.map((entry) =>
+    mapRelationRowToDto(
+      entry.row,
+      entry.ownerType,
+      entry.ownerId,
+      stateById.get(String(entry.row.file_id).toLowerCase()),
+      entry.ownerContext,
+    ),
+  );
+
+  return { files };
+}
+
 // ── Assets capability helpers ─────────────────────────────────────────────────
 
 /**
@@ -670,9 +917,11 @@ function assertAssetsContribute(context) {
 
 module.exports = {
   FILE_OWNER_TYPES,
+  FILE_INCLUDE_SCOPES,
   ASSET_FILE_STATES,
   mapHomeCloudStateToAssetState,
   linkAssetFile,
   unlinkAssetFile,
   listOwnerFiles,
+  listAssetFilesForAsset,
 };

@@ -54,6 +54,10 @@
  *   POST   /api/assets/files/unlink           detach that File (relation only; the HomeCloud File
  *                                          is NEVER deleted, trashed or purged)
  *   GET    /api/assets/:assetId/files         Files attached to one Asset (assets.view + homecloud.view)
+ *                                           ?include=direct (default) | all (S9: adds the Files
+ *                                           owned by the Records and the Care of THAT Asset)
+ *   GET    /api/assets/:assetId/link-label   the minimal { id, name, profile } projection
+ *                                           another domain needs to NAME this Asset (S9)
  *   GET    /api/assets/records/:recordId/files  Files attached to one Record (assets.view + homecloud.view)
  *   GET    /api/assets/care/:careId/files     Files attached to one Care Record (assets.view + homecloud.view)
  *
@@ -133,6 +137,10 @@ router.get('/:assetId/records', controller.listAssetRecords);
 router.get('/:assetId/care', controller.listAssetCare);
 router.get('/:assetId/archive-history', controller.getArchiveHistory);
 router.get('/:assetId/trash-history', controller.getTrashHistory);
+// S9 — la etiqueta mínima del activo para otro dominio (Planner). Proyecta
+// SOLO { id, name, profile } y exige el capability del propio llamador:
+// ver un item de Planner NO implica ver el activo.
+router.get('/:assetId/link-label', controller.getAssetLinkLabel);
 // S7-03 / S7-04 — integracion Assets <-> Planner. El segmento literal
 // "planner-items" va DESPUES de /:assetId porque tiene dos segmentos: nunca
 // puede ser capturado como un assetId (a diferencia de /capabilities).
