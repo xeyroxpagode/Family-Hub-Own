@@ -165,6 +165,13 @@ const commands = {
   // form, drag-only reorder, bottom chrome, offline vs permission and the
   // realtime patch.
   'inventory-v2-premium-products-contract': () => runCommand('Inventory V2 Premium UX products', 'node', ['scripts/compiled/scripts/inventory_v2_premium_products_tests.js']),
+  // Block 1 + Block 2 runtime reconciliation. The suite proves REACHABILITY
+  // (the canonical workspace owns the pager, the legacy routes cannot render a
+  // parallel experience, the DEV preview root resolves to the workspace, the
+  // QA harness is gone from the app, the Purchase `+` never navigates, the
+  // sheet animated graph never mixes drivers and the keyboard never translates
+  // the outer geometry of the sheet).
+  'inventory-v2-reconciliation': () => runCommand('Inventory V2 runtime reconciliation', 'node', ['scripts/compiled/scripts/inventory_v2_reachability_tests.js']),
   'backend-syntax': () => runCommand('Backend/test syntax', 'node', ['tests/static/backend-syntax.js']),
   'migration-uniqueness': () => runCommand('Migration uniqueness guard', 'node', ['tests/static/migration-uniqueness.js']),
   'backend-eslint': () => runCommand('Backend ESLint', 'npm', ['exec', 'eslint', '--', '.'], { cwd: backendRoot }),
@@ -1844,7 +1851,7 @@ const suites = {
   'inventory-v2-mobile-qa': ['inventory-v2-mobile-qa-entry-contract', 'inventory-v2-mobile-qa-native-runtime', 'frontend-typecheck', 'test-typecheck', 'whitespace'],
   // Block 1 gate: the Premium UX shared system (detents, pager, sheet,
   // keyboard, motion, haptics, bottom chrome, overlay, state authority).
-  'inventory-v2-premium': ['compile-frontend-tests', 'inventory-v2-premium-shared-system', 'inventory-v2-premium-products-contract', 'inventory-v2-foundation-contract', 'inventory-v2-products-ui', 'inventory-v2-shopping-purchase-contract', 'inventory-v2-mobile-qa-entry-contract', 'inventory-v2-mobile-qa-native-runtime', 'frontend-typecheck', 'test-typecheck', 'whitespace'],
+  'inventory-v2-premium': ['compile-frontend-tests', 'inventory-v2-premium-shared-system', 'inventory-v2-premium-products-contract', 'inventory-v2-reconciliation', 'inventory-v2-foundation-contract', 'inventory-v2-products-ui', 'inventory-v2-shopping-purchase-contract', 'inventory-v2-mobile-qa-entry-contract', 'inventory-v2-mobile-qa-native-runtime', 'frontend-typecheck', 'test-typecheck', 'whitespace'],
   // Block 2 gate: the Premium UX Products block (collection, filters,
   // selection semantics, one-sheet product flow, unified location form,
   // drag-only reorder, bottom chrome, offline/stale/realtime).

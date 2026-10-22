@@ -17,6 +17,7 @@ import { MOTION } from '../../constants/theme';
 import { useAppTheme } from '../../context/AppThemeContext';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { resolveAdaptiveMenuLayout, type MenuAnchor } from '../../services/core/adaptiveActionMenuLayout';
+import { registerOverlay } from '../../services/core/overlayRegistry';
 import { ActionSheet } from './ActionSheet';
 import { AppText } from './AppText';
 
@@ -165,6 +166,20 @@ export function AdaptiveActionMenu({
   useEffect(() => {
     if (visible) setMeasuredHeight(null);
   }, [itemCount, visible]);
+
+  // OVERLAY CONTRACT: a popover does not block the pager, but it MUST be
+  // closed when the pager gesture starts. The close handler is read from a ref
+  // so the registration never re-runs because of an unstable callback.
+  const onRequestCloseRef = useRef(onRequestClose);
+  onRequestCloseRef.current = onRequestClose;
+  useEffect(() => {
+    if (!visible || layout.presentation !== 'popover') return undefined;
+    return registerOverlay({
+      id: `adaptive-action-menu:${title}`,
+      kind: 'popover',
+      close: () => onRequestCloseRef.current(),
+    });
+  }, [layout.presentation, title, visible]);
 
   // PATCH 1C — the dismissal-complete signal: one fire per true -> false
   // transition, after the commit that actually removes the menu from

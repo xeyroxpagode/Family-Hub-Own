@@ -24,17 +24,27 @@ export const INVENTORY_V2_DEV_PREVIEW_PATH = '/home/more/inventory-v2-preview';
  * The inner screens mirror the Inventory V2 stack routes so the browser URL
  * stays canonical: the preview root keeps `/home/more/inventory-v2-preview`
  * and every inner surface has its own deterministic segment.
+ *
+ * The ROOT of the preview resolves to `InventoryWorkspace`: the workspace is
+ * the only conceptual root of Productos and Compras, so the deep link and the
+ * `Más > Inventario V2` row open the SAME surface (workspace + pager). It used
+ * to resolve to `ProductsHome`, which rendered a standalone Products surface
+ * without the pager.
+ *
+ * `ProductsHome` and `ShoppingHome` survive only as compatibility aliases:
+ * they resolve to the redirect screens that reset the stack to the workspace.
  */
 export const INVENTORY_V2_DEV_PREVIEW_MORE_SCREENS = {
   InventoryV2Preview: {
     path: 'inventory-v2-preview',
     screens: {
-      ProductsHome: '',
+      InventoryWorkspace: '',
       AllProducts: 'productos',
       Locations: 'lugares',
       LocationDetail: 'lugares/:locationId',
       ArchivedProducts: 'archivados',
       InventoryTrash: 'papelera',
+      ProductsHome: 'productos-legacy',
       ShoppingHome: 'compras',
       Purchase: 'compra/:id',
       PurchaseSuccess: 'exito/:purchaseId',

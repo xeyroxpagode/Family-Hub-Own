@@ -392,8 +392,12 @@ test('the empty root keeps BOTH the header add and the empty state CTA', () => {
   assert.match(source, /Todavía no hay productos/, 'the empty copy stays');
   assert.match(source, /actionLabel=\{manage\?'Agregar producto':undefined\}/, 'the empty CTA stays');
   assert.match(source, /secondaryActionLabel=\{manage\?'Crear lugares':undefined\}/, 'the secondary CTA stays');
-  assert.match(source, /accessibilityLabel="Agregar producto"/, 'the header add stays');
-  assert.match(source, /capabilitiesUnknown&&state\.networkStatus!=='online'/, 'the header add is disabled with a reason, never hidden');
+  // The header add lives in the CANONICAL shell: the workspace owns the
+  // context header, and the empty-state CTA lives in the page. They coexist.
+  const workspace = read(WORKSPACE);
+  assert.match(workspace, /accessibilityLabel=\{addAccessibilityLabel\}/, 'the header add stays');
+  assert.match(workspace, /settledTab === 'products' \? 'Agregar producto' : 'Agregar productos a la lista'/, 'the header add is labelled per tab');
+  assert.match(workspace, /capabilitiesUnknown\s*&&\s*state\.networkStatus\s*!==\s*'online'/, 'the header add is disabled with a reason, never hidden');
 });
 
 test('the list screen uses the shared sheet, the shared chrome and the shared selection bar', () => {
@@ -430,9 +434,10 @@ test('the offline and the stale notices are two different messages', () => {
 });
 
 test('an unknown capability does not hide the add action', () => {
-  const source = read(SCREENS);
-  assert.match(source, /capabilitiesUnknown/, 'the unknown capability state exists');
-  assert.match(source, /disabled=\{capabilitiesUnknown&&state\.networkStatus!=='online'\}/, 'the action stays visible and is disabled with a reason');
+  const workspace = read(WORKSPACE);
+  assert.match(workspace, /capabilitiesUnknown/, 'the unknown capability state exists');
+  assert.match(workspace, /disabled=\{addDisabled\}/, 'the action stays visible and is disabled with a reason');
+  assert.match(workspace, /transitioning \|\| \(settledTab === 'products' && capabilitiesUnknown && state\.networkStatus !== 'online'\)/, 'the add action is disabled during a transition and with an unknown capability');
 });
 
 test('the selection bar position comes from the shared chrome metrics', () => {

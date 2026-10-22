@@ -360,8 +360,28 @@ test('the shared sheet exposes the detent, grabber, dirty and commit contracts',
   assert.match(sheet, /committingRef\.current/, 'the commit lock is honoured');
   assert.doesNotMatch(sheet, /autoFocus/, 'the primitive never imposes autofocus');
   assert.doesNotMatch(sheet, /KeyboardAvoidingView/, 'the keyboard never moves the sheet');
-  assert.match(sheet, /bottom: keyboardInset/, 'the top anchor stays stable while the keyboard is open');
+  assert.doesNotMatch(sheet, /bottom: keyboardInset/, 'the keyboard never translates the outer geometry of the sheet');
+  assert.match(sheet, /keyboardReserve/, 'the keyboard reserves space INSIDE the sheet');
+  assert.match(sheet, /marginBottom: keyboardReserve/, 'the footer stays above the keyboard');
   assert.match(sheet, /registerOverlay\(\{/, 'a sheet registers as a primary overlay');
+});
+
+test('the sheet animated graph never mixes a layout property with the native driver', () => {
+  const sheet = read('front/mi-front-limpio/components/ui/BottomSheet.tsx');
+  // The height is a LAYOUT property: it can only be driven by the JS thread.
+  const heightAnimations = sheet.match(/Animated\.timing\(height,\s*\{[\s\S]*?useNativeDriver:\s*(true|false)/g) ?? [];
+  assert.ok(heightAnimations.length > 0, 'the sheet animates its height');
+  for (const animation of heightAnimations) {
+    assert.match(animation, /useNativeDriver: false/, `the height is never natively driven: ${animation}`);
+  }
+  assert.doesNotMatch(sheet, /Animated\.timing\(height,\s*\{[\s\S]*?useNativeDriver: true/, 'no native-driven height animation exists');
+  // The geometry layer and the motion layer are two DIFFERENT nodes.
+  assert.match(sheet, /sheetGeometry/, 'the sheet owns a geometry layer');
+  assert.match(sheet, /sheetMotion/, 'the sheet owns a motion layer');
+  const geometryStyle = sheet.match(/style=\{\[styles\.sheetGeometry,[^\]]*\]\}/);
+  assert.ok(geometryStyle, 'the geometry layer declares its own style');
+  assert.doesNotMatch(geometryStyle[0], /opacity|translate/, 'the geometry layer carries no native-driven motion');
+  assert.doesNotMatch(sheet, /height:[^,}]*,\s*opacity/, 'height and opacity never share one animated style object');
 });
 
 test('the shared pager owns the gesture intent, the edge back and the popover', () => {
@@ -449,17 +469,23 @@ test('reduced motion is a single shared store with a DEV override', () => {
 // 9. QA harness
 // ---------------------------------------------------------------------------
 
-test('the QA harness is DEV only and covers the frozen scenarios', () => {
+test('the QA harness is GONE from the app: the real Inventory is the evidence', () => {
   const stack = read('front/mi-front-limpio/navigation/InventoryV2Stack.tsx');
-  assert.match(stack, /__DEV__\?<Stack\.Screen name="InventoryPremiumQA"/, 'the QA route is registered only under __DEV__');
+  assert.doesNotMatch(stack, /InventoryPremiumQA/, 'the QA route does not exist at all');
+  const harnessPath = path.join(
+    root,
+    'front/mi-front-limpio/screens/inventory/v2/InventoryPremiumQAScreen.tsx',
+  );
+  assert.equal(fs.existsSync(harnessPath), false, 'the QA harness screen does not exist');
 
-  const harness = read('front/mi-front-limpio/screens/inventory/v2/InventoryPremiumQAScreen.tsx');
-  for (const scenario of ['A. Pager', 'B. Sheets', 'C. Scroll handoff', 'D. Keyboard', 'Reduced Motion']) {
-    assert.ok(harness.includes(scenario), `the harness covers ${scenario}`);
-  }
-  assert.match(harness, /BottomSheet/, 'the harness exercises the canonical sheet');
-  assert.match(harness, /HorizontalPager/, 'the harness exercises the canonical pager');
-  assert.match(harness, /setReducedMotionOverride/, 'the harness can force reduced motion');
+  const products = read('front/mi-front-limpio/screens/inventory/v2/InventoryV2Screens.tsx');
+  assert.doesNotMatch(products, /QA Premium UX/, 'the Products overflow has no QA entry');
+  assert.doesNotMatch(products, /premium-qa/, 'the Products overflow declares no QA action');
+
+  // The DEV preview entry itself SURVIVES: Inventory V2 has no production
+  // cutover yet, so `Más > Inventario V2` is still the temporary entry.
+  const more = read('front/mi-front-limpio/screens/MoreScreen.tsx');
+  assert.match(more, /navigation\.navigate\('InventoryV2Preview'\)/, 'the DEV preview entry survives');
 });
 
 // ---------------------------------------------------------------------------

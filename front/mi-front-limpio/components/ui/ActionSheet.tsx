@@ -8,6 +8,7 @@ import { useAppTheme } from '../../context/AppThemeContext';
 import { useKeyboardVisible } from '../../hooks/useKeyboardVisible';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { resolveDragDismiss } from '../../services/planner/plannerSheetGuard';
+import { registerOverlay } from '../../services/core/overlayRegistry';
 import { todayYMD } from '../../utils/civilDate';
 import { buildMinuteWheelValues } from '../../utils/timeWheel';
 import { selectionHaptic, warningHaptic } from '../../utils/plannerHaptics';
@@ -222,6 +223,24 @@ function ActionSheetLegacy({ visible, title, subtitle, onRequestClose, closeDisa
   const controlledProgress = useRef(new Animated.Value(visible ? 1 : 0)).current;
   const onDidDismissRef = useRef(onDidDismiss);
   onDidDismissRef.current = onDidDismiss;
+  // OVERLAY CONTRACT: a visible sheet is a PRIMARY overlay, so the Inventory
+  // pager stays blocked while it is open. The registry entry is keyed by the
+  // title and its close handler is read from a ref, so the registration never
+  // re-runs (and never loops) because of an unstable callback identity.
+  const onRequestCloseRef = useRef(onRequestClose);
+  onRequestCloseRef.current = onRequestClose;
+  const closeDisabledRef = useRef(closeDisabled);
+  closeDisabledRef.current = closeDisabled;
+  useEffect(() => {
+    if (!visible) return undefined;
+    return registerOverlay({
+      id: `action-sheet:${title}`,
+      kind: 'sheet',
+      close: () => {
+        if (!closeDisabledRef.current) onRequestCloseRef.current();
+      },
+    });
+  }, [title, visible]);
   useEffect(() => {
     if (transition !== 'controlled') return;
     if (visible) {

@@ -13,6 +13,7 @@ import {
   SegmentedControl,
 } from '../../../components/ui';
 import { useBottomChrome } from '../../../context/BottomChromeContext';
+import { useInventoryV2 } from '../../../context/InventoryV2Context';
 import { colors, spacing } from '../../../constants/theme';
 import { InventoryProductsPage } from './InventoryV2Screens';
 import { InventoryShoppingPage } from './InventoryShoppingPurchaseScreens';
@@ -85,13 +86,17 @@ export function InventoryWorkspaceScreen() {
   const route = useRoute<any>();
   const { width } = useWindowDimensions();
   const chrome = useBottomChrome();
+  const { state } = useInventoryV2();
 
   const requestedTab: InventoryWorkspaceTab = route.params?.tab === 'shopping' ? 'shopping' : 'products';
   const [targetTab, setTargetTab] = useState<InventoryWorkspaceTab>(requestedTab);
   const [settledTab, setSettledTab] = useState<InventoryWorkspaceTab>(requestedTab);
   const [transitioning, setTransitioning] = useState(false);
   const [progress, setProgress] = useState(TAB_INDEX[requestedTab]);
-  const [addNonce, setAddNonce] = useState(0);
+  // The add nonce belongs to a TAB, not to the shell: the `+` of one page must
+  // never re-open the surface of the other page, and switching tabs must never
+  // re-trigger the surface that is already open.
+  const [addNonce, setAddNonce] = useState<Record<InventoryWorkspaceTab, number>>({ products: 0, shopping: 0 });
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [anchor, setAnchor] = useState({ x: Math.max(0, width - 60), y: 16, width: 44, height: 44 });
 
@@ -115,14 +120,6 @@ export function InventoryWorkspaceScreen() {
     const next: InventoryWorkspaceTab = route.params.tab === 'shopping' ? 'shopping' : 'products';
     setTargetTab(next);
   }, [route.params?.tab]);
-
-  // The Purchase flow opens the Shopping add sheet through a deep link param.
-  useEffect(() => {
-    const nonce = route.params?.openAddNonce;
-    if (!nonce) return;
-    setTargetTab('shopping');
-    setAddNonce((current) => current + 1);
-  }, [route.params?.openAddNonce]);
 
   // Products normal / Shopping normal own the bottom navigation. The
   // declaration happens ONCE: a pushed screen (a list, the locations
@@ -168,8 +165,8 @@ export function InventoryWorkspaceScreen() {
   }, [settledTab]);
 
   const handleAdd = useCallback(() => {
-    setAddNonce((current) => current + 1);
-  }, []);
+    setAddNonce((current) => ({ ...current, [settledTab]: current[settledTab] + 1 }));
+  }, [settledTab]);
 
   const handleOverflow = useCallback(() => {
     const node = overflowButtonRef.current;
@@ -193,21 +190,28 @@ export function InventoryWorkspaceScreen() {
     () => [
       <InventoryProductsPage
         key="products"
-        addNonce={targetTab === 'products' ? addNonce : 0}
+        addNonce={addNonce.products}
         onOverflowActionsChange={declareOverflowActions('products')}
         onSelectionStateChange={declareSelection('products')}
       />,
       <InventoryShoppingPage
         key="shopping"
-        addNonce={targetTab === 'shopping' ? addNonce : 0}
+        addNonce={addNonce.shopping}
         onOverflowActionsChange={declareOverflowActions('shopping')}
         onSelectionStateChange={declareSelection('shopping')}
       />,
     ],
-    [addNonce, declareOverflowActions, declareSelection, targetTab],
+    [addNonce, declareOverflowActions, declareSelection],
   );
 
   const addAccessibilityLabel = settledTab === 'products' ? 'Agregar producto' : 'Agregar productos a la lista';
+  // The add action is NEVER hidden: when the capabilities are unknown and the
+  // device is offline it stays visible and is disabled WITH A REASON (the
+  // Products tab cannot open the product flow without knowing the
+  // permissions).
+  const capabilitiesUnknown = state.capabilities === null;
+  const addDisabled =
+    transitioning || (settledTab === 'products' && capabilitiesUnknown && state.networkStatus !== 'online');
 
   return (
     <AppScreen padded={false} bottomInset="none" style={styles.screen}>
@@ -242,7 +246,7 @@ export function InventoryWorkspaceScreen() {
                 icon="add"
                 variant="plain"
                 onPress={handleAdd}
-                disabled={transitioning}
+                disabled={addDisabled}
                 accessibilityLabel={addAccessibilityLabel}
               />
               <IconButton

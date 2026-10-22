@@ -141,16 +141,20 @@ class Session {
   }
 
   async touchDrag(from, to, steps = 16) {
+    // The synthesized touch stream MUST carry an advancing timestamp: the
+    // React Native Web gesture math only accumulates a delta when the touch
+    // timestamps move forward, otherwise the drag stalls after the first step.
+    const base = Date.now() / 1000;
     const point = (x, y) => [{ x, y, radiusX: 6, radiusY: 6, force: 1, id: 1 }];
-    await this.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: point(from.x, from.y) });
+    await this.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: point(from.x, from.y), timestamp: base });
     await sleep(60);
     for (let index = 1; index <= steps; index += 1) {
       const x = from.x + ((to.x - from.x) * index) / steps;
       const y = from.y + ((to.y - from.y) * index) / steps;
-      await this.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: point(x, y) });
+      await this.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: point(x, y), timestamp: base + (index * 0.016) });
       await sleep(26);
     }
-    await this.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await this.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: base + ((steps + 1) * 0.016) });
   }
 
   async longPressTouch(x, y, ms = 900) {

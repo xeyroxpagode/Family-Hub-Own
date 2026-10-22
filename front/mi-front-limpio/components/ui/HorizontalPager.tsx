@@ -93,6 +93,18 @@ export function HorizontalPager({
   const startOffsetRef = useRef(0);
   const disabledRef = useRef(disabled);
   const transitionRef = useRef(false);
+  /**
+   * The REAL start of the touch, in page coordinates.
+   *
+   * `gestureState.x0` CANNOT be used for this: React Native only fills it
+   * when the responder is GRANTED, so during
+   * `onMoveShouldSetResponderCapture` it is ALWAYS 0. Reading the edge-back
+   * zone from it made the pager reject EVERY gesture (0 <= edgeBackZone),
+   * so the horizontal swipe never reached the pager on any platform.
+   */
+  const touchStartXRef = useRef(0);
+  /** The offset the pager ACTUALLY reached during the current gesture. */
+  const liveOffsetRef = useRef(0);
 
   widthRef.current = width;
   pageCountRef.current = pageCount;
@@ -180,11 +192,20 @@ export function HorizontalPager({
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponderCapture: (_event, gesture) => {
+        onStartShouldSetPanResponderCapture: (event) => {
+          // The start of the touch is the only reliable source for the
+          // edge-back zone (see `touchStartXRef`).
+          touchStartXRef.current = event.nativeEvent?.pageX ?? 0;
+          return false;
+        },
+        onMoveShouldSetPanResponderCapture: (event, gesture) => {
           if (disabledRef.current) return false;
           if (hasPrimaryOverlay()) return false;
           // The native edge-back of a real route wins from the left edge.
-          if (gesture.x0 <= resolvedTokens.edgeBackZone) return false;
+          const startX = touchStartXRef.current > 0
+            ? touchStartXRef.current
+            : (event.nativeEvent?.pageX ?? 0) - (gesture.dx ?? 0);
+          if (startX <= resolvedTokens.edgeBackZone) return false;
           const horizontal = Math.abs(gesture.dx);
           const vertical = Math.abs(gesture.dy);
           if (horizontal < resolvedTokens.intentMinDistance) return false;
@@ -194,6 +215,7 @@ export function HorizontalPager({
           translateX.stopAnimation();
           startIndexRef.current = indexRef.current;
           startOffsetRef.current = -indexRef.current * widthRef.current;
+          liveOffsetRef.current = startOffsetRef.current;
           // A popover never survives the transition that it was covering.
           closeOpenPopovers();
           setTransition(true);
@@ -206,14 +228,20 @@ export function HorizontalPager({
           if (offset > first) offset = first + applyRubberBand(offset - first, pageWidth);
           if (offset < last) offset = last - applyRubberBand(last - offset, pageWidth);
           translateX.setValue(offset);
+          liveOffsetRef.current = offset;
           emitProgress(-offset / (pageWidth * Math.max(1, pageCountRef.current - 1)));
         },
         onPanResponderRelease: (_event, gesture) => {
           const pageWidth = Math.max(1, widthRef.current);
-          const position = startIndexRef.current + -gesture.dx / pageWidth;
+          // The settle is computed from the position the pager ACTUALLY
+          // reached, not from a gesture delta that the platform may have
+          // already reset by the time the finger lifts.
+          const travelled = liveOffsetRef.current - startOffsetRef.current;
+          const position = startIndexRef.current + -travelled / pageWidth;
+          const velocity = Number.isFinite(gesture.vx) ? gesture.vx : 0;
           let target: number;
-          if (Math.abs(gesture.vx) >= resolvedTokens.settleVelocity) {
-            const goingNext = gesture.vx < 0;
+          if (Math.abs(velocity) >= resolvedTokens.settleVelocity) {
+            const goingNext = velocity < 0;
             target = goingNext ? Math.ceil(position) : Math.floor(position);
             target = Math.min(
               Math.max(0, pageCountRef.current - 1),

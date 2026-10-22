@@ -20,7 +20,9 @@
  * - a committing sheet cannot be dragged, dismissed or closed;
  * - the keyboard NEVER moves the sheet: the top anchor stays stable, the
  *   internal viewport is recalculated and the footer stays above the keyboard;
- * - the primitive never imposes autofocus.
+ * - the primitive never imposes autofocus;
+ * - the animated style graph is split in TWO layers, so a layout property is
+ *   never animated by two different drivers at the same time.
  */
 import React, {
   useCallback,
@@ -63,6 +65,27 @@ import { AppText } from './AppText';
 import { AppButton } from './AppButton';
 
 export type { SheetDetentPreset };
+
+/**
+ * The animated style graph of the sheet is split in TWO layers.
+ *
+ * `geometry` owns the LAYOUT of the sheet (height / detent). It is driven by
+ * the JS thread, because a layout property can never be driven natively.
+ *
+ * `motion` owns the MOTION of the sheet surface (opacity + a small
+ * translate). It is driven by the native thread.
+ *
+ * They are two DIFFERENT nodes on purpose: React Native marks every animated
+ * node of a view as native as soon as ONE native animation runs on that view,
+ * so a single view mixing `height` (JS) and `opacity` (native) produces
+ * "Style property 'height' is not supported by native animated module" and
+ * "Attempting to run JS driven animation on animated node that has been moved
+ * to native". Two nodes, two graphs, zero mixed drivers.
+ */
+export const BOTTOM_SHEET_ANIMATION_LAYERS = {
+  geometry: 'height',
+  motion: 'opacity + translateY',
+} as const;
 
 export type BottomSheetProps = {
   visible: boolean;
@@ -164,6 +187,7 @@ export function BottomSheet({
   });
   const [mounted, setMounted] = useState(visible);
   const [contentHeight, setContentHeight] = useState(0);
+  const [bodyHeight, setBodyHeight] = useState(0);
 
   const height = useRef(new Animated.Value(detents[detentIndex] ?? 0)).current;
   const heightRef = useRef(detents[detentIndex] ?? 0);
@@ -226,9 +250,21 @@ export function BottomSheet({
 
   const currentDetentHeight = detents[detentIndex] ?? 0;
 
-  const usableHeight = Math.max(0, currentDetentHeight - keyboardInset);
+  // The keyboard NEVER moves the outer geometry of the sheet. It reserves
+  // space INSIDE the sheet: the viewport of the body shrinks and the footer
+  // is pushed above the keyboard. The top anchor of the sheet stays exactly
+  // where it was.
+  const keyboardReserve = keyboardInset > 0 ? keyboardInset : 0;
+  // The usable viewport is the REAL height of the body (measured), not an
+  // estimate: the chrome of the sheet (grabber + header + footer) is not
+  // usable space for the content.
+  const usableHeight = bodyHeight > 0 ? bodyHeight : Math.max(0, currentDetentHeight - keyboardInset);
   const contentFits = contentHeight > 0 && contentHeight <= usableHeight;
   const atMaximumDetent = detentIndex >= detents.length - 1;
+  // With the keyboard open the body MUST scroll: the focused field has to
+  // stay reachable. The detent promotion already happened, so the content
+  // owns the vertical gesture instead of the sheet.
+  const bodyScrollable = keyboardInset > 0 || atMaximumDetent || contentFits;
 
   // -- keyboard promotion --------------------------------------------------
   useEffect(() => {
@@ -362,7 +398,10 @@ export function BottomSheet({
         onMoveShouldSetPanResponderCapture: (_event, gesture) =>
           !committingRef.current &&
           gesture.dy < -BODY_HANDOFF_THRESHOLD &&
-          !atMaximumDetent,
+          !atMaximumDetent &&
+          // With the keyboard open the content owns the vertical gesture: the
+          // sheet already got its promotion, the field needs the scroll.
+          keyboardInset <= 0,
         onPanResponderGrant: () => {
           height.stopAnimation();
           grabberStartHeight.current = heightRef.current;
@@ -397,7 +436,7 @@ export function BottomSheet({
           settleToDetent(settled);
         },
       }),
-    [atMaximumDetent, height, settleToDetent, viewportHeight],
+    [atMaximumDetent, height, keyboardInset, settleToDetent, viewportHeight],
   );
 
   const grabber = (
@@ -419,7 +458,8 @@ export function BottomSheet({
       contentContainerStyle={styles.bodyContent}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
-      scrollEnabled={atMaximumDetent || contentFits}
+      scrollEnabled={bodyScrollable}
+      onLayout={(event) => setBodyHeight(event.nativeEvent.layout.height)}
       onScroll={(event) => {
         bodyScrollOffset.current = event.nativeEvent.contentOffset.y;
       }}
@@ -460,43 +500,55 @@ export function BottomSheet({
             testID={testID ? `${testID}-backdrop` : undefined}
           />
         </Animated.View>
+        {/* OUTER GEOMETRY LAYER.
+            It owns the layout of the sheet (height / detent) and NOTHING
+            else. Its animated value is driven by the JS thread only, so it can
+            never be moved to the native driver by a sibling animation. */}
         <Animated.View
           {...bodyPanResponder.panHandlers}
-          style={[
-            styles.sheet,
-            {
-              // The top anchor stays stable while the keyboard is open: only
-              // the bottom of the sheet moves up.
-              bottom: keyboardInset,
-              height,
-              opacity: surfaceOpacity,
-              transform: [{ translateY: surfaceTranslate }],
-            },
-            style,
-          ]}
+          style={[styles.sheetGeometry, { height }]}
           accessibilityViewIsModal
           accessibilityLabel={accessibilityLabel ?? title}
           testID={testID}
         >
-          {grabber}
-          <View style={styles.header}>
-            <View style={styles.headerText}>
-              <AppText variant="title2" weight="800" numberOfLines={1}>{title}</AppText>
-              {subtitle ? <AppText variant="caption" tone="secondary" numberOfLines={1}>{subtitle}</AppText> : null}
+          {/* INNER MOTION LAYER.
+              It owns the surface (background, radius, shadow) and the motion
+              (opacity + a small translate). It is driven natively, and it
+              never carries a layout property. */}
+          <Animated.View
+            style={[
+              styles.sheetMotion,
+              {
+                opacity: surfaceOpacity,
+                transform: [{ translateY: surfaceTranslate }],
+              },
+              style,
+            ]}
+          >
+            {grabber}
+            <View style={styles.header}>
+              <View style={styles.headerText}>
+                <AppText variant="title2" weight="800" numberOfLines={1}>{title}</AppText>
+                {subtitle ? <AppText variant="caption" tone="secondary" numberOfLines={1}>{subtitle}</AppText> : null}
+              </View>
+              <AppButton
+                variant="icon"
+                size="sm"
+                onPress={requestDismiss}
+                disabled={committing}
+                accessibilityLabel={`Cerrar ${title}`}
+              >
+                <HomePlusIcon name="close" size={20} color={colors.text.secondary} />
+              </AppButton>
             </View>
-            <AppButton
-              variant="icon"
-              size="sm"
-              onPress={requestDismiss}
-              disabled={committing}
-              accessibilityLabel={`Cerrar ${title}`}
-            >
-              <HomePlusIcon name="close" size={20} color={colors.text.secondary} />
-            </AppButton>
-          </View>
-          {body}
-          {footer ? <View style={styles.footer}>{footer}</View> : null}
-          <View style={{ height: safeAreaBottom }} />
+            {body}
+            {footer ? (
+              <View style={[styles.footer, keyboardReserve > 0 ? { marginBottom: keyboardReserve } : null]}>
+                {footer}
+              </View>
+            ) : null}
+            <View style={{ height: keyboardReserve > 0 ? 0 : safeAreaBottom }} />
+          </Animated.View>
         </Animated.View>
       </View>
     </Modal>
@@ -506,10 +558,17 @@ export function BottomSheet({
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: colors.surface.overlay },
-  sheet: {
+  // The geometry layer carries NO visual property: it only measures the sheet.
+  sheetGeometry: {
     position: 'absolute',
     left: 0,
     right: 0,
+    bottom: 0,
+  },
+  // The motion layer carries the surface and the motion. It never carries a
+  // layout property, so its animated graph stays native-only.
+  sheetMotion: {
+    flex: 1,
     backgroundColor: colors.background.base,
     borderTopLeftRadius: radius.xxl,
     borderTopRightRadius: radius.xxl,

@@ -1,0 +1,110 @@
+{
+  "captured": [
+    {
+      "name": "01-dev-preview-root-es-workspace",
+      "note": "el deep link del preview abre el WORKSPACE real"
+    },
+    {
+      "name": "02-productos-workspace",
+      "note": "workspace real: header estable + selector canonico + pager"
+    },
+    {
+      "name": "03-overflow-sin-qa",
+      "note": "el overflow de Productos NO expone QA Premium UX (dev)"
+    },
+    {
+      "name": "04-compras-workspace",
+      "note": "el selector canonico movio el pager real a Compras"
+    },
+    {
+      "name": "05-pager-swipe-horizontal",
+      "note": "el swipe horizontal REAL del pager"
+    },
+    {
+      "name": "06-productflow-catalog",
+      "note": "ProductFlow real sobre el BottomSheet canonico"
+    },
+    {
+      "name": "07-productflow-teclado",
+      "note": "con el teclado abierto el ancla superior del sheet NO se mueve"
+    },
+    {
+      "name": "08-productflow-detent-alternativo",
+      "note": "el grabber movio el sheet a otro detent real"
+    },
+    {
+      "name": "09-add-to-shopping",
+      "note": "la superficie compartida de agregar a la lista"
+    },
+    {
+      "name": "10-compra-antes-de-agregar",
+      "note": "la compra real, con su contexto"
+    },
+    {
+      "name": "11-add-sobre-compra",
+      "note": "el overlay de agregar se abre SOBRE la compra: la compra sigue montada"
+    },
+    {
+      "name": "12-compra-tras-cerrar-agregar",
+      "note": "cerrar el overlay revela EXACTAMENTE la misma compra"
+    }
+  ],
+  "failures": [],
+  "measurements": {
+    "rootIsWorkspace": true,
+    "entry": "deep-link",
+    "productsTab": {
+      "products": 20,
+      "shopping": 418
+    },
+    "overflowHasQaEntry": false,
+    "shoppingTab": {
+      "products": -370,
+      "shopping": 28
+    },
+    "selectorMoved": true,
+    "swipe": {
+      "before": {
+        "products": 20,
+        "shopping": 418
+      },
+      "after": {
+        "products": 20,
+        "shopping": 418
+      }
+    },
+    "swipeMoved": false,
+    "flowSheet": {
+      "top": 12,
+      "height": 832,
+      "bottom": 844
+    },
+    "keyboard": {
+      "before": {
+        "top": 12,
+        "height": 832,
+        "bottom": 844
+      },
+      "after": {
+        "top": 12,
+        "height": 832,
+        "bottom": 844
+      },
+      "sheetTopDeltaPx": 0
+    },
+    "detent": {
+      "before": {
+        "top": 12,
+        "height": 832,
+        "bottom": 844
+      },
+      "after": {
+        "top": 12,
+        "height": 832,
+        "bottom": 844
+      }
+    },
+    "purchaseStillMountedUnderAdd": true,
+    "purchaseRoutePreserved": true
+  }
+}

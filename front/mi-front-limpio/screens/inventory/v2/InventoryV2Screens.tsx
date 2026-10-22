@@ -18,7 +18,7 @@ import {INVENTORY_CATEGORIES,formatInventoryRelativeTime,inventoryCategoryPresen
 import {resolveContentBottomInset} from '../../../services/core/bottomChrome';
 import {
   AdaptiveActionMenu,AdaptiveMenuRow,AdaptiveMenuSeparator,AppButton,AppScreen,AppText,AppToastHost,BottomSheet,ConfirmActionSheet,EmptyState,ErrorState,FilterChip,
-  IconButton,menuAnchorFromEvent,SearchField,SegmentedControl,Skeleton,
+  IconButton,menuAnchorFromEvent,SearchField,Skeleton,
 } from '../../../components/ui';
 import {InventoryProductFlowSheet} from '../../../components/inventory/InventoryProductFlowSheet';
 import {InventoryProductRow} from '../../../components/inventory/InventoryProductRow';
@@ -56,25 +56,22 @@ function Header({title,onBack,right,selection,onCancel,onAll,onAllBusy,leftLabel
  */
 function OfflineBanner(){const {state}=useInventoryV2();if(state.networkStatus==='offline')return <View style={styles.offline}><AppText variant="bodySmall" weight="700">Sin conexión</AppText><AppText variant="caption" tone="secondary">Mostrando datos guardados.</AppText></View>;if(state.stale)return <View style={styles.stale}><AppText variant="bodySmall" weight="700">No pudimos actualizar.</AppText><AppText variant="caption" tone="secondary">Mostrando datos anteriores.</AppText></View>;return null;}
 
-export type InventoryProductsPageProps=InventoryWorkspacePageProps&{embedded?:boolean};
+export type InventoryProductsPageProps=InventoryWorkspacePageProps;
 
-export function InventoryProductsPage({embedded=true,addNonce=0,onOverflowActionsChange,onSelectionStateChange}:InventoryProductsPageProps){
+export function InventoryProductsPage({addNonce=0,onOverflowActionsChange,onSelectionStateChange}:InventoryProductsPageProps){
   const navigation=useNavigation<any>();
   const {state,refresh,queryProducts,loadProducts}=useInventoryV2();
   const manage=canInventory(state.capabilities,'inventory.manage');
-  const capabilitiesUnknown=state.capabilities===null;
-  const [menu,setMenu]=useState<{visible:boolean;anchor:any}>({visible:false,anchor:null});
   const [flow,setFlow]=useState(false);
   const [editor,setEditor]=useState<InventoryProductV2|null>(null);
   const [query,setQuery]=useState('');
   const [serverQuery,setServerQuery]=useState('');
-  const {width}=useWindowDimensions();
   const contentInset=resolveContentBottomInset({slot:'bottom-nav',keyboardVisible:false,safeAreaBottom:0});
 
   useEffect(()=>{const timer=setTimeout(()=>setServerQuery(query.trim()),120);return()=>clearTimeout(timer);},[query]);
   useEffect(()=>{if(serverQuery)void loadProducts({lifecycle:'active',search:serverQuery,limit:50});},[serverQuery,loadProducts]);
   useEffect(()=>{if(addNonce>0)setFlow(true);},[addNonce]);
-  const overflowActions=useMemo<InventoryWorkspaceAction[]>(()=>{const actions:InventoryWorkspaceAction[]=[];if(manage)actions.push({id:'locations',label:'Gestionar lugares',onPress:()=>navigation.navigate('Locations')});actions.push({id:'archived',label:'Archivados',onPress:()=>navigation.navigate('ArchivedProducts')});actions.push({id:'trash',label:'Papelera',onPress:()=>navigation.navigate('InventoryTrash')});if(typeof __DEV__!=='undefined'&&__DEV__)actions.push({id:'premium-qa',label:'QA Premium UX (dev)',onPress:()=>navigation.navigate('InventoryPremiumQA')});return actions;},[manage,navigation]);
+  const overflowActions=useMemo<InventoryWorkspaceAction[]>(()=>{const actions:InventoryWorkspaceAction[]=[];if(manage)actions.push({id:'locations',label:'Gestionar lugares',onPress:()=>navigation.navigate('Locations')});actions.push({id:'archived',label:'Archivados',onPress:()=>navigation.navigate('ArchivedProducts')});actions.push({id:'trash',label:'Papelera',onPress:()=>navigation.navigate('InventoryTrash')});return actions;},[manage,navigation]);
   useEffect(()=>{onOverflowActionsChange?.(overflowActions);},[onOverflowActionsChange,overflowActions]);
   useEffect(()=>{onSelectionStateChange?.(null);},[onSelectionStateChange]);
 
@@ -85,31 +82,23 @@ export function InventoryProductsPage({embedded=true,addNonce=0,onOverflowAction
   const results=query.trim()?(serverReady?queryProducts({lifecycle:'active',search:serverQuery,limit:50}).filter(p=>!p.archived_at&&!p.trashed_at):local):active;
   const searching=Boolean(query.trim())&&!serverReady&&local.length===0;
   const locations=Object.values(state.locationsById).sort((a,b)=>a.sort_order-b.sort_order||a.name.localeCompare(b.name)).slice(0,4);
-  const openOverflow=()=>setMenu({visible:true,anchor:{x:width-60,y:16,width:44,height:44}});
 
-  const legacyHeader=embedded?null:<><Header title="Inventario" right={<View style={styles.headerActions}><IconButton icon="add" variant="plain" onPress={()=>setFlow(true)} disabled={capabilitiesUnknown&&state.networkStatus!=='online'} accessibilityLabel="Agregar producto"/><IconButton icon="ellipsis-horizontal" variant="plain" onPress={openOverflow} accessibilityLabel="Más opciones"/></View>}/><View style={styles.legacyTabs}><SegmentedControl options={[{value:'products',label:'Productos'},{value:'shopping',label:'Compras'}]} value="products" onChange={value=>{if(value==='shopping')navigation.navigate('ShoppingHome');}} accessibilityLabel="Sección de Inventario"/></View></>;
 
-  if(state.loading&&!state.summary)return <AppScreen safeAreaEdges={embedded?['bottom','left','right']:undefined}>{legacyHeader??<Header title="Inventario"/>}<View style={styles.stack}><Skeleton height={44}/>{Array.from({length:4}).map((_,i)=><Skeleton key={i} height={56}/>)}{Array.from({length:3}).map((_,i)=><Skeleton key={`a${i}`} height={56}/>)}</View></AppScreen>;
-  if(state.error&&!state.summary)return <AppScreen safeAreaEdges={embedded?['bottom','left','right']:undefined}>{legacyHeader??<Header title="Inventario"/>}<ErrorState title="No pudimos cargar Inventario" description={state.error} retryLabel="Reintentar" onRetry={refresh}/></AppScreen>;
+  if(state.loading&&!state.summary)return <AppScreen safeAreaEdges={['bottom','left','right']}><View style={styles.stack}><Skeleton height={44}/>{Array.from({length:4}).map((_,i)=><Skeleton key={i} height={56}/>)}{Array.from({length:3}).map((_,i)=><Skeleton key={`a${i}`} height={56}/>)}</View></AppScreen>;
+  if(state.error&&!state.summary)return <AppScreen safeAreaEdges={['bottom','left','right']}><ErrorState title="No pudimos cargar Inventario" description={state.error} retryLabel="Reintentar" onRetry={refresh}/></AppScreen>;
 
-  return <AppScreen scroll bottomInset="none" safeAreaEdges={embedded?['bottom','left','right']:undefined} contentContainerStyle={[styles.screen,{paddingBottom:contentInset}]}>{legacyHeader}
+  return <AppScreen scroll bottomInset="none" safeAreaEdges={['bottom','left','right']} contentContainerStyle={[styles.screen,{paddingBottom:contentInset}]}>
     <View style={styles.searchWrap}><SearchField label="Buscar productos" labelVisible={false} placeholder="Buscar productos" value={query} onChangeText={setQuery} inputStyle={{minHeight:44}}/><OfflineBanner/></View>
     {query.trim()?searching?<View style={styles.gap12}>{Array.from({length:4}).map((_,i)=><Skeleton key={`s${i}`} height={64}/>)}</View>:results.length?<View style={styles.gap12}>{results.map(product=><InventoryProductRow key={product.id} product={product} onPress={()=>setEditor(product)}/>)}</View>:<EmptyState title={`No encontramos “${query.trim()}”`} description="Probá con otro nombre." actionLabel={manage?`Agregar “${query.trim()}”`:undefined} onAction={manage?()=>setFlow(true):undefined}/>:state.summary?.total_active_products===0?<EmptyState title="Todavía no hay productos" description={'Agregá lo que querés controlar\nen tu casa.'} illustration={<HomePlusIcon name="cube-outline" size={34} color={colors.brand}/>} actionLabel={manage?'Agregar producto':undefined} onAction={manage?()=>setFlow(true):undefined} secondaryActionLabel={manage?'Crear lugares':undefined} onSecondaryAction={manage?()=>navigation.navigate('Locations'):undefined}/>:<View style={styles.rootSections}>
       <View><SectionTitle title="Lugares" action="Ver lugares" onPress={()=>navigation.navigate('Locations')}/><View style={styles.gap4}>{state.summary&&state.summary.unlocated_count>0?<AccessRow icon="help-circle-outline" title="Sin lugar" count={state.summary.unlocated_count} onPress={()=>navigation.navigate('LocationDetail',{locationId:null,title:'Sin lugar'})}/>:null}{locations.map(location=><AccessRow key={location.id} icon={(location.icon_key??'cube-outline') as any} title={location.name} count={location.active_product_count} onPress={()=>navigation.navigate('LocationDetail',{locationId:location.id,title:location.name})}/>)}</View></View>
       {state.summary&&(state.summary.out_of_stock_count>0||state.summary.low_stock_count>0)?<View style={styles.chips}>{state.summary.out_of_stock_count>0?<FilterChip label={`Agotados ${state.summary.out_of_stock_count}`} onPress={()=>navigation.navigate('AllProducts',{stockState:'out'})}/>:null}{state.summary.low_stock_count>0?<FilterChip label={`Poco stock ${state.summary.low_stock_count}`} onPress={()=>navigation.navigate('AllProducts',{stockState:'low'})}/>:null}</View>:null}
       <View style={styles.gap16}><View><AccessRow title="Todos los productos" count={state.summary?.total_active_products??0} onPress={()=>navigation.navigate('AllProducts')}/><AccessRow title="Archivados" count={state.summary?.archived_count??0} onPress={()=>navigation.navigate('ArchivedProducts')}/><AccessRow title="Papelera" count={state.summary?.trashed_count??0} onPress={()=>navigation.navigate('InventoryTrash')}/></View>{manage?<AppButton title="+ Agregar producto" onPress={()=>setFlow(true)}/>:null}</View>
     </View>}
-    {!embedded?<AdaptiveActionMenu visible={menu.visible} title="Inventario" anchor={menu.anchor} itemCount={overflowActions.length} width={224} openDurationMs={130} closeDurationMs={100} initialScale={.96} initialTranslateY={-3} popoverRadius={14} transparentBackdrop onRequestClose={()=>setMenu(v=>({...v,visible:false}))}>{overflowActions.map(action=><AdaptiveMenuRow key={action.id} title={action.label} onPress={()=>{setMenu(v=>({...v,visible:false}));action.onPress();}}/>)}</AdaptiveActionMenu>:null}
     <InventoryProductFlowSheet visible={flow} initialName={query.trim()} onClose={()=>setFlow(false)}/>
     <InventoryProductFlowSheet visible={Boolean(editor)} product={editor} readOnly={!manage} onClose={()=>setEditor(null)}/>
   </AppScreen>;
 }
 
-/**
- * Legacy standalone route for Productos. It keeps the legacy surface (header
- * + canonical selector) until the Block 4 cleanup removes the legacy routes.
- */
-export function InventoryProductsRootScreen(){return <InventoryProductsPage embedded={false}/>}
 
 export function AllProductsScreen(){const route=useRoute<any>();return <ProductListScreen title="Todos los productos" lifecycle="active" initial={{stock_state:route.params?.stockState,location_id:route.params?.unlocated?'none':route.params?.locationId,category:route.params?.category}}/>}
 export function ArchivedProductsScreen(){return <ProductListScreen title="Archivados" lifecycle="archived"/>}
